@@ -111,6 +111,9 @@ Open `.gitignore` and replace its content with:
 .DS_Store
 Thumbs.db
 
+# Worktrees
+.worktrees/
+
 # Python
 .venv/
 __pycache__/
