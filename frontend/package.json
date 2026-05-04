@@ -12,6 +12,7 @@
     "deploy": "wrangler pages deploy dist --project-name idol-sight"
   },
   "dependencies": {
+    "chart.js": "^4.4.0",
     "preact": "^10.24.0"
   },
   "devDependencies": {
