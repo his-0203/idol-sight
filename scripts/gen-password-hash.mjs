@@ -4,7 +4,9 @@
 
 import { webcrypto as crypto } from "node:crypto";
 
-const ITER = 200_000;
+// Cloudflare Workers Web Crypto caps PBKDF2 iterations at 100,000.
+// Must match frontend/functions/lib/hmac.ts ITER.
+const ITER = 100_000;
 
 function b64(bytes) {
   return Buffer.from(bytes).toString("base64");

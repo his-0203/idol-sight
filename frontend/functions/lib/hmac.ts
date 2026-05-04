@@ -45,7 +45,9 @@ export async function hmacVerify(secret: string, sigHex: string, message: string
   return constantTimeEqual(a, b);
 }
 
-const ITER = 200_000;
+// Cloudflare Workers Web Crypto caps PBKDF2 at 100,000 iterations.
+// Keep this in sync with scripts/gen-password-hash.mjs.
+const ITER = 100_000;
 
 function b64encode(buf: ArrayBuffer | Uint8Array): string {
   const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
