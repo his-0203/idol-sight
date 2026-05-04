@@ -2,7 +2,9 @@ import type { JSX } from "preact";
 
 export function exportCsv(filename: string, rows: Record<string, unknown>[]): void {
   if (!rows.length) return;
-  const cols = Object.keys(rows[0]);
+  const first = rows[0];
+  if (!first) return;
+  const cols = Object.keys(first);
   const escape = (v: unknown) => {
     const s = v == null ? "" : String(v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

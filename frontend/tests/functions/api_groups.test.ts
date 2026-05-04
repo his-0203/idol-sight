@@ -14,7 +14,7 @@ describe("/api/groups", () => {
         context_keywords: '["플레이브","PLAVE"]', is_active: 1, has_data: 1 },
     ]);
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.groups).toHaveLength(1);
     expect(body.groups[0].context_keywords).toEqual(["플레이브", "PLAVE"]);
     expect(body.groups[0].has_data).toBe(true);

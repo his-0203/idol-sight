@@ -16,7 +16,7 @@ describe("/api/meta", () => {
     ]);
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.by_job).toHaveLength(2);
     expect(body.global_last_success_at).toBe("2026-05-04T14:00:00Z");   // newest
   });
@@ -24,7 +24,7 @@ describe("/api/meta", () => {
   it("global_last_success_at is null when no rows", async () => {
     const env = envWithRows([]);
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.by_job).toEqual([]);
     expect(body.global_last_success_at).toBeNull();
   });

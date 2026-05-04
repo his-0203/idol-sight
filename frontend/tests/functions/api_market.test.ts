@@ -33,7 +33,7 @@ describe("/api/market", () => {
       return [];
     });
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.groups.plave.health_score.total).toBe(9.5);
     expect(body.groups.plave.health_score.breakdown).toEqual({ subscribers: 20 });
     expect(body.market_insights).toHaveLength(1);
@@ -51,7 +51,7 @@ describe("/api/market", () => {
       return [];
     });
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.groups.miiwan.health_score).toBeNull();
   });
 });

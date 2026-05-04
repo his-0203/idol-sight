@@ -17,11 +17,11 @@ describe("smoke: 5 endpoints", () => {
   it("market-share returns rows array", async () => {
     const r = await marketShare({ env: env([]),
       request: new Request("https://x/api/market-share?weeks=4") } as any);
-    expect((await r.json()).weeks).toBe(4);
+    expect(((await r.json()) as any).weeks).toBe(4);
   });
   it("weekly returns insights+hanteo+movers", async () => {
     const r = await weekly({ env: env([]), request: new Request("https://x/") } as any);
-    const b = await r.json();
+    const b = await r.json() as any;
     expect(b).toHaveProperty("insights");
     expect(b).toHaveProperty("hanteo");
     expect(b).toHaveProperty("movers");
@@ -36,13 +36,13 @@ describe("smoke: 5 endpoints", () => {
       env: env([]), request: new Request("https://x/"),
       params: { key: "plave" },
     } as any);
-    const b = await r.json();
+    const b = await r.json() as any;
     expect(b).toHaveProperty("hhi");
     expect(b).toHaveProperty("members");
   });
   it("health/spec returns weights table", async () => {
     const r = await healthSpec({} as any);
-    const b = await r.json();
+    const b = await r.json() as any;
     expect(b.weights.subscribers).toBe(20);
     expect(b.grade_thresholds).toEqual([["S",9],["A",7],["B",5],["C",3],["D",0]]);
   });

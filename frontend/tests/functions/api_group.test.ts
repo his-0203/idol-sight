@@ -59,7 +59,7 @@ describe("/api/group/[key]", () => {
       params: { key: "plave" },
     } as any);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as any;
     expect(body.group_key).toBe("plave");
     expect(body.summary.yt_total_views).toBe(100);
     expect(body.health_score.grade).toBe("A");

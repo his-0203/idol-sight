@@ -26,7 +26,7 @@ describe("/api/search", () => {
     const r = await onRequestGet({
       env, request: new Request("https://x/api/search?q=plave"),
     } as any);
-    const b = await r.json();
+    const b = await r.json() as any;
     expect(b.groups).toHaveLength(1);
     expect(b.members).toHaveLength(1);
     expect(b.naver).toHaveLength(1);
