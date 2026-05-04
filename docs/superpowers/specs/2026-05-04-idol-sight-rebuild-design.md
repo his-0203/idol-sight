@@ -69,13 +69,13 @@ BI 대시보드를 처음부터 다시 만든다.
 | 기존 코드 활용 | 없음 (분석한 JSON에서 역설계) | 사용자 미보유 |
 | 크롤링 | Scrapling (3-tier) | 별도 검토 결과 |
 | YouTube 수집 | YouTube Data API v3 (Scrapling 사용 안 함) | 공식 API 무료 10k unit/일 충분, ToS 준수 |
-| 한터 차트 수집 | Phase 1: 사람이 `hanteo_weekly`에 직접 INSERT (주 1회) | 약관 회색지대, 자동화는 Phase 2 검토 |
+| 한터 차트 수집 | StealthyFetcher Tier 2로 주 1회 자동 수집 | 수동 INSERT 금지. 약관 위험은 운영 측이 수용 |
 | 워커 호스팅 | GitHub Actions cron, public repo | 비용 0 + 무제한 minutes |
 | DB | Cloudflare D1 (SQLite, 5GB 무료) | 비용 0, Pages Functions 직결 |
 | 프론트 호스팅 | Cloudflare Pages | 비용 0, 무제한 트래픽 |
 | 프론트 스택 | Vite + Vanilla TS or Preact + Chart.js + Tailwind | SSR 불필요, 정적 SPA |
 | LLM | Google Gemini API Free (`gemini-2.5-flash`) | 1M tokens/일 무료, JSON Schema 지원 |
-| 트위터 | nitter mirror or 수동 입력 fallback | X API Basic은 비용 위배 |
+| 트위터 | nitter mirror best-effort + syndication.twitter.com oembed fallback | 수동 입력 금지, X API Basic은 비용 위배. 다 막히면 해당 그룹 트위터 소스 비활성 표시 |
 | 관측 | Discord webhook + BetterStack Free + GH Actions UI | 비용 0 |
 | 본문 보관 | 안 함 (메타+URL만) | 거버넌스 + 용량 절약 |
 | 데뷔 전 그룹 | `grade='PRE'`, Health Score `null`, HHI 미계산 | 오해 방지 |
@@ -404,13 +404,31 @@ class Collector(Protocol):
 ### 6.3 Scrapling 3-Tier 전략
 
 > **Out of scope**: `youtube` collector는 YouTube Data API v3을 호출한다 (Scrapling 미사용).
-> `hanteo` collector는 Phase 1에서 사람이 직접 `hanteo_weekly`에 INSERT 하며,
-> 분석 워크플로는 그 데이터를 그대로 사용한다. (자동 수집은 Phase 2.)
-> 아래 Tier 전략은 naver / dc / theqoo / instiz / twitter 5개 collector에 적용된다.
+> 아래 Tier 전략은 naver / dc / theqoo / instiz / twitter / hanteo 6개 collector에 적용된다.
 
 - **Tier 1 — `Fetcher`** (curl_cffi): naver, instiz(시도)
-- **Tier 2 — `StealthyFetcher`** (Playwright + stealth): dc, theqoo, instiz(차단 시), twitter(nitter)
-- **Tier 3 — `DynamicFetcher`**: 운영에서 사용 안 함 (PoC 한정)
+- **Tier 2 — `StealthyFetcher`** (Playwright + stealth): dc, theqoo, instiz(차단 시), hanteo
+- **Tier 3 — `DynamicFetcher`**: twitter(nitter mirror 모두 실패 시 최후 수단으로 syndication.twitter.com oembed). 운영 비용·불안정성 때문에 다른 collector에서는 사용 안 함
+
+#### 6.3.1 Twitter Collector 동작 정책
+
+수동 입력은 금지된다. 자동 수집 best-effort 단계 순서:
+
+1. nitter 공개 인스턴스 풀에서 임의 1개 선택 → `Fetcher.get`
+2. 실패 시 다음 인스턴스로 라운드로빈 (최대 4회)
+3. 모두 실패 시 `syndication.twitter.com` oembed 엔드포인트 폴백
+4. 그것도 실패 시 → `crawl_meta.status='failed'` + `error_msg='all_twitter_paths_blocked'`
+   → 프론트 PR&Risk 탭에서 해당 그룹 Twitter 카드는 "수집 불가 — N일 전부터" 배너 표시
+
+nitter 인스턴스 목록은 `config.py`의 `NITTER_INSTANCES`로 관리, 워커가 주 1회
+가용성 자동 점검 후 dead 인스턴스 자동 제외.
+
+#### 6.3.2 Hanteo Collector 동작 정책
+
+`https://www.hanteochart.com/`의 weekly album chart 페이지를 StealthyFetcher로 주 1회 호출.
+파싱 결과를 `hanteo_weekly`에 upsert. 파싱 실패 시 셀렉터 깨졌을 가능성이 높으므로
+`selectors_cache`의 adaptive selector를 시도, 그래도 실패면 Discord 알림 + 그 주 데이터는
+빈 상태로 분석 워크플로 진행 (Market Share·LLM 인사이트는 hanteo 없이 계산 가능).
 
 ```python
 from scrapling import Fetcher, StealthyFetcher
@@ -481,7 +499,8 @@ jobs:
 | `collect-hourly.yml` | `5 * * * *` | naver, twitter | 1h |
 | `collect-6h.yml` | `15 */6 * * *` | dc, theqoo, instiz, youtube-videos | 6h |
 | `collect-daily.yml` | `30 8 * * *` | youtube-channel-stats | 24h |
-| `analyze-weekly.yml` | `0 9 * * 1` | market_share, member_pop, llm (※ hanteo는 수동 INSERT 후 사용) | 168h |
+| `collect-weekly.yml` | `30 8 * * 1` | hanteo | 168h |
+| `analyze-weekly.yml` | `0 9 * * 1` | market_share, member_pop, llm (hanteo 수집 잡 완료 후 실행) | 168h |
 | `health-check.yml` | `0 * * * *` | freshness audit | 1h |
 
 ### 6.5 핵심 결정
@@ -845,15 +864,26 @@ export const onRequest: PagesFunction = async ({request, next, env}) => {
 
 ### 9.2 인프라 셋업 단계
 
-1. Cloudflare 계정 (무료)
-2. `wrangler d1 create idol-sight`
-3. `wrangler d1 migrations apply idol-sight --remote`
-4. Pages 프로젝트 생성, GitHub 연동
-5. GitHub Secrets: `CF_ACCOUNT_ID`, `CF_D1_DB_ID`, `CF_API_TOKEN`,
+> **사용자가 직접 수행해야 하는 단계는 [USER]로 표시**한다.
+> 이 단계들은 Claude Code 권한 밖이므로 구현 plan에서 명확한 가이드 + 자동 검증 스크립트를
+> 함께 제공한다.
+
+1. **[USER]** Cloudflare 계정 가입 (무료) — https://dash.cloudflare.com/sign-up
+2. **[USER]** Google AI Studio에서 Gemini API 키 발급 — https://aistudio.google.com/apikey
+3. **[USER]** YouTube Data API v3 키 발급 — Google Cloud Console
+4. **[USER]** Discord 채널의 webhook URL 생성
+5. **[USER]** GitHub repo 생성 (public)
+6. `wrangler d1 create idol-sight` (이후 단계는 Claude Code가 PR로 자동화 가능)
+7. `wrangler d1 migrations apply idol-sight --remote`
+8. Pages 프로젝트 생성, GitHub 연동
+9. **[USER]** GitHub Secrets 등록: `CF_ACCOUNT_ID`, `CF_D1_DB_ID`, `CF_API_TOKEN`,
    `YT_API_KEY`, `GEMINI_API_KEY`, `DISCORD_WEBHOOK`,
    `SITE_PASSWORD_HASH`, `COOKIE_SECRET`
-6. Pages 환경변수: `SITE_PASSWORD_HASH`, `COOKIE_SECRET`, D1 binding
-7. Actions enable
+10. **[USER]** Pages 환경변수 등록: `SITE_PASSWORD_HASH`, `COOKIE_SECRET`, D1 binding
+11. Actions enable
+
+CLI(`wrangler`, `gh`)로 자동화 가능한 단계는 구현 plan에서 setup script로 제공한다.
+사용자는 (1)~(5)·(9)·(10)만 손으로 하면 됨.
 
 ---
 
@@ -905,8 +935,8 @@ export const onRequest: PagesFunction = async ({request, next, env}) => {
 
 ## 12. Open Items / Phase 2
 
-- 트위터/X 안정 수집: nitter 인스턴스가 다 막히면 X API Basic($100/월) 검토. 현재는 비용 0 우선 → fallback 수동 입력.
-- 한터차트 자동 수집: 약관 회색지대. 현재는 사람이 주 1회 입력 (`hanteo_weekly`에 직접 INSERT 또는 운영자 콘솔). Phase 2에서 공식 파트너십 검토.
+- 트위터/X 안정 수집: nitter + oembed 양 경로 모두 막히면 X API Basic($100/월) 정식 도입 검토. 그 전까지 Twitter 카드는 "수집 불가" 배너로 정직하게 표시.
+- 한터차트 셀렉터 안정화: 사이트 마크업 변경 빈도가 높으면 adaptive selector만으로 부족할 수 있음. 1차 운영 결과 보고 결정.
 - 사용자별 계정·역할: 사용자 베이스가 50명 초과하면 도입.
 - 본문 보관·검색: 거버넌스 정책 결정 후 별도 과제.
 - 대시보드 모바일 네이티브: 필요성 확인 후 결정.
@@ -970,4 +1000,14 @@ INSERT INTO groups VALUES
 ;
 ```
 
-(완전한 시드는 `migrations/0002_seed.sql`로 별도 PR.)
+완전한 시드는 `migrations/0002_seed.sql`로 별도 PR. 8그룹의 다음 정보는 Claude Code가
+구현 단계에서 직접 검색하여 채우고, PR 리뷰에서 사용자 검수:
+
+- `yt_channel_id` (그룹 공식 채널 + 멤버 솔로 채널)
+- `dc_gallery_id` (디시인사이드 갤러리 슬러그)
+- `naver_query` (네이버 뉴스 검색 쿼리)
+- `context_keywords` (동명이인 필터용)
+- `blacklist_phrases` (제외 키워드)
+- `twitter_handles` (공식 계정)
+- `members` (멤버 한글명·영문명·솔로 채널 ID)
+- `debut_date` (정확한 데뷔일)
