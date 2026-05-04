@@ -44,3 +44,41 @@ export async function hmacVerify(secret: string, sigHex: string, message: string
   if (!a || !b) return false;
   return constantTimeEqual(a, b);
 }
+
+const ITER = 200_000;
+
+function b64encode(buf: ArrayBuffer | Uint8Array): string {
+  const b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]!);
+  return btoa(s);
+}
+
+function b64decode(s: string): Uint8Array {
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function pbkdf2(password: string, salt: Uint8Array, iter: number): Promise<Uint8Array> {
+  const k = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" }, k, 256);
+  return new Uint8Array(bits);
+}
+
+export async function computePasswordHash(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = await pbkdf2(password, salt, ITER);
+  return `${ITER}$${b64encode(salt)}$${b64encode(hash)}`;
+}
+
+export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
+  const [iterStr, saltB64, hashB64] = encoded.split("$");
+  if (!iterStr || !saltB64 || !hashB64) return false;
+  const iter = parseInt(iterStr, 10);
+  if (!Number.isFinite(iter) || iter < 1000) return false;
+  const got = await pbkdf2(password, b64decode(saltB64), iter);
+  const expected = b64decode(hashB64);
+  return constantTimeEqual(got, expected);
+}
