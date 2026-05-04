@@ -78,6 +78,7 @@ export async function computePasswordHash(password: string): Promise<string> {
 }
 
 export async function verifyPassword(password: string, encoded: string): Promise<boolean> {
+  if (!encoded || typeof encoded !== "string") return false;
   const [iterStr, saltB64, hashB64] = encoded.split("$");
   if (!iterStr || !saltB64 || !hashB64) return false;
   const iter = parseInt(iterStr, 10);
