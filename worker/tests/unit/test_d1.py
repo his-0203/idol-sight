@@ -41,7 +41,7 @@ def test_execute_raises_on_api_failure(client, httpx_mock: HTTPXMock):
         client.execute("BORK")
 
 
-def test_batch_sends_multi_statement(client, httpx_mock: HTTPXMock):
+def test_batch_returns_full_summary(client, httpx_mock: HTTPXMock):
     httpx_mock.add_response(
         json={"success": True, "result": [
             {"results": [], "meta": {"changes": 1}},
@@ -52,5 +52,21 @@ def test_batch_sends_multi_statement(client, httpx_mock: HTTPXMock):
         ("INSERT INTO groups(key,name,name_kr) VALUES(?,?,?)", ["plave", "PLAVE", "플레이브"]),
         ("UPDATE groups SET is_active=1 WHERE key=?", ["plave"]),
     ])
-    assert summary.statements == 2
+    assert summary.statements_sent == 2
+    assert summary.statements_executed == 2
     assert summary.total_changes == 3
+
+
+def test_batch_detects_partial_failure(client, httpx_mock: HTTPXMock):
+    httpx_mock.add_response(
+        json={"success": True, "result": [
+            {"results": [], "meta": {"changes": 1}},
+        ]},
+    )
+    summary = client.batch([
+        ("INSERT INTO groups(key,name,name_kr) VALUES(?,?,?)", ["plave", "PLAVE", "플레이브"]),
+        ("INSERT INTO groups(key,name,name_kr) VALUES(?,?,?)", ["isedol", "ISEDOL", "이세계아이돌"]),
+    ])
+    assert summary.statements_sent == 2
+    assert summary.statements_executed == 1   # cloudflare returned only 1 result
+    assert summary.total_changes == 1

@@ -24,7 +24,8 @@ class D1Error(RuntimeError):
 
 @dataclass
 class BatchSummary:
-    statements: int
+    statements_sent: int
+    statements_executed: int
     total_changes: int
 
 
@@ -61,7 +62,11 @@ class D1Client:
             raise D1Error(_first_error(env))
         results = env.get("result") or []
         total_changes = sum((it.get("meta") or {}).get("changes", 0) for it in results)
-        return BatchSummary(statements=len(results), total_changes=total_changes)
+        return BatchSummary(
+            statements_sent=len(statements),
+            statements_executed=len(results),
+            total_changes=total_changes,
+        )
 
 
 def _first_error(env: dict) -> str:
