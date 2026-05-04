@@ -144,6 +144,23 @@ def aggregate() -> None:
     typer.echo(f"agg_summary upserted {len(result.statements)} groups at {snap}")
 
 
+@app.command("health-check", help="Report jobs whose last_success_at is older than expected_interval * 4.")
+def health_check() -> None:
+    from idol_sight.cli_health import audit_freshness
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    stale = audit_freshness(client)
+    if not stale:
+        typer.echo("all jobs fresh")
+        return
+    webhook = settings.discord_webhook
+    for s in stale:
+        msg = f"{s['job']}: last_success_at={s.get('last_success_at') or 'never'} (age_h={s.get('age_h')})"
+        typer.echo(f"STALE: {msg}", err=True)
+        notify_failure(webhook_url=webhook, job=s["job"], error=msg)
+    raise typer.Exit(code=1)
+
+
 def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
     app()
