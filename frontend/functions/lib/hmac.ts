@@ -63,7 +63,11 @@ function b64decode(s: string): Uint8Array {
 
 async function pbkdf2(password: string, salt: Uint8Array, iter: number): Promise<Uint8Array> {
   const k = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: iter, hash: "SHA-256" }, k, 256);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: salt as BufferSource, iterations: iter, hash: "SHA-256" },
+    k,
+    256,
+  );
   return new Uint8Array(bits);
 }
 
