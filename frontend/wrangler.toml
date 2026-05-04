@@ -1,0 +1,9 @@
+name = "idol-sight"
+compatibility_date = "2026-01-01"
+pages_build_output_dir = "dist"
+
+# D1 binding — concrete database_id is filled in by setup.sh / GH Secrets.
+[[d1_databases]]
+binding = "DB"
+database_name = "idol-sight"
+database_id = "REPLACE_WITH_REAL_ID"
