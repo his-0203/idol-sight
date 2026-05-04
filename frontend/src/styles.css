@@ -1,3 +1,76 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ---------- CSS variables (dark default; light deferred to Phase 2) ---------- */
+:root,
+.dark {
+  --surface:        #09090b; /* zinc-950 */
+  --surface-fg:     #e4e4e7; /* zinc-200 */
+  --surface-border: #27272a; /* zinc-800 */
+  --surface-muted:  #71717a; /* zinc-500 */
+}
+
+/* Light mode kept defined but currently the toggle button is disabled in
+   Header.tsx; restore once all components are token-driven. */
+.light {
+  --surface:        #fafafa; /* zinc-50  */
+  --surface-fg:     #18181b; /* zinc-900 */
+  --surface-border: #e4e4e7; /* zinc-200 */
+  --surface-muted:  #71717a; /* zinc-500 */
+}
+
+/* ---------- shared component primitives ----------
+   Use .card for any boxed section, .chip for inline pills, .btn-* for
+   button shells, .input for form controls, .table-base for data tables.
+   Keeps borders/radii/typography consistent across views. */
+@layer components {
+  .card {
+    @apply rounded-card border border-zinc-800 bg-zinc-900/50 p-3;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-chip border border-zinc-700
+           bg-zinc-800/60 px-1.5 py-0.5 text-hint text-zinc-300;
+  }
+
+  .chip-pill {
+    @apply inline-flex items-center gap-1 rounded-full border border-zinc-700
+           bg-zinc-800/60 px-2 py-0.5 text-hint text-zinc-300;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-1 rounded-ctrl border border-zinc-700
+           px-2.5 py-1 text-hint text-zinc-300 hover:bg-zinc-800
+           disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-1 rounded-ctrl bg-brand
+           px-3 py-1.5 text-data font-semibold text-white hover:opacity-90;
+  }
+
+  .input {
+    @apply w-full rounded-ctrl border border-zinc-700 bg-zinc-950 px-3 py-2
+           text-data text-zinc-100 focus:border-brand focus:outline-none;
+  }
+
+  .table-base {
+    @apply w-full text-data;
+  }
+  .table-base thead tr {
+    @apply text-left text-zinc-500;
+  }
+  .table-base tbody tr {
+    @apply border-t border-zinc-800/60;
+  }
+  .table-base td,
+  .table-base th {
+    @apply py-1.5;
+  }
+
+  /* Section heading — used inside cards. Slightly bigger than tab labels. */
+  .section-title {
+    @apply text-base font-semibold text-zinc-100;
+  }
+}
