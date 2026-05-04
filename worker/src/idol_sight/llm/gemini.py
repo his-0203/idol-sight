@@ -71,9 +71,39 @@ class GeminiClient:
             system_instruction=system_prompt,
             temperature=0.2,
         )
-        resp = self._client.models.generate_content(
-            model=self._model,
+        resp = self._call_with_retry(
             contents=json.dumps(context, ensure_ascii=False),
             config=config,
         )
         return json.loads(resp.text)
+
+    def _call_with_retry(self, *, contents: str, config: Any) -> Any:
+        """Retry transient Gemini errors (5xx, RESOURCE_EXHAUSTED, UNAVAILABLE).
+
+        Gemini Flash routinely returns 503 'high demand' bursts that resolve
+        within seconds. Retry up to 5 times with exponential backoff.
+        """
+        import time
+        delays = [2, 5, 10, 20, 40]
+        last_exc: Exception | None = None
+        for attempt, delay in enumerate(delays + [0], start=1):
+            try:
+                return self._client.models.generate_content(
+                    model=self._model,
+                    contents=contents,
+                    config=config,
+                )
+            except Exception as e:                  # noqa: BLE001
+                last_exc = e
+                msg = str(e)
+                transient = (
+                    "503" in msg or "UNAVAILABLE" in msg
+                    or "RESOURCE_EXHAUSTED" in msg or "429" in msg
+                    or "500" in msg or "INTERNAL" in msg
+                )
+                if not transient or attempt > len(delays):
+                    raise
+                log.warning("gemini transient error (attempt %d/%d): %s; sleeping %ss",
+                            attempt, len(delays) + 1, msg.split("\n")[0][:120], delay)
+                time.sleep(delay)
+        raise last_exc if last_exc else RuntimeError("gemini unknown failure")

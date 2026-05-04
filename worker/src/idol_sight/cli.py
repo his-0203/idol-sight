@@ -192,14 +192,22 @@ def analyze_weekly(
     typer.echo(f"hanteo: matched {hanteo_result.rows_inserted} groups")
 
     # 2. Market share — read agg_summary windows + write agg_market_share
+    # NOTE: agg_summary is upserted on each collect cycle with snapshot_at=now,
+    # not aligned to week_end. Use the latest snapshot per group as "this week"
+    # and the most recent snapshot strictly older than that as "previous week".
+    # On the first cycle there is only one snapshot → prev is empty → mom = cum.
     from idol_sight.analysis.market_share import compute_market_share, to_statements
     rows_last = client.execute(
         "SELECT group_key, yt_total_views, dc_total_posts, theqoo_posts, "
         "  instiz_posts, naver_total_news "
-        "FROM agg_summary WHERE substr(snapshot_at,1,10)=?", [week_end])
+        "FROM agg_summary WHERE snapshot_at = "
+        "  (SELECT MAX(snapshot_at) FROM agg_summary)")
     rows_prev = client.execute(
         "SELECT group_key, yt_total_views, dc_total_posts FROM agg_summary "
-        "WHERE substr(snapshot_at,1,10)=?", [_shift_date(week_end, -7)])
+        "WHERE snapshot_at = ("
+        "  SELECT MAX(snapshot_at) FROM agg_summary "
+        "  WHERE snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary)"
+        ")")
     cum_by = {r["group_key"]: (r["yt_total_views"] or 0) + (r["dc_total_posts"] or 0)
               + (r.get("theqoo_posts") or 0) + (r.get("instiz_posts") or 0)
               + (r.get("naver_total_news") or 0) * 100
