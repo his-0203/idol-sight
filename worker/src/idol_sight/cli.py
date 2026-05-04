@@ -10,10 +10,14 @@ from datetime import datetime, timezone
 
 import typer
 
+from idol_sight.collectors.channel_stats import ChannelStatsCollector
 from idol_sight.collectors.dc import DcCollector
+from idol_sight.collectors.hanteo import HanteoCollector
 from idol_sight.collectors.instiz import InstizCollector
 from idol_sight.collectors.naver import NaverCollector
 from idol_sight.collectors.theqoo import TheQooCollector
+from idol_sight.collectors.twitter import TwitterCollector
+from idol_sight.collectors.youtube import YouTubeCollector
 from idol_sight.config import GroupConfig, load_settings, Settings
 from idol_sight.d1 import D1Client
 from idol_sight.notify import notify_failure
@@ -31,13 +35,16 @@ KNOWN_GROUPS = {
     "myrakl", "miiwan", "owis", "bdawn",
 }
 
-# Source → constructor (lazily added per Plan 2/3).
+# Source → constructor.
 _COLLECTORS = {
     "naver": NaverCollector,
     "instiz": InstizCollector,
     "theqoo": TheQooCollector,
     "dc": DcCollector,
-    # 'youtube', 'twitter', 'hanteo', 'channel-stats' arrive in Plan 3.
+    "youtube": YouTubeCollector,
+    "channel-stats": ChannelStatsCollector,
+    "hanteo": HanteoCollector,
+    "twitter": TwitterCollector,
 }
 
 _INTERVALS_H = {
@@ -58,7 +65,12 @@ def _make_d1_client(settings: Settings) -> D1Client:
 def _make_collector(source: str):
     cls = _COLLECTORS.get(source)
     if cls is None:
-        raise NotImplementedError(f"collector for source {source!r} arrives in a later plan")
+        raise NotImplementedError(f"unknown source {source!r}")
+    settings = load_settings()
+    if cls is YouTubeCollector or cls is ChannelStatsCollector:
+        if not settings.yt_api_key:
+            raise RuntimeError(f"{source} requires YT_API_KEY env")
+        return cls(api_key=settings.yt_api_key)
     return cls()
 
 
@@ -159,6 +171,116 @@ def health_check() -> None:
         typer.echo(f"STALE: {msg}", err=True)
         notify_failure(webhook_url=webhook, job=s["job"], error=msg)
     raise typer.Exit(code=1)
+
+
+@app.command("analyze-weekly", help="Run weekly analysis: hanteo, market_share, member_pop, llm.")
+def analyze_weekly(
+    week_start: str = typer.Option(..., "--week-start", help="YYYY-MM-DD (Sunday)"),
+    week_end: str   = typer.Option(..., "--week-end",   help="YYYY-MM-DD (Saturday)"),
+) -> None:
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    snap = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00:00Z")
+
+    # 1. Hanteo (global fetch)
+    hanteo_collector = HanteoCollector(
+        groups_loader=lambda: _load_active_groups(client),
+    )
+    hanteo_result = hanteo_collector.collect_global()
+    if hanteo_result.statements:
+        client.batch(hanteo_result.statements)
+    typer.echo(f"hanteo: matched {hanteo_result.rows_inserted} groups")
+
+    # 2. Market share — read agg_summary windows + write agg_market_share
+    from idol_sight.analysis.market_share import compute_market_share, to_statements
+    rows_last = client.execute(
+        "SELECT group_key, yt_total_views, dc_total_posts, theqoo_posts, "
+        "  instiz_posts, naver_total_news "
+        "FROM agg_summary WHERE substr(snapshot_at,1,10)=?", [week_end])
+    rows_prev = client.execute(
+        "SELECT group_key, yt_total_views, dc_total_posts FROM agg_summary "
+        "WHERE substr(snapshot_at,1,10)=?", [_shift_date(week_end, -7)])
+    cum_by = {r["group_key"]: (r["yt_total_views"] or 0) + (r["dc_total_posts"] or 0)
+              + (r.get("theqoo_posts") or 0) + (r.get("instiz_posts") or 0)
+              + (r.get("naver_total_news") or 0) * 100
+              for r in rows_last}
+    prev_by = {r["group_key"]: (r["yt_total_views"] or 0) + (r["dc_total_posts"] or 0)
+               for r in rows_prev}
+    groups = [{"key": k, "cum_score": cum_by[k],
+               "mom_score": max(cum_by[k] - prev_by.get(k, 0), 0)}
+              for k in cum_by]
+    share_rows = compute_market_share(week_start=week_start, week_end=week_end,
+                                       groups=groups)
+    market_total = sum(g["cum_score"] for g in groups)
+    market_stmts = to_statements(share_rows, market_total=market_total)
+    if market_stmts:
+        client.batch(market_stmts)
+    typer.echo(f"market_share: wrote {len(market_stmts)} rows")
+
+    # 3. Member popularity (one per active group)
+    from idol_sight.analysis.member_popularity import (
+        compute_member_popularity, to_statements as mp_to_statements,
+    )
+    member_stmts: list = []
+    for g in _load_active_groups(client):
+        members_raw = client.execute(
+            "SELECT m.id, m.name, "
+            "  COALESCE(MAX(c.subscribers),0) AS yt_score, "
+            "  COALESCE((SELECT COUNT(*) FROM community_posts cp "
+            "             WHERE cp.group_key = m.group_key "
+            "               AND cp.title LIKE '%' || m.name || '%'), 0) AS comm_mentions, "
+            "  COUNT(DISTINCT v.video_id) AS yt_videos, "
+            "  COALESCE(AVG(s.views), 0) AS yt_avg_views "
+            "FROM members m "
+            "LEFT JOIN youtube_videos v ON v.channel_id = m.yt_channel_id "
+            "LEFT JOIN youtube_video_stats s ON s.video_id = v.video_id "
+            "LEFT JOIN youtube_channel_stats c ON c.channel_id = m.yt_channel_id "
+            "WHERE m.group_key = ? AND m.active = 1 "
+            "GROUP BY m.id",
+            [g["key"]],
+        )
+        members = [
+            {
+                "name": m["name"],
+                "yt_score": min(m["yt_score"] / 10_000, 100),
+                "community_score": min(m["comm_mentions"], 100),
+                "yt_videos": m["yt_videos"],
+                "yt_avg_views": int(m["yt_avg_views"]),
+                "yt_sufficient": m["yt_videos"] >= 3,
+                "community_mentions": m["comm_mentions"],
+            }
+            for m in members_raw
+        ]
+        if not members:
+            continue
+        pop = compute_member_popularity(group_key=g["key"], members=members)
+        id_lookup = {m["name"]: m["id"] for m in members_raw}
+        member_stmts.extend(mp_to_statements(pop, snapshot_at=snap, member_id_lookup=id_lookup))
+    if member_stmts:
+        client.batch(member_stmts)
+    typer.echo(f"member_popularity: wrote {len(member_stmts)} rows")
+
+    # 4. LLM weekly insights
+    if settings.gemini_api_key:
+        from idol_sight.llm.gemini import GeminiClient
+        from idol_sight.llm.weekly import generate_weekly
+        gemini = GeminiClient(api_key=settings.gemini_api_key)
+        weekly = generate_weekly(db=client, gemini=gemini,
+                                  week_start=week_start, week_end=week_end)
+        if weekly.statements:
+            client.batch(weekly.statements)
+        typer.echo(f"llm: wrote {weekly.rows_inserted} insights")
+    else:
+        typer.echo("llm: skipped (GEMINI_API_KEY unset)")
+
+
+def _load_active_groups(client) -> list[dict]:
+    return client.execute("SELECT key, name FROM groups WHERE is_active=1")
+
+
+def _shift_date(iso_date: str, days: int) -> str:
+    from datetime import date, timedelta
+    return (date.fromisoformat(iso_date) + timedelta(days=days)).isoformat()
 
 
 def main() -> None:

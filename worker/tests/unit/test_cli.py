@@ -62,3 +62,26 @@ def test_collect_failure_exits_nonzero(monkeypatch):
 def test_notify_fail_requires_job():
     res = runner.invoke(app, ["notify-fail"])
     assert res.exit_code != 0
+
+
+def test_collect_youtube_dispatches_youtube_collector(monkeypatch):
+    from unittest.mock import MagicMock
+    import idol_sight.cli as cli
+
+    fake_group = MagicMock(name="GroupConfig", key="plave")
+    monkeypatch.setattr(cli, "_load_group", lambda c, k: fake_group)
+    monkeypatch.setattr(cli, "_make_d1_client", lambda s: MagicMock())
+    monkeypatch.setattr(cli, "_make_collector", lambda src: MagicMock(source=src))
+
+    fake_summary = MagicMock(status="ok", rows_inserted=10, rows_updated=0,
+                             runtime_ms=200, error_msg=None)
+    monkeypatch.setattr(cli, "run_collector", lambda *a, **kw: fake_summary)
+
+    res = runner.invoke(app, ["collect", "--source", "youtube", "--group", "plave"])
+    assert res.exit_code == 0
+
+
+def test_analyze_weekly_subcommand_present():
+    res = runner.invoke(app, ["analyze-weekly", "--help"])
+    assert res.exit_code == 0
+    assert "weekly" in res.output.lower()
