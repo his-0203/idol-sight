@@ -11,6 +11,7 @@ import { Members } from "./views/Members";
 import { Community } from "./views/Community";
 import { PRRisk } from "./views/PRRisk";
 import { Insights } from "./views/Insights";
+import { SearchPalette } from "./components/SearchPalette";
 
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -33,6 +34,7 @@ export function App() {
   return (
     <div class="min-h-screen">
       <Header state={state} />
+      <SearchPalette />
       <main class="mx-auto max-w-7xl p-4">
         {state.tab === "market"    && <MarketOverview />}
         {state.tab === "weekly"    && <WeeklyUpdate />}
