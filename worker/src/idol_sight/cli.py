@@ -225,6 +225,77 @@ def analyze_weekly(
         client.batch(market_stmts)
     typer.echo(f"market_share: wrote {len(market_stmts)} rows")
 
+    # 2.5. Health Score per group (writes agg_health_scores)
+    from idol_sight.analysis.health_score import compute_health_score
+    health_stmts: list = []
+    for g in _load_active_groups(client):
+        sum_rows = client.execute(
+            "SELECT yt_subscribers, yt_total_views, dc_total_posts, theqoo_posts, "
+            "       instiz_posts, naver_total_news, controversy_count "
+            "FROM agg_summary WHERE group_key=? AND snapshot_at=("
+            "  SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)",
+            [g["key"], g["key"]],
+        )
+        if not sum_rows:
+            continue
+        s = sum_rows[0]
+        # Top 10 video views for quality score.
+        top10 = client.execute(
+            "SELECT vs.views FROM youtube_video_stats vs "
+            "JOIN youtube_videos v ON v.video_id = vs.video_id "
+            "WHERE v.group_key=? AND vs.snapshot_at = ("
+            "  SELECT MAX(snapshot_at) FROM youtube_video_stats "
+            "  WHERE video_id = vs.video_id) "
+            "ORDER BY vs.views DESC LIMIT 10",
+            [g["key"]],
+        )
+        # Recent video counts for the bonus.
+        v90 = client.execute(
+            "SELECT COUNT(*) AS n FROM youtube_videos "
+            "WHERE group_key=? AND published_at >= datetime('now','-90 days')",
+            [g["key"]],
+        )
+        v30 = client.execute(
+            "SELECT COUNT(*) AS n FROM youtube_videos "
+            "WHERE group_key=? AND published_at >= datetime('now','-30 days')",
+            [g["key"]],
+        )
+        debut_rows = client.execute(
+            "SELECT debut_date FROM groups WHERE key=?", [g["key"]]
+        )
+        debut_date = debut_rows[0].get("debut_date") if debut_rows else None
+        agg_dict = {
+            "yt_subscribers": s.get("yt_subscribers", 0),
+            "yt_total_views": s.get("yt_total_views", 0),
+            "yt_top10": top10,
+            "dc_total_posts": s.get("dc_total_posts", 0),
+            "theqoo_posts": s.get("theqoo_posts", 0),
+            "instiz_posts": s.get("instiz_posts", 0),
+            "naver_total_news": s.get("naver_total_news", 0),
+            "controversy_count": s.get("controversy_count", 0),
+            "v90_count": (v90[0].get("n", 0) if v90 else 0),
+            "v30_count": (v30[0].get("n", 0) if v30 else 0),
+        }
+        score = compute_health_score(g["key"], agg_dict, debut_date)
+        health_stmts.append((
+            "INSERT INTO agg_health_scores"
+            " (group_key, snapshot_at, total, raw_total, grade, label,"
+            "  breakdown_json, bonus_json, quality_method)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(group_key, snapshot_at) DO UPDATE SET"
+            "  total=excluded.total, raw_total=excluded.raw_total,"
+            "  grade=excluded.grade, label=excluded.label,"
+            "  breakdown_json=excluded.breakdown_json,"
+            "  bonus_json=excluded.bonus_json,"
+            "  quality_method=excluded.quality_method",
+            [g["key"], snap, score.total, score.raw_total, score.grade,
+             score.label, json.dumps(score.breakdown),
+             json.dumps(score.bonus), score.quality_method],
+        ))
+    if health_stmts:
+        client.batch(health_stmts)
+    typer.echo(f"health_scores: wrote {len(health_stmts)} rows")
+
     # 3. Member popularity (one per active group)
     from idol_sight.analysis.member_popularity import (
         compute_member_popularity, to_statements as mp_to_statements,

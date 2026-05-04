@@ -50,7 +50,7 @@ def test_blocks_unparseable_date():
     r = f.evaluate(
         title="플레이브 신곡 발매",
         snippet="...",
-        published_at="어제 발매됨",
+        published_at="언젠가 곧 발매됨",
     )
     assert not r.relevant
     assert r.reason == "unparseable_date"

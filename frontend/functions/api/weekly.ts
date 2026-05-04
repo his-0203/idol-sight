@@ -5,8 +5,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const insights = await d1Query<any>(env.DB,
     `SELECT id, week_start, scope, type, title, body, source_refs_json, generated_at
        FROM insights
-      WHERE type='weekly'
-      ORDER BY generated_at DESC LIMIT 20`);
+      WHERE type IN ('weekly', 'insight', 'ipx_action')
+      ORDER BY generated_at DESC LIMIT 30`);
   const hanteo = await d1Query<any>(env.DB,
     `SELECT week_start, week_end, group_key, album, rank, sales, note
        FROM hanteo_weekly

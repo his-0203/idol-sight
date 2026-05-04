@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from idol_sight.utils.dates import parse_safe
 
@@ -34,7 +34,8 @@ def test_text_bleed_caught_by_30char_window():
 
 
 def test_garbage_returns_none():
-    assert parse_safe("이 글은 어제 작성됨") is None
+    # No date and no Korean relative-time phrase → None.
+    assert parse_safe("아무 의미없는 텍스트입니다") is None
 
 
 def test_empty_returns_none():
@@ -45,3 +46,44 @@ def test_empty_returns_none():
 def test_invalid_calendar_returns_none():
     # Month 13 doesn't exist
     assert parse_safe("2026-13-01") is None
+
+
+# ─── Korean relative-time fallback ──────────────────────────────────
+
+
+NOW = datetime(2026, 5, 4, 12, 0, 0)
+
+
+def test_relative_minutes_ago():
+    assert parse_safe("30분 전", now=NOW) == NOW - timedelta(minutes=30)
+
+
+def test_relative_hours_ago():
+    assert parse_safe("3시간 전", now=NOW) == NOW - timedelta(hours=3)
+
+
+def test_relative_days_ago():
+    assert parse_safe("5일 전", now=NOW) == NOW - timedelta(days=5)
+
+
+def test_relative_yesterday():
+    assert parse_safe("어제", now=NOW) == NOW - timedelta(days=1)
+
+
+def test_relative_today():
+    assert parse_safe("오늘", now=NOW) == NOW
+
+
+def test_relative_day_before_yesterday():
+    assert parse_safe("그제", now=NOW) == NOW - timedelta(days=2)
+
+
+def test_relative_just_now():
+    assert parse_safe("방금", now=NOW) == NOW
+
+
+def test_absolute_date_takes_precedence_over_relative():
+    # If both an absolute date AND a relative phrase appear in the head,
+    # prefer the absolute one.
+    s = "2026-03-12 게시 (3시간 전 댓글)"
+    assert parse_safe(s, now=NOW) == datetime(2026, 3, 12)

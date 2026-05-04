@@ -1,17 +1,17 @@
 """Defensive date parsing for crawled fields.
 
 Real-world data from naver/dc/theqoo often has the date column polluted with
-body text. We:
+body text or rendered as a Korean relative timestamp. We:
 1. Look only at the first 30 characters (the date should always be at the start).
-2. Try multiple regex patterns in order of specificity.
-3. Validate the parsed (year, month, day) against the calendar — invalid
-   dates return None rather than raising.
+2. Try absolute-format patterns first (most specific).
+3. Fall back to Korean relative-time patterns ("X시간 전", "어제").
+4. Validate parsed components against the calendar — invalid → None, never raise.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DATE_PATTERNS = [
     # Most specific first: ISO with time
@@ -26,18 +26,36 @@ DATE_PATTERNS = [
     re.compile(r"(\d{4})-(\d{2})-(\d{2})"),
 ]
 
+# Korean relative-time patterns. Order matters — more specific first.
+RELATIVE_PATTERNS: list[tuple[re.Pattern[str], object]] = [
+    (re.compile(r"(\d+)\s*초\s*전"),   lambda m: timedelta(seconds=int(m.group(1)))),
+    (re.compile(r"(\d+)\s*분\s*전"),   lambda m: timedelta(minutes=int(m.group(1)))),
+    (re.compile(r"(\d+)\s*시간\s*전"), lambda m: timedelta(hours=int(m.group(1)))),
+    (re.compile(r"(\d+)\s*일\s*전"),   lambda m: timedelta(days=int(m.group(1)))),
+    (re.compile(r"(\d+)\s*주\s*전"),   lambda m: timedelta(weeks=int(m.group(1)))),
+    (re.compile(r"방금|just now",      re.IGNORECASE), lambda m: timedelta(seconds=0)),
+    (re.compile(r"오늘"),               lambda m: timedelta(days=0)),
+    (re.compile(r"어제"),               lambda m: timedelta(days=1)),
+    (re.compile(r"그제|그저께"),        lambda m: timedelta(days=2)),
+]
+
 WINDOW = 30
 
 
-def parse_safe(s: str | None) -> datetime | None:
+def parse_safe(s: str | None, *, now: datetime | None = None) -> datetime | None:
     """Parse the start of `s` as a date.
 
     Returns None on missing input, unparseable input, or invalid calendar
     components. Never raises.
+
+    `now` is the reference point for relative-time parsing — defaults to
+    `datetime.now()`. Pass an explicit value in tests for stable assertions.
     """
     if not s:
         return None
     head = s.strip()[:WINDOW]
+
+    # Absolute formats (year present)
     for pattern in DATE_PATTERNS:
         m = pattern.search(head)
         if not m:
@@ -47,4 +65,16 @@ def parse_safe(s: str | None) -> datetime | None:
             return datetime(*parts)   # type: ignore[arg-type]
         except (ValueError, TypeError):
             continue
+
+    # Relative Korean phrases — fall back, anchored to `now`
+    base = now or datetime.now()
+    for pattern, delta_fn in RELATIVE_PATTERNS:
+        m = pattern.search(head)
+        if not m:
+            continue
+        try:
+            return base - delta_fn(m)   # type: ignore[operator]
+        except (ValueError, TypeError):
+            continue
+
     return None
