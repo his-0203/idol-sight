@@ -1,0 +1,108 @@
+<!--
+  Fixture provenance:
+    Captured 2026-05-04 from
+      https://gall.dcinside.com/mgallery/board/lists/?id=plave
+    via curl with a Chrome User-Agent. The DC server redirects
+    /board/lists/?id=plave to /mgallery/board/lists/?id=plave for the
+    PLAVE minor gallery; the original 212 KB response was trimmed to a
+    self-contained HTML document holding the gall_list table with four
+    representative posts (mix of icon_pic / icon_txt entries, all under
+    PLAVE so context_keywords filtering is not exercised).
+
+    Selectors verified against this capture:
+      - table.gall_list tbody tr.us-post   (post rows)
+      - td.gall_tit a                       (title + href)
+      - td.gall_count                       (views)
+      - td.gall_recommend                   (likes / "추천")
+      - td.gall_date[title]                 (full ISO 8601 datetime)
+
+    Notice rows (data-type="icon_notice") and the survey/AD intro rows
+    were excluded — they do not have data-no values that look like real
+    posts and the title anchors point at javascript:; or external coupang
+    redirects, so they would be filtered out by the collector anyway.
+-->
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>플레이브 마이너 갤러리</title></head>
+<body>
+<table class="gall_list">
+  <caption>갤러리 리스트</caption>
+  <thead>
+    <tr>
+      <th scope="col">번호</th>
+      <th scope="col">말머리</th>
+      <th scope="col">제목</th>
+      <th scope="col">글쓴이</th>
+      <th scope="col">작성일</th>
+      <th scope="col">조회</th>
+      <th scope="col">추천</th>
+    </tr>
+  </thead>
+  <tbody class="listwrap2">
+    <tr class="ub-content us-post" data-no="115501" data-type="icon_pic">
+      <td class="gall_num">115501</td>
+      <td class="gall_subject">일반</td>
+      <td class="gall_tit ub-word">
+        <a href="/mgallery/board/view/?id=plave&amp;no=115501&amp;page=1" view-msg="">
+          <em class="icon_img icon_pic"></em>집나간 끌찾음
+        </a>
+        <a class="reply_numbox" href="https://gall.dcinside.com/mgallery/board/view/?id=plave&amp;no=115501&amp;t=cv&amp;page=1"><span class="reply_num">[6]</span></a>
+      </td>
+      <td class="gall_writer ub-writer" data-nick="ㅇㅇ">
+        <span class="nickname in" title="ㅇㅇ"><em>ㅇㅇ</em></span>
+      </td>
+      <td class="gall_date" title="2026-05-04 15:33:15">15:33</td>
+      <td class="gall_count">265</td>
+      <td class="gall_recommend">0</td>
+    </tr>
+    <tr class="ub-content us-post" data-no="115500" data-type="icon_txt">
+      <td class="gall_num">115500</td>
+      <td class="gall_subject">일반</td>
+      <td class="gall_tit ub-word">
+        <a href="/mgallery/board/view/?id=plave&amp;no=115500&amp;page=1" view-msg="">
+          <em class="icon_img icon_txt"></em>외출했는데 지금 딱 꽃송이들 듣기 좋은 날씨다
+        </a>
+        <a class="reply_numbox" href="https://gall.dcinside.com/mgallery/board/view/?id=plave&amp;no=115500&amp;t=cv&amp;page=1"><span class="reply_num">[1]</span></a>
+      </td>
+      <td class="gall_writer ub-writer" data-nick="ㅇㅇ">
+        <span class="nickname in" title="ㅇㅇ"><em>ㅇㅇ</em></span>
+      </td>
+      <td class="gall_date" title="2026-05-04 15:13:02">15:13</td>
+      <td class="gall_count">65</td>
+      <td class="gall_recommend">0</td>
+    </tr>
+    <tr class="ub-content us-post" data-no="115499" data-type="icon_pic">
+      <td class="gall_num">115499</td>
+      <td class="gall_subject">일반</td>
+      <td class="gall_tit ub-word">
+        <a href="/mgallery/board/view/?id=plave&amp;no=115499&amp;page=1" view-msg="">
+          <em class="icon_img icon_pic"></em>ㅈㄱㅇㄱㅅ 4월 5주차 1위
+        </a>
+        <a class="reply_numbox" href="https://gall.dcinside.com/mgallery/board/view/?id=plave&amp;no=115499&amp;t=cv&amp;page=1"><span class="reply_num">[8]</span></a>
+      </td>
+      <td class="gall_writer ub-writer" data-nick="ㅇㅇ">
+        <span class="nickname in" title="ㅇㅇ"><em>ㅇㅇ</em></span>
+      </td>
+      <td class="gall_date" title="2026-05-04 15:11:58">15:11</td>
+      <td class="gall_count">221</td>
+      <td class="gall_recommend">1</td>
+    </tr>
+    <tr class="ub-content us-post" data-no="115498" data-type="icon_pic">
+      <td class="gall_num">115498</td>
+      <td class="gall_subject">일반</td>
+      <td class="gall_tit ub-word">
+        <a href="/mgallery/board/view/?id=plave&amp;no=115498&amp;page=1" view-msg="">
+          <em class="icon_img icon_pic"></em>붐샤카라카 챌린지 해주면 좋겠다
+        </a>
+      </td>
+      <td class="gall_writer ub-writer" data-nick="로또내놔">
+        <span class="nickname in" title="로또내놔"><em>로또내놔</em></span>
+      </td>
+      <td class="gall_date" title="2026-05-04 15:03:12">15:03</td>
+      <td class="gall_count">127</td>
+      <td class="gall_recommend">0</td>
+    </tr>
+  </tbody>
+</table>
+</body>
+</html>
