@@ -1,0 +1,58 @@
+name: collect-6h
+on:
+  schedule:
+    - cron: '15 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  collect:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        group:  [plave, isedol, stellive, skinz, myrakl, miiwan, owis, bdawn]
+        source: [dc, theqoo, instiz]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --frozen
+        working-directory: worker
+      - run: uv run scrapling install
+        working-directory: worker
+      - run: |
+          uv run python -m idol_sight collect \
+            --source ${{ matrix.source }} \
+            --group  ${{ matrix.group }}
+        working-directory: worker
+        env:
+          CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:     ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:    ${{ secrets.CF_API_TOKEN }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      - if: failure()
+        working-directory: worker
+        run: |
+          uv run python -m idol_sight notify-fail \
+            --job '${{ matrix.source }}:${{ matrix.group }}'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+
+  aggregate:
+    needs: collect
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --frozen
+        working-directory: worker
+      - run: uv run python -m idol_sight aggregate
+        working-directory: worker
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:   ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}

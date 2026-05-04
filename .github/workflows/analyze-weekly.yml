@@ -1,0 +1,59 @@
+name: analyze-weekly
+on:
+  schedule:
+    - cron: '0 9 * * 1'        # Monday 09:00 UTC
+  workflow_dispatch:
+    inputs:
+      week_start: {description: 'YYYY-MM-DD (Sunday)', required: false}
+      week_end:   {description: 'YYYY-MM-DD (Saturday)', required: false}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --frozen
+        working-directory: worker
+      - run: uv run scrapling install
+        working-directory: worker
+      - name: Compute week bounds (if not provided)
+        id: bounds
+        run: |
+          if [[ -n "${{ inputs.week_start }}" && -n "${{ inputs.week_end }}" ]]; then
+            echo "ws=${{ inputs.week_start }}" >> "$GITHUB_OUTPUT"
+            echo "we=${{ inputs.week_end }}"   >> "$GITHUB_OUTPUT"
+          else
+            # Most recent Sunday-to-Saturday strictly before today.
+            we=$(python3 -c "
+          import datetime as d
+          t = d.date.today()
+          end = t - d.timedelta(days=((t.weekday() + 1) % 7) + 1)
+          print(end.isoformat())
+          ")
+            ws=$(python3 -c "
+          import datetime as d
+          end = d.date.fromisoformat('$we')
+          print((end - d.timedelta(days=6)).isoformat())
+          ")
+            echo "ws=$ws" >> "$GITHUB_OUTPUT"
+            echo "we=$we" >> "$GITHUB_OUTPUT"
+          fi
+      - run: |
+          uv run python -m idol_sight analyze-weekly \
+            --week-start ${{ steps.bounds.outputs.ws }} \
+            --week-end   ${{ steps.bounds.outputs.we }}
+        working-directory: worker
+        env:
+          CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:     ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:    ${{ secrets.CF_API_TOKEN }}
+          GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      - if: failure()
+        working-directory: worker
+        run: |
+          uv run python -m idol_sight notify-fail --job 'analyze-weekly'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
