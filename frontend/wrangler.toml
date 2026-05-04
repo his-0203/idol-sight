@@ -5,5 +5,5 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "idol-sight"
-database_id = "REPLACE_WITH_REAL_ID"
+database_id = "d3491d5a-716a-435c-a6d9-22ea6a85e089"
 migrations_dir = "../migrations"
