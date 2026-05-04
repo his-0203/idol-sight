@@ -1,5 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { Header } from "./components/Header";
+import { GroupContextBar } from "./components/GroupContextBar";
+import { Breadcrumb } from "./components/Breadcrumb";
 import { LoginGate } from "./components/LoginGate";
 import { applyTheme } from "./theme";
 import { onStateChange, readState } from "./router";
@@ -34,7 +36,9 @@ export function App() {
   return (
     <div class="min-h-screen">
       <Header state={state} />
+      <GroupContextBar state={state} />
       <SearchPalette />
+      <Breadcrumb state={state} />
       <main class="mx-auto max-w-7xl p-4">
         {state.tab === "market"    && <MarketOverview />}
         {state.tab === "weekly"    && <WeeklyUpdate />}

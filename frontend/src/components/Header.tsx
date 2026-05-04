@@ -1,41 +1,56 @@
 import { writeState, type RouterState } from "../router";
-import { toggleTheme } from "../theme";
 
-const TABS: Array<[RouterState["tab"], string]> = [
-  ["market", "Market Overview"],
-  ["weekly", "Weekly Update"],
-  ["content", "Group Content"],
-  ["members", "Member View"],
-  ["community", "Community"],
-  ["risk", "PR & Risk"],
-  ["insights", "Insights"],
+// Market-scope tabs only. Group-scope tabs (그룹 상세/멤버/커뮤니티/PR·리스크)
+// live in <GroupContextBar /> beneath the header so the user always knows
+// "this section needs a group selected" vs "this is market-wide".
+const MARKET_TABS: Array<[RouterState["tab"], string]> = [
+  ["market",   "시장 개요"],
+  ["weekly",   "주간 업데이트"],
+  ["insights", "인사이트"],
 ];
 
+const GROUP_TABS_SET = new Set(["content", "members", "community", "risk"]);
+
 export function Header({ state }: { state: RouterState }) {
+  const onMarketTab = !GROUP_TABS_SET.has(state.tab);
   return (
-    <header class="border-b border-zinc-800 px-4 py-3 [.light_&]:border-zinc-200">
+    <header class="border-b border-zinc-800 px-4 py-3">
       <div class="mx-auto flex max-w-7xl items-center gap-4">
-        <h1 class="text-xl font-bold tracking-tight">
-          IDOL<span class="text-violet-400">-SIGHT</span>
-        </h1>
-        <nav class="flex gap-1 overflow-x-auto text-sm">
-          {TABS.map(([k, label]) => (
+        <button
+          class="text-xl font-bold tracking-tight"
+          onClick={() => writeState({ tab: "market" })}
+          title="홈 (시장 개요)"
+        >
+          IDOL<span class="text-brand-fg">-SIGHT</span>
+        </button>
+        <nav class="flex gap-1 overflow-x-auto text-data" aria-label="시장">
+          {MARKET_TABS.map(([k, label]) => (
             <button
+              key={k}
               class={
-                "rounded px-3 py-1 transition-colors " +
+                "rounded-ctrl px-3 py-1 transition-colors " +
                 (state.tab === k
-                  ? "bg-violet-500/20 text-violet-300"
+                  ? "bg-brand-weak text-brand-fg"
                   : "text-zinc-400 hover:bg-zinc-800/60")
               }
               onClick={() => writeState({ tab: k })}
             >{label}</button>
           ))}
         </nav>
+        {!onMarketTab && (
+          <span class="hidden md:inline text-hint text-zinc-500">
+            그룹 모드
+          </span>
+        )}
+        {/* Light-mode toggle disabled in Phase 1 — most components still
+            hard-code zinc shades. Reactivate once tokens cover all surfaces. */}
         <button
-          class="ml-auto rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-          onClick={() => toggleTheme()}
-          title="Theme"
-        >{state.theme === "dark" ? "🌙" : "☀️"}</button>
+          class="ml-auto rounded-ctrl border border-zinc-800 px-2 py-1 text-hint
+                 text-zinc-600 cursor-not-allowed opacity-60"
+          disabled
+          title="다크 전용 (라이트 모드는 Phase 2 예정)"
+          aria-label="라이트 모드는 곧 지원됩니다"
+        >🌙</button>
       </div>
     </header>
   );
