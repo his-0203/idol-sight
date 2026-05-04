@@ -38,6 +38,11 @@ require openssl
 [[ -n "${CF_API_TOKEN:-}" ]] || { echo "export CF_API_TOKEN first" >&2; exit 1; }
 [[ -n "${CF_ACCOUNT_ID:-}" ]] || { echo "export CF_ACCOUNT_ID first" >&2; exit 1; }
 
+if ! gh auth status >/dev/null 2>&1; then
+  echo "gh CLI is not authenticated. Run: gh auth login" >&2
+  exit 1
+fi
+
 echo "==> ensuring D1 database '$PROJECT' exists"
 DB_ID="$(wrangler d1 list --json 2>/dev/null \
           | jq -r ".[] | select(.name==\"$PROJECT\") | .uuid" \
@@ -52,7 +57,18 @@ fi
 echo "    D1 id: $DB_ID"
 
 echo "==> patching $WRANGLER_TOML"
-sed -i.bak "s|REPLACE_WITH_REAL_ID|$DB_ID|" "$WRANGLER_TOML" && rm -f "$WRANGLER_TOML.bak"
+if grep -q "REPLACE_WITH_REAL_ID" "$WRANGLER_TOML"; then
+  sed -i.bak "s|REPLACE_WITH_REAL_ID|$DB_ID|" "$WRANGLER_TOML" && rm -f "$WRANGLER_TOML.bak"
+  echo "    patched (database_id=$DB_ID)"
+else
+  current=$(grep -E '^database_id\s*=\s*"' "$WRANGLER_TOML" | sed -E 's/.*"([^"]+)".*/\1/')
+  if [[ "$current" == "$DB_ID" ]]; then
+    echo "    already patched (database_id=$DB_ID)"
+  else
+    echo "    WARNING: $WRANGLER_TOML has database_id=$current but D1 returned $DB_ID" >&2
+    echo "    (will not overwrite a hand-edited file; fix manually if needed)" >&2
+  fi
+fi
 
 echo "==> applying migrations (remote)"
 ( cd frontend && wrangler d1 migrations apply "$PROJECT" --remote )
