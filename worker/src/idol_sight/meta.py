@@ -25,10 +25,10 @@ ON CONFLICT(job) DO UPDATE SET
 _UPSERT_SUCCESS = """
 INSERT INTO crawl_meta(job, last_attempt_at, last_success_at, status,
                        runtime_ms, rows_inserted, rows_updated, error_msg)
-VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+VALUES (?, ?, ?, 'ok', ?, ?, ?, NULL)
 ON CONFLICT(job) DO UPDATE SET
   last_success_at=excluded.last_success_at,
-  status=?,
+  status='ok',
   runtime_ms=excluded.runtime_ms,
   rows_inserted=excluded.rows_inserted,
   rows_updated=excluded.rows_updated,
@@ -38,9 +38,9 @@ ON CONFLICT(job) DO UPDATE SET
 
 _UPSERT_FAILURE = """
 INSERT INTO crawl_meta(job, last_attempt_at, status, runtime_ms, error_msg)
-VALUES (?, ?, ?, ?, ?)
+VALUES (?, ?, 'failed', ?, ?)
 ON CONFLICT(job) DO UPDATE SET
-  status=?,
+  status='failed',
   runtime_ms=excluded.runtime_ms,
   error_msg=excluded.error_msg
 """.strip()
@@ -53,9 +53,9 @@ def record_attempt(client: _Executor, *, job: str, group_key: str, source: str,
 
 def record_success(client: _Executor, *, job: str, now: str, runtime_ms: int,
                    rows_inserted: int, rows_updated: int) -> None:
-    client.execute(_UPSERT_SUCCESS, [job, now, now, "ok", runtime_ms, rows_inserted, rows_updated, "ok"])
+    client.execute(_UPSERT_SUCCESS, [job, now, now, runtime_ms, rows_inserted, rows_updated])
 
 
 def record_failure(client: _Executor, *, job: str, now: str, runtime_ms: int,
                    error_msg: str) -> None:
-    client.execute(_UPSERT_FAILURE, [job, now, "failed", runtime_ms, error_msg, "failed"])
+    client.execute(_UPSERT_FAILURE, [job, now, runtime_ms, error_msg])

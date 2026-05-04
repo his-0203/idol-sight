@@ -19,7 +19,7 @@ def test_record_success_writes_status_ok():
                    runtime_ms=1234, rows_inserted=10, rows_updated=2)
     sql, params = client.execute.call_args[0]
     assert "status" in sql.lower()
-    assert "ok" in params
+    assert "'ok'" in sql  # status is hardcoded in SQL, not in params
     assert 1234 in params
 
 
@@ -28,5 +28,5 @@ def test_record_failure_writes_status_failed_and_error_msg():
     record_failure(client, job="dc:plave", now="2026-05-04T08:01:00Z",
                    runtime_ms=500, error_msg="cloudflare blocked")
     sql, params = client.execute.call_args[0]
-    assert "failed" in params
+    assert "'failed'" in sql  # status is hardcoded in SQL, not in params
     assert "cloudflare blocked" in params
