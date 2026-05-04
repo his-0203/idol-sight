@@ -53,18 +53,27 @@ class D1Client:
         return result[0].get("results") or []
 
     def batch(self, statements: list[tuple[str, list[Any]]]) -> BatchSummary:
-        payload = [{"sql": s, "params": p} for (s, p) in statements]
+        # Cloudflare D1 REST API does not accept array-body batches. We send
+        # statements sequentially over a single keep-alive HTTP connection.
+        executed = 0
+        total_changes = 0
         with httpx.Client(timeout=self._timeout) as c:
-            r = c.post(self._url_raw, json=payload, headers=self._headers)
-        r.raise_for_status()
-        env = r.json()
-        if not env.get("success"):
-            raise D1Error(_first_error(env))
-        results = env.get("result") or []
-        total_changes = sum((it.get("meta") or {}).get("changes", 0) for it in results)
+            for sql, params in statements:
+                r = c.post(
+                    self._url_query,
+                    json={"sql": sql, "params": params or []},
+                    headers=self._headers,
+                )
+                r.raise_for_status()
+                env = r.json()
+                if not env.get("success"):
+                    raise D1Error(_first_error(env))
+                executed += 1
+                for it in env.get("result") or []:
+                    total_changes += (it.get("meta") or {}).get("changes", 0)
         return BatchSummary(
             statements_sent=len(statements),
-            statements_executed=len(results),
+            statements_executed=executed,
             total_changes=total_changes,
         )
 
