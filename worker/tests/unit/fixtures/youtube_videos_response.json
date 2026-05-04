@@ -1,0 +1,35 @@
+{
+  "kind": "youtube#videoListResponse",
+  "items": [
+    {
+      "id": "abc1",
+      "snippet": {
+        "title": "PLAVE - Caligo MV",
+        "publishedAt": "2026-04-13T09:00:00Z",
+        "channelId": "UCPZIPuQPrfrUG9Xe_okEmQA"
+      },
+      "contentDetails": {"duration": "PT3M45S"},
+      "statistics": {"viewCount": "1234567", "likeCount": "98765", "commentCount": "5432"}
+    },
+    {
+      "id": "abc2",
+      "snippet": {
+        "title": "PLAVE Shorts moment",
+        "publishedAt": "2026-04-12T09:00:00Z",
+        "channelId": "UCPZIPuQPrfrUG9Xe_okEmQA"
+      },
+      "contentDetails": {"duration": "PT45S"},
+      "statistics": {"viewCount": "500000", "likeCount": "20000", "commentCount": "300"}
+    },
+    {
+      "id": "abc3",
+      "snippet": {
+        "title": "PLAVE - IU Cover (Live)",
+        "publishedAt": "2026-04-10T09:00:00Z",
+        "channelId": "UCPZIPuQPrfrUG9Xe_okEmQA"
+      },
+      "contentDetails": {"duration": "PT5M0S"},
+      "statistics": {"viewCount": "300000", "likeCount": "15000", "commentCount": "800"}
+    }
+  ]
+}
