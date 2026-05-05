@@ -1,0 +1,123 @@
+"""Synthesize historical agg_summary rows from youtube_videos data.
+
+Why this exists: PLAVE / ISEDOL / STELLIVE debuted in 2021-2023 but
+the dashboard only started collecting agg_summary in 2026. The
+DebutCurve and D-30 benchmark cards therefore render as empty for
+their pre-debut and early-post-debut windows. We can't recover the
+historical *channel statistics* (YouTube doesn't expose subscriber
+counts on a date axis), but we DO have every video's
+``published_at`` and a current view count, so we can faithfully
+reconstruct two derived cumulative metrics:
+
+  - ``yt_total_videos`` — exact count of videos with published_at on
+    or before each snapshot date. Lossless: if MiiWAN published two
+    videos on 2026-04-15, the synthesized row for that date will
+    show videos=2 (after that day's drops).
+
+  - ``yt_total_views`` — cumulative SUM of CURRENT view counts for
+    those videos. This is an *over*-estimate vs the true historical
+    view count (a video published in 2023 has accumulated views
+    since then), but the *shape* of the curve — when the channel
+    grew, when it stalled — is preserved. Treat absolute values with
+    a grain of salt; treat the curve as the truth.
+
+Other agg_summary columns (subscribers, dc/theqoo/instiz posts, news,
+twitter, controversy) cannot be backfilled and are written as 0.
+The DebutCurve metric selector caps at the columns we can fill, so
+the operator never sees a flat-zero curve for those.
+
+Idempotent via ``ON CONFLICT(group_key, snapshot_at) DO NOTHING`` —
+real snapshots from the live collectors always win, and re-running
+the backfill is a no-op once it's been applied.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Protocol
+
+from idol_sight.collectors.base import CollectionResult
+
+
+class _Executor(Protocol):
+    def execute(
+        self, sql: str, params: list[Any] | None = ...,
+    ) -> list[dict[str, Any]]: ...
+
+
+# Same column order as build_agg_summary INSERTs so a dry-running test
+# can compare statements verbatim. Synthetic rows fill non-YT columns
+# with 0; the cumulative video & view counts come from the synthesis.
+_INSERT_SQL = """
+INSERT INTO agg_summary
+  (group_key, snapshot_at,
+   yt_total_videos, yt_total_views, yt_subscribers,
+   dc_total_posts, theqoo_posts, instiz_posts,
+   naver_total_news, twitter_posts, controversy_count)
+VALUES (?, ?, ?, ?, NULL, 0, 0, 0, 0, 0, 0)
+ON CONFLICT(group_key, snapshot_at) DO NOTHING
+""".strip()
+
+
+def backfill_yt_history(client: _Executor) -> CollectionResult:
+    """Walk youtube_videos chronologically per group, emit one
+    agg_summary row per unique publication date with cumulative
+    video count + cumulative current-view sum.
+
+    The query joins to youtube_video_stats via a correlated subquery
+    that picks the latest known view count per video. Videos whose
+    stats row has never been written keep a view contribution of 0,
+    which is the correct default — they shouldn't bump cumulative
+    views above the truth.
+    """
+    rows = client.execute(
+        """
+        SELECT v.group_key,
+               substr(v.published_at, 1, 10) AS pub_date,
+               COALESCE((
+                 SELECT s.views
+                   FROM youtube_video_stats s
+                  WHERE s.video_id = v.video_id
+                  ORDER BY s.snapshot_at DESC
+                  LIMIT 1
+               ), 0) AS views
+          FROM youtube_videos v
+         WHERE v.published_at IS NOT NULL
+           AND v.published_at <> ''
+         ORDER BY v.group_key, v.published_at ASC
+        """
+    )
+
+    # Bucket into per-group, sorted-by-date streams. The query already
+    # orders by group_key, published_at so we just walk it once.
+    by_group: dict[str, list[tuple[str, int]]] = {}
+    for r in rows:
+        date = r.get("pub_date")
+        if not date:
+            continue
+        by_group.setdefault(r["group_key"], []).append(
+            (date, int(r.get("views") or 0))
+        )
+
+    statements: list[tuple[str, list[Any]]] = []
+    for gk, items in by_group.items():
+        # Walk videos chronologically, accumulating count + view sum.
+        # Per unique date keep only the LAST cumulative value (i.e. the
+        # state at end-of-day after all that day's videos drop). This
+        # collapses multi-video days into a single agg_summary row.
+        per_date: dict[str, tuple[int, int]] = {}
+        cum_views = 0
+        for cum_videos, (date, views) in enumerate(items, start=1):
+            cum_views += views
+            per_date[date] = (cum_videos, cum_views)
+
+        for date, (videos, views) in per_date.items():
+            snap = f"{date}T00:00:00Z"
+            statements.append((_INSERT_SQL, [gk, snap, videos, views]))
+
+    return CollectionResult(
+        rows_inserted=len(statements), rows_updated=0,
+        statements=statements,
+    )
+
+
+__all__ = ["backfill_yt_history"]

@@ -250,6 +250,32 @@ def health_check() -> None:
 
 
 @app.command(
+    "backfill-yt-history",
+    help="Synthesize historical agg_summary rows from youtube_videos for "
+         "every active group. Idempotent — real collector snapshots always "
+         "win via ON CONFLICT DO NOTHING.",
+)
+def backfill_yt_history_cmd() -> None:
+    from idol_sight.analysis.yt_history_backfill import backfill_yt_history
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    result = backfill_yt_history(client)
+    if result.statements:
+        bs = client.batch(result.statements)
+        if bs.statements_executed != bs.statements_sent:
+            typer.echo(
+                f"partial backfill write: "
+                f"{bs.statements_executed}/{bs.statements_sent}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+    typer.echo(
+        f"backfill-yt-history: {len(result.statements)} synthetic rows "
+        f"emitted (existing real snapshots preserved)"
+    )
+
+
+@app.command(
     "external-cohort-run",
     help="Refresh external_metrics YT columns via the YouTube Data API. "
          "Spotify columns are left NULL (Premium-required policy 2026-02 "

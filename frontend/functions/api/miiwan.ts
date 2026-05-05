@@ -132,6 +132,32 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     [TARGET],
   );
 
+  // Worker-emitted alerts scoped to MiiWAN. The strategic-analyst
+  // briefing surfaces these in a Risk Watch section instead of making
+  // the operator hop to PR/Risk and re-establish MiiWAN context.
+  const alerts = await d1Query<any>(env.DB,
+    `SELECT alert_key, rule, scope, severity, title, body, fired_at
+       FROM alerts
+      WHERE scope=? AND fired_at >= datetime('now', '-14 days')
+      ORDER BY fired_at DESC LIMIT 30`, [TARGET]);
+
+  // Controversy WoW trend — mirrors PRRisk's logic so the briefing
+  // can render an in-context risk badge without leaving the page.
+  const controversyTrend = await d1QueryOne<{ current: number; previous: number | null }>(
+    env.DB,
+    `SELECT
+        (SELECT controversy_count FROM agg_summary
+          WHERE group_key=? AND snapshot_at=(SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)
+        ) AS current,
+        (SELECT controversy_count FROM agg_summary
+          WHERE group_key=? AND snapshot_at=(
+            SELECT MAX(snapshot_at) FROM agg_summary
+             WHERE group_key=?
+               AND snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?))
+        ) AS previous`,
+    [TARGET, TARGET, TARGET, TARGET, TARGET],
+  );
+
   // 5) D-30 benchmark for comparison groups. We pick the agg_summary
   //    snapshot whose snapshot_at falls in the [debut-30d, debut-1d]
   //    window — i.e. the last reading we have before debut. If no row
@@ -225,5 +251,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       generated_at: i.generated_at,
     })),
     benchmarks,
+    alerts,
+    controversy_trend: controversyTrend,
   });
 };

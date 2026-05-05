@@ -1,15 +1,24 @@
-// MiiWAN-only briefing tab. IPX/Abyss 자사 그룹 전용 화면이라
-// market-wide insights 와 분리해서 운영자가 한 번에 모든 정보를 볼 수
-// 있도록 모은다.
+// MiiWAN strategic briefing — IPX/Abyss internal briefing tab,
+// rebuilt 2026-05-05 from a strategy-analyst lens.
 //
-// 5개 섹션 (위→아래):
-//   1) D-day Hero: 데뷔 카운트다운 + Health 등급 + 멤버 솔로 채널 보유 여부
-//   2) 핵심 지표 KPI 6개: subs / views / 영상수 / 뉴스 / 디시 / 트위터
-//   3) 멤버 카드: 활성 멤버 + 솔로 채널 시드 상태
-//   4) 데뷔 D-30 벤치마크: 같은 시점의 PLAVE/ISEDOL/STELLIVE 데이터와 직접 비교
-//   5) MiiWAN 전용 인사이트 + IPX 액션 권고
+// The previous layout dumped six sections in row order without a
+// hierarchy of decisions. The rebuilt version answers the six
+// questions an operator/contractor actually opens this page to ask,
+// in priority order:
+//
+//   1. NOW       — 지금 어디에 있나? (D-day · Health · 한 줄 진단)
+//   2. ACTION    — 오늘 무엇을 해야 하나? (alerts + ipx_action 통합 큐)
+//   3. RISK      — 어떤 위기에 대비해야 하나? (identity_leak / model_theft
+//                   / controversy_spike — 가상 아이돌 운영의 critical 알림)
+//   4. KPIS      — 핵심 지표가 어떻게 움직이고 있나? (WoW + 30d sparkline)
+//   5. COHORT    — 비교 대상 대비 어디에 있나? (D-30 벤치마크 표)
+//   6. INSIGHT   — 분석가의 권고 (LLM weekly insights)
+//
+// The "활성 멤버" 카드는 D-7 이상 남은 시점에서는 정보값이 0(분산
+// 없음, 솔로 채널 boolean만)이라 의도적으로 collapse 처리. D-7 이내
+// 또는 데뷔 후에만 자동 노출.
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { fmt } from "../format";
 import { KPI } from "../components/KPI";
@@ -35,6 +44,17 @@ type Insight = {
   generated_at: string;
 };
 
+type AlertRow = {
+  alert_key: string;
+  rule: "controversy_spike" | "identity_leak" | "model_theft"
+       | "video_velocity_24h" | "debut_milestone" | string;
+  scope: string;
+  severity: "info" | "warn" | "critical";
+  title: string;
+  body: string;
+  fired_at: string;
+};
+
 type MiiwanData = {
   group: { key: string; name: string; name_kr: string; debut_date: string | null };
   today: string;
@@ -48,6 +68,84 @@ type MiiwanData = {
                    has_solo_channel: boolean }>;
   insights: Insight[];
   benchmarks: Benchmark[];
+  alerts: AlertRow[];
+  controversy_trend: { current: number; previous: number | null } | null;
+};
+
+// Mirrors worker rule_controversy_spike thresholds. Keep in sync.
+const CONTROVERSY_SPIKE_MULTIPLIER = 2.0;
+const CONTROVERSY_SPIKE_MIN_COUNT = 5;
+
+// Strategic one-liner that summarizes "what phase is MiiWAN in and
+// what posture should the operator take today". Built from days-to-
+// debut + alerts severity + Health grade — i.e. signals that already
+// exist on the briefing, just narrativized so the operator doesn't
+// have to assemble the read themselves.
+function strategicDiagnosis(d: MiiwanData): { tone: "ok" | "warn" | "critical"; line: string } {
+  const days = d.days_to_debut;
+  const debuted = days != null && days <= 0;
+  const hasCritical = d.alerts.some((a) => a.severity === "critical");
+  const hasWarn = d.alerts.some((a) => a.severity === "warn");
+  const grade = d.health_score?.grade;
+
+  if (hasCritical) {
+    return {
+      tone: "critical",
+      line: "위기 신호 감지 — Risk Watch 우선 점검 후 대응 동선 시작.",
+    };
+  }
+  if (days == null) {
+    return { tone: "ok", line: "데뷔일 미정 — 일정 확정 후 D-N 곡선 추적 시작." };
+  }
+  if (debuted) {
+    const dPlus = -days;
+    if (dPlus <= 7) {
+      return {
+        tone: "warn",
+        line: `데뷔 D+${dPlus} — 초기 모멘텀 측정 윈도. 24h velocity / 첫 주 SOV 변화에 즉각 반응.`,
+      };
+    }
+    return {
+      tone: grade === "S" || grade === "A" ? "ok" : "warn",
+      line: `데뷔 D+${dPlus} — Health ${grade ?? "—"} 등급 기준 ${grade === "S" || grade === "A" ? "모멘텀 유지" : "약점 보완"} 우선.`,
+    };
+  }
+  if (days <= 7) {
+    return {
+      tone: "warn",
+      line: `데뷔 D-${days} — 라스트 마일. ipx_action 큐 우선 처리, 대기 중인 알림 모두 클리어.`,
+    };
+  }
+  if (days <= 30) {
+    return {
+      tone: hasWarn ? "warn" : "ok",
+      line: `데뷔 D-${days} — 가속 구간. D-30 벤치마크 갭 중 가장 큰 1개 지표 선정해 콘텐츠/PR 슬롯 집중.`,
+    };
+  }
+  return {
+    tone: "ok",
+    line: `데뷔 D-${days} — 베이스라인 누적 단계. 코호트 곡선 fitting 추적 + 솔로 채널 시드 점검.`,
+  };
+}
+
+const RULE_LABEL: Record<string, string> = {
+  controversy_spike:  "논란 급증",
+  identity_leak:      "본체 노출 가능성",
+  model_theft:        "AI 도용 / 딥페이크",
+  video_velocity_24h: "24h Viral",
+  debut_milestone:    "데뷔 마일스톤",
+};
+
+const SEVERITY_TONE: Record<AlertRow["severity"], string> = {
+  critical: "border-red-500/60 bg-red-500/10 text-red-200",
+  warn:     "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  info:     "border-zinc-700 bg-zinc-900/40 text-zinc-300",
+};
+
+const DIAGNOSIS_TONE: Record<"ok" | "warn" | "critical", string> = {
+  ok:       "border-emerald-500/40 bg-emerald-500/5 text-emerald-200",
+  warn:     "border-amber-500/40 bg-amber-500/5 text-amber-200",
+  critical: "border-red-500/60 bg-red-500/10 text-red-200",
 };
 
 function relativeRatio(mine: number, theirs: number): string {
@@ -60,29 +158,73 @@ function relativeRatio(mine: number, theirs: number): string {
 export function MiiWANBriefing() {
   const [data, setData] = useState<MiiwanData | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [showMembers, setShowMembers] = useState<boolean>(false);
 
   useEffect(() => {
-    api.miiwan().then(setData).catch((e) => setErr(String(e)));
+    api.miiwan().then((d) => {
+      setData(d);
+      // Auto-show member roster when within last-mile window or
+      // post-debut. Operators rarely need it earlier.
+      setShowMembers(d.days_to_debut == null || d.days_to_debut <= 7);
+    }).catch((e) => setErr(String(e)));
   }, []);
+
+  const dToDebut = data?.days_to_debut ?? null;
+  const debuted = dToDebut != null && dToDebut <= 0;
+  const accent = colorOf("miiwan");
+
+  const ipxActions = useMemo(
+    () => (data?.insights ?? []).filter((i) => i.type === "ipx_action"),
+    [data],
+  );
+  const miiwanScoped = useMemo(
+    () => (data?.insights ?? []).filter(
+      (i) => i.scope === "miiwan" && i.type !== "ipx_action",
+    ),
+    [data],
+  );
+  const otherInsights = useMemo(
+    () => (data?.insights ?? []).filter(
+      (i) => i.scope !== "miiwan" && i.type !== "ipx_action",
+    ),
+    [data],
+  );
+
+  // Risk-watch alerts are the critical-class virtual-idol triggers
+  // (identity_leak, model_theft, controversy_spike). Other alert rules
+  // (debut_milestone, video_velocity_24h) inform the diagnosis line
+  // but don't warrant their own card — they're better surfaced in
+  // the action queue / KPI row.
+  const riskAlerts = useMemo(() => {
+    const ranked = (data?.alerts ?? []).filter((a) =>
+      a.rule === "identity_leak" || a.rule === "model_theft" || a.rule === "controversy_spike"
+    );
+    // Critical first, then warn, then info; within tone newest first.
+    const order = { critical: 0, warn: 1, info: 2 } as const;
+    return [...ranked].sort((a, b) => {
+      const t = (order[a.severity] ?? 3) - (order[b.severity] ?? 3);
+      if (t !== 0) return t;
+      return b.fired_at.localeCompare(a.fired_at);
+    });
+  }, [data]);
+
+  const otherAlerts = useMemo(
+    () => (data?.alerts ?? []).filter((a) =>
+      a.rule !== "identity_leak" && a.rule !== "model_theft" && a.rule !== "controversy_spike"
+    ),
+    [data],
+  );
 
   if (err) return <div class="text-sm text-red-400">불러오기 실패: {err}</div>;
   if (!data) return <div class="text-zinc-500">Loading…</div>;
 
-  const dToDebut = data.days_to_debut;
-  const debuted = dToDebut != null && dToDebut <= 0;
-  const accent = colorOf("miiwan");
-
-  const ipxActions = data.insights.filter((i) => i.type === "ipx_action");
-  const miiwanScoped = data.insights.filter(
-    (i) => i.scope === "miiwan" && i.type !== "ipx_action",
-  );
-  const otherInsights = data.insights.filter(
-    (i) => i.scope !== "miiwan" && i.type !== "ipx_action",
-  );
+  const diag = strategicDiagnosis(data);
 
   return (
     <div class="space-y-6">
-      {/* 1) Hero */}
+      {/* 1) STRATEGIC HERO — 한 줄 진단이 가장 강한 시각 weight를
+          차지하도록 구성. 위치(D-day) + 상태(Health) + 진척(멤버
+          커버리지)을 한 row에. */}
       <section
         class="rounded-card border-l-4 border border-zinc-800 bg-zinc-900/40 p-5"
         style={{ borderLeftColor: accent }}
@@ -95,6 +237,11 @@ export function MiiWANBriefing() {
             데뷔 {data.group.debut_date ?? "—"} (IPX × Abyss Company)
           </span>
         </div>
+
+        <div class={`mt-3 rounded border-l-4 px-3 py-2 text-sm ${DIAGNOSIS_TONE[diag.tone]}`}>
+          <span class="font-semibold mr-2">전략 진단</span>{diag.line}
+        </div>
+
         <div class="mt-3 grid gap-3 md:grid-cols-3">
           <DDayCard d={dToDebut} debuted={debuted} accent={accent} />
           <HealthCard h={data.health_score} />
@@ -105,7 +252,20 @@ export function MiiWANBriefing() {
         </div>
       </section>
 
-      {/* 2) Core KPIs */}
+      {/* 2) ACTION QUEUE — alerts + ipx_actions 통합. 매일 보는
+          운영자가 "오늘 무엇을 해야 하나"를 5초 안에 답할 수 있도록
+          최상단에 위치. 빈 상태도 자리 유지 (학습된 위치 유지). */}
+      <ActionQueue ipxActions={ipxActions} otherAlerts={otherAlerts} />
+
+      {/* 3) RISK WATCH — virtual-idol critical 카테고리만 뽑아 별도
+          섹션. PR/Risk 페이지로 hop 없이 MiiWAN 컨텍스트에서 즉시
+          확인. 가장 시급한 시나리오부터 정렬. */}
+      <RiskWatch
+        alerts={riskAlerts}
+        controversyTrend={data.controversy_trend}
+      />
+
+      {/* 4) Core KPIs (existing) */}
       <section>
         <h2 class="section-title mb-3">핵심 지표 (최신 스냅샷
           {data.summary ? ` · ${data.summary.snapshot_at.slice(0, 10)}` : ""})
@@ -157,43 +317,17 @@ export function MiiWANBriefing() {
         })()}
       </section>
 
-      {/* 3) Members */}
+      {/* 5) COHORT POSITION — 데뷔 D-30 벤치마크 표. 동시 시점 비교
+          가능한 유일한 그룹 데이터라 자체 가치가 큼. */}
       <section>
-        <h2 class="section-title mb-3">활성 멤버 ({data.members.length}명)</h2>
-        {data.members.length === 0 ? (
-          <EmptyState title="멤버 시드 없음" icon="👥" />
-        ) : (
-          <ul class="grid grid-cols-2 gap-2 md:grid-cols-5">
-            {data.members.map((m) => (
-              <li key={m.id}
-                  class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
-                <div class="text-base font-semibold">{m.name}</div>
-                {m.name_en && (
-                  <div class="text-xs text-zinc-500">{m.name_en}</div>
-                )}
-                <div class="mt-2 text-xs">
-                  {m.has_solo_channel ? (
-                    <span class="text-emerald-400">● 솔로 채널 등록</span>
-                  ) : (
-                    <span class="text-zinc-500">○ 솔로 채널 미등록</span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      {/* 4) D-30 benchmark */}
-      <section>
-        <h2 class="section-title mb-3">데뷔 D-30 벤치마크 비교</h2>
+        <h2 class="section-title mb-3">코호트 비교 — 데뷔 D-30 벤치마크</h2>
         <p class="mb-3 text-hint text-zinc-500">
-          각 비교 그룹의 데뷔일 직전 스냅샷 vs 현재 MiiWAN. 동일 시점 동일 지표.
+          비교 그룹의 데뷔 직전 스냅샷 vs 현재 MiiWAN. 가장 큰 갭이 다음 콘텐츠 슬롯의 근거.
         </p>
         {data.benchmarks.length === 0 || !data.summary ? (
           <EmptyState
             title="벤치마크 비교 데이터 부족"
-            hint="비교 그룹의 과거 스냅샷이 누적되면 자동으로 채워집니다."
+            hint="비교 그룹의 과거 스냅샷이 누적되면 자동으로 채워집니다 (backfill-yt-history 실행 후)."
             icon="📐"
           />
         ) : (
@@ -257,9 +391,9 @@ export function MiiWANBriefing() {
         )}
       </section>
 
-      {/* 5) Insights & IPX actions */}
+      {/* 6) STRATEGIC INSIGHT — LLM weekly insights, MiiWAN-scoped first. */}
       <section>
-        <h2 class="section-title mb-3">MiiWAN 전용 인사이트 · IPX 액션</h2>
+        <h2 class="section-title mb-3">전략 인사이트 (LLM weekly)</h2>
         {data.insights.length === 0 ? (
           <EmptyState
             title="아직 MiiWAN 전용 인사이트 없음"
@@ -268,12 +402,8 @@ export function MiiWANBriefing() {
           />
         ) : (
           <div class="space-y-4">
-            {ipxActions.length > 0 && (
-              <InsightGroup title="IPX 액션 권고" tone="action"
-                            items={ipxActions} />
-            )}
             {miiwanScoped.length > 0 && (
-              <InsightGroup title="MiiWAN 인사이트" tone="brand"
+              <InsightGroup title="MiiWAN 전용" tone="brand"
                             items={miiwanScoped} accent={accent} />
             )}
             {otherInsights.length > 0 && (
@@ -281,14 +411,209 @@ export function MiiWANBriefing() {
                 title="관련 시장 인사이트"
                 tone="muted"
                 items={otherInsights}
-                hint="MiiWAN 전용은 아니지만 운영에 참고할 만한 항목."
+                hint="MiiWAN 직접은 아니지만 운영에 참고 가능"
               />
             )}
           </div>
         )}
       </section>
+
+      {/* 7) MEMBERS — debut D-7 이내 또는 데뷔 후에만 자동 노출.
+          이전에는 D-30+ 시점에서도 무조건 노출됐는데, 솔로 채널
+          boolean 5개 동일 상태라 의사결정 가치 0이었음. */}
+      <section>
+        <div class="mb-3 flex items-baseline gap-2">
+          <h2 class="section-title">활성 멤버 ({data.members.length}명)</h2>
+          <button
+            type="button"
+            class="text-xs text-zinc-400 hover:text-zinc-200 hover:underline"
+            onClick={() => setShowMembers((v) => !v)}
+          >
+            {showMembers ? "접기" : "펼치기"}
+          </button>
+          {!showMembers && (
+            <span class="text-hint text-zinc-500">
+              {data.members.filter((m) => m.has_solo_channel).length}/{data.members.length}명 솔로 채널 등록
+            </span>
+          )}
+        </div>
+        {showMembers && (
+          data.members.length === 0 ? (
+            <EmptyState title="멤버 시드 없음" icon="👥" />
+          ) : (
+            <ul class="grid grid-cols-2 gap-2 md:grid-cols-5">
+              {data.members.map((m) => (
+                <li key={m.id}
+                    class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                  <div class="text-base font-semibold">{m.name}</div>
+                  {m.name_en && (
+                    <div class="text-xs text-zinc-500">{m.name_en}</div>
+                  )}
+                  <div class="mt-2 text-xs">
+                    {m.has_solo_channel ? (
+                      <span class="text-emerald-400">● 솔로 채널 등록</span>
+                    ) : (
+                      <span class="text-zinc-500">○ 솔로 채널 미등록</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )
+        )}
+      </section>
     </div>
   );
+
+  function ActionQueue(props: {
+    ipxActions: Insight[];
+    otherAlerts: AlertRow[];
+  }) {
+    const total = props.ipxActions.length + props.otherAlerts.length;
+    return (
+      <section
+        class={"rounded-card border-l-4 border p-4 " +
+          (total === 0
+            ? "border-emerald-500/40 border-zinc-800 bg-emerald-500/5"
+            : "border-amber-500 border-zinc-800 bg-amber-500/5")
+        }
+      >
+        <div class="mb-3 flex flex-wrap items-baseline gap-2">
+          <h2 class="text-lg font-bold">
+            ⚡ 지금 처리할 것
+            {total > 0 && <span class="ml-2 text-sm font-normal text-zinc-500">{total}건</span>}
+          </h2>
+          <span class="text-hint text-zinc-500">
+            IPX 액션 권고 + 14일 내 누적된 마일스톤/Viral 알림
+          </span>
+        </div>
+
+        {total === 0 ? (
+          <div class="text-sm text-zinc-300">
+            ✓ 처리할 액션 없음 — 모니터링 모드. 데뷔까지 자동 D-7 / D-1 알림이 자동 트리거됩니다.
+          </div>
+        ) : (
+          <div class="space-y-3">
+            {props.ipxActions.length > 0 && (
+              <div>
+                <h3 class="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-300">
+                  IPX 액션 권고 ({props.ipxActions.length})
+                </h3>
+                <ul class="space-y-2">
+                  {props.ipxActions.map((i) => (
+                    <li key={i.id}
+                        class="rounded border-l-2 border-amber-500 bg-zinc-900/40 p-2.5 text-sm">
+                      <div class="font-semibold">{i.title}</div>
+                      <div class="mt-1 text-xs text-zinc-400">{i.body}</div>
+                      <SourceRef refs={i.source_refs ?? []} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {props.otherAlerts.length > 0 && (
+              <div>
+                <h3 class="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                  자동 알림 ({props.otherAlerts.length})
+                </h3>
+                <ul class="space-y-2">
+                  {props.otherAlerts.map((a) => (
+                    <li key={a.alert_key}
+                        class={`rounded border-l-2 p-2.5 text-sm ${SEVERITY_TONE[a.severity]}`}>
+                      <div class="flex items-baseline gap-2">
+                        <span class="rounded bg-zinc-900/60 px-1.5 text-[11px] text-zinc-300">
+                          {RULE_LABEL[a.rule] ?? a.rule}
+                        </span>
+                        <span class="font-semibold">{a.title}</span>
+                        <span class="ml-auto text-hint text-zinc-500">
+                          {a.fired_at?.slice(0, 16).replace("T", " ")}
+                        </span>
+                      </div>
+                      <div class="mt-1 text-xs text-zinc-400">{a.body}</div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function RiskWatch(props: {
+    alerts: AlertRow[];
+    controversyTrend: { current: number; previous: number | null } | null;
+  }) {
+    const cur = props.controversyTrend?.current ?? 0;
+    const prev = props.controversyTrend?.previous ?? 0;
+    const ratio: number | null = prev === 0
+      ? (cur > 0 ? Infinity : null)
+      : cur / prev;
+    const isSpiking = cur >= CONTROVERSY_SPIKE_MIN_COUNT
+                    && ratio != null
+                    && ratio >= CONTROVERSY_SPIKE_MULTIPLIER;
+    const hasCritical = props.alerts.some((a) => a.severity === "critical");
+    const level: "OK" | "ELEVATED" | "CRITICAL" =
+      hasCritical ? "CRITICAL" : isSpiking ? "ELEVATED" : "OK";
+    const tone =
+      level === "CRITICAL" ? "border-red-500 bg-red-500/10 text-red-200"
+      : level === "ELEVATED" ? "border-amber-500 bg-amber-500/10 text-amber-200"
+      : "border-emerald-500/40 bg-emerald-500/5 text-emerald-200";
+
+    return (
+      <section>
+        <div class="mb-3 flex flex-wrap items-baseline gap-2">
+          <h2 class="section-title">위기 모니터 (Risk Watch)</h2>
+          <span class="text-hint text-zinc-500">
+            가상 아이돌 운영의 critical 시나리오만 별도. 본체 노출 / AI 도용 / 논란 급증.
+          </span>
+        </div>
+
+        <div class={`rounded border-l-4 px-3 py-2 text-sm ${tone}`}>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-semibold">Risk: {level}</span>
+            {props.controversyTrend && (
+              <span class="rounded bg-zinc-900/50 px-2 py-0.5 text-xs">
+                Controversy 이번 주 {cur} · 직전 주 {prev}
+                {ratio != null && Number.isFinite(ratio) && ` (${ratio.toFixed(1)}×)`}
+              </span>
+            )}
+            {isSpiking && (
+              <span class="rounded bg-amber-500/20 px-2 py-0.5 text-xs text-amber-200">
+                ≥{CONTROVERSY_SPIKE_MULTIPLIER}× WoW · floor {CONTROVERSY_SPIKE_MIN_COUNT}
+              </span>
+            )}
+          </div>
+          {level !== "OK" && (
+            <div class="mt-1 text-xs text-zinc-300">
+              ※ 자동 알림 — 인간 검증 후 대응 권장. False positive 시 Streisand effect 주의.
+            </div>
+          )}
+        </div>
+
+        {props.alerts.length > 0 && (
+          <ul class="mt-3 space-y-2">
+            {props.alerts.map((a) => (
+              <li key={a.alert_key}
+                  class={`rounded border-l-2 p-3 ${SEVERITY_TONE[a.severity]}`}>
+                <div class="flex items-baseline gap-2">
+                  <span class="rounded bg-zinc-900/60 px-1.5 text-[11px] text-zinc-300">
+                    {RULE_LABEL[a.rule] ?? a.rule}
+                  </span>
+                  <span class="font-semibold">{a.title}</span>
+                  <span class="ml-auto text-hint text-zinc-500">
+                    {a.fired_at?.slice(0, 16).replace("T", " ")}
+                  </span>
+                </div>
+                <div class="mt-1 text-sm text-zinc-300">{a.body}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    );
+  }
 }
 
 function DDayCard({ d, debuted, accent }:
