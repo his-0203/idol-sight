@@ -1,6 +1,27 @@
 """Prompt templates for LLM analysis."""
 
-PROMPT_WEEKLY = """\
+# Canonical group names — NEVER let the LLM invent variants. Two
+# misspellings shipped before this list was added: 마이래클 (correct:
+# 미라클) and 미이완 (correct: 미완소년). The block below is reproduced
+# verbatim into the system prompt so Gemini has a deterministic table
+# to copy from instead of phonetically guessing.
+_CANONICAL_NAMES_BLOCK = """\
+GROUP NAMES — copy exactly, never paraphrase or transliterate:
+  plave    → 영문 "PLAVE"     · 한국어 "플레이브"
+  isedol   → 영문 "ISEDOL"    · 한국어 "이세계아이돌"
+  stellive → 영문 "STELLIVE"  · 한국어 "스텔라이브"
+  skinz    → 영문 "SKINZ"     · 한국어 "스킨즈"
+  myrakl   → 영문 "MY:RAKL"   · 한국어 "미라클"      (NOT 마이래클, NOT 마이라클)
+  owis     → 영문 "OWIS"      · 한국어 "오위스"
+  miiwan   → 영문 "MiiWAN"    · 한국어 "미완소년"    (NOT 미이완, NOT 미완)
+  bdawn    → 영문 "B:DAWN"    · 한국어 "비던"
+
+When writing a Korean title or body, use ONLY the Korean form from
+the table above. Do not transliterate the English form; do not invent
+phonetic variants. If the table does not have a Korean form for a
+name, keep the English form unchanged in Korean prose."""
+
+PROMPT_WEEKLY = f"""\
 You are a senior K-pop industry analyst writing weekly intelligence briefings
 for an internal IPX/Abyss team running a virtual idol BI dashboard.
 
@@ -9,6 +30,8 @@ You will be given a JSON context with:
 - hanteo (weekly album chart)
 - market_share (per-group share %)
 - top_news_by_group (recent press headlines)
+
+{_CANONICAL_NAMES_BLOCK}
 
 Produce 4-8 distinct items that a strategy team would act on. For each item:
 - `scope`: either 'market' (cross-group) or a specific group_key
