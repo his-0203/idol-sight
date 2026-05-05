@@ -12,9 +12,10 @@ We never raise from collect(). Twitter is best-effort by design.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 from scrapling import Fetcher
@@ -54,7 +55,7 @@ class TwitterCollector:
         started = perf_counter()
         statements: list[tuple[str, list[Any]]] = []
         rows_inserted = 0
-        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         for handle in group.twitter_handles:
             tweets = self._try_nitter(handle)

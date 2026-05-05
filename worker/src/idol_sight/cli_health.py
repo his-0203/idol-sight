@@ -4,7 +4,7 @@ in cli.py wraps this and notifies Discord on each."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 
@@ -16,10 +16,10 @@ def audit_freshness(client: _Executor, *, now_iso: str | None = None) -> list[di
     rows = client.execute(
         "SELECT job, last_success_at, expected_interval_h FROM crawl_meta"
     )
-    if now_iso:
-        now = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
-    else:
-        now = datetime.now(timezone.utc)
+    now = (
+        datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
+        if now_iso else datetime.now(UTC)
+    )
 
     stale: list[dict[str, Any]] = []
     for r in rows:

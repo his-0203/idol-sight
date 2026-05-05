@@ -12,9 +12,10 @@ Quota cost: ~101 units per call (search=100, videos=1).
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -128,7 +129,7 @@ class YouTubeCollector:
                 r.raise_for_status()
                 videos.extend(r.json().get("items", []))
 
-        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         statements: list[tuple[str, list[Any]]] = []
 
         for v in videos:

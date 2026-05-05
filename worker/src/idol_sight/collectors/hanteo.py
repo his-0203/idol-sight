@@ -25,9 +25,10 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime, timedelta, timezone
+from collections.abc import Callable
+from datetime import date, timedelta
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 from scrapling import Fetcher
 

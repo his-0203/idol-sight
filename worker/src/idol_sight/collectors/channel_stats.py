@@ -7,9 +7,10 @@ all of them.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from time import perf_counter
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -56,7 +57,7 @@ class ChannelStatsCollector:
             r.raise_for_status()
             items = r.json().get("items", [])
 
-        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         statements: list[tuple[str, list[Any]]] = []
         for it in items:
             cid = it["id"]

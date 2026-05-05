@@ -1,7 +1,7 @@
 import json
 from unittest.mock import MagicMock
 
-from idol_sight.llm.gemini import GeminiClient, INSIGHT_OUTPUT_SCHEMA
+from idol_sight.llm.gemini import INSIGHT_OUTPUT_SCHEMA, GeminiClient
 
 
 def test_generate_returns_parsed_dict_from_response_text():

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from idol_sight.collectors.base import CollectionResult
@@ -78,7 +78,7 @@ def generate_weekly(
     )
     items = parsed.get("items") or []
 
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     statements: list[tuple[str, list]] = []
     for item in items:
         statements.append((

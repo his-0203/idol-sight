@@ -2,9 +2,8 @@ import pytest
 
 from idol_sight.config import (
     GroupConfig,
-    Settings,
-    load_settings,
     MissingEnv,
+    load_settings,
 )
 
 

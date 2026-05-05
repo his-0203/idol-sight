@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from idol_sight.meta import record_attempt, record_success, record_failure
+from idol_sight.meta import record_attempt, record_failure, record_success
 
 
 def test_record_attempt_upserts_meta_row():

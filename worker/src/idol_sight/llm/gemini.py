@@ -52,7 +52,7 @@ class GeminiClient:
     def __init__(self, api_key: str, client: Any | None = None,
                  model: str = "gemini-2.5-flash"):
         if client is None:
-            from google import genai                       # local import to keep tests fast
+            from google import genai  # local import to keep tests fast
             client = genai.Client(api_key=api_key)
         self._client = client
         self._model = model

@@ -29,7 +29,8 @@ def test_build_agg_summary_emits_one_upsert_per_group():
             {"group_key": "isedol", "n": 365},
         ],
         "youtube_videos": [
-            {"group_key": "plave",  "n_videos": 24, "total_views": 160608883, "subscribers": 1140000},
+            {"group_key": "plave", "n_videos": 24, "total_views": 160608883,
+             "subscribers": 1140000},
         ],
         "twitter_posts": [
             {"group_key": "plave", "n": 30, "controversy_count": 0},
@@ -44,7 +45,7 @@ def test_build_agg_summary_emits_one_upsert_per_group():
     assert len(upserts) == 2   # plave + isedol
 
     # Find PLAVE row params and verify counts.
-    for sql, params in statements:
+    for _sql, params in statements:
         if "plave" in params:
             # params order: group_key, snapshot_at, yt_videos, yt_views, yt_subs,
             #               dc_posts, theqoo_posts, instiz_posts, naver, twitter, controversy

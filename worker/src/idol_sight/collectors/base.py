@@ -21,7 +21,7 @@ class CollectionResult:
     errors: list[str] = field(default_factory=list)
     runtime_ms: int = 0
 
-    def merge(self, other: "CollectionResult") -> "CollectionResult":
+    def merge(self, other: CollectionResult) -> CollectionResult:
         return CollectionResult(
             rows_inserted=self.rows_inserted + other.rows_inserted,
             rows_updated=self.rows_updated + other.rows_updated,

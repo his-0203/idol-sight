@@ -1,4 +1,3 @@
-import httpx
 from pytest_httpx import HTTPXMock
 
 from idol_sight.notify import notify_failure

@@ -1,7 +1,6 @@
-import json
 from datetime import date, timedelta
 
-from idol_sight.analysis.health_score import compute_health_score, WEIGHTS
+from idol_sight.analysis.health_score import WEIGHTS, compute_health_score
 
 
 def _agg(**kw):

@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import typer
 
@@ -18,7 +17,7 @@ from idol_sight.collectors.naver import NaverCollector
 from idol_sight.collectors.theqoo import TheQooCollector
 from idol_sight.collectors.twitter import TwitterCollector
 from idol_sight.collectors.youtube import YouTubeCollector
-from idol_sight.config import GroupConfig, load_settings, Settings
+from idol_sight.config import GroupConfig, Settings, load_settings
 from idol_sight.d1 import D1Client
 from idol_sight.notify import notify_failure
 from idol_sight.orchestrator import run_collector
@@ -150,7 +149,7 @@ def notify_fail(job: str = typer.Option(..., "--job")) -> None:
     notify_failure(
         webhook_url=webhook,
         job=job,
-        error=f"job failed at {datetime.now(timezone.utc).isoformat()}",
+        error=f"job failed at {datetime.now(UTC).isoformat()}",
     )
     typer.echo(f"notified: {job}")
 
@@ -160,7 +159,7 @@ def aggregate() -> None:
     from idol_sight.analysis.agg_summary import build_agg_summary
     settings = load_settings()
     client = _make_d1_client(settings)
-    snap = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00:00Z")
+    snap = datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
     result = build_agg_summary(client, snapshot_at=snap)
     if result.statements:
         bs = client.batch(result.statements)
@@ -171,7 +170,10 @@ def aggregate() -> None:
     typer.echo(f"agg_summary upserted {len(result.statements)} groups at {snap}")
 
 
-@app.command("health-check", help="Report jobs whose last_success_at is older than expected_interval * 4.")
+@app.command(
+    "health-check",
+    help="Report jobs whose last_success_at exceeds expected_interval * 4.",
+)
 def health_check() -> None:
     from idol_sight.cli_health import audit_freshness
     settings = load_settings()
@@ -182,7 +184,9 @@ def health_check() -> None:
         return
     webhook = settings.discord_webhook
     for s in stale:
-        msg = f"{s['job']}: last_success_at={s.get('last_success_at') or 'never'} (age_h={s.get('age_h')})"
+        last = s.get("last_success_at") or "never"
+        age = s.get("age_h")
+        msg = f"{s['job']}: last_success_at={last} (age_h={age})"
         typer.echo(f"STALE: {msg}", err=True)
         notify_failure(webhook_url=webhook, job=s["job"], error=msg)
     raise typer.Exit(code=1)
@@ -195,7 +199,7 @@ def analyze_weekly(
 ) -> None:
     settings = load_settings()
     client = _make_d1_client(settings)
-    snap = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00:00Z")
+    snap = datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
 
     # 1. Hanteo (global fetch)
     hanteo_collector = HanteoCollector(
@@ -313,7 +317,10 @@ def analyze_weekly(
 
     # 3. Member popularity (one per active group)
     from idol_sight.analysis.member_popularity import (
-        compute_member_popularity, to_statements as mp_to_statements,
+        compute_member_popularity,
+    )
+    from idol_sight.analysis.member_popularity import (
+        to_statements as mp_to_statements,
     )
     member_stmts: list = []
     for g in _load_active_groups(client):

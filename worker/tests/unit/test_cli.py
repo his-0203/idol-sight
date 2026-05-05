@@ -22,6 +22,7 @@ def test_collect_naver_dispatches_orchestrator(monkeypatch):
     """`collect --source naver --group plave` constructs NaverCollector,
     loads GroupConfig from D1, runs orchestrator, and exits 0."""
     from unittest.mock import MagicMock
+
     import idol_sight.cli as cli
 
     fake_group = MagicMock(name="GroupConfig", key="plave")
@@ -43,6 +44,7 @@ def test_collect_naver_dispatches_orchestrator(monkeypatch):
 
 def test_collect_failure_exits_nonzero(monkeypatch):
     from unittest.mock import MagicMock
+
     import idol_sight.cli as cli
 
     fake_group = MagicMock(name="GroupConfig", key="plave")
@@ -66,6 +68,7 @@ def test_notify_fail_requires_job():
 
 def test_collect_youtube_dispatches_youtube_collector(monkeypatch):
     from unittest.mock import MagicMock
+
     import idol_sight.cli as cli
 
     fake_group = MagicMock(name="GroupConfig", key="plave")

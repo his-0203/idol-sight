@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 
@@ -29,7 +29,7 @@ class SelectorsStore:
         self._c = client
 
     def save(self, site: str, selector_key: str, serialized: str) -> None:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         self._c.execute(_UPSERT, [site, selector_key, serialized, now])
 
     def load(self, site: str, selector_key: str) -> str | None:

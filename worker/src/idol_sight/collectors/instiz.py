@@ -22,7 +22,7 @@ a real browser.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
@@ -61,7 +61,7 @@ class InstizCollector:
             if any(kw in r["title"] for kw in group.context_keywords)
         ]
 
-        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         statements: list[tuple[str, list[Any]]] = []
 
         for r in relevant:
