@@ -1,7 +1,10 @@
 import { d1Query, type D1Database } from "../lib/d1";
 import { jsonResponse } from "../lib/jsonResponse";
 
-interface GroupRow { key: string; name: string; name_kr: string; debut_date: string | null }
+interface GroupRow {
+  key: string; name: string; name_kr: string; debut_date: string | null;
+  group_model: string | null;
+}
 
 interface SummaryRow {
   group_key: string; snapshot_at: string;
@@ -25,7 +28,7 @@ const safeJson = (s: string | null) => { try { return s ? JSON.parse(s) : {}; } 
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
   const groups = await d1Query<GroupRow>(env.DB,
-    "SELECT key, name, name_kr, debut_date FROM groups WHERE is_active=1 ORDER BY key");
+    "SELECT key, name, name_kr, debut_date, group_model FROM groups WHERE is_active=1 ORDER BY key");
 
   const sums = await d1Query<SummaryRow>(env.DB,
     `SELECT * FROM agg_summary
@@ -52,6 +55,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     const h = healthByKey[g.key];
     out[g.key] = {
       name: g.name, name_kr: g.name_kr, debut_date: g.debut_date,
+      group_model: g.group_model ?? "corporate",
       summary: s ? {
         yt_total_videos: s.yt_total_videos, yt_total_views: s.yt_total_views,
         yt_subscribers: s.yt_subscribers,

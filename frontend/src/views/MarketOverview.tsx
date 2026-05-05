@@ -11,25 +11,71 @@ import { colorOf, fillOf } from "../design/groups";
 import { gradeClasses } from "../design/grades";
 import { fmtScale, fmtTooltipCallback } from "../design/chart-defaults";
 
-// Sort group entries by descending share — uses the latest market_share row
-// per group_key when available, falling back to summary.yt_total_views so a
-// group without a share row never disappears from the grid.
-function sortByShare(
+// Category derived from worker's group_model taxonomy (migration 0007).
+//   corporate     → K-POP (album-cycle, 음방, 컴백)
+//   segmentary    → 서브컬처 (왁타버스 위성)
+//   confederation → 서브컬처 (V-tuber 우산)
+// Splitting cards into category sections is what keeps ranks readable.
+// Mixing PLAVE (corporate K-pop) and STELLIVE (V-tuber confederation) on
+// one ranked grid implies they compete on the same plane, which they
+// don't — their KPIs are weighted differently in Health Score itself.
+type Category = "kpop" | "subculture";
+
+const CATEGORY_LABEL: Record<Category, string> = {
+  kpop:       "K-POP",
+  subculture: "서브컬처",
+};
+
+const CATEGORY_HINT: Record<Category, string> = {
+  kpop:       "Corporate (음반·음방·컴백 사이클)",
+  subculture: "Segmentary / Confederation (스트리밍·라이브·V-tuber)",
+};
+
+function categoryOf(groupModel: string | null | undefined): Category {
+  if (groupModel === "segmentary" || groupModel === "confederation") return "subculture";
+  return "kpop";
+}
+
+// Grade ordering — used as the primary sort key inside each category
+// section so the operator sees ranks at a glance. PRE (pre-debut) is
+// last because the grade is a placeholder, not an achievement.
+const GRADE_ORDER: Record<string, number> = {
+  S: 0, A: 1, B: 2, C: 3, D: 4, PRE: 5,
+};
+
+function gradeRank(grade: string | null | undefined): number {
+  const fallback = GRADE_ORDER.PRE ?? 99;
+  return GRADE_ORDER[grade ?? "PRE"] ?? fallback;
+}
+
+// Sort: grade ASC (S first) → total DESC → SOV DESC → name ASC.
+// `latestShareByKey` is read from share.rows so groups missing a Health
+// Score still get a sensible secondary order from cohort percentile.
+function sortByRank(
   entries: Array<[string, any]>,
-  shareRows: Array<{ week_end: string; group_key: string; final: number }> | undefined,
+  latestShareByKey: Record<string, number>,
 ): Array<[string, any]> {
-  let latestByKey: Record<string, number> = {};
-  if (shareRows && shareRows.length) {
-    const latestWeek = [...new Set(shareRows.map((r) => r.week_end))].sort().pop();
-    for (const r of shareRows) {
-      if (r.week_end === latestWeek) latestByKey[r.group_key] = r.final ?? 0;
-    }
-  }
   return [...entries].sort(([ka, ga], [kb, gb]) => {
-    const a = latestByKey[ka] ?? ga.summary?.yt_total_views ?? 0;
-    const b = latestByKey[kb] ?? gb.summary?.yt_total_views ?? 0;
-    return b - a;
+    const gradeDiff = gradeRank(ga.health_score?.grade) - gradeRank(gb.health_score?.grade);
+    if (gradeDiff !== 0) return gradeDiff;
+    const totalDiff = (gb.health_score?.total ?? -1) - (ga.health_score?.total ?? -1);
+    if (totalDiff !== 0) return totalDiff;
+    const sovDiff = (latestShareByKey[kb] ?? 0) - (latestShareByKey[ka] ?? 0);
+    if (sovDiff !== 0) return sovDiff;
+    return (ga.name ?? "").localeCompare(gb.name ?? "");
   });
+}
+
+function latestShareMap(
+  shareRows: Array<{ week_end: string; group_key: string; final: number }> | undefined,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!shareRows?.length) return out;
+  const latestWeek = [...new Set(shareRows.map((r) => r.week_end))].sort().pop();
+  for (const r of shareRows) {
+    if (r.week_end === latestWeek) out[r.group_key] = r.final ?? 0;
+  }
+  return out;
 }
 
 // Compute (currentWeekShare, previousWeekShare) per group_key from share.rows.
@@ -56,6 +102,7 @@ export function MarketOverview() {
   const [share, setShare] = useState<any>(null);
   const [meta, setMeta] = useState<any>(null);
   const [excludePlave, setExcludePlave] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<"all" | Category>("all");
   const shareCanvas = useRef<HTMLCanvasElement | null>(null);
   const shareChart = useRef<Chart | null>(null);
 
@@ -109,13 +156,28 @@ export function MarketOverview() {
     });
   }, [share, excludePlave]);
 
-  const sortedEntries = useMemo(
-    () => (market ? sortByShare(Object.entries(market.groups), share?.rows) : []),
-    [market, share],
-  );
+  const sharesByKey = useMemo(() => latestShareMap(share?.rows), [share]);
   const deltas = useMemo(() => shareDeltaByKey(share?.rows), [share]);
 
+  // Split into category buckets and rank within each. The same sort
+  // function is reused so cross-section ordering is internally
+  // consistent (e.g. an A-grade subculture group above a B-grade
+  // subculture group, never re-shuffled by category mixing).
+  const sectioned = useMemo(() => {
+    if (!market) return { kpop: [], subculture: [] } as Record<Category, Array<[string, any]>>;
+    const all = Object.entries(market.groups);
+    const kpop = all.filter(([, g]: any) => categoryOf(g.group_model) === "kpop");
+    const sub  = all.filter(([, g]: any) => categoryOf(g.group_model) === "subculture");
+    return {
+      kpop:       sortByRank(kpop, sharesByKey),
+      subculture: sortByRank(sub,  sharesByKey),
+    };
+  }, [market, sharesByKey]);
+
   if (!market) return <div class="p-4 text-zinc-500">Loading…</div>;
+
+  const sectionsToRender: Category[] =
+    activeCategory === "all" ? ["kpop", "subculture"] : [activeCategory];
 
   return (
     <div class="space-y-6">
@@ -131,66 +193,102 @@ export function MarketOverview() {
         </div>
       </div>
 
-      {/* group cards — all eight cards share the SAME scale (grade letter
-          primary, absolute values demoted to small supporting label).
-          Tiered visual weight: rank 1~3 = display, 4~6 = base, 7~8 = muted.
-          ▲/▼ chip surfaces week-over-week share movement so the operator
-          knows which groups are gaining/losing without scrolling to SOV. */}
-      <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
-        {sortedEntries.map(([key, g]: any, i: number) => {
-          const hs = g.health_score;
-          const grade = hs?.grade ?? "PRE";
-          const total = hs?.total;
-          const fallback = g.summary?.yt_subscribers ?? g.summary?.yt_total_views ?? null;
-          const d = deltas[key];
-          const dpp = d && d.prev != null ? d.current - d.prev : null;
-          const tier = i < 3 ? "primary" : i < 6 ? "base" : "muted";
-          return (
-            <button
-              key={key}
-              onClick={() => writeState({ tab: "content", group: key })}
-              class={
-                "card border-l-4 p-3 text-left transition-colors hover:border-brand " +
-                (i === 0 ? "md:col-span-2 " : "") +
-                (tier === "muted" ? "opacity-80 " : "")
-              }
-              style={{ borderLeftColor: colorOf(key) }}
-              aria-label={`${g.name} 상세 보기`}
-            >
-              <div class="flex items-baseline justify-between gap-2">
-                <div class="font-semibold">{g.name}</div>
-                {dpp != null && (
-                  <span
-                    class={
-                      "rounded-chip border px-1.5 text-hint tabular-nums " +
-                      (dpp > 0.05
-                        ? "border-emerald-500/40 text-emerald-400"
-                        : dpp < -0.05
-                        ? "border-red-500/40 text-red-400"
-                        : "border-zinc-700 text-zinc-500")
-                    }
-                  >
-                    {dpp > 0 ? "▲" : dpp < 0 ? "▼" : "·"} {Math.abs(dpp).toFixed(1)}pp
-                  </span>
-                )}
-              </div>
-              <div class="text-hint text-zinc-500">{g.name_kr}</div>
-              <div class={`mt-2 flex items-baseline gap-2 ${tier === "primary" ? "text-3xl" : tier === "base" ? "text-2xl" : "text-xl"}`}>
-                <span class={`rounded-chip border px-2 font-bold ${gradeClasses(grade)}`}>
-                  {grade}
-                </span>
-                <span class="text-hint text-zinc-500 tabular-nums">
-                  {total != null
-                    ? `${total}점`
-                    : fallback != null
-                    ? `${fmt(fallback)} 구독`
-                    : "집계 대기"}
-                </span>
-              </div>
-            </button>
-          );
-        })}
+      {/* Category filter — explicit toggle is helpful when the operator
+          wants to focus on a single cohort (e.g. comparing only K-POP
+          newcomers to MiiWAN's launch curve). Default 'all' shows both
+          sections stacked so ranks within each cohort are visible. */}
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <span class="text-zinc-500">코호트</span>
+        {([
+          { key: "all" as const,        label: "전체" },
+          { key: "kpop" as const,       label: "K-POP" },
+          { key: "subculture" as const, label: "서브컬처" },
+        ]).map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => setActiveCategory(c.key)}
+            class={"rounded-md border px-3 py-1 text-xs transition-colors " +
+              (activeCategory === c.key
+                ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
+          >{c.label}</button>
+        ))}
       </div>
+
+      {/* Per-category card grids — each section ranked grade DESC →
+          total DESC → SOV DESC. A numeric rank chip removes any doubt
+          about the order even when neighbouring cards share a grade. */}
+      {sectionsToRender.map((category) => {
+        const entries = sectioned[category];
+        if (!entries.length) return null;
+        return (
+          <section key={category}>
+            <div class="mb-2 flex flex-wrap items-baseline gap-2">
+              <h3 class="section-title">{CATEGORY_LABEL[category]}</h3>
+              <span class="text-hint text-zinc-500">{CATEGORY_HINT[category]}</span>
+              <span class="ml-auto text-hint text-zinc-500">{entries.length}그룹</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
+              {entries.map(([key, g]: any, i: number) => {
+                const hs = g.health_score;
+                const grade = hs?.grade ?? "PRE";
+                const total = hs?.total;
+                const fallback = g.summary?.yt_subscribers ?? g.summary?.yt_total_views ?? null;
+                const d = deltas[key];
+                const dpp = d && d.prev != null ? d.current - d.prev : null;
+                const tier = i === 0 ? "primary" : i < 2 ? "base" : "muted";
+                return (
+                  <button
+                    key={key}
+                    onClick={() => writeState({ tab: "content", group: key })}
+                    class={
+                      "card border-l-4 p-3 text-left transition-colors hover:border-brand " +
+                      (tier === "muted" ? "opacity-80 " : "")
+                    }
+                    style={{ borderLeftColor: colorOf(key) }}
+                    aria-label={`${g.name} 상세 보기`}
+                  >
+                    <div class="flex items-baseline gap-2">
+                      <span class="rounded bg-zinc-800/80 px-1.5 text-[11px] font-bold tabular-nums text-zinc-300">
+                        #{i + 1}
+                      </span>
+                      <div class="font-semibold">{g.name}</div>
+                      {dpp != null && (
+                        <span
+                          class={
+                            "ml-auto rounded-chip border px-1.5 text-hint tabular-nums " +
+                            (dpp > 0.05
+                              ? "border-emerald-500/40 text-emerald-400"
+                              : dpp < -0.05
+                              ? "border-red-500/40 text-red-400"
+                              : "border-zinc-700 text-zinc-500")
+                          }
+                        >
+                          {dpp > 0 ? "▲" : dpp < 0 ? "▼" : "·"} {Math.abs(dpp).toFixed(1)}pp
+                        </span>
+                      )}
+                    </div>
+                    <div class="text-hint text-zinc-500">{g.name_kr}</div>
+                    <div class={`mt-2 flex items-baseline gap-2 ${tier === "primary" ? "text-3xl" : tier === "base" ? "text-2xl" : "text-xl"}`}>
+                      <span class={`rounded-chip border px-2 font-bold ${gradeClasses(grade)}`}>
+                        {grade}
+                      </span>
+                      <span class="text-hint text-zinc-500 tabular-nums">
+                        {total != null
+                          ? `${total}점`
+                          : fallback != null
+                          ? `${fmt(fallback)} 구독`
+                          : "집계 대기"}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
 
       {/* SOV (Share of Voice) — line chart for ≥2 weeks, bar fallback for 1 week.
           Renamed from "Market Share" in V2: the 8-group cohort isn't a real
