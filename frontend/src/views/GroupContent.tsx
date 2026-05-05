@@ -117,6 +117,8 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
 
           <PlatformReactivity summary={data.summary} />
 
+          <AlbumLifecycle albums={data.albums ?? []} />
+
 
           <section class="rounded-lg border border-zinc-800 p-3">
             <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2 text-sm">
@@ -265,6 +267,111 @@ function CombinedToggle(props: {
         ))}
       </div>
     </section>
+  );
+}
+
+// Album lifecycle / dive curve. Hanteo collector captures weekly
+// sales per (group, album); we render a sparkline per album plus a
+// pattern label answering "what shape is this album's life cycle?"
+// — millennium-seller (W1 ≥ 1M), longrun (W4 still ≥ 30% of W1),
+// natural-decay (W4 < 30%), or rebound (peak after W1 = 역주행).
+const PATTERN_LABELS: Record<string, [string, string]> = {
+  // [label, color]
+  millennium:    ["밀리언",   "#ec4899"],
+  longrun:       ["롱런",     "#22c55e"],
+  naturaldecay:  ["자연 감소", "#71717a"],
+  rebound:       ["역주행",   "#f59e0b"],
+  "n/a":         ["측정 보류", "#52525b"],
+};
+
+function AlbumLifecycle({ albums }: { albums: any[] }) {
+  if (!albums.length) {
+    return (
+      <section class="rounded-lg border border-zinc-800 p-3">
+        <div class="flex items-center justify-between">
+          <h3 class="section-title">앨범 라이프사이클</h3>
+          <span class="text-hint text-zinc-500">
+            한터 데이터 없음 — 발매 후 자동 누적됩니다
+          </span>
+        </div>
+      </section>
+    );
+  }
+  return (
+    <section class="rounded-lg border border-zinc-800 p-3">
+      <div class="mb-2 flex flex-wrap items-center gap-2">
+        <h3 class="section-title">앨범 라이프사이클 ({albums.length}개)</h3>
+        <span class="text-hint text-zinc-500">
+          한터 주간 판매량 시계열. 패턴은 W4/W1 비율 기준으로 분류.
+        </span>
+      </div>
+      <ul class="space-y-3">
+        {albums.map((a: any) => (
+          <AlbumRow key={a.album} album={a} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function AlbumRow({ album }: { album: any }) {
+  const fallback: [string, string] = ["측정 보류", "#52525b"];
+  const [label, color] = PATTERN_LABELS[album.pattern] ?? fallback;
+  const w1 = album.first_week_sales ?? 0;
+  const peak = album.peak_sales ?? 0;
+  const decay = w1 > 0 ? Math.round((album.latest_sales / w1) * 100) : 0;
+  return (
+    <li class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2.5">
+      <div class="flex flex-wrap items-baseline gap-2">
+        <span class="font-semibold">{album.album}</span>
+        <span class="text-hint text-zinc-500">
+          {album.release_week_start ?? ""}
+        </span>
+        <span class="ml-auto rounded px-1.5 py-0.5 text-xs font-semibold"
+              style={{ backgroundColor: `${color}1a`, color }}>
+          {label}
+        </span>
+      </div>
+      <DiveSparkline weeks={album.weeks ?? []} color={color} />
+      <div class="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-hint
+                  text-zinc-500 md:grid-cols-4">
+        <span>W1 초동: <span class="text-zinc-300 tabular-nums">{fmt(w1)}</span></span>
+        <span>최근 주: <span class="text-zinc-300 tabular-nums">{fmt(album.latest_sales)}</span></span>
+        <span>피크: <span class="text-zinc-300 tabular-nums">{fmt(peak)}</span></span>
+        <span>유지율: <span class="text-zinc-300 tabular-nums">{decay}%</span></span>
+      </div>
+    </li>
+  );
+}
+
+function DiveSparkline({ weeks, color }: {
+  weeks: any[]; color: string;
+}) {
+  if (!weeks.length) return null;
+  const max = Math.max(...weeks.map((w) => w.sales ?? 0)) || 1;
+  const w = 240;
+  const h = 40;
+  const dx = weeks.length > 1 ? w / (weeks.length - 1) : 0;
+  const points = weeks.map((row, i) => {
+    const y = h - ((row.sales ?? 0) / max) * (h - 4) - 2;
+    return `${(i * dx).toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} class="mt-1 h-10 w-full max-w-[240px]"
+         preserveAspectRatio="none">
+      <polyline
+        fill="none"
+        stroke={color}
+        stroke-width="1.5"
+        points={points} />
+      {weeks.map((row, i) => {
+        const cx = i * dx;
+        const cy = h - ((row.sales ?? 0) / max) * (h - 4) - 2;
+        return (
+          <circle key={i} cx={cx} cy={cy} r={2} fill={color} />
+        );
+      })}
+    </svg>
   );
 }
 
