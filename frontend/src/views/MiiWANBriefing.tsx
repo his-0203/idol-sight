@@ -242,13 +242,9 @@ export function MiiWANBriefing() {
           <span class="font-semibold mr-2">전략 진단</span>{diag.line}
         </div>
 
-        <div class="mt-3 grid gap-3 md:grid-cols-3">
+        <div class="mt-3 grid gap-3 md:grid-cols-2">
           <DDayCard d={dToDebut} debuted={debuted} accent={accent} />
           <HealthCard h={data.health_score} />
-          <ChannelCoverageCard
-            total={data.members.length}
-            withSolo={data.members.filter((m) => m.has_solo_channel).length}
-          />
         </div>
       </section>
 
@@ -659,24 +655,6 @@ function HealthCard({ h }: { h: MiiwanData["health_score"] }) {
         <div class="text-lg font-semibold text-zinc-400">{h.grade}</div>
       </div>
       <div class="mt-0.5 text-hint text-zinc-500">{h.label ?? ""}</div>
-    </div>
-  );
-}
-
-function ChannelCoverageCard(
-  { total, withSolo }: { total: number; withSolo: number },
-) {
-  const pct = total > 0 ? Math.round((withSolo / total) * 100) : 0;
-  return (
-    <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-      <div class="text-xs uppercase tracking-wider text-zinc-500">멤버 커버리지</div>
-      <div class="mt-1 flex items-baseline gap-2">
-        <div class="text-3xl font-bold tabular-nums">{withSolo}/{total}</div>
-        <div class="text-sm text-zinc-500">{pct}%</div>
-      </div>
-      <div class="mt-0.5 text-hint text-zinc-500">
-        솔로 채널 등록 비율
-      </div>
     </div>
   );
 }
