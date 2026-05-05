@@ -65,22 +65,30 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
         const fallback = data.summary?.yt_subscribers ?? data.summary?.yt_total_views ?? null;
         return (
         <>
-          <section class="flex items-center gap-4 rounded-lg border border-zinc-800 p-3">
-            <div class={`grid h-20 w-20 place-items-center rounded-full bg-zinc-950 ring-2 ${GRADE_RING[hasHealth ? hs.grade : "PRE"]}`}>
-              <div class="text-2xl font-bold tabular-nums">
-                {hasHealth ? hs.total : (fallback != null ? fmt(fallback) : "—")}
+          <section class="rounded-lg border border-zinc-800 p-3">
+            <div class="flex items-center gap-4">
+              <div class={`grid h-20 w-20 place-items-center rounded-full bg-zinc-950 ring-2 ${GRADE_RING[hasHealth ? hs.grade : "PRE"]}`}>
+                <div class="text-2xl font-bold tabular-nums">
+                  {hasHealth ? hs.total : (fallback != null ? fmt(fallback) : "—")}
+                </div>
+                <div class="text-xs text-zinc-400">
+                  {hasHealth ? hs.grade : "집계 대기"}
+                </div>
               </div>
-              <div class="text-xs text-zinc-400">
-                {hasHealth ? hs.grade : "집계 대기"}
+              <div class="flex-1">
+                <div class="text-lg font-semibold">{data.name} <span class="text-zinc-500 text-sm">· {data.name_kr}</span></div>
+                <div class="text-xs text-zinc-400">
+                  {hasHealth ? hs.label : (fallback != null ? "구독자 (점수 미산출)" : "데뷔 전 (활동량 부족)")}
+                </div>
+                <HealthSpec />
               </div>
             </div>
-            <div>
-              <div class="text-lg font-semibold">{data.name} <span class="text-zinc-500 text-sm">· {data.name_kr}</span></div>
-              <div class="text-xs text-zinc-400">
-                {hasHealth ? hs.label : (fallback != null ? "구독자 (점수 미산출)" : "데뷔 전 (활동량 부족)")}
-              </div>
-              <HealthSpec />
-            </div>
+            {hasHealth && hs.breakdown && hs.breakdown._factors && (
+              <FactorBreakdown
+                factors={hs.breakdown._factors}
+                groupModel={hs.breakdown._group_model ?? "corporate"}
+              />
+            )}
           </section>
 
           <section class="grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -134,6 +142,84 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
         </>
         );
       })()}
+    </div>
+  );
+}
+
+// 4-factor Health Score breakdown bar (V2.5). Renders the four factor
+// scores as a stacked horizontal bar so the user can see at a glance
+// how the group model's weight distribution actually translated into
+// the final score. The bar widths are factor-score / max-possible-
+// factor-weight (i.e. a fraction of how much room each factor has
+// under the current group model), so identical 0.5 saturations across
+// factors render as identical bar widths instead of being scaled by
+// the model weights — that way the bar shows the *signal* component
+// independent of the weight, while the right-side number shows the
+// weighted contribution that actually flows into the score.
+const FACTOR_LABELS_KR: Record<string, string> = {
+  reach:        "Reach 도달",
+  ritual:       "Ritual 의례",
+  mobilization: "Mobilization 동원",
+  intimacy:     "Intimacy 친밀",
+};
+
+const FACTOR_COLORS: Record<string, string> = {
+  reach:        "#3b82f6",  // blue
+  ritual:       "#a855f7",  // purple
+  mobilization: "#f59e0b",  // amber
+  intimacy:     "#ec4899",  // pink
+};
+
+const MODEL_WEIGHTS: Record<string, Record<string, number>> = {
+  corporate:     { reach: 25, ritual: 30, mobilization: 30, intimacy: 15 },
+  segmentary:    { reach: 20, ritual: 15, mobilization: 25, intimacy: 40 },
+  confederation: { reach: 15, ritual: 10, mobilization: 20, intimacy: 55 },
+};
+
+const MODEL_LABELS_KR: Record<string, string> = {
+  corporate:     "Corporate (K-pop 정통)",
+  segmentary:    "Segmentary (왁타버스 위성)",
+  confederation: "Confederation (V-tuber 우산)",
+};
+
+function FactorBreakdown(props: {
+  factors: Record<string, number>;
+  groupModel: string;
+}) {
+  const weights = (MODEL_WEIGHTS[props.groupModel]
+                   ?? MODEL_WEIGHTS.corporate) as Record<string, number>;
+  const order: Array<keyof typeof FACTOR_LABELS_KR> =
+    ["reach", "ritual", "mobilization", "intimacy"];
+  return (
+    <div class="mt-3 space-y-1.5 border-t border-zinc-800/60 pt-3">
+      <div class="mb-1 flex items-center justify-between text-hint">
+        <span class="text-zinc-500">4-Factor 분해</span>
+        <span class="text-zinc-500">
+          {MODEL_LABELS_KR[props.groupModel] ?? props.groupModel}
+        </span>
+      </div>
+      {order.map((f) => {
+        const score = props.factors[f] ?? 0;
+        const weight = weights[f] ?? 0;
+        const saturation = weight > 0 ? Math.min(score / weight, 1) : 0;
+        return (
+          <div key={f} class="flex items-center gap-2 text-xs">
+            <span class="w-24 shrink-0 text-zinc-400">
+              {FACTOR_LABELS_KR[f]}
+            </span>
+            <div class="relative h-2 flex-1 overflow-hidden rounded bg-zinc-800/60">
+              <div class="absolute inset-y-0 left-0"
+                   style={{
+                     width: `${Math.round(saturation * 100)}%`,
+                     backgroundColor: FACTOR_COLORS[f],
+                   }} />
+            </div>
+            <span class="w-20 shrink-0 text-right tabular-nums text-zinc-400">
+              {score.toFixed(1)}<span class="text-zinc-600">/{weight}</span>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

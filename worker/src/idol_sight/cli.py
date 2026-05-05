@@ -324,7 +324,7 @@ def analyze_weekly(
         "SELECT group_key, yt_subscribers, yt_total_views, "
         "  yt_likes_total, yt_comments_total, "
         "  dc_total_posts, theqoo_posts, instiz_posts, "
-        "  naver_total_news, controversy_count "
+        "  naver_total_news, controversy_count, negative_ratio "
         "FROM agg_summary WHERE snapshot_at = "
         "  (SELECT MAX(snapshot_at) FROM agg_summary)"
     )
@@ -340,14 +340,25 @@ def analyze_weekly(
             "instiz_posts": r.get("instiz_posts") or 0,
             "naver_total_news": r.get("naver_total_news") or 0,
             "controversy_count": r.get("controversy_count") or 0,
+            "negative_ratio": r.get("negative_ratio") or 0,
         }
         for r in cohort_rows
     ]
     dyn_refs = compute_dynamic_refs(cohort) if cohort else None
     cohort_by_key = {c["key"]: c for c in cohort}
 
+    # Latest hanteo first-week sales per group (drives RitualVictory +
+    # Mobilization in the 4-factor model). The hanteo collector only
+    # captures groups whose initial-album article ran this week, so most
+    # rows are absent — we default to 0.
+    hanteo_rows = client.execute(
+        "SELECT group_key, MAX(sales) AS sales FROM hanteo_weekly "
+        "WHERE sales IS NOT NULL GROUP BY group_key"
+    )
+    hanteo_by_key = {r["group_key"]: (r.get("sales") or 0) for r in hanteo_rows}
+
     health_stmts: list = []
-    for g in _load_active_groups(client):
+    for g in _load_active_groups_full(client):
         s = cohort_by_key.get(g["key"])
         if not s:
             continue
@@ -361,10 +372,6 @@ def analyze_weekly(
             "WHERE group_key=? AND published_at >= datetime('now','-30 days')",
             [g["key"]],
         )
-        debut_rows = client.execute(
-            "SELECT debut_date FROM groups WHERE key=?", [g["key"]]
-        )
-        debut_date = debut_rows[0].get("debut_date") if debut_rows else None
         agg_dict = {
             "yt_subscribers": s["yt_subscribers"],
             "yt_total_views": s["yt_total_views"],
@@ -375,10 +382,15 @@ def analyze_weekly(
             "instiz_posts": s["instiz_posts"],
             "naver_total_news": s["naver_total_news"],
             "controversy_count": s["controversy_count"],
+            "negative_ratio": s.get("negative_ratio") or 0,
+            "hanteo_sales": hanteo_by_key.get(g["key"], 0),
             "v90_count": (v90[0].get("n", 0) if v90 else 0),
             "v30_count": (v30[0].get("n", 0) if v30 else 0),
         }
-        score = compute_health_score(g["key"], agg_dict, debut_date, refs=dyn_refs)
+        score = compute_health_score(
+            g["key"], agg_dict, g.get("debut_date"),
+            refs=dyn_refs, group_model=g.get("group_model"),
+        )
         health_stmts.append((
             "INSERT INTO agg_health_scores"
             " (group_key, snapshot_at, total, raw_total, grade, label,"
@@ -391,7 +403,17 @@ def analyze_weekly(
             "  bonus_json=excluded.bonus_json,"
             "  quality_method=excluded.quality_method",
             [g["key"], snap, score.total, score.raw_total, score.grade,
-             score.label, json.dumps(score.breakdown),
+             score.label,
+             # breakdown_json now carries both the legacy 6-component
+             # breakdown (for the existing /api/health/spec contract)
+             # and the V2.5 4-factor scores + the group_model the score
+             # was computed under, all in one JSON blob so we don't need
+             # a schema migration to expose them.
+             json.dumps({
+                 **score.breakdown,
+                 "_factors":     score.factors,
+                 "_group_model": score.group_model,
+             }),
              json.dumps(score.bonus), score.quality_method],
         ))
     if health_stmts:
@@ -521,6 +543,17 @@ def analyze_weekly(
 def _load_active_groups(client) -> list[dict]:
     return client.execute(
         "SELECT key, name, name_kr FROM groups WHERE is_active=1"
+    )
+
+
+def _load_active_groups_full(client) -> list[dict]:
+    """Same as _load_active_groups but pulls debut_date and group_model
+    too — needed by the 4-factor Health Score so it can apply the
+    correct model-specific weights and skip pre-debut groups.
+    """
+    return client.execute(
+        "SELECT key, name, name_kr, debut_date, group_model "
+        "FROM groups WHERE is_active=1"
     )
 
 

@@ -1,24 +1,54 @@
-"""Health Score (spec §7.1).
+"""Health Score (spec §7.1) — V2.5 4-factor model.
 
 Pure function — input dict, output HealthScore. The computation is
-intentionally small and centralised here so the frontend can request the
-same weights via /api/health/spec.
+intentionally small and centralised here so the frontend can request
+the same weights via /api/health/spec.
 
 REF values used to be hard-coded (subs=1M, views=200M, quality=10M,
 community=200K, news=500). That made PLAVE saturate at 1.0 across all
-five dimensions while every other group landed at 0.05–0.3 — the BI lost
-discrimination power for the bottom seven groups. We now compute REF
-dynamically from the cohort's p90 (the 90th-percentile value across all
-active groups in the same snapshot), so the scale stretches naturally
-as the market grows. ``compute_dynamic_refs`` returns the REFs and
-``compute_health_score`` accepts a ``refs`` dict to use instead of the
-fallback constants.
+five dimensions while every other group landed at 0.05–0.3 — the BI
+lost discrimination power for the bottom seven groups. We now compute
+REF dynamically from the cohort's p90 (the 90th-percentile value across
+all active groups in the same snapshot), so the scale stretches
+naturally as the market grows. ``compute_dynamic_refs`` returns the
+REFs and ``compute_health_score`` accepts a ``refs`` dict to use
+instead of the fallback constants.
 
 Quality is now an engagement-rate signal: (likes + 5·comments) / views
 across recent videos. The old "top10 average views" was really a
-viewership measure (correlates with channel size), not quality. The
-dataclass still exposes ``quality_method`` so the API can advertise
-which formula produced the number.
+viewership measure (correlates with channel size), not quality.
+
+V2.5 — 4-Factor model (Anthropologist's recommendation):
+
+The Health Score now decomposes into four bundles that match how an
+idol's traction actually accrues, not the raw signals it leaves behind:
+
+  Reach           구독자, 조회수, 뉴스 — raw audience size signals.
+  RitualVictory   chart entries, 음방 1위, hanteo / external collabs —
+                  ritual win events that the fandom organizes around.
+  Mobilization    초동 sales, 콘서트 매진, 멤버십 가입자, recent video
+                  cadence — fan dollars and fan time being put on the
+                  table for the group.
+  Intimacy        engagement_rate, community posts, livestream/collab
+                  signals — depth of fan relationship.
+
+The four factors carry **model-specific weights** keyed to a group's
+entity type (corporate / segmentary / confederation):
+
+  corporate     PLAVE-style — Reach 25, Ritual 30, Mobilization 30,
+                Intimacy 15 (ritual + mobilization = album-driven)
+  segmentary    ISEDOL-style — Reach 20, Ritual 15, Mobilization 25,
+                Intimacy 40 (intimacy weighted up — Waktaverse depends
+                on personal channels and live)
+  confederation STELLIVE-style — Reach 15, Ritual 10, Mobilization 20,
+                Intimacy 55 (intimacy dominant — V-tuber model)
+
+The function still emits the old 6-component breakdown
+(subscribers/views/quality/community/news/risk) for backward
+compatibility with existing callers and the /api/health/spec contract,
+but it adds a parallel ``factors`` dict that the frontend can render
+as the V2.5 view. Risk continues to multiply the base score (a
+controversy spike compresses every factor, not just one).
 """
 
 from __future__ import annotations
@@ -77,6 +107,36 @@ GRADE_LABELS = {
     "C": "초기 진입",  "D": "활동 미미",  "PRE": "데뷔 전 (활동량 부족)",
 }
 
+# V2.5 4-factor weights per group_model. Each row sums to 100 so the
+# percentage interpretation is direct ("PLAVE: 30% of its Health Score
+# comes from RitualVictory"). corporate is the safe default for any
+# group missing a model classification.
+FACTOR_WEIGHTS: dict[str, dict[str, int]] = {
+    "corporate": {
+        "reach":         25,
+        "ritual":        30,
+        "mobilization":  30,
+        "intimacy":      15,
+    },
+    "segmentary": {
+        "reach":         20,
+        "ritual":        15,
+        "mobilization":  25,
+        "intimacy":      40,
+    },
+    "confederation": {
+        "reach":         15,
+        "ritual":        10,
+        "mobilization":  20,
+        "intimacy":      55,
+    },
+}
+DEFAULT_GROUP_MODEL = "corporate"
+# Bonus stays an additive overlay, not part of the 4-factor split — it's
+# a recency reward that shouldn't depend on the group model.
+FACTOR_BONUS_MAX = 10
+FACTOR_DENOM = 100 + FACTOR_BONUS_MAX  # = 110
+
 
 @dataclass
 class HealthScore:
@@ -87,6 +147,9 @@ class HealthScore:
     breakdown: dict[str, float] = field(default_factory=dict)
     bonus: dict[str, float] = field(default_factory=dict)
     quality_method: str = "n/a"
+    # V2.5 additions — non-breaking. Older callers ignore these.
+    factors: dict[str, float] = field(default_factory=dict)
+    group_model: str = DEFAULT_GROUP_MODEL
 
 
 def _is_pre_debut(debut_date: str | None) -> bool:
@@ -199,21 +262,72 @@ def _recent_bonus(v90: int, v30: int) -> tuple[float, dict]:
                        "v90_cnt": v90, "v30_cnt": v30}
 
 
+def _factor_inputs(
+    agg: dict[str, Any], r: dict[str, float],
+) -> dict[str, float]:
+    """Compute the [0, 1] saturated value for each 4-factor component
+    BEFORE multiplying by the group-model weight. Returns a dict keyed
+    on factor name. Each factor blends 1-3 normalized signals.
+    """
+    sub_n = _normalize(agg.get("yt_subscribers", 0), r["subscribers"])
+    view_n = _normalize(agg.get("yt_total_views", 0), r["views"])
+    news_n = _normalize(agg.get("naver_total_news", 0), r["news"])
+    eng_n = _normalize(_engagement_rate(agg), r["quality"])
+    comm_total = (agg.get("dc_total_posts", 0)
+                  + agg.get("theqoo_posts", 0)
+                  + agg.get("instiz_posts", 0))
+    comm_n = _normalize(comm_total, r["community"])
+
+    # Hanteo-driven mobilization (initial-week sales) when we have it.
+    # Defaults to 0 when not provided (most groups, most weeks).
+    hanteo_sales = float(agg.get("hanteo_sales", 0) or 0)
+    # 1.0 saturates around 1M album sales (PLAVE millennium-album scale).
+    hanteo_n = min(hanteo_sales / 1_000_000.0, 1.0)
+
+    # V2 sentiment polarity. negative_ratio in [0, 1] — 0 = no negative
+    # signal, 1 = all classified posts negative/controversy. We interpret
+    # high negativity as compressing intimacy (fans aren't intimate, they
+    # are upset).
+    neg_ratio = float(agg.get("negative_ratio", 0) or 0)
+    intimacy_compression = max(0.0, 1.0 - neg_ratio)
+
+    return {
+        # Reach — raw audience size: subscribers, views, news exposure.
+        "reach": (sub_n * 0.5 + view_n * 0.35 + news_n * 0.15),
+        # RitualVictory — initial-album mobilization (Hanteo) + news
+        # spike that often correlates with chart entries. We don't have
+        # explicit "음방 1위" signal yet — that's a future P0.
+        "ritual": (hanteo_n * 0.7 + news_n * 0.3),
+        # Mobilization — recent video cadence (proxy for active output)
+        # + raw views (fans showing up). v90/v30 counts get folded into
+        # the bonus, so here we use views and an album signal.
+        "mobilization": (view_n * 0.5 + hanteo_n * 0.35 + sub_n * 0.15),
+        # Intimacy — engagement rate + community activity, compressed by
+        # negative sentiment ratio.
+        "intimacy": ((eng_n * 0.55 + comm_n * 0.45) * intimacy_compression),
+    }
+
+
 def compute_health_score(
     group_key: str,
     agg: dict[str, Any],
     debut_date: str | None,
     *,
     refs: dict[str, float] | None = None,
+    group_model: str | None = None,
 ) -> HealthScore:
     if _is_pre_debut(debut_date):
         return HealthScore(
             total=None, raw_total=None,
             grade="PRE", label=GRADE_LABELS["PRE"],
+            group_model=group_model or DEFAULT_GROUP_MODEL,
         )
 
     r = {**DEFAULT_REFS, **(refs or {})}
+    model = group_model if group_model in FACTOR_WEIGHTS else DEFAULT_GROUP_MODEL
+    weights = FACTOR_WEIGHTS[model]
 
+    # ── Old 6-component breakdown (kept for backwards compatibility).
     sub_score = (
         _normalize(agg.get("yt_subscribers", 0), r["subscribers"])
         * WEIGHTS["subscribers"]
@@ -233,18 +347,30 @@ def compute_health_score(
     news_score = (
         _normalize(agg.get("naver_total_news", 0), r["news"]) * WEIGHTS["news"]
     )
-    risk_score = (
-        _controversy_factor(agg.get("controversy_count", 0)) * WEIGHTS["risk"]
-    )
 
-    base = sub_score + view_score + qual_score + comm_score + news_score + risk_score
+    # ── V2.5 4-factor scores. Each saturated component gets multiplied
+    #    by the model-specific weight, then the factor totals are
+    #    multiplied by the controversy factor (so a scandal compresses
+    #    *all four* dimensions, not just risk).
+    risk_factor = _controversy_factor(agg.get("controversy_count", 0))
+    fi = _factor_inputs(agg, r)
+    factor_scores = {
+        name: round(fi[name] * weights[name] * risk_factor, 2)
+        for name in ("reach", "ritual", "mobilization", "intimacy")
+    }
+    factor_base = sum(factor_scores.values())
+
     bonus_total, bonus_dict = _recent_bonus(
         agg.get("v90_count", 0), agg.get("v30_count", 0),
     )
 
-    raw_total = base + bonus_total
-    total = round(raw_total / DENOM * 10.0, 1)
+    raw_total = factor_base + bonus_total
+    total = round(raw_total / FACTOR_DENOM * 10.0, 1)
     grade = next(g for thr, g in GRADE_THRESHOLDS if total >= thr)
+
+    # Risk score for the legacy breakdown — same factor, scaled by the
+    # legacy WEIGHTS["risk"]. Doesn't enter the 4-factor total.
+    risk_score = risk_factor * WEIGHTS["risk"]
 
     return HealthScore(
         total=total, raw_total=round(raw_total, 2),
@@ -259,4 +385,6 @@ def compute_health_score(
         },
         bonus=bonus_dict,
         quality_method=("engagement_rate" if eng_rate > 0 else "engagement_rate_zero"),
+        factors=factor_scores,
+        group_model=model,
     )
