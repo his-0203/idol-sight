@@ -184,22 +184,65 @@ export function MarketOverview() {
         })}
       </div>
 
-      {/* market share chart */}
-      <section class="card">
-        <div class="mb-2 flex flex-wrap items-center gap-2 text-data">
-          <h3 class="section-title">Market Share Trend (13주)</h3>
-          <HealthSpec />
-          <label class="ml-auto flex items-center gap-1 text-hint text-zinc-400">
-            <input type="checkbox" checked={excludePlave}
-                   onChange={(e: any) => setExcludePlave(e.currentTarget.checked)} />
-            PLAVE 제외
-          </label>
-          <ExportMenu canvas={shareCanvas.current ?? undefined}
-                       rows={share?.rows ?? []}
-                       filenameBase="market-share" />
-        </div>
-        <div class="h-48 md:h-72"><canvas ref={shareCanvas}></canvas></div>
-      </section>
+      {/* market share — line chart for ≥2 weeks, bar fallback for 1 week */}
+      {(() => {
+        const distinctWeeks = share
+          ? Array.from(new Set<string>(share.rows.map((r: any) => r.week_end)))
+          : [];
+        const hasTrend = distinctWeeks.length >= 2;
+        return (
+          <section class="card">
+            <div class="mb-2 flex flex-wrap items-center gap-2 text-data">
+              <h3 class="section-title">
+                Market Share {hasTrend ? "Trend (13주)" : "(현재 주)"}
+              </h3>
+              <HealthSpec />
+              {hasTrend && (
+                <label class="ml-auto flex items-center gap-1 text-hint text-zinc-400">
+                  <input type="checkbox" checked={excludePlave}
+                         onChange={(e: any) => setExcludePlave(e.currentTarget.checked)} />
+                  PLAVE 제외
+                </label>
+              )}
+              <ExportMenu canvas={shareCanvas.current ?? undefined}
+                           rows={share?.rows ?? []}
+                           filenameBase="market-share" />
+            </div>
+            {hasTrend ? (
+              <div class="h-48 md:h-72"><canvas ref={shareCanvas}></canvas></div>
+            ) : share && share.rows.length > 0 ? (
+              <>
+                <div class="mb-2 text-hint text-zinc-500">
+                  추이 그래프는 데이터 2주 이상 누적 시 활성화됩니다 (현재 1주차).
+                  지금은 이번 주 점유율만 표시.
+                </div>
+                <ul class="space-y-1.5">
+                  {[...share.rows].sort((a: any, b: any) => b.final - a.final).map((r: any) => (
+                    <li key={r.group_key} class="flex items-center gap-2 text-data">
+                      <span class="w-20 shrink-0 truncate"
+                            style={{ color: colorOf(r.group_key) }}>
+                        {(market.groups[r.group_key]?.name) ?? r.group_key.toUpperCase()}
+                      </span>
+                      <div class="relative h-2 flex-1 overflow-hidden rounded bg-zinc-800/60">
+                        <div class="absolute inset-y-0 left-0"
+                             style={{
+                               width: `${Math.min(r.final, 100)}%`,
+                               background: colorOf(r.group_key),
+                             }} />
+                      </div>
+                      <span class="w-14 shrink-0 text-right tabular-nums">
+                        {r.final.toFixed(1)}%
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <div class="text-hint text-zinc-500">아직 점유율 데이터가 없습니다.</div>
+            )}
+          </section>
+        );
+      })()}
 
       {/* YT views bar */}
       <section class="card">

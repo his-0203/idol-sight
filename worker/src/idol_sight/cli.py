@@ -84,6 +84,21 @@ def _load_group(client: D1Client, key: str) -> GroupConfig:
     if not rows:
         raise RuntimeError(f"group {key!r} not in D1 or inactive")
     r = rows[0]
+    base_kw = json.loads(r.get("context_keywords") or "[]")
+    # Augment context keywords with active member names so cross-site
+    # collectors (theqoo/instiz hot lists) match member-focused posts too,
+    # not only ones that mention the group name. We dedupe to avoid bloat.
+    member_rows = client.execute(
+        "SELECT name FROM members WHERE group_key=? AND active=1",
+        [key],
+    )
+    member_names = [m["name"] for m in member_rows if m.get("name")]
+    seen: set[str] = set()
+    merged: list[str] = []
+    for kw in [*base_kw, *member_names]:
+        if kw and kw not in seen:
+            seen.add(kw)
+            merged.append(kw)
     return GroupConfig(
         key=r["key"],
         name=r["name"], name_kr=r["name_kr"],
@@ -91,7 +106,7 @@ def _load_group(client: D1Client, key: str) -> GroupConfig:
         yt_channel_id=r.get("yt_channel_id"),
         dc_gallery_id=r.get("dc_gallery_id"),
         naver_query=r.get("naver_query"),
-        context_keywords=json.loads(r.get("context_keywords") or "[]"),
+        context_keywords=merged,
         blacklist_phrases=json.loads(r.get("blacklist_phrases") or "[]"),
         twitter_handles=json.loads(r.get("twitter_handles") or "[]"),
     )
@@ -302,34 +317,64 @@ def analyze_weekly(
     )
     member_stmts: list = []
     for g in _load_active_groups(client):
+        # Strategy:
+        # - yt_score: ① solo channel subscribers (10K=10pts, capped 100)
+        #             ② if no solo channel, fall back to AVG views of group videos
+        #                whose title mentions the member name (1M views=10pts).
+        # - community_score: count of mentions across community_posts AND
+        #                    naver_articles whose title contains member name.
         members_raw = client.execute(
             "SELECT m.id, m.name, "
-            "  COALESCE(MAX(c.subscribers),0) AS yt_score, "
-            "  COALESCE((SELECT COUNT(*) FROM community_posts cp "
-            "             WHERE cp.group_key = m.group_key "
-            "               AND cp.title LIKE '%' || m.name || '%'), 0) AS comm_mentions, "
-            "  COUNT(DISTINCT v.video_id) AS yt_videos, "
-            "  COALESCE(AVG(s.views), 0) AS yt_avg_views "
+            "  COALESCE(MAX(c.subscribers), 0) AS solo_subscribers, "
+            "  ("
+            "    SELECT COALESCE(AVG(s2.views), 0) FROM youtube_video_stats s2 "
+            "    JOIN youtube_videos v2 ON v2.video_id = s2.video_id "
+            "    WHERE v2.group_key = m.group_key "
+            "      AND v2.title LIKE '%' || m.name || '%' "
+            "      AND s2.snapshot_at = ("
+            "        SELECT MAX(snapshot_at) FROM youtube_video_stats "
+            "        WHERE video_id = s2.video_id)"
+            "  ) AS group_video_avg_views, "
+            "  ("
+            "    SELECT COUNT(*) FROM youtube_videos v3 "
+            "    WHERE v3.group_key = m.group_key "
+            "      AND v3.title LIKE '%' || m.name || '%'"
+            "  ) AS group_video_mention_count, "
+            "  ("
+            "    SELECT COUNT(*) FROM community_posts cp "
+            "    WHERE cp.group_key = m.group_key "
+            "      AND cp.title LIKE '%' || m.name || '%'"
+            "  ) + ("
+            "    SELECT COUNT(*) FROM naver_articles na "
+            "    WHERE na.group_key = m.group_key "
+            "      AND COALESCE(na.is_excluded, 0) = 0 "
+            "      AND na.title LIKE '%' || m.name || '%'"
+            "  ) AS comm_mentions "
             "FROM members m "
-            "LEFT JOIN youtube_videos v ON v.channel_id = m.yt_channel_id "
-            "LEFT JOIN youtube_video_stats s ON s.video_id = v.video_id "
-            "LEFT JOIN youtube_channel_stats c ON c.channel_id = m.yt_channel_id "
-            "WHERE m.group_key = ? AND m.active = 1 "
-            "GROUP BY m.id",
+            "WHERE m.group_key = ? AND m.active = 1",
             [g["key"]],
         )
-        members = [
-            {
+        members = []
+        for m in members_raw:
+            solo_subs = m.get("solo_subscribers", 0) or 0
+            group_avg = m.get("group_video_avg_views", 0) or 0
+            video_mentions = m.get("group_video_mention_count", 0) or 0
+            comm_mentions = m.get("comm_mentions", 0) or 0
+            # YT score: solo channel takes precedence; otherwise group-video proxy.
+            if solo_subs > 0:
+                yt_score = min(solo_subs / 10_000.0, 100.0)
+            else:
+                yt_score = min(group_avg / 100_000.0, 100.0)  # 10M views=100
+            comm_score = min(comm_mentions, 100)
+            members.append({
                 "name": m["name"],
-                "yt_score": min(m["yt_score"] / 10_000, 100),
-                "community_score": min(m["comm_mentions"], 100),
-                "yt_videos": m["yt_videos"],
-                "yt_avg_views": int(m["yt_avg_views"]),
-                "yt_sufficient": m["yt_videos"] >= 3,
-                "community_mentions": m["comm_mentions"],
-            }
-            for m in members_raw
-        ]
+                "yt_score": yt_score,
+                "community_score": comm_score,
+                "yt_videos": video_mentions,
+                "yt_avg_views": int(group_avg),
+                "yt_sufficient": video_mentions >= 3,
+                "community_mentions": comm_mentions,
+            })
         if not members:
             continue
         pop = compute_member_popularity(group_key=g["key"], members=members)
