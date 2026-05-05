@@ -28,6 +28,7 @@ from typing import Any
 
 from scrapling import Fetcher, StealthyFetcher
 
+from idol_sight.analysis.relevance import is_relevant
 from idol_sight.collectors.base import CollectionResult
 from idol_sight.config import GroupConfig
 from idol_sight.utils.dates import parse_safe
@@ -56,10 +57,7 @@ class InstizCollector:
             page = self._stealthy.fetch(LIST_URL, headless=True, network_idle=True)
             rows = self._parse(page)
 
-        relevant = [
-            r for r in rows
-            if any(kw in r["title"] for kw in group.context_keywords)
-        ]
+        relevant = [r for r in rows if is_relevant(r["title"], group)]
 
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         statements: list[tuple[str, list[Any]]] = []

@@ -50,6 +50,7 @@ from typing import Any
 
 from scrapling import StealthyFetcher
 
+from idol_sight.analysis.relevance import is_global_spam
 from idol_sight.collectors.base import CollectionResult
 from idol_sight.config import GroupConfig
 from idol_sight.utils.dates import parse_safe
@@ -88,6 +89,12 @@ class DcCollector:
 
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         statements: list[tuple[str, list[Any]]] = []
+
+        # DC galleries are group-scoped, so we keep every us-post row by
+        # default. The one exception is global spam phrases (양도/팝니다/
+        # [광고]/도배): even inside a group's gallery these are noise,
+        # not signal, and the operator has no use for them in BI views.
+        rows = [r for r in rows if not is_global_spam(r.get("title", ""))]
 
         for r in rows:
             uh = url_hash(r["url"])
