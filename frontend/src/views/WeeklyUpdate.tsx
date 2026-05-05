@@ -12,10 +12,10 @@ export function WeeklyUpdate() {
     <div class="space-y-6">
       {data.insights.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
-          <h3 class="mb-2 text-sm font-semibold">Weekly Insights ({data.insights.length})</h3>
+          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">Weekly Insights ({data.insights.length})</h3>
           <ul class="space-y-2 text-sm">
             {data.insights.map((i: any) => (
-              <li key={i.id} class="rounded border border-zinc-800/60 p-2">
+              <li key={i.id} class="rounded-md border border-zinc-800/60 p-2">
                 <div class="text-xs text-zinc-500">{i.scope} · {i.week_start}</div>
                 <div class="font-semibold">{i.title}</div>
                 <div class="text-xs text-zinc-400">{i.body}</div>
@@ -29,45 +29,49 @@ export function WeeklyUpdate() {
 
       {data.hanteo.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
-          <h3 class="mb-2 text-sm font-semibold">Hanteo Weekly</h3>
-          <table class="w-full text-xs">
-            <thead><tr class="text-left text-zinc-500">
-              <th class="py-1">#</th><th>Group</th><th>Album</th><th class="text-right">Sales</th>
-            </tr></thead>
-            <tbody>
-              {data.hanteo.map((h: any) => (
-                <tr key={`${h.group_key}-${h.album}`} class="border-t border-zinc-800/60">
-                  <td class="py-1">{h.rank}</td>
-                  <td>{h.group_key}</td>
-                  <td>{h.album}</td>
-                  <td class="text-right tabular-nums">{fmt(h.sales)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">Hanteo Weekly</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead><tr class="text-left text-zinc-500">
+                <th class="py-1">#</th><th>Group</th><th>Album</th><th class="text-right">Sales</th>
+              </tr></thead>
+              <tbody>
+                {data.hanteo.map((h: any) => (
+                  <tr key={`${h.group_key}-${h.album}`} class="border-t border-zinc-800/60">
+                    <td class="py-1">{h.rank}</td>
+                    <td>{h.group_key}</td>
+                    <td>{h.album}</td>
+                    <td class="text-right tabular-nums">{fmt(h.sales)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 
       <section class="rounded-lg border border-zinc-800 p-3">
-        <h3 class="mb-2 text-sm font-semibold">Group Totals (현재 누적)</h3>
-        <table class="w-full text-xs">
-          <thead><tr class="text-left text-zinc-500">
-            <th class="py-1">Group</th><th class="text-right">총 조회수</th><th class="text-right">총 DC 글</th>
-          </tr></thead>
-          <tbody>
-            {data.movers.map((m: any) => (
-              <tr key={m.group_key} class="border-t border-zinc-800/60">
-                <td class="py-1">{m.group_key}</td>
-                <td class="text-right tabular-nums">
-                  {m.d_views == null ? "—" : fmt(m.d_views)}
-                </td>
-                <td class="text-right tabular-nums">
-                  {m.d_dc == null ? "—" : fmt(m.d_dc)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">Group Totals (현재 누적)</h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead><tr class="text-left text-zinc-500">
+              <th class="py-1">Group</th><th class="text-right">총 조회수</th><th class="text-right">총 DC 글</th>
+            </tr></thead>
+            <tbody>
+              {data.movers.map((m: any) => (
+                <tr key={m.group_key} class="border-t border-zinc-800/60">
+                  <td class="py-1">{m.group_key}</td>
+                  <td class="text-right tabular-nums">
+                    {m.d_views == null ? "—" : fmt(m.d_views)}
+                  </td>
+                  <td class="text-right tabular-nums">
+                    {m.d_dc == null ? "—" : fmt(m.d_dc)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );

@@ -63,7 +63,7 @@ export function Members({ groupKey }: { groupKey: string | null }) {
         </div>
       </section>
       <section class="rounded-lg border border-zinc-800 p-3">
-        <h3 class="mb-2 text-sm font-semibold">멤버 복합 점수</h3>
+        <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">멤버 복합 점수</h3>
         <div class="h-48 md:h-64"><canvas ref={canvas}></canvas></div>
       </section>
       <section class="rounded-lg border border-zinc-800 p-3">

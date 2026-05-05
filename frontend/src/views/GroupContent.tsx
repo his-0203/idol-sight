@@ -92,8 +92,8 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
           </section>
 
           <section class="rounded-lg border border-zinc-800 p-3">
-            <div class="mb-2 flex flex-wrap items-center gap-2 text-sm">
-              <h3 class="font-semibold">YouTube Top 15</h3>
+            <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2 text-sm">
+              <h3 class="section-title">YouTube Top 15</h3>
               <div class="flex flex-wrap items-center gap-1">
                 {CONTENT_FILTERS.map((f) => (
                   <button

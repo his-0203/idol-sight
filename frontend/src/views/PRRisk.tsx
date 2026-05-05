@@ -45,7 +45,7 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
       </section>
       {news.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
-          <h3 class="mb-2 text-sm font-semibold">최근 뉴스</h3>
+          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">최근 뉴스</h3>
           <ul class="space-y-1 text-xs">
             {news.map((n: any, i: number) => (
               <li key={i}>
@@ -58,7 +58,7 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
       )}
       {tweets.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
-          <h3 class="mb-2 text-sm font-semibold">트위터/X</h3>
+          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">트위터/X</h3>
           <ul class="space-y-1 text-xs">
             {tweets.map((t: any) => (
               <li key={t.tweet_id}>
