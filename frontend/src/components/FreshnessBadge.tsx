@@ -31,7 +31,7 @@ export function FreshnessBadge(props: {
     : ageH < 48 ? `${Math.round(ageH)}시간 전`
     : `${Math.round(ageH / 24)}일 전`;
   return (
-    <span class={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] ${COLORS[f]}`}>
+    <span class={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${COLORS[f]}`}>
       <span>{ICONS[f]}</span>
       {props.label && <span class="text-zinc-300">{props.label}:</span>}
       <span>{ageText}</span>

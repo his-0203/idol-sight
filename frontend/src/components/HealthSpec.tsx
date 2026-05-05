@@ -8,7 +8,7 @@ export function HealthSpec() {
   return (
     <>
       <button
-        class="text-[10px] text-zinc-500 underline-offset-2 hover:underline"
+        class="text-xs text-zinc-500 underline-offset-2 hover:underline"
         onClick={() => setOpen(true)}
       >산식 보기</button>
       {open && (

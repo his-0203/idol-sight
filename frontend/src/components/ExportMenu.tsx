@@ -29,13 +29,13 @@ export function ExportMenu(props: { rows?: Record<string, unknown>[]; canvas?: H
     <div class="flex gap-1">
       {props.rows && (
         <button
-          class="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
+          class="rounded-md border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
           onClick={() => exportCsv(`${props.filenameBase}.csv`, props.rows!)}
         >CSV</button>
       )}
       {props.canvas && (
         <button
-          class="rounded border border-zinc-700 px-2 py-0.5 text-[10px] text-zinc-400 hover:bg-zinc-800"
+          class="rounded-md border border-zinc-700 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800"
           onClick={() => exportPng(props.canvas!, `${props.filenameBase}.png`)}
         >PNG</button>
       )}

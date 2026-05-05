@@ -51,7 +51,7 @@ export function SearchPalette() {
             </Section>}
             {results.community?.length > 0 && <Section title="Community">{results.community.map((c: any, i: number) =>
               <a key={i} class="block rounded px-2 py-1 hover:bg-zinc-800" href={c.url} target="_blank">
-                <span class="mr-1 text-[10px] text-zinc-500">[{c.platform}]</span>{c.title}</a>)}
+                <span class="mr-1 text-xs text-zinc-500">[{c.platform}]</span>{c.title}</a>)}
             </Section>}
           </div>
         )}
@@ -63,7 +63,7 @@ export function SearchPalette() {
 function Section({ title, children }: { title: string; children: any }) {
   return (
     <div>
-      <div class="mb-1 text-[10px] uppercase text-zinc-500">{title}</div>
+      <div class="mb-1 text-xs uppercase tracking-wider text-zinc-500">{title}</div>
       <div>{children}</div>
     </div>
   );
