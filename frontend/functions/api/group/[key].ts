@@ -60,6 +60,38 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
        FROM twitter_posts WHERE group_key=?
       ORDER BY posted_at DESC LIMIT 30`, [key]);
 
+  // V2.5: dual-entity combined views for the toggle (group_only / sum /
+  // weighted). Latest snapshot per method. We always return three rows
+  // when the worker has run aggregate at least once, even if some are
+  // identical (corporate groups with no member channels).
+  const combined = await d1Query<{
+    combined_method: string;
+    yt_subscribers_combined: number;
+    yt_views_combined: number;
+    yt_videos_combined: number;
+    group_subs: number;
+    member_subs: number;
+    active_member_channel_count: number;
+  }>(env.DB,
+    `SELECT combined_method, yt_subscribers_combined, yt_views_combined,
+            yt_videos_combined, group_subs, member_subs,
+            active_member_channel_count
+       FROM agg_group_combined
+      WHERE group_key=? AND snapshot_at=(
+        SELECT MAX(snapshot_at) FROM agg_group_combined WHERE group_key=?
+      )`, [key, key]);
+  const combinedByMethod: Record<string, unknown> = {};
+  for (const r of combined) {
+    combinedByMethod[r.combined_method] = {
+      subscribers: r.yt_subscribers_combined,
+      views:       r.yt_views_combined,
+      videos:      r.yt_videos_combined,
+      group_subs:  r.group_subs,
+      member_subs: r.member_subs,
+      member_channel_count: r.active_member_channel_count,
+    };
+  }
+
   return jsonResponse({
     group_key: group.key,
     name: group.name, name_kr: group.name_kr, debut_date: group.debut_date,
@@ -70,6 +102,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
       bonus: safeJson(health.bonus_json),
       quality_method: health.quality_method,
     } : null,
+    combined_views: combinedByMethod,   // {group_only, sum, weighted}
     yt_top15: ytTop,
     community_top: commTop,
     naver_articles: naver,

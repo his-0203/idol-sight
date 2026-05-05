@@ -171,6 +171,7 @@ def notify_fail(job: str = typer.Option(..., "--job")) -> None:
 @app.command(help="Build agg_summary for the current snapshot.")
 def aggregate() -> None:
     from idol_sight.analysis.agg_summary import build_agg_summary
+    from idol_sight.analysis.group_combined import build_agg_group_combined
     settings = load_settings()
     client = _make_d1_client(settings)
     snap = datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
@@ -182,6 +183,21 @@ def aggregate() -> None:
                        f"{bs.statements_executed}/{bs.statements_sent}", err=True)
             raise typer.Exit(code=1)
     typer.echo(f"agg_summary upserted {len(result.statements)} groups at {snap}")
+
+    # V2.5: build the dual-entity group/member combined views alongside.
+    # Three rows per group (group_only / sum / weighted) so the UI can
+    # toggle between "company-led media" and "members + group total"
+    # views without re-querying.
+    combined = build_agg_group_combined(client, snapshot_at=snap)
+    if combined.statements:
+        bs2 = client.batch(combined.statements)
+        if bs2.statements_executed != bs2.statements_sent:
+            typer.echo(f"partial agg_group_combined write: "
+                       f"{bs2.statements_executed}/{bs2.statements_sent}", err=True)
+            raise typer.Exit(code=1)
+    n_groups = (len(combined.statements) // 3) if combined.statements else 0
+    typer.echo(f"agg_group_combined: wrote {len(combined.statements)} rows "
+               f"(3 methods × ~{n_groups} groups)")
 
 
 @app.command(

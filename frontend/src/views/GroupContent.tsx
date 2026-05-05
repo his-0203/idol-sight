@@ -20,10 +20,13 @@ const CONTENT_FILTERS: Array<{ key: ContentFilter; label: string }> = [
   { key: "Live", label: "Live" },
 ];
 
+type CombinedMethod = "group_only" | "sum" | "weighted";
+
 export function GroupContent({ groupKey }: { groupKey: string | null }) {
   const [groups, setGroups] = useState<any[]>([]);
   const [data, setData] = useState<any>(null);
   const [contentFilter, setContentFilter] = useState<ContentFilter>("all");
+  const [combinedMethod, setCombinedMethod] = useState<CombinedMethod>("sum");
 
   useEffect(() => { api.groups().then((r) => setGroups(r.groups)); }, []);
   useEffect(() => {
@@ -91,10 +94,23 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
             )}
           </section>
 
+          <CombinedToggle
+            views={data.combined_views ?? {}}
+            method={combinedMethod}
+            onMethodChange={setCombinedMethod}
+          />
+
           <section class="grid grid-cols-2 gap-2 md:grid-cols-5">
-            <KPI label="영상"   value={data.summary?.yt_total_videos ?? 0} />
-            <KPI label="조회수" value={data.summary?.yt_total_views ?? 0} unit="(누적)" />
-            <KPI label="구독자" value={data.summary?.yt_subscribers ?? 0} />
+            <KPI label="영상"
+                 value={data.combined_views?.[combinedMethod]?.videos
+                        ?? data.summary?.yt_total_videos ?? 0} />
+            <KPI label="조회수"
+                 value={data.combined_views?.[combinedMethod]?.views
+                        ?? data.summary?.yt_total_views ?? 0}
+                 unit="(누적)" />
+            <KPI label="구독자"
+                 value={data.combined_views?.[combinedMethod]?.subscribers
+                        ?? data.summary?.yt_subscribers ?? 0} />
             <KPI label="DC 글" value={data.summary?.dc_total_posts ?? 0} />
             <KPI label="뉴스"   value={data.summary?.naver_total_news ?? 0} />
           </section>
@@ -181,6 +197,63 @@ const MODEL_LABELS_KR: Record<string, string> = {
   segmentary:    "Segmentary (왁타버스 위성)",
   confederation: "Confederation (V-tuber 우산)",
 };
+
+// Group/member dual-entity toggle. Renders only when the API surfaced
+// at least one combined_views row (i.e. agg_group_combined has been
+// built). For PLAVE-style groups with no member solo channels the
+// three methods produce identical numbers, so we still render the
+// toggle but with a hint explaining "no solo channels — all three
+// views identical".
+function CombinedToggle(props: {
+  views: Record<string, {
+    subscribers: number; views: number; videos: number;
+    group_subs: number; member_subs: number; member_channel_count: number;
+  }>;
+  method: "group_only" | "sum" | "weighted";
+  onMethodChange: (m: "group_only" | "sum" | "weighted") => void;
+}) {
+  const v = props.views[props.method];
+  if (!v) return null;
+  const total = v.group_subs + v.member_subs;
+  const groupPct = total > 0 ? Math.round((v.group_subs / total) * 100) : 0;
+  const memberPct = 100 - groupPct;
+  const noSolo = v.member_channel_count === 0;
+  const toggles: Array<["group_only" | "sum" | "weighted", string, string]> = [
+    ["group_only", "그룹 채널만",     "공식 미디어 활동만"],
+    ["sum",        "그룹 + 멤버 합산", "총 도달"],
+    ["weighted",   "가중합 (멤버×0.7)", "정규화"],
+  ];
+  return (
+    <section class="rounded-lg border border-zinc-800 p-3">
+      <div class="mb-2 flex flex-wrap items-center gap-2">
+        <h3 class="section-title">YouTube 합산 방식</h3>
+        {noSolo
+          ? <span class="text-hint text-zinc-500">
+              멤버 솔로 채널 없음 — 세 view 모두 동일
+            </span>
+          : <span class="text-hint text-zinc-500">
+              그룹 {groupPct}% / 멤버 {memberPct}% (구독자 비중)
+            </span>}
+      </div>
+      <div class="flex flex-wrap gap-1 text-xs">
+        {toggles.map(([m, label, hint]) => (
+          <button
+            key={m}
+            class={"rounded-md border px-2 py-1 transition-colors " +
+                   (props.method === m
+                     ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                     : "border-zinc-800 text-zinc-400 hover:bg-zinc-800/60")}
+            onClick={() => props.onMethodChange(m)}
+            title={hint}
+          >
+            {label}
+            <span class="ml-1 text-hint text-zinc-500">{hint}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function FactorBreakdown(props: {
   factors: Record<string, number>;
