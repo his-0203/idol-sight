@@ -210,6 +210,18 @@ def aggregate() -> None:
         client.batch(velocity.statements)
     typer.echo(f"velocity: updated {len(velocity.statements)} rows")
 
+    # V2.5: cross-platform reactivity. Depends on viral_velocity_ratio
+    # being populated, so it runs AFTER compute_velocity. For each
+    # group's viral video, counts community/naver activity in the 24h
+    # window before vs after publication; the per-platform mean ratio
+    # tells us which platform is "reactive" (driven by comebacks) vs
+    # "independent" (year-round chatter).
+    from idol_sight.analysis.platform_reactivity import compute_reactivity
+    reactivity_stmts = compute_reactivity(client, snapshot_at=snap)
+    if reactivity_stmts:
+        client.batch(reactivity_stmts)
+    typer.echo(f"platform_reactivity: updated {len(reactivity_stmts)} groups")
+
 
 @app.command(
     "health-check",

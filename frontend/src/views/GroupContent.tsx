@@ -115,6 +115,9 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
             <KPI label="뉴스"   value={data.summary?.naver_total_news ?? 0} />
           </section>
 
+          <PlatformReactivity summary={data.summary} />
+
+
           <section class="rounded-lg border border-zinc-800 p-3">
             <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2 text-sm">
               <h3 class="section-title">YouTube Top 15</h3>
@@ -261,6 +264,80 @@ function CombinedToggle(props: {
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+// Platform reactivity fingerprint. For each viral video the worker
+// counts platform activity in the 24h window before vs after — the
+// per-platform mean ratio answers "which platform's fandom wakes up
+// when this group releases something?". Renders only when there's a
+// meaningful sample (≥1 viral video in the last 30 days).
+const REACTIVITY_PLATFORMS: Array<[string, string, string]> = [
+  // [field, label, color]
+  ["reactivity_dc",     "DC",     "#22c55e"],
+  ["reactivity_theqoo", "TheQoo", "#a855f7"],
+  ["reactivity_instiz", "Instiz", "#06b6d4"],
+  ["reactivity_naver",  "Naver",  "#f59e0b"],
+];
+
+function PlatformReactivity({ summary }: { summary: any }) {
+  const sample = summary?.reactivity_sample ?? 0;
+  if (!summary || sample === 0) {
+    return (
+      <section class="rounded-lg border border-zinc-800 p-3">
+        <div class="flex items-center justify-between">
+          <h3 class="section-title">플랫폼 반응성</h3>
+          <span class="text-hint text-zinc-500">
+            최근 30일 viral 영상 없음 — 데이터 부족
+          </span>
+        </div>
+      </section>
+    );
+  }
+  const max = 5; // formula caps at 5.0
+  return (
+    <section class="rounded-lg border border-zinc-800 p-3">
+      <div class="mb-2 flex flex-wrap items-center gap-2">
+        <h3 class="section-title">플랫폼 반응성</h3>
+        <span class="text-hint text-zinc-500">
+          viral 영상 발생 후 24h vs 이전 24h 게시물 비율
+          (sample={sample}건)
+        </span>
+      </div>
+      <ul class="space-y-1.5">
+        {REACTIVITY_PLATFORMS.map(([field, label, color]) => {
+          const ratio = summary[field] ?? 1.0;
+          const tone =
+            ratio >= 2.0 ? "text-emerald-400 font-semibold"
+            : ratio >= 1.5 ? "text-blue-400"
+            : ratio >= 0.8 ? "text-zinc-400"
+            : "text-amber-400";
+          const verdict =
+            ratio >= 2.0 ? "강한 반응형"
+            : ratio >= 1.5 ? "반응형"
+            : ratio >= 0.8 ? "독립형"
+            : "비반응 (감소)";
+          return (
+            <li key={field} class="flex items-center gap-2 text-xs">
+              <span class="w-16 shrink-0 text-zinc-400">{label}</span>
+              <div class="relative h-2 flex-1 overflow-hidden rounded bg-zinc-800/60">
+                <div class="absolute inset-y-0 left-0"
+                     style={{
+                       width: `${Math.min(ratio / max, 1) * 100}%`,
+                       backgroundColor: color,
+                     }} />
+              </div>
+              <span class={`w-14 shrink-0 text-right tabular-nums ${tone}`}>
+                {ratio.toFixed(2)}×
+              </span>
+              <span class={`w-20 shrink-0 text-hint ${tone}`}>
+                {verdict}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }
