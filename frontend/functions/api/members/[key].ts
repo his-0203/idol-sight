@@ -4,7 +4,8 @@ import { jsonResponse } from "../../lib/jsonResponse";
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, params }) => {
   const key = String(params.key);
   const meta = await d1QueryOne<any>(env.DB,
-    `SELECT hhi, evenness, status FROM agg_member_pop_meta
+    `SELECT hhi, evenness, status, hhi_norm, top1_share, top3_share
+       FROM agg_member_pop_meta
       WHERE group_key=? AND snapshot_at=(
         SELECT MAX(snapshot_at) FROM agg_member_pop_meta WHERE group_key=?
       )`, [key, key]);
@@ -24,6 +25,10 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     hhi: meta?.hhi ?? null,
     evenness: meta?.evenness ?? null,
     status: meta?.status ?? "insufficient",
+    // V2.5: N-normalized HHI + Pareto ratios.
+    hhi_norm:   meta?.hhi_norm ?? null,
+    top1_share: meta?.top1_share ?? null,
+    top3_share: meta?.top3_share ?? null,
     members: rows,
   });
 };

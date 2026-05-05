@@ -1,4 +1,24 @@
-"""Member popularity + HHI (spec §7.3)."""
+"""Member popularity + HHI (spec §7.3 — V2.5 normalized).
+
+Analytics Reporter §A-3 caught a structural bug in the v1 evenness
+metric: with N members evenly distributed, HHI = N · (1/N)² = 1/N,
+so evenness = 1 - 1/N depends on N. Five-member groups topped out at
+0.8, ten-member at 0.9 — meaning "evenness=0.85" meant different
+things across PLAVE (5) and STELLIVE (10).
+
+V2.5 introduces a *normalized* HHI:
+
+  HHI_norm = (HHI - 1/N) / (1 - 1/N)
+
+This rescales [1/N, 1] → [0, 1], so 0 = perfectly even, 1 = total
+domination, regardless of N. ``evenness`` then = 1 - HHI_norm and is
+directly comparable across group sizes.
+
+We keep the raw HHI as ``hhi`` (frontend modal still references it)
+and add ``hhi_norm`` and ``top1_share`` / ``top3_share`` (Pareto
+ratios) for the more intuitive UI labels Analytics Reporter
+recommended.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +45,10 @@ class MemberPopulation:
     hhi: float | None
     evenness: float | None
     status: str        # 'ok' | 'insufficient'
+    # V2.5 additions — non-breaking. Older callers ignore these.
+    hhi_norm: float | None = None
+    top1_share: float | None = None
+    top3_share: float | None = None
 
 
 def compute_member_popularity(
@@ -46,18 +70,40 @@ def compute_member_popularity(
         ))
 
     total = sum(r.composite_score for r in rows)
-    if total == 0:
+    n = len(rows)
+    if total == 0 or n == 0:
         return MemberPopulation(
             group_key=group_key, members=rows,
             hhi=None, evenness=None, status="insufficient",
         )
 
-    shares = [(r.composite_score / total * 100.0) for r in rows]
-    hhi = sum(s * s for s in shares) / 10000.0
-    evenness = 1.0 - hhi
+    shares_pct = [(r.composite_score / total * 100.0) for r in rows]
+    hhi = sum(s * s for s in shares_pct) / 10000.0   # [1/N, 1]
+
+    # V2.5: normalized HHI — rescale [1/N, 1] → [0, 1] so size-N
+    # comparison is fair. Single-member group has no distribution to
+    # measure → leave hhi_norm at None.
+    if n > 1:
+        floor = 1.0 / n
+        hhi_norm = max((hhi - floor) / (1.0 - floor), 0.0)
+        evenness = 1.0 - hhi_norm
+    else:
+        hhi_norm = None
+        evenness = None
+
+    # Pareto ratios — more intuitive for UI labels.
+    sorted_shares = sorted(shares_pct, reverse=True)
+    top1 = sorted_shares[0] / 100.0
+    top3 = sum(sorted_shares[:3]) / 100.0
+
     return MemberPopulation(
         group_key=group_key, members=rows,
-        hhi=round(hhi, 4), evenness=round(evenness, 4), status="ok",
+        hhi=round(hhi, 4),
+        evenness=round(evenness, 4) if evenness is not None else None,
+        status="ok",
+        hhi_norm=round(hhi_norm, 4) if hhi_norm is not None else None,
+        top1_share=round(top1, 4),
+        top3_share=round(top3, 4),
     )
 
 
@@ -96,11 +142,17 @@ def to_statements(
 
     out.append((
         """
-        INSERT INTO agg_member_pop_meta(group_key, snapshot_at, hhi, evenness, status)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO agg_member_pop_meta(
+          group_key, snapshot_at, hhi, evenness, status,
+          hhi_norm, top1_share, top3_share)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
-          hhi=excluded.hhi, evenness=excluded.evenness, status=excluded.status
+          hhi=excluded.hhi, evenness=excluded.evenness, status=excluded.status,
+          hhi_norm=excluded.hhi_norm,
+          top1_share=excluded.top1_share,
+          top3_share=excluded.top3_share
         """.strip(),
-        [pop.group_key, snapshot_at, pop.hhi, pop.evenness, pop.status],
+        [pop.group_key, snapshot_at, pop.hhi, pop.evenness, pop.status,
+         pop.hhi_norm, pop.top1_share, pop.top3_share],
     ))
     return out

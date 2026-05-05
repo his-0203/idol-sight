@@ -50,16 +50,52 @@ export function Members({ groupKey }: { groupKey: string | null }) {
   }
   return (
     <div class="space-y-4">
-      <section class="grid grid-cols-2 gap-2">
+      <section class="grid grid-cols-2 gap-2 md:grid-cols-4">
         <div class="rounded-lg border border-zinc-800 p-3">
-          <div class="text-xs uppercase tracking-wider text-zinc-500">HHI</div>
-          <div class="text-2xl font-bold tabular-nums">{data.hhi?.toFixed(3) ?? "—"}</div>
-          <div class="text-xs text-zinc-500">0=완전 균등, 1=한 명이 독점</div>
+          <div class="text-xs uppercase tracking-wider text-zinc-500">
+            Evenness <span class="text-hint normal-case">N-정규화</span>
+          </div>
+          <div class="text-2xl font-bold tabular-nums">
+            {data.evenness != null
+              ? (data.evenness * 100).toFixed(0) + "%"
+              : "—"}
+          </div>
+          <div class="text-xs text-zinc-500">
+            그룹 크기와 무관한 균등도. 100% = 모든 멤버 동등
+          </div>
         </div>
         <div class="rounded-lg border border-zinc-800 p-3">
-          <div class="text-xs uppercase tracking-wider text-zinc-500">Evenness</div>
-          <div class="text-2xl font-bold tabular-nums">{data.evenness != null ? (data.evenness * 100).toFixed(0) + "%" : "—"}</div>
-          <div class="text-xs text-zinc-500">100% 가까울수록 균등</div>
+          <div class="text-xs uppercase tracking-wider text-zinc-500">
+            Top 1 비중
+          </div>
+          <div class="text-2xl font-bold tabular-nums">
+            {data.top1_share != null
+              ? (data.top1_share * 100).toFixed(0) + "%"
+              : "—"}
+          </div>
+          <div class="text-xs text-zinc-500">최상위 멤버 점유율</div>
+        </div>
+        <div class="rounded-lg border border-zinc-800 p-3">
+          <div class="text-xs uppercase tracking-wider text-zinc-500">
+            Top 3 누적
+          </div>
+          <div class="text-2xl font-bold tabular-nums">
+            {data.top3_share != null
+              ? (data.top3_share * 100).toFixed(0) + "%"
+              : "—"}
+          </div>
+          <div class="text-xs text-zinc-500">상위 3인 누적 비중</div>
+        </div>
+        <div class="rounded-lg border border-zinc-800 p-3">
+          <div class="text-xs uppercase tracking-wider text-zinc-500">
+            HHI <span class="text-hint normal-case">raw</span>
+          </div>
+          <div class="text-2xl font-bold tabular-nums">
+            {data.hhi != null ? data.hhi.toFixed(3) : "—"}
+          </div>
+          <div class="text-xs text-zinc-500">
+            정규화 전 — 1/N(균등) ~ 1(독점)
+          </div>
         </div>
       </section>
       <section class="rounded-lg border border-zinc-800 p-3">

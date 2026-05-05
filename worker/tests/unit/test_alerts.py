@@ -6,6 +6,8 @@ from idol_sight.alerts import (
     Alert,
     rule_controversy_spike,
     rule_debut_milestone,
+    rule_identity_leak,
+    rule_model_theft,
     rule_video_velocity_24h,
     run_alerts,
 )
@@ -191,3 +193,79 @@ def test_run_alerts_writes_alert_row_for_fresh_firing():
 def test_alert_dataclass_key_format():
     a = Alert(rule="r", scope="s", bucket="b", severity="info", title="t", body="x")
     assert a.alert_key == "r:s:b"
+
+
+# ─── identity_leak ─────────────────────────────────────────────────────
+
+
+def test_identity_leak_fires_on_naver_keyword_match():
+    client = _client({
+        "FROM naver_articles": [
+            {"group_key": "plave", "day": "2026-05-04",
+             "n": 2, "sample": "[단독] PLAVE 본체 추정 인물 사진 유출"},
+        ],
+    })
+    alerts = rule_identity_leak(client)
+    assert len(alerts) == 1
+    a = alerts[0]
+    assert a.rule == "identity_leak"
+    assert a.severity == "critical"
+    assert a.bucket == "2026-05-04"
+    # Bucket dedup format: each group/day fires once even if multiple
+    # articles match.
+    assert a.scope == "plave"
+
+
+def test_identity_leak_buckets_per_group_per_day():
+    client = _client({
+        "FROM naver_articles": [
+            {"group_key": "plave",  "day": "2026-05-04", "n": 2, "sample": "본체 기사"},
+            {"group_key": "plave",  "day": "2026-05-05", "n": 1, "sample": "후속 기사"},
+            {"group_key": "isedol", "day": "2026-05-04", "n": 1, "sample": "리얼페이스"},
+        ],
+    })
+    alerts = rule_identity_leak(client)
+    keys = {a.alert_key for a in alerts}
+    assert keys == {
+        "identity_leak:plave:2026-05-04",
+        "identity_leak:plave:2026-05-05",
+        "identity_leak:isedol:2026-05-04",
+    }
+
+
+# ─── model_theft ───────────────────────────────────────────────────────
+
+
+def test_model_theft_fires_on_24h_spike():
+    """20 mentions in 24h vs prior-7d total = 14 (avg 2/day) → 10x → fire."""
+    client = _client({
+        "FROM community_posts": [
+            {"group_key": "plave", "last_24h": 20, "prior_7d": 14},
+        ],
+    })
+    alerts = rule_model_theft(client)
+    assert len(alerts) == 1
+    a = alerts[0]
+    assert a.rule == "model_theft"
+    assert a.severity == "warn"
+    assert a.bucket.startswith("20")  # ISO week
+
+
+def test_model_theft_skips_below_floor():
+    """Even a 100% spike from 1→2 mentions shouldn't fire (last < 5)."""
+    client = _client({
+        "FROM community_posts": [
+            {"group_key": "plave", "last_24h": 2, "prior_7d": 1},
+        ],
+    })
+    assert rule_model_theft(client) == []
+
+
+def test_model_theft_skips_when_ratio_below_3x():
+    """8 mentions in 24h vs 7-day avg of 5/day = 1.6× → skip."""
+    client = _client({
+        "FROM community_posts": [
+            {"group_key": "plave", "last_24h": 8, "prior_7d": 35},
+        ],
+    })
+    assert rule_model_theft(client) == []

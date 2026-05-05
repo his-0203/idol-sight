@@ -39,10 +39,29 @@ log = logging.getLogger(__name__)
 # a code search; future iterations may move them to D1.
 # Smallest first so the iteration picks the *tightest* milestone the
 # group fits into (e.g. days_left=4 lands in D-7, not D-30).
+# Smallest first so the iteration picks the *tightest* milestone the
+# group fits into (e.g. days_left=4 lands in D-7, not D-30).
 DEBUT_MILESTONE_DAYS = (1, 7, 30)
 VIDEO_VELOCITY_24H_THRESHOLD = 1_000_000   # 1M views in first 24h
 CONTROVERSY_SPIKE_MULTIPLIER = 2.0          # 2x previous-week count
 CONTROVERSY_SPIKE_MIN_COUNT = 5             # baseline floor; ignore noise
+
+# V2.5 risk-catalog keywords (Anthropologist §E). We match against
+# community_posts.title and naver_articles.title — title-only is enough
+# for triage and avoids storing post body content.
+#
+# 본체 keywords: classification-system pollution. Single-occurrence
+# threshold for naver_articles (mainstream press picking up identity
+# is by definition critical), 5x weekly baseline for community boards
+# (which use the words colloquially in non-leak contexts).
+IDENTITY_LEAK_KEYWORDS = (
+    "본체", "중인", "신상", "정체", "리얼페이스", "real face", "doxx",
+)
+# Model theft / deepfake / unauthorized AI cover.
+MODEL_THEFT_KEYWORDS = (
+    "AI cover", "AI커버", "딥페이크", "deepfake", "도용", "ai음성",
+    "ai 음성", "음성 도용",
+)
 
 
 @dataclass
@@ -209,6 +228,103 @@ def rule_controversy_spike(
     return out
 
 
+def rule_identity_leak(client: _Executor) -> list[Alert]:
+    """Fire when 본체/중인/신상 keywords appear in naver_articles.
+
+    Press picking up the human-behind-the-character is the most
+    serious crisis class in the virtual idol playbook (Mary Douglas
+    "pollution" of the sacred boundary). Even a single hit warrants a
+    critical alert. Bucket = ``YYYY-MM-DD:<group>`` so we get one
+    alert per group per day even if multiple matching articles land.
+
+    We deliberately don't scan community_posts here — those use the
+    same words colloquially in non-leak contexts (e.g. "본체 노출
+    안 한 게 다행"). Press is a higher signal-to-noise channel.
+    """
+    if not IDENTITY_LEAK_KEYWORDS:
+        return []
+    likes = " OR ".join(["title LIKE ?"] * len(IDENTITY_LEAK_KEYWORDS))
+    params: list[Any] = [f"%{kw}%" for kw in IDENTITY_LEAK_KEYWORDS]
+    rows = client.execute(
+        "SELECT group_key, "
+        "  date(published_at) AS day, "
+        "  COUNT(*) AS n, "
+        "  MIN(title) AS sample "
+        "FROM naver_articles "
+        f"WHERE COALESCE(is_excluded,0)=0 AND ({likes}) "
+        "  AND published_at >= datetime('now', '-7 days') "
+        "GROUP BY group_key, day",
+        params,
+    )
+    out: list[Alert] = []
+    for r in rows:
+        gk = r["group_key"]
+        day = r.get("day") or ""
+        if not day:
+            continue
+        out.append(Alert(
+            rule="identity_leak",
+            scope=gk,
+            bucket=f"{day}",
+            severity="critical",
+            title=f"{gk} 본체 관련 기사 감지 ({r.get('n')}건)",
+            body=(f"날짜 {day}, 샘플 제목: {(r.get('sample') or '')[:120]}. "
+                  f"기사 원문 검수 후 즉시 대응 절차로 이관하세요. "
+                  f"※ 자동 알림 — false positive 시 Streisand effect 주의."),
+        ))
+    return out
+
+
+def rule_model_theft(client: _Executor) -> list[Alert]:
+    """Fire when AI cover / 딥페이크 / 도용 mentions spike on community
+    posts. We compare the latest 24h count against the prior 7-day
+    daily average; ratios ≥3 with at least 5 absolute mentions
+    qualify. Bucket = ISO week so a sustained spike collapses to one
+    alert per week.
+    """
+    if not MODEL_THEFT_KEYWORDS:
+        return []
+    likes = " OR ".join(["title LIKE ?"] * len(MODEL_THEFT_KEYWORDS))
+    params: list[Any] = [f"%{kw}%" for kw in MODEL_THEFT_KEYWORDS]
+    rows = client.execute(
+        "SELECT group_key, "
+        "  SUM(CASE WHEN posted_at >= datetime('now','-1 days') "
+        "           THEN 1 ELSE 0 END) AS last_24h, "
+        "  SUM(CASE WHEN posted_at >= datetime('now','-8 days') "
+        "           AND posted_at <  datetime('now','-1 days') "
+        "           THEN 1 ELSE 0 END) AS prior_7d "
+        "FROM community_posts "
+        f"WHERE ({likes}) "
+        "  AND posted_at >= datetime('now', '-8 days') "
+        "GROUP BY group_key",
+        params,
+    )
+    out: list[Alert] = []
+    for r in rows:
+        last = int(r.get("last_24h") or 0)
+        prior = int(r.get("prior_7d") or 0)
+        if last < 5:
+            continue
+        baseline = (prior / 7.0) if prior > 0 else 0.0
+        ratio = float("inf") if baseline <= 0 else last / baseline
+        if ratio < 3.0:
+            continue
+        gk = r["group_key"]
+        iso_year, iso_week, _ = datetime.now(UTC).date().isocalendar()
+        bucket = f"{iso_year}-W{iso_week:02d}"
+        out.append(Alert(
+            rule="model_theft",
+            scope=gk,
+            bucket=bucket,
+            severity="warn",
+            title=f"{gk} AI 음성/모델 도용 멘션 급증 ({last}건/24h)",
+            body=(f"24h 누적 {last}건 vs 직전 7일 일평균 {baseline:.1f}건 "
+                  f"({ratio:.1f}× 증가). 도용/딥페이크 게시물 출처 확인 + "
+                  f"플랫폼 신고 절차 검토."),
+        ))
+    return out
+
+
 # ─── Engine ─────────────────────────────────────────────────────────────
 
 
@@ -227,6 +343,8 @@ def run_alerts(
     candidates.extend(rule_debut_milestone(client, today=today))
     candidates.extend(rule_video_velocity_24h(client))
     candidates.extend(rule_controversy_spike(client))
+    candidates.extend(rule_identity_leak(client))
+    candidates.extend(rule_model_theft(client))
 
     if not candidates:
         return []
@@ -275,6 +393,8 @@ __all__ = [
     "Alert",
     "rule_controversy_spike",
     "rule_debut_milestone",
+    "rule_identity_leak",
+    "rule_model_theft",
     "rule_video_velocity_24h",
     "run_alerts",
 ]
