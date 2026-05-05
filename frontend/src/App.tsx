@@ -13,6 +13,7 @@ import { Members } from "./views/Members";
 import { Community } from "./views/Community";
 import { PRRisk } from "./views/PRRisk";
 import { Insights } from "./views/Insights";
+import { MiiWANBriefing } from "./views/MiiWANBriefing";
 import { SearchPalette } from "./components/SearchPalette";
 
 export function App() {
@@ -47,6 +48,7 @@ export function App() {
         {state.tab === "community" && <Community groupKey={state.group} period={state.period} />}
         {state.tab === "risk"      && <PRRisk groupKey={state.group} />}
         {state.tab === "insights"  && <Insights />}
+        {state.tab === "miiwan"    && <MiiWANBriefing />}
       </main>
     </div>
   );

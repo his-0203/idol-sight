@@ -3,10 +3,15 @@ import { writeState, type RouterState } from "../router";
 // Market-scope tabs only. Group-scope tabs (그룹 상세/멤버/커뮤니티/PR·리스크)
 // live in <GroupContextBar /> beneath the header so the user always knows
 // "this section needs a group selected" vs "this is market-wide".
+//
+// MiiWAN gets a dedicated GNB slot — IPX/Abyss build it together, so the
+// team needs an own-brand briefing view next to the cross-market tabs
+// rather than buried inside the generic group-detail flow.
 const MARKET_TABS: Array<[RouterState["tab"], string]> = [
   ["market",   "시장 개요"],
   ["weekly",   "주간 업데이트"],
   ["insights", "인사이트"],
+  ["miiwan",   "MiiWAN"],
 ];
 
 const GROUP_TABS_SET = new Set(["content", "members", "community", "risk"]);

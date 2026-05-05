@@ -9,6 +9,7 @@ const MARKET_LABELS: Record<string, string> = {
   market:   "시장 개요",
   weekly:   "주간 업데이트",
   insights: "인사이트",
+  miiwan:   "MiiWAN 브리핑",
 };
 
 const GROUP_LABELS: Record<string, string> = {
