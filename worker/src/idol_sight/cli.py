@@ -206,6 +206,30 @@ def health_check() -> None:
     raise typer.Exit(code=1)
 
 
+@app.command(
+    "alerts-run",
+    help="Evaluate alert rules and post fresh firings to Discord.",
+)
+def alerts_run(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Evaluate rules but don't post or persist.",
+    ),
+) -> None:
+    """Hourly cron entry point. Cron schedules this lightly; the dedup
+    table prevents repeat-firing within a milestone bucket.
+    """
+    from idol_sight.alerts import run_alerts
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    webhook = None if dry_run else settings.discord_webhook
+    fired = run_alerts(client, webhook_url=webhook)
+    if not fired:
+        typer.echo("alerts: no new firings")
+        return
+    for a in fired:
+        typer.echo(f"FIRED [{a.severity}] {a.alert_key} — {a.title}")
+
+
 @app.command("analyze-weekly", help="Run weekly analysis: hanteo, market_share, member_pop, llm.")
 def analyze_weekly(
     week_start: str = typer.Option(..., "--week-start", help="YYYY-MM-DD (Sunday)"),

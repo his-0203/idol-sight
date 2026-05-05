@@ -46,3 +46,24 @@ def notify_failure(*, webhook_url: str, job: str, error: str) -> None:
         _post(webhook_url, body)
     except Exception as e:
         log.warning("discord notify failed: %s", e)
+
+
+def notify_alert(
+    *,
+    webhook_url: str,
+    title: str,
+    body: str,
+    severity: str = "info",
+) -> None:
+    """Push a structured alert to Discord. Distinct from notify_failure
+    so the on-call channel can filter "BI-driven alert" vs "job died".
+    Severity drives the icon: info / warn / critical.
+    """
+    icon = {"critical": ":fire:", "warn": ":warning:", "info": ":bell:"}.get(
+        severity, ":bell:",
+    )
+    body_text = f"{icon} **{title}**\n{body[:1500]}"
+    try:
+        _post(webhook_url, {"content": body_text})
+    except Exception as e:
+        log.warning("discord alert failed: %s", e)
