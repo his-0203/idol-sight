@@ -36,6 +36,57 @@ type Series = {
   points: Array<{ day_offset: number; value: number }>;
 };
 
+type EventRow = {
+  id: number;
+  group_key: string;
+  event_date: string;
+  event_type: string;
+  title: string;
+  description: string | null;
+  source_url: string | null;
+  confidence: string;
+};
+
+// Only annotate events that materially shape the trajectory the
+// operator is reading. Member reveals fire near-daily during the
+// pre-debut campaign, which would clutter the chart; debut + first
+// release + first show win + album drops are what bend the curve.
+const ANNOTATABLE_EVENT_TYPES = new Set([
+  "debut",
+  "first_release",
+  "first_show_win",
+  "album_release",
+  "first_concert",
+  "tour_start",
+  "single_release",
+  "merger",
+  "graduation",
+  "song_release",
+  "showcase",
+  "company_launch",
+  "1st_gen_debut",
+  "2nd_gen_debut",
+  "3rd_gen_debut",
+]);
+
+const EVENT_ICON: Record<string, string> = {
+  debut:           "🎬",
+  first_release:   "💿",
+  first_show_win:  "🏆",
+  album_release:   "💿",
+  single_release:  "🎵",
+  song_release:    "🎵",
+  first_concert:   "🎤",
+  tour_start:      "🎤",
+  showcase:        "🎤",
+  merger:          "🤝",
+  graduation:      "🌅",
+  company_launch:  "🏢",
+  "1st_gen_debut": "🎬",
+  "2nd_gen_debut": "🎬",
+  "3rd_gen_debut": "🎬",
+};
+
 const METRIC_OPTIONS = [
   { key: "yt_subscribers",    label: "구독자" },
   { key: "yt_total_views",    label: "조회수 (누적)" },
@@ -67,6 +118,11 @@ export function DebutCurve() {
   // produce empty isolation states like "isolate=plave + cohort=서브컬처").
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [isolated, setIsolated] = useState<string | null>(null);
+  // Events for the isolated group only — overlaying every group's
+  // events at once produced ~80 markers across 8 lines, which read
+  // as visual noise. Single-group isolation is the natural moment
+  // to surface the timeline annotation.
+  const [events, setEvents] = useState<EventRow[]>([]);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const chart = useRef<Chart | null>(null);
 
@@ -74,6 +130,17 @@ export function DebutCurve() {
     setData(null);
     api.debutCurve(metric, from, to).then(setData).catch(() => setData({ series: [] }));
   }, [metric, from, to]);
+
+  useEffect(() => {
+    if (!isolated) { setEvents([]); return; }
+    // Wide window so events for older groups (PLAVE 2023, ISEDOL
+    // 2021) are reachable regardless of the chart's current D-N
+    // range. The component filters to range-visible events at
+    // dataset-build time.
+    api.groupEvents(isolated, "2020-01-01", "2030-12-31")
+      .then((d) => setEvents(d?.events ?? []))
+      .catch(() => setEvents([]));
+  }, [isolated]);
 
   // Reset visibility when cohort changes — otherwise an isolated
   // group from a previous filter can paradoxically vanish.
@@ -108,7 +175,7 @@ export function DebutCurve() {
     }
     const xs = [...allDays].sort((a, b) => a - b);
 
-    const datasets = visibleSeries.map((s) => {
+    const datasets: any[] = visibleSeries.map((s) => {
       const map = new Map(s.points.map((p) => [p.day_offset, p.value]));
       const isMiiwan = s.group_key === "miiwan";
       return {
@@ -131,6 +198,61 @@ export function DebutCurve() {
         fill: false,
       };
     });
+
+    // Event annotation layer — only when a single group is isolated.
+    // We project each event's calendar date onto the debut-relative
+    // x-axis (day_offset = (event_date − debut_date) days), look up
+    // the line's y-value at that offset, and emit a triangle marker
+    // anchored to the line itself. Markers carry their event metadata
+    // so the tooltip callback can show "🏆 첫 음방 1위" instead of
+    // a numeric label.
+    if (isolated && events.length > 0 && visibleSeries.length === 1) {
+      const series = visibleSeries[0]!;
+      const debutMs = Date.parse(series.debut_date);
+      if (Number.isFinite(debutMs)) {
+        const lookup = new Map(series.points.map((p) => [p.day_offset, p.value]));
+        const eventPoints = events
+          .filter((e) => ANNOTATABLE_EVENT_TYPES.has(e.event_type))
+          .map((e) => {
+            const evMs = Date.parse(e.event_date);
+            if (!Number.isFinite(evMs)) return null;
+            const offset = Math.round((evMs - debutMs) / 86_400_000);
+            if (offset < from || offset > to) return null;
+            // Use the closest known data point for vertical anchoring.
+            // Without this, an event on a day with no agg_summary row
+            // would land at y=null and Chart.js would skip it.
+            let y: number | null = lookup.get(offset) ?? null;
+            if (y == null) {
+              const sortedDays = [...lookup.keys()].sort((a, b) => Math.abs(a - offset) - Math.abs(b - offset));
+              if (sortedDays.length > 0 && sortedDays[0] !== undefined) {
+                y = lookup.get(sortedDays[0]) ?? null;
+              }
+            }
+            if (y == null) return null;
+            return { x: offset, y, _event: e };
+          })
+          .filter((p): p is { x: number; y: number; _event: EventRow } => p != null);
+
+        if (eventPoints.length > 0) {
+          datasets.push({
+            label: "이벤트",
+            type: "line",
+            data: eventPoints,
+            showLine: false,
+            pointStyle: "triangle",
+            pointRadius: 8,
+            pointHoverRadius: 12,
+            pointHitRadius: 16,
+            backgroundColor: "#fbbf24",
+            borderColor: "#78350f",
+            borderWidth: 1.5,
+            spanGaps: true,
+            // Higher z-order so markers sit on top of the line.
+            order: -1,
+          });
+        }
+      }
+    }
 
     chart.current = new Chart(canvas.current, {
       type: "line",
@@ -179,7 +301,15 @@ export function DebutCurve() {
                 return x === 0 ? "D-DAY" : x > 0 ? `D+${x}` : `D${x}`;
               },
               label: (ctx) => {
-                const v = (ctx.parsed as any).y;
+                const raw = ctx.raw as any;
+                // Event marker — surface the event metadata instead
+                // of "이벤트: 1234" which would be meaningless.
+                if (raw && raw._event) {
+                  const e = raw._event as EventRow;
+                  const icon = EVENT_ICON[e.event_type] ?? "•";
+                  return `${icon} ${e.event_date} · ${e.title}`;
+                }
+                const v = raw?.y;
                 if (v == null) return `${ctx.dataset.label}: —`;
                 return `${ctx.dataset.label}: ${fmt(v)}`;
               },
@@ -188,7 +318,7 @@ export function DebutCurve() {
         },
       },
     });
-  }, [visibleSeries, metric]);
+  }, [visibleSeries, metric, events, isolated, from, to]);
 
   // Latest observed value per series — shown in the side panel so the
   // panel doubles as a "snapshot at end of range" reference.
@@ -334,6 +464,25 @@ export function DebutCurve() {
             <div class="mt-2 text-[11px] text-zinc-600">
               ● 표시/숨기기 · 그룹명 클릭 시 단독 표시
             </div>
+            {isolated && events.length > 0 && (
+              <div class="mt-3 border-t border-zinc-800 pt-3">
+                <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+                  주요 이벤트 (▲ 차트 마커)
+                </div>
+                <ul class="space-y-1 text-[11px]">
+                  {events
+                    .filter((e) => ANNOTATABLE_EVENT_TYPES.has(e.event_type))
+                    .slice(0, 8)
+                    .map((e) => (
+                      <li key={e.id} class="text-zinc-400">
+                        <span class="mr-1">{EVENT_ICON[e.event_type] ?? "•"}</span>
+                        <span class="tabular-nums text-zinc-500">{e.event_date}</span>
+                        <span class="ml-1 text-zinc-300">{e.title}</span>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       )}

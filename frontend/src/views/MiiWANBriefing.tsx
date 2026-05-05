@@ -253,7 +253,12 @@ export function MiiWANBriefing() {
           최상단에 위치. 빈 상태도 자리 유지 (학습된 위치 유지). */}
       <ActionQueue ipxActions={ipxActions} otherAlerts={otherAlerts} />
 
-      {/* 3) RISK WATCH — virtual-idol critical 카테고리만 뽑아 별도
+      {/* 3) TIMELINE — 데뷔 D-day 컨텍스트에서 최근 30일 + 향후 60일
+          이벤트. group_events 테이블에서 자동 조회. 과거/오늘/예정
+          시각 분리로 "다음에 무엇이 오는가"를 한 눈에. */}
+      <MiiWANEventTimeline today={data.today} />
+
+      {/* 4) RISK WATCH — virtual-idol critical 카테고리만 뽑아 별도
           섹션. PR/Risk 페이지로 hop 없이 MiiWAN 컨텍스트에서 즉시
           확인. 가장 시급한 시나리오부터 정렬. */}
       <RiskWatch
@@ -610,6 +615,142 @@ export function MiiWANBriefing() {
       </section>
     );
   }
+}
+
+type GroupEvent = {
+  id: number;
+  group_key: string;
+  event_date: string;
+  event_type: string;
+  title: string;
+  description: string | null;
+  source_url: string | null;
+  confidence: string;
+};
+
+const TIMELINE_EVENT_TYPES = new Set([
+  "debut", "first_release", "mv_release", "first_show_win",
+  "album_release", "single_release", "song_release",
+  "first_concert", "tour_start", "tour", "showcase",
+  "announcement", "member_reveal", "pre_debut",
+  "milestone", "controversy_spike",
+]);
+
+const TIMELINE_ICON: Record<string, string> = {
+  debut:           "🎬",
+  first_release:   "💿",
+  first_show_win:  "🏆",
+  album_release:   "💿",
+  single_release:  "🎵",
+  song_release:    "🎵",
+  mv_release:      "📺",
+  first_concert:   "🎤",
+  tour_start:      "🎤",
+  tour:            "🎤",
+  showcase:        "🎤",
+  announcement:    "📣",
+  member_reveal:   "👤",
+  pre_debut:       "🚧",
+  milestone:       "✨",
+};
+
+function MiiWANEventTimeline({ today }: { today: string }) {
+  const [events, setEvents] = useState<GroupEvent[] | null>(null);
+
+  useEffect(() => {
+    // -30 / +60 day window centered on today. The MiiWAN tab is the
+    // operator's daily home and the windowing matches the cadence
+    // of the briefing's other sections (action queue ~14d, risk
+    // watch ~14d, KPI sparklines 30d). +60 forward catches the
+    // imminent debut milestones.
+    const now = new Date(today);
+    const fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 30);
+    const toDate = new Date(now); toDate.setDate(toDate.getDate() + 60);
+    api.groupEvents(
+      "miiwan",
+      fromDate.toISOString().slice(0, 10),
+      toDate.toISOString().slice(0, 10),
+    ).then((d) => setEvents(d?.events ?? [])).catch(() => setEvents([]));
+  }, [today]);
+
+  const filtered = useMemo(() => {
+    if (!events) return [];
+    return events
+      .filter((e) => TIMELINE_EVENT_TYPES.has(e.event_type))
+      .sort((a, b) => a.event_date.localeCompare(b.event_date));
+  }, [events]);
+
+  const todayDate = today;
+
+  if (!events) {
+    return (
+      <section>
+        <h2 class="section-title mb-3">이벤트 타임라인</h2>
+        <div class="text-hint text-zinc-500">Loading…</div>
+      </section>
+    );
+  }
+
+  if (filtered.length === 0) {
+    return (
+      <section>
+        <h2 class="section-title mb-3">이벤트 타임라인</h2>
+        <div class="text-hint text-zinc-500">
+          최근 30일 / 향후 60일 등록된 이벤트 없음.
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section>
+      <div class="mb-3 flex flex-wrap items-baseline gap-2">
+        <h2 class="section-title">이벤트 타임라인</h2>
+        <span class="text-hint text-zinc-500">
+          최근 30일 + 향후 60일 · 과거(회색) / 오늘(amber) / 예정(emerald)
+        </span>
+      </div>
+      <ol class="space-y-1.5">
+        {filtered.map((e) => {
+          const isPast = e.event_date < todayDate;
+          const isToday = e.event_date === todayDate;
+          const isFuture = e.event_date > todayDate;
+          const tone = isFuture
+            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-100"
+            : isToday
+            ? "border-amber-500 bg-amber-500/10 text-amber-100"
+            : "border-zinc-800 bg-zinc-900/30 text-zinc-400";
+          // Days-from-today annotation so the operator can read the
+          // distance without subtracting calendar dates in their head.
+          const days = Math.round(
+            (Date.parse(e.event_date) - Date.parse(todayDate)) / 86_400_000,
+          );
+          const dayLabel = days === 0 ? "오늘"
+            : days > 0 ? `D+${days}`
+            : `D${days}`;
+          return (
+            <li key={e.id} class={`rounded-lg border-l-2 px-3 py-2 text-sm ${tone}`}>
+              <div class="flex flex-wrap items-baseline gap-2">
+                <span>{TIMELINE_ICON[e.event_type] ?? "•"}</span>
+                <span class="tabular-nums text-zinc-500">{e.event_date}</span>
+                <span class="font-semibold">{e.title}</span>
+                <span class="ml-auto rounded bg-zinc-900/60 px-1.5 text-[11px] tabular-nums text-zinc-300">
+                  {dayLabel}
+                </span>
+              </div>
+              {e.description && (
+                <div class="mt-0.5 text-xs text-zinc-400">{e.description}</div>
+              )}
+              {e.source_url && (
+                <a class="mt-0.5 inline-block text-[11px] text-zinc-600 hover:text-zinc-400 hover:underline"
+                   href={e.source_url} target="_blank" rel="noopener">출처 ↗</a>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
 }
 
 function DDayCard({ d, debuted, accent }:

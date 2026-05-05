@@ -208,6 +208,8 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
 
           <ContentFormatMatrix videos={data.yt_top15 ?? []} />
 
+          <GroupEventTimeline groupKey={groupKey!} />
+
           <AlbumLifecycle albums={data.albums ?? []} />
 
 
@@ -265,6 +267,144 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
         );
       })()}
     </div>
+  );
+}
+
+// GroupEventTimeline — vertical timeline of milestones from the
+// curated group_events table (migration 0017). Renders per-group
+// debut, MV/album drops, music-show wins, milestones, and tour
+// announcements in chronological order. Default view caps at the
+// most recent 8 events with a "전체 보기" toggle, because the older
+// entries are reference material rather than daily-decision input.
+const GROUP_TIMELINE_TYPES = new Set([
+  "debut", "first_release", "mv_release", "first_show_win", "show_win",
+  "album_release", "single_release", "song_release",
+  "first_concert", "tour_start", "tour", "showcase",
+  "announcement", "milestone", "merger", "graduation",
+  "1st_gen_debut", "2nd_gen_debut", "3rd_gen_debut",
+  "company_launch", "1st_gen_transfer_debut",
+]);
+
+const GROUP_TIMELINE_ICON: Record<string, string> = {
+  debut:           "🎬",
+  first_release:   "💿",
+  first_show_win:  "🏆",
+  show_win:        "🥇",
+  album_release:   "💿",
+  single_release:  "🎵",
+  song_release:    "🎵",
+  mv_release:      "📺",
+  first_concert:   "🎤",
+  tour_start:      "🎤",
+  tour:            "🎤",
+  showcase:        "🎤",
+  announcement:    "📣",
+  milestone:       "✨",
+  merger:          "🤝",
+  graduation:      "🌅",
+  "1st_gen_debut": "🎬",
+  "2nd_gen_debut": "🎬",
+  "3rd_gen_debut": "🎬",
+  company_launch:  "🏢",
+  "1st_gen_transfer_debut": "🎬",
+};
+
+function GroupEventTimeline({ groupKey }: { groupKey: string }) {
+  const [events, setEvents] = useState<any[] | null>(null);
+  const [showAll, setShowAll] = useState<boolean>(false);
+
+  useEffect(() => {
+    setEvents(null);
+    setShowAll(false);
+    // Wide window — older groups (PLAVE 2023, ISEDOL 2021) need
+    // multi-year reach. The API caps response size at 200 rows,
+    // which is plenty per group.
+    api.groupEvents(groupKey, "2020-01-01", "2030-12-31")
+      .then((d) => setEvents(d?.events ?? []))
+      .catch(() => setEvents([]));
+  }, [groupKey]);
+
+  const filtered = useMemo(() => {
+    if (!events) return [];
+    return events
+      .filter((e) => GROUP_TIMELINE_TYPES.has(e.event_type))
+      .sort((a, b) => b.event_date.localeCompare(a.event_date)); // newest first
+  }, [events]);
+
+  if (!events) {
+    return (
+      <section class="rounded-lg border border-zinc-800 p-3">
+        <h3 class="section-title mb-2">이벤트 타임라인</h3>
+        <div class="text-hint text-zinc-500">Loading…</div>
+      </section>
+    );
+  }
+
+  if (filtered.length === 0) {
+    return (
+      <section class="rounded-lg border border-zinc-800 p-3">
+        <div class="flex items-center justify-between">
+          <h3 class="section-title">이벤트 타임라인</h3>
+          <span class="text-hint text-zinc-500">
+            등록된 이벤트 없음 — 다음 라운드 리서치에서 채워질 예정
+          </span>
+        </div>
+      </section>
+    );
+  }
+
+  const visible = showAll ? filtered : filtered.slice(0, 8);
+  const hiddenCount = filtered.length - visible.length;
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <section class="rounded-lg border border-zinc-800 p-3">
+      <div class="mb-3 flex flex-wrap items-baseline gap-2">
+        <h3 class="section-title">이벤트 타임라인</h3>
+        <span class="text-hint text-zinc-500">
+          최신순 {visible.length}{hiddenCount > 0 ? ` / 전체 ${filtered.length}` : ""}건
+        </span>
+        {filtered.length > 8 && (
+          <button
+            type="button"
+            class="ml-auto text-xs text-zinc-400 hover:text-zinc-200 hover:underline"
+            onClick={() => setShowAll((v) => !v)}
+          >
+            {showAll ? "최근 8건만" : `전체 보기 (+${hiddenCount})`}
+          </button>
+        )}
+      </div>
+      <ol class="space-y-1.5">
+        {visible.map((e) => {
+          const isFuture = e.event_date > today;
+          const tone = isFuture
+            ? "border-emerald-500/40 bg-emerald-500/5"
+            : "border-zinc-800 bg-zinc-900/30";
+          return (
+            <li key={e.id} class={`rounded border-l-2 px-3 py-1.5 text-sm ${tone}`}>
+              <div class="flex flex-wrap items-baseline gap-2">
+                <span>{GROUP_TIMELINE_ICON[e.event_type] ?? "•"}</span>
+                <span class="tabular-nums text-zinc-500">{e.event_date}</span>
+                <span class="font-semibold text-zinc-200">{e.title}</span>
+                {isFuture && (
+                  <span class="rounded bg-emerald-500/20 px-1.5 text-[11px] text-emerald-300">예정</span>
+                )}
+                {e.confidence === "medium" && (
+                  <span class="rounded bg-zinc-800 px-1.5 text-[11px] text-zinc-400" title="신뢰도 medium">~</span>
+                )}
+              </div>
+              {e.description && (
+                <div class="mt-0.5 text-xs text-zinc-400">{e.description}</div>
+              )}
+              {e.source_url && (
+                <a class="mt-0.5 inline-block text-[11px] text-zinc-600 hover:text-zinc-400 hover:underline"
+                   href={e.source_url} target="_blank" rel="noopener">출처 ↗</a>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 

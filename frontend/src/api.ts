@@ -18,6 +18,14 @@ export const api = {
   debutCurve:  (metric = "yt_subscribers", from = -60, to = 180) =>
     getJson<any>(`/api/debut-curve?metric=${encodeURIComponent(metric)}&from=${from}&to=${to}`),
   externalCohort: () => getJson<any>("/api/external-cohort"),
+  groupEvents: (group?: string, from?: string, to?: string) => {
+    const qs = new URLSearchParams();
+    if (group) qs.set("group", group);
+    if (from)  qs.set("from", from);
+    if (to)    qs.set("to", to);
+    const q = qs.toString();
+    return getJson<any>("/api/group-events" + (q ? `?${q}` : ""));
+  },
   search:      (q: string) => getJson<any>(`/api/search?q=${encodeURIComponent(q)}`),
   healthSpec:  () => getJson<any>("/api/health/spec"),
   flagIrrelevant: async (payload: { url_hash?: string; url?: string; group_key: string; reason?: string }) => {
