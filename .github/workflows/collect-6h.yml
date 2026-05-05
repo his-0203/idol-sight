@@ -1,7 +1,11 @@
 name: collect-6h
+# Legacy file name "collect-6h" — schedule is now KST 09:15 / 21:15
+# (UTC 00:15 / 12:15). 15-min offset from collect-hourly so the
+# DC/TheQoo/Instiz scrapers (Cloudflare-challenged, ~10s each)
+# don't start while naver is still running. File rename deferred.
 on:
   schedule:
-    - cron: '15 */6 * * *'
+    - cron: '15 0,12 * * *'
   workflow_dispatch:
 
 jobs:

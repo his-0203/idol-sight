@@ -137,15 +137,17 @@ export function DebutCurve() {
       data: { datasets },
       options: {
         parsing: false as any,  // we feed {x, y} objects directly
-        // The single biggest hover-readability win: 'index' mode means
-        // hovering at any x reveals every visible group's value
-        // simultaneously, ranked, so the operator doesn't have to aim
-        // at a 1.5px line. intersect:false widens the hit zone to the
-        // full plot area.
+        // mode='nearest' + intersect:false + axis:'xy' picks the single
+        // data point physically closest to the cursor (in both axes),
+        // so hovering OVER a line shows only that line's value rather
+        // than the all-groups-at-this-x stack 'index' mode used to
+        // produce. intersect:false keeps the hit zone wide enough that
+        // the operator doesn't have to aim pixel-perfect at the line.
+        // pointHitRadius below also ensures a generous catch radius.
         interaction: {
-          mode: "index",
+          mode: "nearest",
           intersect: false,
-          axis: "x",
+          axis: "xy",
         },
         scales: {
           x: {
@@ -170,11 +172,6 @@ export function DebutCurve() {
           // gives the chart 40px of vertical breathing room.
           legend: { display: false },
           tooltip: {
-            // Sort tooltip rows by value desc so the operator's eye
-            // falls on the dominant group first regardless of
-            // dataset order.
-            itemSort: (a, b) =>
-              ((b.parsed as any).y ?? 0) - ((a.parsed as any).y ?? 0),
             callbacks: {
               title: (items) => {
                 const x = (items[0]?.parsed as any)?.x;

@@ -1,7 +1,13 @@
 name: collect-hourly
+# Despite the legacy file name "collect-hourly", the schedule is now
+# twice-daily at KST 09:05 / 21:05 (UTC 00:05 / 12:05). The naver
+# collector this workflow drives is cheap, but 24×/day was producing
+# diminishing returns relative to the operator's actual review
+# cadence (morning + evening). File renaming is deferred — cron-only
+# change keeps history intact and existing dispatches working.
 on:
   schedule:
-    - cron: '5 * * * *'
+    - cron: '5 0,12 * * *'
   workflow_dispatch:
     inputs:
       groups:

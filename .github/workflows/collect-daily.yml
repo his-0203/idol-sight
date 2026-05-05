@@ -1,7 +1,11 @@
 name: collect-daily
 on:
   schedule:
-    - cron: '30 8 * * *'    # daily 08:30 UTC
+    # Once daily at KST 21:30 (UTC 12:30). Aligned with the evening
+    # collect-hourly/6h batch so channel-stats + youtube refresh
+    # land alongside the rest of the day's data and the operator
+    # sees a coherent snapshot during their evening review.
+    - cron: '30 12 * * *'
   workflow_dispatch:
 
 jobs:

@@ -23,7 +23,18 @@ import { jsonResponse } from "../lib/jsonResponse";
 
 const TARGET = "miiwan";
 
-const BENCHMARK_GROUPS = ["plave", "isedol", "stellive"] as const;
+// Benchmark cohort = K-POP corporate newcomer groups debuted in the
+// 2025-2026 window (same generation as MiiWAN). ISEDOL/STELLIVE
+// dropped — different group_model (segmentary/confederation 서브컬처)
+// and different KPI weighting structure, so a flat D-30 comparison
+// against them implies an apples-to-apples relationship that doesn't
+// hold. PLAVE also dropped because it debuted 2023-03 and our
+// historical backfill for that pre-collection era only covers
+// yt_total_videos / yt_total_views — comparing 'D-30 subscribers vs
+// PLAVE D-30 subscribers' would silently use NULL on the PLAVE side.
+// SKINZ/MY:RAKL/OWIS/B:DAWN are all in the live-collection era so
+// every metric is available.
+const BENCHMARK_GROUPS = ["skinz", "myrakl", "owis", "bdawn"] as const;
 
 interface GroupRow {
   key: string; name: string; name_kr: string;

@@ -1,7 +1,11 @@
 name: health-check
+# Twice daily at KST 09:30 / 21:30 (UTC 00:30 / 12:30) — between
+# collect-6h (:15) and alerts (:45). 24×/day was wasteful: the
+# audit only fires Discord pings when something is genuinely stale,
+# and stale collectors stay stale across hours.
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '30 0,12 * * *'
   workflow_dispatch:
 
 jobs:
