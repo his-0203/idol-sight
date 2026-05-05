@@ -136,7 +136,12 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
             <div class="overflow-x-auto">
               <table class="w-full text-xs">
                 <thead><tr class="text-left text-zinc-500">
-                  <th class="py-1">#</th><th>제목</th><th>유형</th><th class="text-right">조회수</th><th class="text-right">좋아요</th>
+                  <th class="py-1">#</th>
+                  <th>제목</th>
+                  <th>유형</th>
+                  <th class="text-right">24h</th>
+                  <th class="text-right">조회수</th>
+                  <th class="text-right">좋아요</th>
                 </tr></thead>
                 <tbody>
                   {filteredYt.map((v: any, i: number) => (
@@ -144,6 +149,11 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
                       <td class="py-1">{i + 1}</td>
                       <td class="max-w-md truncate">{v.title}</td>
                       <td><span class="rounded bg-zinc-800 px-1.5 text-xs">{v.content_type ?? "—"}</span></td>
+                      <td class="text-right tabular-nums">
+                        <VelocityCell
+                          v24={v.view_count_24h}
+                          ratio={v.viral_velocity_ratio} />
+                      </td>
                       <td class="text-right tabular-nums">{fmt(v.views)}</td>
                       <td class="text-right tabular-nums">{fmt(v.likes)}</td>
                     </tr>
@@ -254,6 +264,36 @@ function CombinedToggle(props: {
     </section>
   );
 }
+
+// 24h Velocity cell for the YouTube top-15 table. We show the
+// interpolated +24h view count (the K-pop industry's standard
+// comeback signal) plus a multiplier badge against the channel's
+// leave-one-out mean. >5x is viral, 2-5 strong, <1 underperforming.
+function VelocityCell({ v24, ratio }: {
+  v24: number | null | undefined;
+  ratio: number | null | undefined;
+}) {
+  if (v24 == null) {
+    return <span class="text-zinc-600">—</span>;
+  }
+  const r = ratio ?? null;
+  const tone = r == null ? "text-zinc-400"
+             : r >= 5 ? "text-emerald-400"
+             : r >= 2 ? "text-blue-400"
+             : r >= 1 ? "text-zinc-300"
+             : "text-amber-400";
+  return (
+    <span class="flex items-center justify-end gap-1.5">
+      <span class="text-zinc-300">{fmt(v24)}</span>
+      {r != null && (
+        <span class={`text-hint ${tone}`}>
+          {r.toFixed(1)}×
+        </span>
+      )}
+    </span>
+  );
+}
+
 
 function FactorBreakdown(props: {
   factors: Record<string, number>;

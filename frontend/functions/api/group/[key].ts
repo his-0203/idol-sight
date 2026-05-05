@@ -28,6 +28,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
 
   const ytTop = await d1Query<any>(env.DB,
     `SELECT v.video_id, v.title, v.published_at, v.content_type, v.is_short,
+            v.view_count_24h, v.viral_velocity_ratio,
             COALESCE(s.views,0) AS views,
             COALESCE(s.likes,0) AS likes,
             COALESCE(s.comments,0) AS comments

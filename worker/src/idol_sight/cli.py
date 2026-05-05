@@ -199,6 +199,17 @@ def aggregate() -> None:
     typer.echo(f"agg_group_combined: wrote {len(combined.statements)} rows "
                f"(3 methods × ~{n_groups} groups)")
 
+    # V2.5: 24h velocity ratio per video. Reads youtube_video_stats
+    # for any video published in the last 30 days that hasn't had its
+    # first-24h count snapshotted yet, then recomputes the per-channel
+    # leave-one-out mean and writes viral_velocity_ratio. Idempotent —
+    # repeated runs keep the latest interpolation.
+    from idol_sight.analysis.video_velocity import compute_velocity
+    velocity = compute_velocity(client)
+    if velocity.statements:
+        client.batch(velocity.statements)
+    typer.echo(f"velocity: updated {len(velocity.statements)} rows")
+
 
 @app.command(
     "health-check",
