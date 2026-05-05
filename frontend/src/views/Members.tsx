@@ -52,40 +52,54 @@ export function Members({ groupKey }: { groupKey: string | null }) {
     <div class="space-y-4">
       <section class="grid grid-cols-2 gap-2">
         <div class="rounded-lg border border-zinc-800 p-3">
-          <div class="text-[10px] uppercase text-zinc-500">HHI</div>
-          <div class="text-2xl font-bold">{data.hhi?.toFixed(3) ?? "—"}</div>
-          <div class="text-[10px] text-zinc-500">0=완전 균등, 1=한 명이 독점</div>
+          <div class="text-xs uppercase tracking-wider text-zinc-500">HHI</div>
+          <div class="text-2xl font-bold tabular-nums">{data.hhi?.toFixed(3) ?? "—"}</div>
+          <div class="text-xs text-zinc-500">0=완전 균등, 1=한 명이 독점</div>
         </div>
         <div class="rounded-lg border border-zinc-800 p-3">
-          <div class="text-[10px] uppercase text-zinc-500">Evenness</div>
-          <div class="text-2xl font-bold">{data.evenness != null ? (data.evenness * 100).toFixed(0) + "%" : "—"}</div>
-          <div class="text-[10px] text-zinc-500">100% 가까울수록 균등</div>
+          <div class="text-xs uppercase tracking-wider text-zinc-500">Evenness</div>
+          <div class="text-2xl font-bold tabular-nums">{data.evenness != null ? (data.evenness * 100).toFixed(0) + "%" : "—"}</div>
+          <div class="text-xs text-zinc-500">100% 가까울수록 균등</div>
         </div>
       </section>
       <section class="rounded-lg border border-zinc-800 p-3">
-        <h3 class="mb-2 text-sm font-semibold">Member Composite Score</h3>
-        <div class="h-64"><canvas ref={canvas}></canvas></div>
+        <h3 class="mb-2 text-sm font-semibold">멤버 복합 점수</h3>
+        <div class="h-48 md:h-64"><canvas ref={canvas}></canvas></div>
       </section>
       <section class="rounded-lg border border-zinc-800 p-3">
-        <table class="w-full text-xs">
-          <thead><tr class="text-left text-zinc-500">
-            <th class="py-1">#</th><th>Member</th>
-            <th class="text-right">Score</th><th class="text-right">YT</th>
-            <th class="text-right">Avg Views</th><th class="text-right">Comm</th>
-          </tr></thead>
-          <tbody>
-            {data.members.map((m: any, i: number) => (
-              <tr key={m.id} class="border-t border-zinc-800/60">
-                <td class="py-1">{i + 1}</td>
-                <td>{m.name} <span class="text-zinc-500">{m.name_en ?? ""}</span></td>
-                <td class="text-right font-semibold">{m.composite_score?.toFixed(1)}</td>
-                <td class="text-right">{m.yt_videos}편</td>
-                <td class="text-right">{m.yt_sufficient ? fmt(m.yt_avg_views) : <span class="text-zinc-500">{fmt(m.yt_avg_views)} (부족)</span>}</td>
-                <td class="text-right">{fmt(m.community_mentions)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead><tr class="text-left text-zinc-500">
+              <th class="py-1">#</th><th>멤버</th>
+              <th class="text-right">점수</th><th class="text-right">YT</th>
+              <th class="text-right">평균 조회수</th><th class="text-right">커뮤니티</th>
+            </tr></thead>
+            <tbody>
+              {data.members.map((m: any, i: number) => (
+                <tr key={m.id} class="border-t border-zinc-800/60">
+                  <td class="py-1">{i + 1}</td>
+                  <td>{m.name} <span class="text-zinc-500">{m.name_en ?? ""}</span></td>
+                  <td class="text-right font-semibold tabular-nums">{m.composite_score?.toFixed(1)}</td>
+                  <td class="text-right tabular-nums">{m.yt_videos}편</td>
+                  <td class="text-right tabular-nums">
+                    {m.yt_sufficient
+                      ? fmt(m.yt_avg_views)
+                      : (
+                        <span class="text-zinc-400">
+                          {fmt(m.yt_avg_views)}
+                          <span
+                            class="ml-1 rounded bg-amber-500/15 px-1 text-xs text-amber-400"
+                            title="영상 5편 미만 — 표본 부족"
+                          >N/A</span>
+                        </span>
+                      )}
+                  </td>
+                  <td class="text-right tabular-nums">{fmt(m.community_mentions)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </div>
   );
