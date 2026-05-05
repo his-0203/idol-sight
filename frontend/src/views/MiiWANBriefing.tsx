@@ -40,6 +40,8 @@ type MiiwanData = {
   today: string;
   days_to_debut: number | null;
   summary: ({ snapshot_at: string } & SummaryShape) | null;
+  prev_summary: (Partial<SummaryShape> & { snapshot_at?: string }) | null;
+  summary_history?: Array<Partial<SummaryShape> & { snapshot_at: string }>;
   health_score: { total: number | null; grade: string; label: string | null;
                   breakdown: Record<string, number> } | null;
   members: Array<{ id: number; name: string; name_en: string | null;
@@ -114,19 +116,45 @@ export function MiiWANBriefing() {
             hint="콜렉터 사이클이 한 번 이상 돌면 여기에 채워집니다."
             icon="📊"
           />
-        ) : (
-          <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
-            <KPI label="구독자 (그룹+멤버)" value={data.summary.yt_subscribers} />
-            <KPI label="누적 조회수" value={data.summary.yt_total_views} />
-            <KPI label="등록 영상 수" value={data.summary.yt_total_videos} />
-            <KPI label="네이버 뉴스" value={data.summary.naver_total_news} />
-            <KPI label="디시 게시글" value={data.summary.dc_total_posts} />
-            <KPI label="트위터 멘션"
-                 value={data.summary.twitter_posts}
-                 hint={data.summary.controversy_count
-                   ? `controversy ${data.summary.controversy_count}` : undefined} />
-          </div>
-        )}
+        ) : (() => {
+          const wow = (cur: number | null | undefined, prev: number | null | undefined) =>
+            cur == null || prev == null ? null : cur - prev;
+          const series = (field: string) => {
+            const h: any[] = data.summary_history ?? [];
+            return h.length >= 2 ? h.map((r) => Number(r[field] ?? 0)) : undefined;
+          };
+          const p = data.prev_summary;
+          return (
+            <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
+              <KPI label="구독자 (그룹+멤버)"
+                   value={data.summary.yt_subscribers}
+                   delta={wow(data.summary.yt_subscribers, p?.yt_subscribers)}
+                   sparkline={series("yt_subscribers")} />
+              <KPI label="누적 조회수"
+                   value={data.summary.yt_total_views}
+                   delta={wow(data.summary.yt_total_views, p?.yt_total_views)}
+                   sparkline={series("yt_total_views")} />
+              <KPI label="등록 영상 수"
+                   value={data.summary.yt_total_videos}
+                   delta={wow(data.summary.yt_total_videos, p?.yt_total_videos)}
+                   sparkline={series("yt_total_videos")} />
+              <KPI label="네이버 뉴스"
+                   value={data.summary.naver_total_news}
+                   delta={wow(data.summary.naver_total_news, p?.naver_total_news)}
+                   sparkline={series("naver_total_news")} />
+              <KPI label="디시 게시글"
+                   value={data.summary.dc_total_posts}
+                   delta={wow(data.summary.dc_total_posts, p?.dc_total_posts)}
+                   sparkline={series("dc_total_posts")} />
+              <KPI label="트위터 멘션"
+                   value={data.summary.twitter_posts}
+                   delta={wow(data.summary.twitter_posts, p?.twitter_posts)}
+                   sparkline={series("twitter_posts")}
+                   hint={data.summary.controversy_count
+                     ? `controversy ${data.summary.controversy_count}` : undefined} />
+            </div>
+          );
+        })()}
       </section>
 
       {/* 3) Members */}

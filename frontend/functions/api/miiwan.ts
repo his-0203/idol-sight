@@ -87,6 +87,22 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)`,
     [TARGET, TARGET],
   );
+  const prevSummary = await d1QueryOne<SummaryRow>(
+    env.DB,
+    `SELECT * FROM agg_summary
+      WHERE group_key=? AND snapshot_at <= datetime('now', '-7 days')
+      ORDER BY snapshot_at DESC LIMIT 1`,
+    [TARGET],
+  );
+  const summaryHistory = await d1Query<any>(
+    env.DB,
+    `SELECT snapshot_at, yt_total_views, yt_subscribers, yt_total_videos,
+            dc_total_posts, naver_total_news, twitter_posts
+       FROM agg_summary
+      WHERE group_key=? AND snapshot_at >= datetime('now', '-30 days')
+      ORDER BY snapshot_at ASC LIMIT 64`,
+    [TARGET],
+  );
   const health = await d1QueryOne<HealthRow>(
     env.DB,
     `SELECT * FROM agg_health_scores
@@ -181,6 +197,16 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       twitter_posts: summary.twitter_posts,
       controversy_count: summary.controversy_count,
     } : null,
+    prev_summary: prevSummary ? {
+      snapshot_at: prevSummary.snapshot_at,
+      yt_total_videos: prevSummary.yt_total_videos,
+      yt_total_views: prevSummary.yt_total_views,
+      yt_subscribers: prevSummary.yt_subscribers,
+      dc_total_posts: prevSummary.dc_total_posts,
+      naver_total_news: prevSummary.naver_total_news,
+      twitter_posts: prevSummary.twitter_posts,
+    } : null,
+    summary_history: summaryHistory,
     health_score: health ? {
       total: health.total, grade: health.grade, label: health.label,
       breakdown: (() => {

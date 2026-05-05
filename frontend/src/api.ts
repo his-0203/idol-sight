@@ -15,6 +15,9 @@ export const api = {
   insights:    (week?: string) =>
     getJson<any>("/api/insights" + (week ? `?week=${encodeURIComponent(week)}` : "")),
   miiwan:      () => getJson<any>("/api/miiwan"),
+  debutCurve:  (metric = "yt_subscribers", from = -60, to = 180) =>
+    getJson<any>(`/api/debut-curve?metric=${encodeURIComponent(metric)}&from=${from}&to=${to}`),
+  externalCohort: () => getJson<any>("/api/external-cohort"),
   search:      (q: string) => getJson<any>(`/api/search?q=${encodeURIComponent(q)}`),
   healthSpec:  () => getJson<any>("/api/health/spec"),
   flagIrrelevant: async (payload: { url_hash?: string; url?: string; group_key: string; reason?: string }) => {

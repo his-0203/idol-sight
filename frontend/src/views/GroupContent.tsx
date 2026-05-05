@@ -5,6 +5,21 @@ import { KPI } from "../components/KPI";
 import { ExportMenu } from "../components/ExportMenu";
 import { HealthSpec } from "../components/HealthSpec";
 import { EmptyState } from "../components/EmptyState";
+import { Sparkline } from "../components/Sparkline";
+
+// WoW delta helper — null-safe so a missing prev_summary (group has
+// fewer than 7 days of history) renders nothing instead of "▲ NaN".
+function wowDelta(curr: number | null | undefined, prev: number | null | undefined): number | null {
+  if (curr == null || prev == null) return null;
+  return curr - prev;
+}
+
+// Pull a single metric's 30d series out of summary_history. Returns
+// undefined when no history exists so the KPI sparkline prop drops out.
+function seriesOf(history: any[] | undefined, field: string): number[] | undefined {
+  if (!history || history.length < 2) return undefined;
+  return history.map((r) => Number(r[field] ?? 0));
+}
 
 const GRADE_RING: Record<string, string> = {
   S: "ring-emerald-500", A: "ring-blue-500", B: "ring-violet-500",
@@ -58,6 +73,24 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
         const hs = data.health_score;
         const hasHealth = hs != null && hs.total != null;
         const fallback = data.summary?.yt_subscribers ?? data.summary?.yt_total_views ?? null;
+        const healthHistory: Array<{ snapshot_at: string; total: number | null }> =
+          data.health_history ?? [];
+        const healthSeries = healthHistory.map((r) => Number(r.total ?? 0)).filter((n) => Number.isFinite(n));
+        const summaryHistory: any[] = data.summary_history ?? [];
+        const prev = data.prev_summary;
+        // Health WoW: latest total - first total within 7d window.
+        // We pick the oldest history point at-or-before now-7d (or the
+        // start of the series if it's shorter) for symmetry with the
+        // KPI prev_summary path.
+        const healthDelta = (() => {
+          if (!hasHealth || healthHistory.length < 2) return null;
+          const cutoff = Date.now() - 7 * 86_400_000;
+          const prevPt = [...healthHistory]
+            .reverse()
+            .find((r) => Date.parse(r.snapshot_at) <= cutoff);
+          if (!prevPt || prevPt.total == null) return null;
+          return (hs.total as number) - prevPt.total;
+        })();
         return (
         <>
           <section class="rounded-lg border border-zinc-800 p-3">
@@ -76,6 +109,41 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
                   {hasHealth ? hs.label : (fallback != null ? "구독자 (점수 미산출)" : "데뷔 전 (활동량 부족)")}
                 </div>
                 <HealthSpec />
+                {hasHealth && healthSeries.length >= 2 && (
+                  <div class="mt-2 flex items-baseline gap-2">
+                    <span class={
+                      healthDelta == null
+                        ? "text-xs text-zinc-500"
+                        : healthDelta > 0
+                        ? "text-xs font-semibold text-emerald-400"
+                        : healthDelta < 0
+                        ? "text-xs font-semibold text-red-400"
+                        : "text-xs text-zinc-500"
+                    }>
+                      {healthDelta == null
+                        ? ""
+                        : healthDelta > 0
+                        ? `▲ +${healthDelta.toFixed(1)} (vs 7d)`
+                        : healthDelta < 0
+                        ? `▼ ${healthDelta.toFixed(1)} (vs 7d)`
+                        : "변화 없음 (vs 7d)"}
+                    </span>
+                    <span
+                      class={
+                        healthDelta == null
+                          ? "text-zinc-500"
+                          : healthDelta > 0
+                          ? "text-emerald-500/70"
+                          : healthDelta < 0
+                          ? "text-red-500/70"
+                          : "text-zinc-500/70"
+                      }
+                      title="최근 30일 Health Score 추이"
+                    >
+                      <Sparkline points={healthSeries} width={140} height={20} />
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
             {hasHealth && hs.breakdown && hs.breakdown._factors && (
@@ -95,21 +163,50 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
           />
 
           <section class="grid grid-cols-2 gap-2 md:grid-cols-5">
-            <KPI label="영상"
-                 value={data.combined_views?.[combinedMethod]?.videos
-                        ?? data.summary?.yt_total_videos ?? 0} />
-            <KPI label="조회수"
-                 value={data.combined_views?.[combinedMethod]?.views
-                        ?? data.summary?.yt_total_views ?? 0}
-                 unit="(누적)" />
-            <KPI label="구독자"
-                 value={data.combined_views?.[combinedMethod]?.subscribers
-                        ?? data.summary?.yt_subscribers ?? 0} />
-            <KPI label="DC 글" value={data.summary?.dc_total_posts ?? 0} />
-            <KPI label="뉴스"   value={data.summary?.naver_total_news ?? 0} />
+            {/* WoW deltas come from prev_summary (single 7d-ago row);
+                sparklines from summary_history (30d series). The
+                combined_views toggle only changes the displayed
+                aggregate — delta/sparkline still reflect the raw
+                summary metric since combined_views has no history. */}
+            <KPI
+              label="영상"
+              value={data.combined_views?.[combinedMethod]?.videos
+                     ?? data.summary?.yt_total_videos ?? 0}
+              delta={wowDelta(data.summary?.yt_total_videos, prev?.yt_total_videos)}
+              sparkline={seriesOf(summaryHistory, "yt_total_videos")}
+            />
+            <KPI
+              label="조회수"
+              value={data.combined_views?.[combinedMethod]?.views
+                     ?? data.summary?.yt_total_views ?? 0}
+              unit="(누적)"
+              delta={wowDelta(data.summary?.yt_total_views, prev?.yt_total_views)}
+              sparkline={seriesOf(summaryHistory, "yt_total_views")}
+            />
+            <KPI
+              label="구독자"
+              value={data.combined_views?.[combinedMethod]?.subscribers
+                     ?? data.summary?.yt_subscribers ?? 0}
+              delta={wowDelta(data.summary?.yt_subscribers, prev?.yt_subscribers)}
+              sparkline={seriesOf(summaryHistory, "yt_subscribers")}
+            />
+            <KPI
+              label="DC 글"
+              value={data.summary?.dc_total_posts ?? 0}
+              delta={wowDelta(data.summary?.dc_total_posts, prev?.dc_total_posts)}
+              sparkline={seriesOf(summaryHistory, "dc_total_posts")}
+            />
+            <KPI
+              label="뉴스"
+              value={data.summary?.naver_total_news ?? 0}
+              delta={wowDelta(data.summary?.naver_total_news, prev?.naver_total_news)}
+              sparkline={seriesOf(summaryHistory, "naver_total_news")}
+            />
           </section>
 
           <PlatformReactivity summary={data.summary} />
+
+          <ContentFormatMatrix videos={data.yt_top15 ?? []} />
 
           <AlbumLifecycle albums={data.albums ?? []} />
 
@@ -168,6 +265,140 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
         );
       })()}
     </div>
+  );
+}
+
+// ContentFormatMatrix — "어떤 포맷이 우리 그룹에 효과적인가".
+//
+// Aggregates the loaded yt_top15 by content_type (MV / Cover / Short /
+// Live) and computes per-format mean 24h view count and mean
+// viral_velocity_ratio. The metric that actually matters here is
+// viral_velocity_ratio, not raw views: a format averaging 3× the
+// channel's normal lifetime velocity is signalling "this is what
+// resonates with this group's audience". A format with high raw views
+// but ratio < 1 just means "old hits got there over years".
+//
+// Surfaces a one-line verdict — the format with the highest mean
+// ratio (≥ 2 samples) is the recommended push direction. Empty state
+// (<2 typed videos in the top-15) explicitly says so rather than
+// hiding the section, because absence of data is itself information.
+const FORMAT_LABEL: Record<string, string> = {
+  MV:    "MV",
+  Cover: "Cover",
+  Short: "Short",
+  Live:  "Live",
+};
+
+const FORMAT_COLOR: Record<string, string> = {
+  MV:    "#a855f7",
+  Cover: "#22c55e",
+  Short: "#06b6d4",
+  Live:  "#f59e0b",
+};
+
+type FormatRow = {
+  type: string;
+  count: number;
+  meanViews: number;
+  meanRatio: number;
+  maxRatio: number;
+};
+
+function aggregateFormats(videos: any[]): FormatRow[] {
+  const buckets: Record<string, { views: number[]; ratios: number[] }> = {};
+  for (const v of videos) {
+    const t = v.content_type;
+    if (!t || !FORMAT_LABEL[t]) continue;
+    const slot = buckets[t] ?? { views: [], ratios: [] };
+    if (typeof v.view_count_24h === "number") slot.views.push(v.view_count_24h);
+    if (typeof v.viral_velocity_ratio === "number") slot.ratios.push(v.viral_velocity_ratio);
+    buckets[t] = slot;
+  }
+  const rows: FormatRow[] = [];
+  for (const [type, slot] of Object.entries(buckets)) {
+    const meanViews = slot.views.length
+      ? slot.views.reduce((a, b) => a + b, 0) / slot.views.length
+      : 0;
+    const meanRatio = slot.ratios.length
+      ? slot.ratios.reduce((a, b) => a + b, 0) / slot.ratios.length
+      : 0;
+    const maxRatio = slot.ratios.length ? Math.max(...slot.ratios) : 0;
+    rows.push({ type, count: Math.max(slot.views.length, slot.ratios.length), meanViews, meanRatio, maxRatio });
+  }
+  // Sort by mean ratio desc — strongest-resonating format first.
+  rows.sort((a, b) => b.meanRatio - a.meanRatio);
+  return rows;
+}
+
+function ContentFormatMatrix({ videos }: { videos: any[] }) {
+  const rows = useMemo(() => aggregateFormats(videos), [videos]);
+  const totalTyped = rows.reduce((acc, r) => acc + r.count, 0);
+  const winner = rows.find((r) => r.count >= 2 && r.meanRatio >= 1.5);
+  const maxRatioInChart = Math.max(1, ...rows.map((r) => r.maxRatio));
+
+  return (
+    <section class="rounded-lg border border-zinc-800 p-3">
+      <div class="mb-2 flex flex-wrap items-center gap-2">
+        <h3 class="section-title">콘텐츠 포맷 성과</h3>
+        <span class="text-hint text-zinc-500">
+          상위 15개 영상 기준. 24h velocity ratio가 채널 평균을 얼마나 초과했는지로 포맷별 반응성 측정.
+        </span>
+      </div>
+      {totalTyped === 0 ? (
+        <div class="text-sm text-zinc-500">
+          상위 15개 영상에 분류된 포맷(MV/Cover/Short/Live)이 부족합니다 — 분류 데이터 누적 필요.
+        </div>
+      ) : (
+        <>
+          <ul class="space-y-1.5">
+            {rows.map((r) => {
+              const color = FORMAT_COLOR[r.type] ?? "#71717a";
+              const widthPct = Math.min(r.maxRatio / maxRatioInChart, 1) * 100;
+              const meanWidthPct = Math.min(r.meanRatio / maxRatioInChart, 1) * 100;
+              return (
+                <li key={r.type} class="grid grid-cols-[5rem_1fr_auto] items-center gap-2 text-xs">
+                  <span class="font-semibold" style={{ color }}>{FORMAT_LABEL[r.type]}</span>
+                  <div class="relative h-3 overflow-hidden rounded bg-zinc-800/60">
+                    {/* Light bar = max ratio; bold bar = mean ratio. */}
+                    <div class="absolute inset-y-0 left-0 opacity-30"
+                         style={{ width: `${widthPct}%`, backgroundColor: color }} />
+                    <div class="absolute inset-y-0 left-0"
+                         style={{ width: `${meanWidthPct}%`, backgroundColor: color }} />
+                    <span class="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-zinc-300 tabular-nums">
+                      평균 {r.meanRatio.toFixed(1)}× · 최고 {r.maxRatio.toFixed(1)}×
+                    </span>
+                  </div>
+                  <span class="text-right tabular-nums text-zinc-500">
+                    n={r.count}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <div class="mt-3 rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-xs">
+            {winner ? (
+              <>
+                <span class="font-semibold text-emerald-300">권고:</span>
+                {" "}
+                <span class="text-zinc-300">
+                  <span style={{ color: FORMAT_COLOR[winner.type] }}>{FORMAT_LABEL[winner.type]}</span>{" "}
+                  포맷이 평균 {winner.meanRatio.toFixed(1)}×로 가장 강하게 반응
+                  (n={winner.count}). 다음 콘텐츠 슬롯 우선순위로 검토.
+                </span>
+              </>
+            ) : (
+              <>
+                <span class="font-semibold text-zinc-400">관찰:</span>
+                {" "}
+                <span class="text-zinc-500">
+                  유의미한 우세 포맷 없음 (평균 ≥1.5× × 표본 ≥2 만족하는 포맷 부재).
+                </span>
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 

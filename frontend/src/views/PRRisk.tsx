@@ -3,6 +3,16 @@ import { api } from "../api";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
 
+function wowDelta(curr: number | null | undefined, prev: number | null | undefined): number | null {
+  if (curr == null || prev == null) return null;
+  return curr - prev;
+}
+
+function seriesOf(history: any[] | undefined, field: string): number[] | undefined {
+  if (!history || history.length < 2) return undefined;
+  return history.map((r) => Number(r[field] ?? 0));
+}
+
 // Mirrors worker/idol_sight/alerts/__init__.py thresholds. Keep both in
 // sync — drift between the BI Risk Level and the Discord webhook is
 // the fastest way to lose operator trust ("the dashboard says LOW but
@@ -132,9 +142,28 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
       </div>
 
       <section class="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <KPI label="뉴스" value={news.length} />
-        <KPI label="트위터" value={tweets.length} />
-        <KPI label="Controversy 트윗" value={controversyTweets.length} />
+        {/* News/Twitter/Controversy KPIs use agg_summary cumulative
+            counts (with WoW delta + 30d sparkline) rather than the
+            currently-loaded list lengths. The list lengths cap at 30
+            and would mislead the operator about real volume changes. */}
+        <KPI
+          label="뉴스 (누적)"
+          value={data.summary?.naver_total_news ?? news.length}
+          delta={wowDelta(data.summary?.naver_total_news, data.prev_summary?.naver_total_news)}
+          sparkline={seriesOf(data.summary_history, "naver_total_news")}
+        />
+        <KPI
+          label="트위터 (누적)"
+          value={data.summary?.twitter_posts ?? tweets.length}
+          delta={wowDelta(data.summary?.twitter_posts, data.prev_summary?.twitter_posts)}
+          sparkline={seriesOf(data.summary_history, "twitter_posts")}
+        />
+        <KPI
+          label="Controversy"
+          value={data.summary?.controversy_count ?? controversyTweets.length}
+          delta={wowDelta(data.summary?.controversy_count, data.prev_summary?.controversy_count)}
+          sparkline={seriesOf(data.summary_history, "controversy_count")}
+        />
         <KPI label="활성 알림 (14d)" value={alerts.length} hint={riskLevel} />
       </section>
 

@@ -34,6 +34,18 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     `SELECT * FROM agg_summary
       WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_summary)`);
 
+  // Per-group 7d-ago snapshot for WoW delta on the cards. We take the
+  // latest snapshot per group at-or-before now-7d (graceful fallback
+  // when collection windows are uneven). This is one indexed query
+  // per group via correlated subquery — D1 handles 8 rows fine.
+  const prevSums = await d1Query<SummaryRow>(env.DB,
+    `SELECT s.* FROM agg_summary s
+      WHERE s.snapshot_at = (
+        SELECT MAX(snapshot_at) FROM agg_summary
+         WHERE group_key = s.group_key
+           AND snapshot_at <= datetime('now', '-7 days')
+      )`);
+
   const healths = await d1Query<HealthRow>(env.DB,
     `SELECT * FROM agg_health_scores
       WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_health_scores)`);
@@ -46,6 +58,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
 
   const sumByKey: Record<string, SummaryRow> = {};
   for (const s of sums) sumByKey[s.group_key] = s;
+  const prevSumByKey: Record<string, SummaryRow> = {};
+  for (const s of prevSums) prevSumByKey[s.group_key] = s;
   const healthByKey: Record<string, HealthRow> = {};
   for (const h of healths) healthByKey[h.group_key] = h;
 
@@ -53,6 +67,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   for (const g of groups) {
     const s = sumByKey[g.key];
     const h = healthByKey[g.key];
+    const p = prevSumByKey[g.key];
     out[g.key] = {
       name: g.name, name_kr: g.name_kr, debut_date: g.debut_date,
       group_model: g.group_model ?? "corporate",
@@ -62,6 +77,11 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         dc_total_posts: s.dc_total_posts, theqoo_posts: s.theqoo_posts,
         instiz_posts: s.instiz_posts, naver_total_news: s.naver_total_news,
         twitter_posts: s.twitter_posts, controversy_count: s.controversy_count,
+      } : null,
+      prev_summary: p ? {
+        yt_total_views: p.yt_total_views, yt_subscribers: p.yt_subscribers,
+        dc_total_posts: p.dc_total_posts, naver_total_news: p.naver_total_news,
+        twitter_posts: p.twitter_posts, controversy_count: p.controversy_count,
       } : null,
       health_score: h ? {
         total: h.total, grade: h.grade, label: h.label,

@@ -19,12 +19,47 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
         SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?
       )`, [key, key]);
 
+  // 7-day-ago snapshot for WoW delta. We grab the latest snapshot at
+  // or before now-7d (rather than exact date arithmetic) so missed
+  // collection windows degrade gracefully — if no snapshot existed
+  // exactly 7 days ago we fall back to the most recent one within
+  // that window.
+  const prevSummary = await d1QueryOne<any>(env.DB,
+    `SELECT * FROM agg_summary
+      WHERE group_key=?
+        AND snapshot_at <= datetime('now', '-7 days')
+      ORDER BY snapshot_at DESC LIMIT 1`, [key]);
+
   const health = await d1QueryOne<any>(env.DB,
     `SELECT total, grade, label, breakdown_json, bonus_json, quality_method
        FROM agg_health_scores
       WHERE group_key=? AND snapshot_at=(
         SELECT MAX(snapshot_at) FROM agg_health_scores WHERE group_key=?
       )`, [key, key]);
+
+  // 30-day Health Score history for the Hero sparkline. Daily
+  // aggregator runs once per cycle so we just take every snapshot
+  // in the window in chronological order — no resampling needed.
+  // Limit a generous 64 rows in case the cron fires more than daily;
+  // sparkline component handles arbitrary point counts.
+  const healthHistory = await d1Query<{ snapshot_at: string; total: number | null }>(
+    env.DB,
+    `SELECT snapshot_at, total FROM agg_health_scores
+      WHERE group_key=? AND snapshot_at >= datetime('now', '-30 days')
+      ORDER BY snapshot_at ASC LIMIT 64`, [key]);
+
+  // 30-day summary history — used for KPI sparklines (subscribers,
+  // views, dc posts, naver news). One row per cycle is enough; the
+  // KPI sparkline normalizes to its own min/max so absolute scale
+  // mismatches across columns don't matter.
+  const summaryHistory = await d1Query<any>(env.DB,
+    `SELECT snapshot_at,
+            yt_total_views, yt_subscribers, yt_total_videos,
+            dc_total_posts, naver_total_news, twitter_posts,
+            controversy_count
+       FROM agg_summary
+      WHERE group_key=? AND snapshot_at >= datetime('now', '-30 days')
+      ORDER BY snapshot_at ASC LIMIT 64`, [key]);
 
   const ytTop = await d1Query<any>(env.DB,
     `SELECT v.video_id, v.title, v.published_at, v.content_type, v.is_short,
@@ -203,5 +238,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     albums: albumLifecycles,            // V2.5 dive curves
     alerts,                             // worker-emitted critical signals
     controversy_trend: controversyTrend,
+    prev_summary: prevSummary,          // 7-day-ago WoW baseline
+    health_history: healthHistory,      // 30d sparkline points
+    summary_history: summaryHistory,    // 30d KPI sparkline points
   });
 };
