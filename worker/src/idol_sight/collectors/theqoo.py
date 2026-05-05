@@ -57,7 +57,6 @@ class TheQooCollector:
             LIST_URL,
             headless=True,
             network_idle=True,
-            block_resources=True,
             solve_cloudflare=True,
         )
         rows = self._parse(page)

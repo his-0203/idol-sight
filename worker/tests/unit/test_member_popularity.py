@@ -26,6 +26,7 @@ def test_balanced_group_has_low_hhi():
         ),
     )
     assert pop.status == "ok"
+    assert pop.hhi is not None and pop.evenness is not None
     # Perfectly balanced → HHI = 5 * (20^2) / 10000 = 0.20
     assert abs(pop.hhi - 0.20) < 0.01
     assert pop.evenness > 0.7
@@ -43,6 +44,7 @@ def test_dominant_member_has_high_hhi():
         ),
     )
     assert pop.status == "ok"
+    assert pop.hhi is not None and pop.evenness is not None
     assert pop.hhi > 0.30
     assert pop.evenness < 0.7
 

@@ -29,6 +29,7 @@ def test_execute_with_params(client, httpx_mock: HTTPXMock):
     )
     client.execute("SELECT * FROM groups WHERE key=?", ["plave"])
     req = httpx_mock.get_request()
+    assert req is not None
     body = req.read()
     assert b'"plave"' in body
 
