@@ -474,7 +474,37 @@ def analyze_weekly(
         client.batch(member_stmts)
     typer.echo(f"member_popularity: wrote {len(member_stmts)} rows")
 
-    # 4. LLM weekly insights
+    # 4. Sentiment polarity classification — Gemini-driven, title-only.
+    #    Capped at LIMIT_PER_GROUP per group per run so token spend
+    #    stays bounded (~200 titles × 8 groups × 1 batch). The
+    #    negative_ratio update on agg_summary lets the frontend show
+    #    a one-glance polarity number per group without re-joining
+    #    community_posts.
+    if settings.gemini_api_key:
+        from idol_sight.analysis.sentiment import (
+            classify_for_group,
+            update_negative_ratio_statements,
+        )
+        from idol_sight.llm.gemini import GeminiClient
+        sent_gemini = GeminiClient(api_key=settings.gemini_api_key)
+        sent_stmts: list = []
+        for g in _load_active_groups(client):
+            sent_stmts.extend(classify_for_group(
+                client, sent_gemini,
+                group_key=g["key"], group_name_kr=g.get("name_kr") or g["key"],
+            ))
+        if sent_stmts:
+            client.batch(sent_stmts)
+        # After UPDATEs land, recompute the rolled-up negative_ratio.
+        ratio_stmts = update_negative_ratio_statements(client, snapshot_at=snap)
+        if ratio_stmts:
+            client.batch(ratio_stmts)
+        typer.echo(f"sentiment: classified {len(sent_stmts)} posts, "
+                   f"updated {len(ratio_stmts)} ratio rows")
+    else:
+        typer.echo("sentiment: skipped (GEMINI_API_KEY unset)")
+
+    # 5. LLM weekly insights
     if settings.gemini_api_key:
         from idol_sight.llm.gemini import GeminiClient
         from idol_sight.llm.weekly import generate_weekly
