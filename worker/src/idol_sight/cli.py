@@ -399,7 +399,9 @@ def analyze_weekly(
 
 
 def _load_active_groups(client) -> list[dict]:
-    return client.execute("SELECT key, name FROM groups WHERE is_active=1")
+    return client.execute(
+        "SELECT key, name, name_kr FROM groups WHERE is_active=1"
+    )
 
 
 def _shift_date(iso_date: str, days: int) -> str:
