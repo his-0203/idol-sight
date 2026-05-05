@@ -30,6 +30,7 @@ def test_build_agg_summary_emits_one_upsert_per_group():
         ],
         "youtube_videos": [
             {"group_key": "plave", "n_videos": 24, "total_views": 160608883,
+             "total_likes": 4_500_000, "total_comments": 320_000,
              "subscribers": 1140000},
         ],
         "twitter_posts": [
@@ -47,19 +48,24 @@ def test_build_agg_summary_emits_one_upsert_per_group():
     # Find PLAVE row params and verify counts.
     for _sql, params in statements:
         if "plave" in params:
-            # params order: group_key, snapshot_at, yt_videos, yt_views, yt_subs,
-            #               dc_posts, theqoo_posts, instiz_posts, naver, twitter, controversy
+            # params order: group_key, snapshot_at,
+            #   yt_videos, yt_views, yt_subs,
+            #   yt_likes, yt_comments,
+            #   dc_posts, theqoo_posts, instiz_posts,
+            #   naver, twitter, controversy
             assert params[0] == "plave"
             assert params[1] == "2026-05-04T00:00:00Z"
             assert params[2] == 24
             assert params[3] == 160608883
             assert params[4] == 1140000
-            assert params[5] == 89663
-            assert params[6] == 20219
-            assert params[7] == 35454
-            assert params[8] == 282
-            assert params[9] == 30
-            assert params[10] == 0
+            assert params[5] == 4_500_000
+            assert params[6] == 320_000
+            assert params[7] == 89663
+            assert params[8] == 20219
+            assert params[9] == 35454
+            assert params[10] == 282
+            assert params[11] == 30
+            assert params[12] == 0
             break
     else:
         raise AssertionError("plave row not found in statements")

@@ -184,7 +184,13 @@ export function MarketOverview() {
         })}
       </div>
 
-      {/* market share — line chart for ≥2 weeks, bar fallback for 1 week */}
+      {/* SOV (Share of Voice) — line chart for ≥2 weeks, bar fallback for 1 week.
+          Renamed from "Market Share" in V2: the 8-group cohort isn't a real
+          market with a defined denominator (Circle Chart, etc.), so the
+          honest label is Share of Voice. The SOV mix is now percentile-rank
+          weighted across yt_views (30%) / community (25%) / news (20%) /
+          subscribers (15%) / twitter (10%) instead of raw-summing different
+          unit signals. */}
       {(() => {
         const distinctWeeks = share
           ? Array.from(new Set<string>(share.rows.map((r: any) => r.week_end)))
@@ -194,8 +200,11 @@ export function MarketOverview() {
           <section class="card">
             <div class="mb-2 flex flex-wrap items-center gap-2 text-data">
               <h3 class="section-title">
-                Market Share {hasTrend ? "Trend (13주)" : "(현재 주)"}
+                Share of Voice {hasTrend ? "Trend (13주)" : "(현재 주)"}
               </h3>
+              <span class="text-hint text-zinc-500">
+                코호트 percentile 가중합 — yt 30% / 커뮤 25% / 뉴스 20% / 구독 15% / 트윗 10%
+              </span>
               <HealthSpec />
               {hasTrend && (
                 <label class="ml-auto flex items-center gap-1 text-hint text-zinc-400">
@@ -206,7 +215,7 @@ export function MarketOverview() {
               )}
               <ExportMenu canvas={shareCanvas.current ?? undefined}
                            rows={share?.rows ?? []}
-                           filenameBase="market-share" />
+                           filenameBase="share-of-voice" />
             </div>
             {hasTrend ? (
               <div class="h-48 md:h-72"><canvas ref={shareCanvas}></canvas></div>

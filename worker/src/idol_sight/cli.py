@@ -224,65 +224,109 @@ def analyze_weekly(
         client.batch(hanteo_result.statements)
     typer.echo(f"hanteo: matched {hanteo_result.rows_inserted} groups")
 
-    # 2. Market share — read agg_summary windows + write agg_market_share
-    # NOTE: agg_summary is upserted on each collect cycle with snapshot_at=now,
-    # not aligned to week_end. Use the latest snapshot per group as "this week"
-    # and the most recent snapshot strictly older than that as "previous week".
-    # On the first cycle there is only one snapshot → prev is empty → mom = cum.
+    # 2. Share of Voice (formerly "market share") — V2 reformulation.
+    # Each signal (yt_views/community/news/subscribers/twitter) is now
+    # converted to a percentile rank across the cohort and mixed via
+    # SOV_WEIGHTS so that no single high-volume signal dominates. The
+    # data layout: take the latest agg_summary snapshot per group as
+    # "this week" and the most recent strictly-older snapshot as
+    # "previous week" so we can compute deltas for the momentum mix.
+    # On the first run there is only one snapshot → mom inputs are 0
+    # and final ≈ cum (still a valid SOV picture).
     from idol_sight.analysis.market_share import compute_market_share, to_statements
     rows_last = client.execute(
-        "SELECT group_key, yt_total_views, dc_total_posts, theqoo_posts, "
-        "  instiz_posts, naver_total_news "
+        "SELECT group_key, yt_total_views, yt_subscribers, dc_total_posts, "
+        "  theqoo_posts, instiz_posts, naver_total_news, twitter_posts "
         "FROM agg_summary WHERE snapshot_at = "
         "  (SELECT MAX(snapshot_at) FROM agg_summary)")
     rows_prev = client.execute(
-        "SELECT group_key, yt_total_views, dc_total_posts FROM agg_summary "
-        "WHERE snapshot_at = ("
+        "SELECT group_key, yt_total_views, dc_total_posts, theqoo_posts, "
+        "  instiz_posts, naver_total_news "
+        "FROM agg_summary WHERE snapshot_at = ("
         "  SELECT MAX(snapshot_at) FROM agg_summary "
         "  WHERE snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary)"
         ")")
-    cum_by = {r["group_key"]: (r["yt_total_views"] or 0) + (r["dc_total_posts"] or 0)
-              + (r.get("theqoo_posts") or 0) + (r.get("instiz_posts") or 0)
-              + (r.get("naver_total_news") or 0) * 100
-              for r in rows_last}
-    prev_by = {r["group_key"]: (r["yt_total_views"] or 0) + (r["dc_total_posts"] or 0)
-               for r in rows_prev}
-    groups = [{"key": k, "cum_score": cum_by[k],
-               "mom_score": max(cum_by[k] - prev_by.get(k, 0), 0)}
-              for k in cum_by]
+    prev_by = {
+        r["group_key"]: {
+            "yt_views": r.get("yt_total_views") or 0,
+            "comm_total": ((r.get("dc_total_posts") or 0)
+                           + (r.get("theqoo_posts") or 0)
+                           + (r.get("instiz_posts") or 0)),
+            "news": r.get("naver_total_news") or 0,
+        }
+        for r in rows_prev
+    }
+    groups = []
+    for r in rows_last:
+        gk = r["group_key"]
+        comm_total = ((r.get("dc_total_posts") or 0)
+                      + (r.get("theqoo_posts") or 0)
+                      + (r.get("instiz_posts") or 0))
+        prev = prev_by.get(gk, {})
+        groups.append({
+            "key": gk,
+            "yt_views":     r.get("yt_total_views") or 0,
+            "comm_total":   comm_total,
+            "news":         r.get("naver_total_news") or 0,
+            "subscribers":  r.get("yt_subscribers") or 0,
+            "twitter":      r.get("twitter_posts") or 0,
+            "delta_yt_views": (r.get("yt_total_views") or 0) - (prev.get("yt_views") or 0),
+            "delta_comm":     comm_total - (prev.get("comm_total") or 0),
+            "delta_news":     (r.get("naver_total_news") or 0) - (prev.get("news") or 0),
+        })
     share_rows = compute_market_share(week_start=week_start, week_end=week_end,
                                        groups=groups)
-    market_total = sum(g["cum_score"] for g in groups)
+    market_total = sum(g["yt_views"] for g in groups)  # legacy "market_total" column
     market_stmts = to_statements(share_rows, market_total=market_total)
     if market_stmts:
         client.batch(market_stmts)
-    typer.echo(f"market_share: wrote {len(market_stmts)} rows")
+    typer.echo(f"sov: wrote {len(market_stmts)} rows")
 
-    # 2.5. Health Score per group (writes agg_health_scores)
-    from idol_sight.analysis.health_score import compute_health_score
+    # 2.5. Health Score per group (writes agg_health_scores).
+    # V2 changes:
+    #   - REF values are computed dynamically from the cohort's p90 so
+    #     PLAVE no longer saturates while the rest land near 0.
+    #   - Quality is the engagement rate (likes + 5·comments)/views,
+    #     which actually measures fan interaction depth instead of
+    #     channel size.
+    # We build the cohort agg list FIRST (one query, all groups) so we
+    # can derive a single set of refs, then evaluate each group against
+    # it.
+    from idol_sight.analysis.health_score import (
+        compute_dynamic_refs,
+        compute_health_score,
+    )
+    cohort_rows = client.execute(
+        "SELECT group_key, yt_subscribers, yt_total_views, "
+        "  yt_likes_total, yt_comments_total, "
+        "  dc_total_posts, theqoo_posts, instiz_posts, "
+        "  naver_total_news, controversy_count "
+        "FROM agg_summary WHERE snapshot_at = "
+        "  (SELECT MAX(snapshot_at) FROM agg_summary)"
+    )
+    cohort = [
+        {
+            "key": r["group_key"],
+            "yt_subscribers": r.get("yt_subscribers") or 0,
+            "yt_total_views": r.get("yt_total_views") or 0,
+            "likes_total": r.get("yt_likes_total") or 0,
+            "comments_total": r.get("yt_comments_total") or 0,
+            "dc_total_posts": r.get("dc_total_posts") or 0,
+            "theqoo_posts": r.get("theqoo_posts") or 0,
+            "instiz_posts": r.get("instiz_posts") or 0,
+            "naver_total_news": r.get("naver_total_news") or 0,
+            "controversy_count": r.get("controversy_count") or 0,
+        }
+        for r in cohort_rows
+    ]
+    dyn_refs = compute_dynamic_refs(cohort) if cohort else None
+    cohort_by_key = {c["key"]: c for c in cohort}
+
     health_stmts: list = []
     for g in _load_active_groups(client):
-        sum_rows = client.execute(
-            "SELECT yt_subscribers, yt_total_views, dc_total_posts, theqoo_posts, "
-            "       instiz_posts, naver_total_news, controversy_count "
-            "FROM agg_summary WHERE group_key=? AND snapshot_at=("
-            "  SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)",
-            [g["key"], g["key"]],
-        )
-        if not sum_rows:
+        s = cohort_by_key.get(g["key"])
+        if not s:
             continue
-        s = sum_rows[0]
-        # Top 10 video views for quality score.
-        top10 = client.execute(
-            "SELECT vs.views FROM youtube_video_stats vs "
-            "JOIN youtube_videos v ON v.video_id = vs.video_id "
-            "WHERE v.group_key=? AND vs.snapshot_at = ("
-            "  SELECT MAX(snapshot_at) FROM youtube_video_stats "
-            "  WHERE video_id = vs.video_id) "
-            "ORDER BY vs.views DESC LIMIT 10",
-            [g["key"]],
-        )
-        # Recent video counts for the bonus.
         v90 = client.execute(
             "SELECT COUNT(*) AS n FROM youtube_videos "
             "WHERE group_key=? AND published_at >= datetime('now','-90 days')",
@@ -298,18 +342,19 @@ def analyze_weekly(
         )
         debut_date = debut_rows[0].get("debut_date") if debut_rows else None
         agg_dict = {
-            "yt_subscribers": s.get("yt_subscribers", 0),
-            "yt_total_views": s.get("yt_total_views", 0),
-            "yt_top10": top10,
-            "dc_total_posts": s.get("dc_total_posts", 0),
-            "theqoo_posts": s.get("theqoo_posts", 0),
-            "instiz_posts": s.get("instiz_posts", 0),
-            "naver_total_news": s.get("naver_total_news", 0),
-            "controversy_count": s.get("controversy_count", 0),
+            "yt_subscribers": s["yt_subscribers"],
+            "yt_total_views": s["yt_total_views"],
+            "likes_total": s["likes_total"],
+            "comments_total": s["comments_total"],
+            "dc_total_posts": s["dc_total_posts"],
+            "theqoo_posts": s["theqoo_posts"],
+            "instiz_posts": s["instiz_posts"],
+            "naver_total_news": s["naver_total_news"],
+            "controversy_count": s["controversy_count"],
             "v90_count": (v90[0].get("n", 0) if v90 else 0),
             "v30_count": (v30[0].get("n", 0) if v30 else 0),
         }
-        score = compute_health_score(g["key"], agg_dict, debut_date)
+        score = compute_health_score(g["key"], agg_dict, debut_date, refs=dyn_refs)
         health_stmts.append((
             "INSERT INTO agg_health_scores"
             " (group_key, snapshot_at, total, raw_total, grade, label,"

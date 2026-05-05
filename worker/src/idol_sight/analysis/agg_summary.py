@@ -26,13 +26,16 @@ _UPSERT = """
 INSERT INTO agg_summary
   (group_key, snapshot_at,
    yt_total_videos, yt_total_views, yt_subscribers,
+   yt_likes_total, yt_comments_total,
    dc_total_posts, theqoo_posts, instiz_posts,
    naver_total_news, twitter_posts, controversy_count)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   yt_total_videos=excluded.yt_total_videos,
   yt_total_views=excluded.yt_total_views,
   yt_subscribers=excluded.yt_subscribers,
+  yt_likes_total=excluded.yt_likes_total,
+  yt_comments_total=excluded.yt_comments_total,
   dc_total_posts=excluded.dc_total_posts,
   theqoo_posts=excluded.theqoo_posts,
   instiz_posts=excluded.instiz_posts,
@@ -46,6 +49,7 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
     # All groups touched across any source.
     counts: dict[str, dict[str, int]] = defaultdict(lambda: {
         "yt_videos": 0, "yt_views": 0, "yt_subs": 0,
+        "yt_likes": 0, "yt_comments": 0,
         "dc": 0, "theqoo": 0, "instiz": 0,
         "naver": 0, "twitter": 0, "controversy": 0,
     })
@@ -82,10 +86,17 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
         counts[r["group_key"]]["twitter"] = r["n"]
         counts[r["group_key"]]["controversy"] = r.get("controversy_count") or 0
 
-    # YouTube: video count + most-recent stats sum + latest channel subs.
+    # YouTube: video count + most-recent video stats (views + likes +
+    # comments) + latest channel subscriber count, all grouped by
+    # group_key. We pick the most-recent stat snapshot per video so we
+    # never double-count a video across daily snapshots, and we pick the
+    # most-recent channel snapshot per (group, channel) so subscriber
+    # counts are current.
     rows = client.execute(
         "SELECT v.group_key, COUNT(DISTINCT v.video_id) AS n_videos, "
         "  COALESCE(SUM(s.views), 0) AS total_views, "
+        "  COALESCE(SUM(s.likes), 0) AS total_likes, "
+        "  COALESCE(SUM(s.comments), 0) AS total_comments, "
         "  COALESCE(MAX(c.subscribers), 0) AS subscribers "
         "FROM youtube_videos v "
         "LEFT JOIN youtube_video_stats s "
@@ -101,6 +112,8 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
     for r in rows:
         counts[r["group_key"]]["yt_videos"] = r["n_videos"]
         counts[r["group_key"]]["yt_views"] = r["total_views"]
+        counts[r["group_key"]]["yt_likes"] = r["total_likes"]
+        counts[r["group_key"]]["yt_comments"] = r["total_comments"]
         counts[r["group_key"]]["yt_subs"] = r["subscribers"]
 
     statements: list[tuple[str, list[Any]]] = []
@@ -110,6 +123,7 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
             [
                 gk, snapshot_at,
                 c["yt_videos"], c["yt_views"], c["yt_subs"],
+                c["yt_likes"], c["yt_comments"],
                 c["dc"], c["theqoo"], c["instiz"],
                 c["naver"], c["twitter"], c["controversy"],
             ],
