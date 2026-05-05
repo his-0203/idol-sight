@@ -61,13 +61,13 @@ export function groupDatasets<T>(
   }));
 }
 
-// Build a tooltip callback that runs values through `fmt()`.
-export function fmtTooltipCallback(): (item: { dataset: { label?: string }; parsed: { y?: number } | number }) => string {
-  return (item) => {
-    const label = item.dataset?.label ?? "";
-    const v = typeof item.parsed === "number"
-      ? item.parsed
-      : item.parsed?.y ?? 0;
+// Build a tooltip callback that runs values through `fmt()`. Returned as
+// `any` because chart.js tooltip callback type varies per chart variant.
+export function fmtTooltipCallback(): any {
+  return (item: any) => {
+    const label = item?.dataset?.label ?? "";
+    const parsed = item?.parsed;
+    const v = typeof parsed === "number" ? parsed : (parsed?.y ?? 0);
     return `${label}: ${fmt(v)}`;
   };
 }
