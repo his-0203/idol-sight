@@ -1,0 +1,37 @@
+name: external-cohort
+on:
+  schedule:
+    # 06:30 UTC daily — Spotify Web API has no published rate-limit but
+    # client-credentials token + 5 artists.list + 5 channels.list calls
+    # is well under any reasonable limit. We pick an off-peak hour
+    # different from collect-daily (08:30) so the two don't pile.
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --frozen
+        working-directory: worker
+
+      - name: Run external-cohort-run
+        working-directory: worker
+        env:
+          CF_ACCOUNT_ID:          ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:            ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:           ${{ secrets.CF_API_TOKEN }}
+          DISCORD_WEBHOOK:        ${{ secrets.DISCORD_WEBHOOK }}
+          YT_API_KEY:             ${{ secrets.YT_API_KEY }}
+          SPOTIFY_CLIENT_ID:      ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET:  ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+        run: uv run python -m idol_sight external-cohort-run
+
+      - if: failure()
+        working-directory: worker
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: uv run python -m idol_sight notify-fail --job 'external-cohort'

@@ -11,6 +11,10 @@ import typer
 
 from idol_sight.collectors.channel_stats import ChannelStatsCollector
 from idol_sight.collectors.dc import DcCollector
+from idol_sight.collectors.external_cohort import (
+    ExternalCohortCollector,
+    load_external_groups,
+)
 from idol_sight.collectors.hanteo import HanteoCollector
 from idol_sight.collectors.instiz import InstizCollector
 from idol_sight.collectors.naver import NaverCollector
@@ -243,6 +247,70 @@ def health_check() -> None:
         typer.echo(f"STALE: {msg}", err=True)
         notify_failure(webhook_url=webhook, job=s["job"], error=msg)
     raise typer.Exit(code=1)
+
+
+@app.command(
+    "external-cohort-resolve",
+    help="Look up missing spotify_artist_id values for external_groups via "
+         "Spotify Search. Idempotent — only updates rows where the ID is NULL.",
+)
+def external_cohort_resolve() -> None:
+    settings = load_settings()
+    if not (settings.spotify_client_id and settings.spotify_client_secret):
+        typer.echo(
+            "external-cohort-resolve: SPOTIFY_CLIENT_ID/SECRET unset — nothing to do",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    client = _make_d1_client(settings)
+    groups = load_external_groups(client)
+    coll = ExternalCohortCollector(
+        yt_api_key=settings.yt_api_key,
+        spotify_client_id=settings.spotify_client_id,
+        spotify_client_secret=settings.spotify_client_secret,
+    )
+    statements, resolved = coll.resolve(groups)
+    if statements:
+        client.batch(statements)
+    typer.echo(f"resolve: filled spotify_artist_id for {len(resolved)} groups")
+    for k, v in resolved.items():
+        typer.echo(f"  {k} → {v}")
+
+
+@app.command(
+    "external-cohort-run",
+    help="Refresh external_metrics from Spotify Web API + YouTube Data API.",
+)
+def external_cohort_run(
+    no_scrape_monthly: bool = typer.Option(
+        False, "--no-scrape-monthly",
+        help="Skip the embed-page scrape for spotify monthly_listeners. "
+             "Use when the embed HTML shape changes and the regex breaks.",
+    ),
+) -> None:
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    groups = load_external_groups(client)
+    if not groups:
+        typer.echo("external-cohort-run: no active external_groups; skipping")
+        return
+    coll = ExternalCohortCollector(
+        yt_api_key=settings.yt_api_key,
+        spotify_client_id=settings.spotify_client_id,
+        spotify_client_secret=settings.spotify_client_secret,
+        scrape_monthly_listeners=not no_scrape_monthly,
+    )
+    result = coll.collect(groups)
+    if result.errors:
+        for e in result.errors:
+            typer.echo(f"WARN: {e}", err=True)
+    if result.statements:
+        client.batch(result.statements)
+    typer.echo(
+        f"external-cohort: wrote {result.rows_inserted} rows in "
+        f"{result.runtime_ms}ms"
+    )
+    raise typer.Exit(code=0 if result.statements else 1)
 
 
 @app.command(
