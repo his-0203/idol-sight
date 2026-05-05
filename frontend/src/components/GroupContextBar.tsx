@@ -71,8 +71,15 @@ export function GroupContextBar({ state }: { state: RouterState }) {
   useEffect(() => { api.groups().then((r) => setGroups(r.groups)).catch(() => {}); }, []);
   useEffect(() => { api.meta().then(setMeta).catch(() => {}); }, []);
 
+  // The bar persists across BOTH group-scope and market-scope tabs so
+  // the operator never loses sight of "which group am I focused on".
+  // On market-scope tabs we hide the group-tab nav (those tabs only
+  // make sense for a selected group) but keep the selector + freshness
+  // dots + D-day chip visible. Previous behaviour returned null on
+  // market-scope, which made the operator's group selection feel like
+  // it had been silently dropped when toggling between Insights and
+  // a group-scope view.
   const onGroupTab = GROUP_TABS_SET.has(state.tab);
-  if (!onGroupTab) return null;
 
   const current = groups.find((g) => g.key === state.group) ?? null;
   const dday = current ? formatDday(current.debut_date) : null;
@@ -138,21 +145,27 @@ export function GroupContextBar({ state }: { state: RouterState }) {
             </div>
           )}
 
-          {/* group-scope tabs */}
-          <nav class="ml-auto flex gap-1 overflow-x-auto" aria-label="그룹">
-            {GROUP_TABS.map(([k, label]) => (
-              <button
-                key={k}
-                class={
-                  "rounded-ctrl px-3 py-1 transition-colors " +
-                  (state.tab === k
-                    ? "bg-brand-weak text-brand-fg"
-                    : "text-zinc-400 hover:bg-zinc-800/60")
-                }
-                onClick={() => writeState({ tab: k })}
-              >{label}</button>
-            ))}
-          </nav>
+          {/* group-scope tabs — only meaningful when one of these tabs is
+              active. On market-scope tabs we suppress the nav (the tabs
+              would imply navigation into group-scope, which Header
+              already provides) but keep the rest of the bar so the
+              user's "current group" context persists. */}
+          {onGroupTab && (
+            <nav class="ml-auto flex gap-1 overflow-x-auto" aria-label="그룹">
+              {GROUP_TABS.map(([k, label]) => (
+                <button
+                  key={k}
+                  class={
+                    "rounded-ctrl px-3 py-1 transition-colors " +
+                    (state.tab === k
+                      ? "bg-brand-weak text-brand-fg"
+                      : "text-zinc-400 hover:bg-zinc-800/60")
+                  }
+                  onClick={() => writeState({ tab: k })}
+                >{label}</button>
+              ))}
+            </nav>
+          )}
         </div>
       </div>
     </div>

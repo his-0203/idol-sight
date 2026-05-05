@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { fmt } from "../format";
-import { writeState } from "../router";
 import { KPI } from "../components/KPI";
 import { ExportMenu } from "../components/ExportMenu";
 import { HealthSpec } from "../components/HealthSpec";
+import { EmptyState } from "../components/EmptyState";
 
 const GRADE_RING: Record<string, string> = {
   S: "ring-emerald-500", A: "ring-blue-500", B: "ring-violet-500",
@@ -23,12 +23,10 @@ const CONTENT_FILTERS: Array<{ key: ContentFilter; label: string }> = [
 type CombinedMethod = "group_only" | "sum" | "weighted";
 
 export function GroupContent({ groupKey }: { groupKey: string | null }) {
-  const [groups, setGroups] = useState<any[]>([]);
   const [data, setData] = useState<any>(null);
   const [contentFilter, setContentFilter] = useState<ContentFilter>("all");
   const [combinedMethod, setCombinedMethod] = useState<CombinedMethod>("sum");
 
-  useEffect(() => { api.groups().then((r) => setGroups(r.groups)); }, []);
   useEffect(() => {
     if (!groupKey) return;
     setData(null);
@@ -44,23 +42,17 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
 
   return (
     <div class="space-y-4">
-      <div class="flex items-center gap-2 text-sm">
-        <label class="text-zinc-500">Group</label>
-        <select
-          class="rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1"
-          value={groupKey ?? ""}
-          onChange={(e: any) => writeState({ group: e.currentTarget.value || null })}
-        >
-          <option value="">— 선택 —</option>
-          {groups.map((g) => (
-            <option key={g.key} value={g.key}>{g.name} · {g.name_kr}</option>
-          ))}
-        </select>
-      </div>
-
-      {!groupKey && <div class="text-zinc-500">위에서 그룹을 선택하세요.</div>}
+      {!groupKey && (
+        <EmptyState
+          title="그룹을 선택하세요"
+          hint="상단 그룹 컨텍스트 바에서 보고 싶은 그룹을 고르면 상세 분석이 표시됩니다."
+          icon="👆"
+        />
+      )}
       {groupKey && !data && <div class="text-zinc-500">Loading…</div>}
-      {data?.error === "not_found" && <div class="text-red-400">그룹 없음</div>}
+      {data?.error === "not_found" && (
+        <EmptyState title="그룹 없음" hint="해당 그룹이 활성 상태가 아니거나 키가 잘못되었습니다." icon="❓" />
+      )}
 
       {data && !data.error && (() => {
         const hs = data.health_score;
@@ -93,6 +85,8 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
               />
             )}
           </section>
+
+          <GroupSignals data={data} />
 
           <CombinedToggle
             views={data.combined_views ?? {}}
@@ -174,6 +168,133 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
         );
       })()}
     </div>
+  );
+}
+
+// "이 그룹 신호" — client-derived action queue per group. Surfaces the
+// four signals every operator wants when they open a group page:
+//   1. viral video (yt_top15 row with viral_velocity_ratio ≥ 5×)
+//   2. controversy tweets (twitter_posts.type === 'controversy')
+//   3. album rebound (albums.pattern === 'rebound')
+//   4. factor weakness (FactorBreakdown saturation < 30%)
+// Renders all four states even when empty so the operator learns the
+// section's location and can rely on "no signal = healthy". The empty
+// state ("이상 신호 없음") is itself information, not a missing piece.
+type Signal = {
+  kind: "viral" | "controversy" | "rebound" | "weakness";
+  severity: "warn" | "critical" | "info";
+  title: string;
+  body: string;
+};
+
+function deriveSignals(data: any): Signal[] {
+  const out: Signal[] = [];
+
+  // 1) Viral velocity — flag any yt_top15 row at ≥5× lifetime mean.
+  const yt = data.yt_top15 ?? [];
+  const viral = yt.filter((v: any) => (v.viral_velocity_ratio ?? 0) >= 5);
+  if (viral.length) {
+    const top = viral[0];
+    out.push({
+      kind: "viral",
+      severity: "info",
+      title: `🔥 Viral 영상 ${viral.length}건 (24h ≥5×)`,
+      body: `최상위: "${(top.title ?? "").slice(0, 60)}" — ${
+        top.viral_velocity_ratio?.toFixed(1) ?? "?"
+      }×. 팬채널 reupload + 디시/트위터 시딩 검토 (24h 시간 민감).`,
+    });
+  }
+
+  // 2) Controversy tweets — type='controversy' count.
+  const tweets = data.twitter_posts ?? [];
+  const controversy = tweets.filter((t: any) => t.type === "controversy");
+  if (controversy.length >= 1) {
+    out.push({
+      kind: "controversy",
+      severity: controversy.length >= 5 ? "critical" : "warn",
+      title: `⚠ Controversy 트윗 ${controversy.length}건`,
+      body:
+        "PR 리스크 가능성. PR/Risk 탭에서 출처 확인 후 false-positive 여부 판정. "
+        + "실제 사안일 경우 PR팀 에스컬레이션 (Streisand 주의).",
+    });
+  }
+
+  // 3) Album rebound — pattern='rebound'.
+  const albums = data.albums ?? [];
+  const rebounds = albums.filter((a: any) => a.pattern === "rebound");
+  if (rebounds.length) {
+    const r = rebounds[0];
+    out.push({
+      kind: "rebound",
+      severity: "info",
+      title: `📈 앨범 역주행 — "${r.album}"`,
+      body: `발매 후 피크가 W1 이후 발생. W1=${r.first_week_sales?.toLocaleString()} → 피크=${r.peak_sales?.toLocaleString()}. 재조명 콘텐츠 슬롯 검토.`,
+    });
+  }
+
+  // 4) Factor weakness — saturation <30% on any factor.
+  const factors = data.health_score?.breakdown?._factors;
+  const groupModel = data.health_score?.breakdown?._group_model ?? "corporate";
+  const weights = (MODEL_WEIGHTS[groupModel] ?? MODEL_WEIGHTS.corporate) as Record<string, number>;
+  if (factors) {
+    let weakest: { name: string; sat: number; weight: number; score: number } | null = null;
+    for (const [name, weight] of Object.entries(weights)) {
+      const score = factors[name] ?? 0;
+      const sat = weight > 0 ? score / weight : 0;
+      if (sat < 0.3 && (!weakest || sat < weakest.sat)) {
+        weakest = { name, sat, weight, score };
+      }
+    }
+    if (weakest) {
+      out.push({
+        kind: "weakness",
+        severity: "warn",
+        title: `⚙️ 약점: ${FACTOR_LABELS_KR[weakest.name] ?? weakest.name}`,
+        body: `${weakest.score.toFixed(1)}/${weakest.weight} (${Math.round(weakest.sat * 100)}% 채움). 그룹 모델 가중치 대비 저성과 — 콘텐츠 전략 재검토 권고.`,
+      });
+    }
+  }
+
+  return out;
+}
+
+const SIGNAL_TONE: Record<Signal["severity"], string> = {
+  critical: "border-red-500/60 bg-red-500/10",
+  warn:     "border-amber-500/40 bg-amber-500/5",
+  info:     "border-zinc-700 bg-zinc-900/50",
+};
+
+function GroupSignals({ data }: { data: any }) {
+  const signals = useMemo(() => deriveSignals(data), [data]);
+  return (
+    <section class={"rounded-lg border-l-4 " +
+      (signals.length === 0
+        ? "border-emerald-500/40 border border-zinc-800 bg-emerald-500/5 p-3"
+        : "border-amber-500 border border-zinc-800 p-3")
+    }>
+      <div class="mb-2 flex flex-wrap items-center gap-2">
+        <h3 class="section-title">
+          이 그룹 신호 {signals.length > 0 && <span class="text-hint text-zinc-500">({signals.length}건)</span>}
+        </h3>
+        <span class="text-hint text-zinc-500">
+          viral · controversy · rebound · factor weakness 자동 감지
+        </span>
+      </div>
+      {signals.length === 0 ? (
+        <div class="text-sm text-zinc-400">
+          ✓ 이상 신호 없음 — 정상 모니터링.
+        </div>
+      ) : (
+        <ul class="space-y-2">
+          {signals.map((s) => (
+            <li key={s.kind} class={`rounded border-l-2 p-2.5 ${SIGNAL_TONE[s.severity]}`}>
+              <div class="text-sm font-semibold">{s.title}</div>
+              <div class="text-xs text-zinc-400">{s.body}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

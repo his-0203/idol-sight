@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
 import { api } from "../api";
 import { fmt } from "../format";
@@ -7,12 +7,9 @@ import { FreshnessBadge } from "../components/FreshnessBadge";
 import { ExportMenu } from "../components/ExportMenu";
 import { ShareLink } from "../components/ShareLink";
 import { HealthSpec } from "../components/HealthSpec";
-import { SourceRef } from "../components/SourceRef";
 import { colorOf, fillOf } from "../design/groups";
 import { gradeClasses } from "../design/grades";
 import { fmtScale, fmtTooltipCallback } from "../design/chart-defaults";
-
-const INSIGHTS_PREVIEW_LIMIT = 2;
 
 // Sort group entries by descending share — uses the latest market_share row
 // per group_key when available, falling back to summary.yt_total_views so a
@@ -35,6 +32,25 @@ function sortByShare(
   });
 }
 
+// Compute (currentWeekShare, previousWeekShare) per group_key from share.rows.
+// Used to render the ▲/▼ delta chip on each card.
+function shareDeltaByKey(
+  shareRows: Array<{ week_end: string; group_key: string; final: number }> | undefined,
+): Record<string, { current: number; prev: number | null }> {
+  if (!shareRows || !shareRows.length) return {};
+  const weeks = [...new Set(shareRows.map((r) => r.week_end))].sort();
+  const current = weeks[weeks.length - 1];
+  const prev = weeks.length >= 2 ? weeks[weeks.length - 2] : null;
+  const out: Record<string, { current: number; prev: number | null }> = {};
+  for (const r of shareRows) {
+    const slot = out[r.group_key] ?? { current: 0, prev: null };
+    if (r.week_end === current) slot.current = r.final ?? 0;
+    if (prev && r.week_end === prev) slot.prev = r.final ?? 0;
+    out[r.group_key] = slot;
+  }
+  return out;
+}
+
 export function MarketOverview() {
   const [market, setMarket] = useState<any>(null);
   const [share, setShare] = useState<any>(null);
@@ -42,8 +58,6 @@ export function MarketOverview() {
   const [excludePlave, setExcludePlave] = useState(false);
   const shareCanvas = useRef<HTMLCanvasElement | null>(null);
   const shareChart = useRef<Chart | null>(null);
-  const ytCanvas = useRef<HTMLCanvasElement | null>(null);
-  const ytChart = useRef<Chart | null>(null);
 
   useEffect(() => {
     api.market().then(setMarket);
@@ -95,39 +109,13 @@ export function MarketOverview() {
     });
   }, [share, excludePlave]);
 
-  // YT views bar — colored per group (same hue as the cards).
-  useEffect(() => {
-    if (!market || !ytCanvas.current) return;
-    const ctx = ytCanvas.current;
-    const entries = sortByShare(Object.entries(market.groups), share?.rows);
-    ytChart.current?.destroy();
-    ytChart.current = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: entries.map(([_, g]) => g.name),
-        datasets: [{
-          label: "YT 총 조회수",
-          data: entries.map(([_, g]) => g.summary?.yt_total_views ?? 0),
-          backgroundColor: entries.map(([k]) => fillOf(k, 0.85)),
-          borderColor: entries.map(([k]) => colorOf(k)),
-          borderWidth: 1,
-        }],
-      },
-      options: {
-        scales: { y: { ticks: { callback: (v) => fmtScale(v as number) } } },
-        plugins: {
-          legend: { display: false },
-          tooltip: { callbacks: { label: fmtTooltipCallback() } },
-        },
-      },
-    });
-  }, [market, share]);
+  const sortedEntries = useMemo(
+    () => (market ? sortByShare(Object.entries(market.groups), share?.rows) : []),
+    [market, share],
+  );
+  const deltas = useMemo(() => shareDeltaByKey(share?.rows), [share]);
 
   if (!market) return <div class="p-4 text-zinc-500">Loading…</div>;
-
-  const sortedEntries = sortByShare(Object.entries(market.groups), share?.rows);
-  const insights = market.market_insights ?? [];
-  const insightsPreview = insights.slice(0, INSIGHTS_PREVIEW_LIMIT);
 
   return (
     <div class="space-y-6">
@@ -143,42 +131,62 @@ export function MarketOverview() {
         </div>
       </div>
 
-      {/* group cards — sorted by share desc, leader spans 2 cols on md+ */}
+      {/* group cards — all eight cards share the SAME scale (grade letter
+          primary, absolute values demoted to small supporting label).
+          Tiered visual weight: rank 1~3 = display, 4~6 = base, 7~8 = muted.
+          ▲/▼ chip surfaces week-over-week share movement so the operator
+          knows which groups are gaining/losing without scrolling to SOV. */}
       <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
         {sortedEntries.map(([key, g]: any, i: number) => {
           const hs = g.health_score;
-          const hasGrade = hs?.grade != null;
+          const grade = hs?.grade ?? "PRE";
           const total = hs?.total;
-          // Raw KPI fallback for groups without a health score (PRE-debut etc.)
           const fallback = g.summary?.yt_subscribers ?? g.summary?.yt_total_views ?? null;
+          const d = deltas[key];
+          const dpp = d && d.prev != null ? d.current - d.prev : null;
+          const tier = i < 3 ? "primary" : i < 6 ? "base" : "muted";
           return (
             <button
               key={key}
               onClick={() => writeState({ tab: "content", group: key })}
               class={
                 "card border-l-4 p-3 text-left transition-colors hover:border-brand " +
-                (i === 0 ? "md:col-span-2" : "")
+                (i === 0 ? "md:col-span-2 " : "") +
+                (tier === "muted" ? "opacity-80 " : "")
               }
               style={{ borderLeftColor: colorOf(key) }}
               aria-label={`${g.name} 상세 보기`}
             >
               <div class="flex items-baseline justify-between gap-2">
                 <div class="font-semibold">{g.name}</div>
-                {hasGrade ? (
-                  <span class={`rounded-chip border px-1.5 text-hint ${gradeClasses(hs.grade)}`}>
-                    {hs.grade}
+                {dpp != null && (
+                  <span
+                    class={
+                      "rounded-chip border px-1.5 text-hint tabular-nums " +
+                      (dpp > 0.05
+                        ? "border-emerald-500/40 text-emerald-400"
+                        : dpp < -0.05
+                        ? "border-red-500/40 text-red-400"
+                        : "border-zinc-700 text-zinc-500")
+                    }
+                  >
+                    {dpp > 0 ? "▲" : dpp < 0 ? "▼" : "·"} {Math.abs(dpp).toFixed(1)}pp
                   </span>
-                ) : (
-                  <span class="text-hint text-zinc-500">집계 대기</span>
                 )}
               </div>
               <div class="text-hint text-zinc-500">{g.name_kr}</div>
-              <div class="mt-2 text-3xl font-bold tabular-nums">
-                {total != null ? total : (fallback != null ? fmt(fallback) : "—")}
+              <div class={`mt-2 flex items-baseline gap-2 ${tier === "primary" ? "text-3xl" : tier === "base" ? "text-2xl" : "text-xl"}`}>
+                <span class={`rounded-chip border px-2 font-bold ${gradeClasses(grade)}`}>
+                  {grade}
+                </span>
+                <span class="text-hint text-zinc-500 tabular-nums">
+                  {total != null
+                    ? `${total}점`
+                    : fallback != null
+                    ? `${fmt(fallback)} 구독`
+                    : "집계 대기"}
+                </span>
               </div>
-              {total == null && fallback != null && (
-                <div class="text-hint text-zinc-500">구독자 (점수 미산출)</div>
-              )}
             </button>
           );
         })}
@@ -252,40 +260,6 @@ export function MarketOverview() {
           </section>
         );
       })()}
-
-      {/* YT views bar */}
-      <section class="card">
-        <div class="mb-2 flex items-center text-data">
-          <h3 class="section-title">YouTube 총 조회수</h3>
-          <ExportMenu canvas={ytCanvas.current ?? undefined}
-                       filenameBase="yt-views" />
-        </div>
-        <div class="h-48 md:h-60"><canvas ref={ytCanvas}></canvas></div>
-      </section>
-
-      {/* market insights — capped to 2; "more" jumps to /insights */}
-      {insightsPreview.length > 0 && (
-        <section class="card">
-          <div class="mb-2 flex items-center justify-between gap-2">
-            <h3 class="section-title">시장 인사이트</h3>
-            {insights.length > INSIGHTS_PREVIEW_LIMIT && (
-              <button
-                class="text-hint text-zinc-400 hover:text-zinc-200 hover:underline"
-                onClick={() => writeState({ tab: "insights" })}
-              >더 보기 →</button>
-            )}
-          </div>
-          <ul class="space-y-2 text-data">
-            {insightsPreview.map((i: any) => (
-              <li key={i.id} class="rounded-card border border-zinc-800/60 p-2">
-                <div class="font-semibold">{i.title}</div>
-                <div class="text-hint text-zinc-400">{i.body}</div>
-                <SourceRef refs={i.source_refs ?? []} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   );
 }

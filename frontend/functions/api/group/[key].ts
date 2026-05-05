@@ -40,7 +40,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
       ORDER BY views DESC LIMIT 15`, [key]);
 
   const commTop = await d1Query<any>(env.DB,
-    `SELECT cp.url, cp.title, cp.platform, cp.posted_at,
+    `SELECT cp.url_hash, cp.url, cp.title, cp.platform, cp.posted_at,
+            cp.sentiment,
             COALESCE(cps.views,0) AS views,
             COALESCE(cps.likes,0) AS likes,
             COALESCE(cps.comments,0) AS comments
@@ -49,6 +50,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
         AND cps.snapshot_at = (SELECT MAX(snapshot_at) FROM community_post_stats
                                  WHERE url_hash = cp.url_hash)
       WHERE cp.group_key = ?
+        AND COALESCE(cp.user_flagged_irrelevant, 0) = 0
       ORDER BY views DESC LIMIT 30`, [key]);
 
   const naver = await d1Query<any>(env.DB,
@@ -60,6 +62,38 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     `SELECT tweet_id, title, author_handle, url, posted_at, type
        FROM twitter_posts WHERE group_key=?
       ORDER BY posted_at DESC LIMIT 30`, [key]);
+
+  // Recent alerts emitted by the worker for this group. We pull the
+  // last 14 days so the PR/Risk view can render the worker's actual
+  // critical signals (controversy_spike / identity_leak / model_theft
+  // / video_velocity_24h / debut_milestone) instead of re-deriving
+  // weak heuristics in the frontend. A 14-day window matches the
+  // operator's review cadence and stays cheap to query.
+  const alerts = await d1Query<any>(env.DB,
+    `SELECT alert_key, rule, scope, severity, title, body, fired_at
+       FROM alerts
+      WHERE scope=? AND fired_at >= datetime('now', '-14 days')
+      ORDER BY fired_at DESC LIMIT 30`, [key]);
+
+  // Controversy trend — the worker's controversy_spike rule fires on a
+  // 2× WoW multiplier with a 5-count floor; the frontend mirrors those
+  // thresholds so the displayed Risk Level stays in lock-step with the
+  // Discord alert. We need the current and the prior weekly snapshot's
+  // controversy_count, both already in agg_summary.
+  const controversyTrend = await d1QueryOne<{ current: number; previous: number | null }>(
+    env.DB,
+    `SELECT
+        (SELECT controversy_count FROM agg_summary
+          WHERE group_key=? AND snapshot_at=(SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)
+        ) AS current,
+        (SELECT controversy_count FROM agg_summary
+          WHERE group_key=? AND snapshot_at=(
+            SELECT MAX(snapshot_at) FROM agg_summary
+             WHERE group_key=?
+               AND snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?))
+        ) AS previous`,
+    [key, key, key, key, key],
+  );
 
   // V2.5: hanteo album lifecycle. We pull the full weekly series per
   // album so the frontend can render dive curves and pattern labels
@@ -167,5 +201,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     naver_articles: naver,
     twitter_posts: tweets,
     albums: albumLifecycles,            // V2.5 dive curves
+    alerts,                             // worker-emitted critical signals
+    controversy_trend: controversyTrend,
   });
 };

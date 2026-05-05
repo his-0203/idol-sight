@@ -17,4 +17,14 @@ export const api = {
   miiwan:      () => getJson<any>("/api/miiwan"),
   search:      (q: string) => getJson<any>(`/api/search?q=${encodeURIComponent(q)}`),
   healthSpec:  () => getJson<any>("/api/health/spec"),
+  flagIrrelevant: async (payload: { url_hash?: string; url?: string; group_key: string; reason?: string }) => {
+    const r = await fetch("/api/relevance-feedback", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error(`/api/relevance-feedback: ${r.status}`);
+    return r.json();
+  },
 };

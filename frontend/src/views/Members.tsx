@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
 import { api } from "../api";
 import { fmt } from "../format";
+import { KPI } from "../components/KPI";
+import { EmptyState } from "../components/EmptyState";
 
 export function Members({ groupKey }: { groupKey: string | null }) {
   const [data, setData] = useState<any>(null);
@@ -17,6 +19,19 @@ export function Members({ groupKey }: { groupKey: string | null }) {
   useEffect(() => {
     if (!data || !canvas.current) return;
     chart.current?.destroy();
+    // Dynamic y-axis: previously hardcoded to 200 (theoretical YT 100 +
+    // Community 100). Real distributions cluster in the 60-100 range,
+    // which made the chart fill only 1/3 and crushed inter-member
+    // variance. We pick the 95th-percentile-ish max (max combined +
+    // 10% headroom) so the bars actually USE the canvas height while
+    // still leaving room for outliers.
+    const maxCombined = Math.max(
+      0,
+      ...((data.members ?? []).map(
+        (m: any) => Number(m.yt_score ?? 0) + Number(m.community_score ?? 0),
+      ) as number[]),
+    );
+    const yMax = maxCombined > 0 ? Math.ceil(maxCombined * 1.1 / 10) * 10 : 100;
     chart.current = new Chart(canvas.current, {
       type: "bar",
       data: {
@@ -33,70 +48,52 @@ export function Members({ groupKey }: { groupKey: string | null }) {
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { position: "bottom" } },
-        scales: { x: { stacked: true }, y: { stacked: true, max: 200 } },
+        scales: { x: { stacked: true }, y: { stacked: true, max: yMax } },
       },
     });
   }, [data]);
 
-  if (!groupKey) return <div class="text-zinc-500">상단에서 그룹을 선택하세요.</div>;
+  if (!groupKey) {
+    return (
+      <EmptyState
+        title="그룹을 선택하세요"
+        hint="상단 그룹 컨텍스트 바에서 그룹을 고르면 멤버 분포가 표시됩니다."
+        icon="👆"
+      />
+    );
+  }
   if (!data) return <div class="text-zinc-500">Loading…</div>;
   if (data.status === "insufficient") {
     return (
-      <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-6 text-sm text-zinc-400">
-        <div class="text-lg font-semibold text-zinc-200">데이터 부족</div>
-        <p class="mt-1">해당 그룹은 활동량 부족으로 멤버 인기도 산출 불가 (HHI 미계산).</p>
-      </div>
+      <EmptyState
+        title="데이터 부족"
+        hint="활동량 부족으로 멤버 인기도 산출 불가 (HHI 미계산)."
+        icon="📊"
+      />
     );
   }
+
+  // Two KPIs cover the full distribution-concentration story.
+  // Evenness (= 1 - HHI_norm) and Top1 share are orthogonal and
+  // immediately answer "is the group balanced?" + "how dominant is the
+  // ace?". Top3 and HHI raw are dropped — Top3 was the same signal
+  // re-expressed, and HHI raw is N-dependent (see worker
+  // member_popularity.py docstring) so its absolute number means
+  // different things across groups.
   return (
     <div class="space-y-4">
-      <section class="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <div class="rounded-lg border border-zinc-800 p-3">
-          <div class="text-xs uppercase tracking-wider text-zinc-500">
-            Evenness <span class="text-hint normal-case">N-정규화</span>
-          </div>
-          <div class="text-2xl font-bold tabular-nums">
-            {data.evenness != null
-              ? (data.evenness * 100).toFixed(0) + "%"
-              : "—"}
-          </div>
-          <div class="text-xs text-zinc-500">
-            그룹 크기와 무관한 균등도. 100% = 모든 멤버 동등
-          </div>
-        </div>
-        <div class="rounded-lg border border-zinc-800 p-3">
-          <div class="text-xs uppercase tracking-wider text-zinc-500">
-            Top 1 비중
-          </div>
-          <div class="text-2xl font-bold tabular-nums">
-            {data.top1_share != null
-              ? (data.top1_share * 100).toFixed(0) + "%"
-              : "—"}
-          </div>
-          <div class="text-xs text-zinc-500">최상위 멤버 점유율</div>
-        </div>
-        <div class="rounded-lg border border-zinc-800 p-3">
-          <div class="text-xs uppercase tracking-wider text-zinc-500">
-            Top 3 누적
-          </div>
-          <div class="text-2xl font-bold tabular-nums">
-            {data.top3_share != null
-              ? (data.top3_share * 100).toFixed(0) + "%"
-              : "—"}
-          </div>
-          <div class="text-xs text-zinc-500">상위 3인 누적 비중</div>
-        </div>
-        <div class="rounded-lg border border-zinc-800 p-3">
-          <div class="text-xs uppercase tracking-wider text-zinc-500">
-            HHI <span class="text-hint normal-case">raw</span>
-          </div>
-          <div class="text-2xl font-bold tabular-nums">
-            {data.hhi != null ? data.hhi.toFixed(3) : "—"}
-          </div>
-          <div class="text-xs text-zinc-500">
-            정규화 전 — 1/N(균등) ~ 1(독점)
-          </div>
-        </div>
+      <section class="grid grid-cols-2 gap-2">
+        <KPI
+          label="Evenness"
+          value={data.evenness != null ? Math.round(data.evenness * 100) + "%" : "—"}
+          unit="N-정규화"
+          hint="100% = 모든 멤버 동등 / 0% = 한 명에게 100% 쏠림"
+        />
+        <KPI
+          label="Top 1 비중"
+          value={data.top1_share != null ? Math.round(data.top1_share * 100) + "%" : "—"}
+          hint="최상위 멤버 점유율 (상세는 표 1행 참조)"
+        />
       </section>
       <section class="rounded-lg border border-zinc-800 p-3">
         <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">멤버 복합 점수</h3>

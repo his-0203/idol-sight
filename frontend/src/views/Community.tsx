@@ -3,6 +3,7 @@ import { api } from "../api";
 import { fmt } from "../format";
 import { writeState } from "../router";
 import { ExportMenu } from "../components/ExportMenu";
+import { EmptyState } from "../components/EmptyState";
 
 // Notices, vote/poll templates, and other sticky moderator posts dominate
 // "top by views" lists without reflecting fan activity, so we hide them by
@@ -10,15 +11,29 @@ import { ExportMenu } from "../components/ExportMenu";
 const NOTICE_RE = /공지|가이드|호출벨|투표|원격|마플|notice|sticky/i;
 
 type SortKey = "views" | "engagement";
+type Sentiment = "positive" | "negative" | "controversy" | "neutral" | null | undefined;
+
+const SENTIMENT_BADGE: Record<Exclude<Sentiment, null | undefined>, { label: string; cls: string }> = {
+  positive:    { label: "긍정", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
+  negative:    { label: "부정", cls: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
+  controversy: { label: "논란", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
+  neutral:     { label: "중립", cls: "border-zinc-700 bg-zinc-800/40 text-zinc-400" },
+};
 
 export function Community({ groupKey, period }: { groupKey: string | null; period: number | null }) {
   const [data, setData] = useState<any>(null);
   const [includeNotices, setIncludeNotices] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("views");
+  // Tracks rows the operator has flagged in this session so they
+  // disappear immediately without a refetch. The server persists the
+  // flag, so a reload would also exclude them — this is purely a UX
+  // optimization for the round-trip.
+  const [flagged, setFlagged] = useState<Record<string, "pending" | "done" | "error">>({});
 
   useEffect(() => {
     if (!groupKey) return;
     setData(null);
+    setFlagged({});
     api.group(groupKey).then(setData);
   }, [groupKey]);
 
@@ -31,6 +46,7 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
     if (!includeNotices) {
       r = r.filter((p: any) => !NOTICE_RE.test(p.title ?? ""));
     }
+    r = r.filter((p: any) => flagged[p.url_hash] !== "done");
     if (sortKey === "engagement") {
       // engagement_rate = likes per 1000 views; views=0 → 0 to keep ordering stable.
       const score = (p: any) => {
@@ -43,10 +59,33 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
       r = [...r].sort((a: any, b: any) => (Number(b.views ?? 0)) - (Number(a.views ?? 0)));
     }
     return r;
-  }, [data, period, includeNotices, sortKey]);
+  }, [data, period, includeNotices, sortKey, flagged]);
 
-  if (!groupKey) return <div class="text-zinc-500">상단에서 그룹을 선택하세요.</div>;
+  if (!groupKey) {
+    return (
+      <EmptyState
+        title="그룹을 선택하세요"
+        hint="상단 그룹 컨텍스트 바에서 그룹을 고르면 커뮤니티 게시글이 표시됩니다."
+        icon="👆"
+      />
+    );
+  }
   if (!data) return <div class="text-zinc-500">Loading…</div>;
+
+  async function flagRow(p: any) {
+    if (!p.url_hash || flagged[p.url_hash]) return;
+    setFlagged((s) => ({ ...s, [p.url_hash]: "pending" }));
+    try {
+      await api.flagIrrelevant({
+        url_hash: p.url_hash,
+        group_key: groupKey!,
+        reason: "user_irrelevant",
+      });
+      setFlagged((s) => ({ ...s, [p.url_hash]: "done" }));
+    } catch {
+      setFlagged((s) => ({ ...s, [p.url_hash]: "error" }));
+    }
+  }
 
   return (
     <div class="space-y-4">
@@ -94,20 +133,55 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
       <div class="overflow-x-auto">
         <table class="w-full text-xs">
           <thead><tr class="text-left text-zinc-500">
-            <th class="py-1">#</th><th>플랫폼</th><th>제목</th>
-            <th class="text-right">조회수</th><th class="text-right">좋아요</th><th>날짜</th>
+            <th class="py-1">#</th><th>플랫폼</th><th>감정</th><th>제목</th>
+            <th class="text-right">조회수</th><th class="text-right">좋아요</th><th>날짜</th><th></th>
           </tr></thead>
           <tbody>
-            {rows.map((p: any, i: number) => (
-              <tr key={p.url} class="border-t border-zinc-800/60">
-                <td class="py-1">{i + 1}</td>
-                <td><span class="rounded bg-zinc-800 px-1.5 text-xs">{p.platform}</span></td>
-                <td class="max-w-md truncate"><a class="hover:underline" href={p.url} target="_blank">{p.title}</a></td>
-                <td class="text-right tabular-nums">{fmt(p.views)}</td>
-                <td class="text-right tabular-nums">{fmt(p.likes)}</td>
-                <td class="text-zinc-500">{(p.posted_at ?? "").slice(0, 10)}</td>
-              </tr>
-            ))}
+            {rows.map((p: any, i: number) => {
+              const sentiment: Sentiment = p.sentiment ?? null;
+              const badge = sentiment ? SENTIMENT_BADGE[sentiment as keyof typeof SENTIMENT_BADGE] : null;
+              const flagState = flagged[p.url_hash];
+              return (
+                <tr
+                  key={p.url_hash ?? p.url}
+                  class={"border-t border-zinc-800/60 " +
+                    (sentiment === "controversy" ? "bg-red-500/5 " :
+                     sentiment === "negative" ? "bg-orange-500/5 " : "")}
+                >
+                  <td class="py-1 text-zinc-500 tabular-nums">{i + 1}</td>
+                  <td><span class="rounded bg-zinc-800 px-1.5 text-xs">{p.platform}</span></td>
+                  <td>
+                    {badge ? (
+                      <span class={`rounded border px-1.5 text-[11px] ${badge.cls}`}>{badge.label}</span>
+                    ) : (
+                      <span class="text-zinc-600">—</span>
+                    )}
+                  </td>
+                  <td class="max-w-md truncate">
+                    <a class="hover:underline" href={p.url} target="_blank" rel="noopener">{p.title}</a>
+                  </td>
+                  <td class="text-right tabular-nums">{fmt(p.views)}</td>
+                  <td class="text-right tabular-nums">{fmt(p.likes)}</td>
+                  <td class="text-zinc-500">{(p.posted_at ?? "").slice(0, 10)}</td>
+                  <td class="text-right">
+                    <button
+                      type="button"
+                      onClick={() => flagRow(p)}
+                      disabled={!p.url_hash || flagState === "pending" || flagState === "done"}
+                      title="이 게시글을 무관(noise)으로 신고. 신고된 행은 즉시 숨겨지고 다음 수집부터 학습에 반영됩니다."
+                      class={"rounded border px-2 py-0.5 text-[11px] transition-colors " +
+                        (flagState === "error"
+                          ? "border-red-500/40 text-red-300"
+                          : flagState === "pending"
+                          ? "border-zinc-700 text-zinc-500"
+                          : "border-zinc-700 text-zinc-400 hover:border-amber-500/60 hover:text-amber-300")}
+                    >
+                      {flagState === "pending" ? "..." : flagState === "error" ? "재시도" : "⚠ 무관"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
