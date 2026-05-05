@@ -29,7 +29,7 @@ def test_collect_naver_dispatches_orchestrator(monkeypatch):
     monkeypatch.setattr(cli, "_load_group", lambda client, key: fake_group)
     monkeypatch.setattr(cli, "_make_d1_client", lambda settings: MagicMock())
     monkeypatch.setattr(cli, "_make_collector",
-                        lambda src: MagicMock(source=src))
+                        lambda src, **_: MagicMock(source=src))
     monkeypatch.setattr(cli, "load_settings", lambda: MagicMock())
 
     fake_summary = MagicMock(status="ok", rows_inserted=10, rows_updated=0,
@@ -51,7 +51,7 @@ def test_collect_failure_exits_nonzero(monkeypatch):
     monkeypatch.setattr(cli, "_load_group", lambda client, key: fake_group)
     monkeypatch.setattr(cli, "_make_d1_client", lambda settings: MagicMock())
     monkeypatch.setattr(cli, "_make_collector",
-                        lambda src: MagicMock(source=src))
+                        lambda src, **_: MagicMock(source=src))
     monkeypatch.setattr(cli, "load_settings", lambda: MagicMock())
     fake_summary = MagicMock(status="failed", rows_inserted=0, rows_updated=0,
                              runtime_ms=200, error_msg="cloudflare")
@@ -74,7 +74,7 @@ def test_collect_youtube_dispatches_youtube_collector(monkeypatch):
     fake_group = MagicMock(name="GroupConfig", key="plave")
     monkeypatch.setattr(cli, "_load_group", lambda c, k: fake_group)
     monkeypatch.setattr(cli, "_make_d1_client", lambda s: MagicMock())
-    monkeypatch.setattr(cli, "_make_collector", lambda src: MagicMock(source=src))
+    monkeypatch.setattr(cli, "_make_collector", lambda src, **_: MagicMock(source=src))
 
     fake_summary = MagicMock(status="ok", rows_inserted=10, rows_updated=0,
                              runtime_ms=200, error_msg=None)

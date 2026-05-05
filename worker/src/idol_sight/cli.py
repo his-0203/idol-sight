@@ -61,7 +61,7 @@ def _make_d1_client(settings: Settings) -> D1Client:
     )
 
 
-def _make_collector(source: str):
+def _make_collector(source: str, *, d1: D1Client | None = None):
     cls = _COLLECTORS.get(source)
     if cls is None:
         raise NotImplementedError(f"unknown source {source!r}")
@@ -69,7 +69,21 @@ def _make_collector(source: str):
     if cls is YouTubeCollector or cls is ChannelStatsCollector:
         if not settings.yt_api_key:
             raise RuntimeError(f"{source} requires YT_API_KEY env")
-        return cls(api_key=settings.yt_api_key)
+        # Both collectors fan out across the group channel + active member
+        # solo channels. We pass a closure that queries D1 for the member
+        # channel IDs. ISEDOL/STELLIVE members are far more active on
+        # personal channels, so without this loader the group totals
+        # under-count subscribers/views by ~70× for those groups.
+        client = d1 or _make_d1_client(settings)
+
+        def members_loader(group_key: str) -> list[dict]:
+            return client.execute(
+                "SELECT yt_channel_id FROM members "
+                "WHERE group_key=? AND active=1 AND yt_channel_id IS NOT NULL",
+                [group_key],
+            )
+
+        return cls(api_key=settings.yt_api_key, members_loader=members_loader)
     return cls()
 
 
@@ -126,7 +140,7 @@ def collect(
     settings = load_settings()
     client = _make_d1_client(settings)
     grp = _load_group(client, group)
-    coll = _make_collector(source)
+    coll = _make_collector(source, d1=client)
 
     summary = run_collector(
         client, coll, grp,

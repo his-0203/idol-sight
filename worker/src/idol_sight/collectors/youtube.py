@@ -1,12 +1,21 @@
 """YouTube Data API v3 collector. NOT a Scrapling collector.
 
 Per-group pipeline:
-  1. search.list?channelId=<id>&order=date -> recent video IDs
-  2. videos.list?id=<csv> -> metadata + statistics for those IDs
+  1. search.list?channelId=<id>&order=date -> recent video IDs (run once
+     for the group channel and once per active member solo channel)
+  2. videos.list?id=<csv> -> metadata + statistics for the merged ID set
   3. Emit youtube_videos INSERT (idempotent on video_id) +
      youtube_video_stats INSERT (composite PK on snapshot_at).
 
-Quota cost: ~101 units per call (search=100, videos=1).
+All resulting rows are stamped with the same group_key, so member solo
+videos roll up into the group totals downstream (agg_summary,
+member_popularity). The actual ``channel_id`` of each video is preserved
+on ``youtube_videos.channel_id``, so we can still split solo vs group
+contribution later.
+
+Quota cost: ~101 units per channel (search=100, videos=1). For ISEDOL
+(6 members + 1 group channel) that's ~707 units per run; well within the
+10K daily quota when scheduled at 6h cadence.
 """
 
 from __future__ import annotations
@@ -83,34 +92,58 @@ def _iso8601_to_seconds(s: str) -> int:
 class YouTubeCollector:
     source = "youtube"
 
-    def __init__(self, api_key: str, http_factory: Callable[[], Any] | None = None):
+    def __init__(
+        self,
+        api_key: str,
+        http_factory: Callable[[], Any] | None = None,
+        members_loader: Callable[[str], list[dict]] | None = None,
+    ):
         self._key = api_key
         self._http_factory = http_factory or (lambda: httpx.Client(timeout=30.0))
+        # Returns a list of {"yt_channel_id": "..."} for the group's
+        # active members that have a solo channel. Default = no members,
+        # which keeps unit tests and one-off invocations simple.
+        self._members_loader = members_loader or (lambda _: [])
 
     def collect(self, group: GroupConfig, since: str | None = None) -> CollectionResult:
         if not group.yt_channel_id:
             return CollectionResult(0, 0, errors=[f"{group.key}: no yt_channel_id"])
 
+        # Group channel + active member solo channels (deduped, order
+        # preserved so the group channel is queried first).
+        channel_ids: list[str] = [group.yt_channel_id]
+        seen = {group.yt_channel_id}
+        for m in self._members_loader(group.key):
+            cid = m.get("yt_channel_id") if isinstance(m, dict) else None
+            if cid and cid not in seen:
+                seen.add(cid)
+                channel_ids.append(cid)
+
         started = perf_counter()
         with self._http_factory() as client:
-            # 1) search.list
-            r = client.get(
-                f"{API}/search",
-                params={
-                    "key": self._key,
-                    "channelId": group.yt_channel_id,
-                    "order": "date",
-                    "maxResults": SEARCH_LIST_MAX,
-                    "type": "video",
-                    "part": "id",
-                },
-            )
-            r.raise_for_status()
-            ids = [
-                item["id"]["videoId"]
-                for item in r.json().get("items", [])
-                if item.get("id", {}).get("videoId")
-            ]
+            # 1) search.list — one call per channel, ID lists are merged.
+            ids: list[str] = []
+            for ch_id in channel_ids:
+                r = client.get(
+                    f"{API}/search",
+                    params={
+                        "key": self._key,
+                        "channelId": ch_id,
+                        "order": "date",
+                        "maxResults": SEARCH_LIST_MAX,
+                        "type": "video",
+                        "part": "id",
+                    },
+                )
+                r.raise_for_status()
+                ids.extend(
+                    item["id"]["videoId"]
+                    for item in r.json().get("items", [])
+                    if item.get("id", {}).get("videoId")
+                )
+            # Dedupe while preserving order — collabs can appear under
+            # multiple channels' search results.
+            ids = list(dict.fromkeys(ids))
             if not ids:
                 return CollectionResult(0, 0, runtime_ms=int((perf_counter() - started) * 1000))
 
