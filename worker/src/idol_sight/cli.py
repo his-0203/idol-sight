@@ -250,56 +250,19 @@ def health_check() -> None:
 
 
 @app.command(
-    "external-cohort-resolve",
-    help="Look up missing spotify_artist_id values for external_groups via "
-         "Spotify Search. Idempotent — only updates rows where the ID is NULL.",
-)
-def external_cohort_resolve() -> None:
-    settings = load_settings()
-    if not (settings.spotify_client_id and settings.spotify_client_secret):
-        typer.echo(
-            "external-cohort-resolve: SPOTIFY_CLIENT_ID/SECRET unset — nothing to do",
-            err=True,
-        )
-        raise typer.Exit(code=2)
-    client = _make_d1_client(settings)
-    groups = load_external_groups(client)
-    coll = ExternalCohortCollector(
-        yt_api_key=settings.yt_api_key,
-        spotify_client_id=settings.spotify_client_id,
-        spotify_client_secret=settings.spotify_client_secret,
-    )
-    statements, resolved = coll.resolve(groups)
-    if statements:
-        client.batch(statements)
-    typer.echo(f"resolve: filled spotify_artist_id for {len(resolved)} groups")
-    for k, v in resolved.items():
-        typer.echo(f"  {k} → {v}")
-
-
-@app.command(
     "external-cohort-run",
-    help="Refresh external_metrics from Spotify Web API + YouTube Data API.",
+    help="Refresh external_metrics YT columns via the YouTube Data API. "
+         "Spotify columns are left NULL (Premium-required policy 2026-02 "
+         "blocks the API path; manual SQL refresh until alternative).",
 )
-def external_cohort_run(
-    no_scrape_monthly: bool = typer.Option(
-        False, "--no-scrape-monthly",
-        help="Skip the embed-page scrape for spotify monthly_listeners. "
-             "Use when the embed HTML shape changes and the regex breaks.",
-    ),
-) -> None:
+def external_cohort_run() -> None:
     settings = load_settings()
     client = _make_d1_client(settings)
     groups = load_external_groups(client)
     if not groups:
         typer.echo("external-cohort-run: no active external_groups; skipping")
         return
-    coll = ExternalCohortCollector(
-        yt_api_key=settings.yt_api_key,
-        spotify_client_id=settings.spotify_client_id,
-        spotify_client_secret=settings.spotify_client_secret,
-        scrape_monthly_listeners=not no_scrape_monthly,
-    )
+    coll = ExternalCohortCollector(yt_api_key=settings.yt_api_key)
     result = coll.collect(groups)
     if result.errors:
         for e in result.errors:

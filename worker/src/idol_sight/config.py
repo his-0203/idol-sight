@@ -31,11 +31,6 @@ class Settings:
     discord_webhook: str
     yt_api_key: str | None
     gemini_api_key: str | None
-    # Spotify Web API client credentials. Used by the external-cohort
-    # collector to read public artist data (followers, popularity).
-    # Both must be set together; either-only is treated as missing.
-    spotify_client_id: str | None
-    spotify_client_secret: str | None
 
 
 def load_settings() -> Settings:
@@ -46,8 +41,6 @@ def load_settings() -> Settings:
         discord_webhook=_required("DISCORD_WEBHOOK"),
         yt_api_key=_optional("YT_API_KEY"),
         gemini_api_key=_optional("GEMINI_API_KEY"),
-        spotify_client_id=_optional("SPOTIFY_CLIENT_ID"),
-        spotify_client_secret=_optional("SPOTIFY_CLIENT_SECRET"),
     )
 
 
