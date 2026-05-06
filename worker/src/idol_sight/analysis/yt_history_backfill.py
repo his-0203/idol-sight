@@ -78,6 +78,22 @@ def backfill_yt_history(client: _Executor) -> CollectionResult:
     which is the correct default — they shouldn't bump cumulative
     views above the truth.
     """
+    # Filter to videos uploaded by the GROUP'S main channel only
+    # (groups.yt_channel_id). Without this, yt_history walks every
+    # video stamped with this group_key, which the YouTube collector
+    # also stamps for member solo channels — inflating the cumulative
+    # count past the live agg_summary's COUNT(DISTINCT v.video_id)
+    # (which DOES count solos but only when production has indexed
+    # them, often a smaller subset). The mismatch creates the visible
+    # comb pattern when same-day rows from both sources have wildly
+    # different values. Restricting to main channel makes both sources
+    # consistent: yt_history counts main-only videos, live counts
+    # main-only videos (because production's youtube_videos table
+    # primarily has main channel content). For ISEDOL/STELLIVE-style
+    # segmentary groups this is a meaningful loss (their content IS
+    # the member solos), but those groups are excluded from the K-POP
+    # cohort comparison anyway and should be tracked via their own
+    # group_key='isedol_solo_<member>' if richer data is needed.
     rows = client.execute(
         """
         SELECT v.group_key,
@@ -90,8 +106,10 @@ def backfill_yt_history(client: _Executor) -> CollectionResult:
                   LIMIT 1
                ), 0) AS views
           FROM youtube_videos v
+          JOIN groups g ON g.key = v.group_key
          WHERE v.published_at IS NOT NULL
            AND v.published_at <> ''
+           AND v.channel_id = g.yt_channel_id
          ORDER BY v.group_key, v.published_at ASC
         """
     )
