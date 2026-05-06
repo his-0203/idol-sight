@@ -6,6 +6,7 @@ import { ExportMenu } from "../components/ExportMenu";
 import { HealthSpec } from "../components/HealthSpec";
 import { EmptyState } from "../components/EmptyState";
 import { Sparkline } from "../components/Sparkline";
+import { formatKST, formatKSTDate, todayKST, daysBetweenKST } from "../lib/datetime";
 
 // WoW delta helper — null-safe so a missing prev_summary (group has
 // fewer than 7 days of history) renders nothing instead of "▲ NaN".
@@ -377,7 +378,9 @@ function GroupEventTimeline({ groupKey }: { groupKey: string }) {
 
   const visible = showAll ? filtered : filtered.slice(0, 8);
   const hiddenCount = filtered.length - visible.length;
-  const today = new Date().toISOString().slice(0, 10);
+  // KST-anchored "today" so events on the boundary day classify
+  // identically to the operator's wall clock instead of UTC's.
+  const today = todayKST();
 
   return (
     <section class="rounded-lg border border-zinc-800 p-3">
@@ -1037,13 +1040,16 @@ function FactorBreakdown(props: {
 
 
 function DDayBadge({ debutDate }: { debutDate: string }) {
-  const ms = Date.parse(debutDate);
-  if (!Number.isFinite(ms)) return null;
-  const days = Math.round((ms - Date.now()) / 86_400_000);
+  // KST-anchored day delta — `Date.parse` on a bare date interprets it
+  // as UTC midnight, which would flip "D-1" to "D-DAY" 9 hours early in
+  // KST. `daysBetweenKST` does the calendar math in Asia/Seoul so the
+  // chip switches at KST midnight, matching the operator's wall clock.
+  const days = daysBetweenKST(debutDate);
+  if (days == null) return null;
   if (days > 0) {
     return (
       <span class="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-200 tabular-nums"
-            title={`데뷔 ${debutDate} 까지 ${days}일`}>
+            title={`데뷔 ${debutDate} (KST) 까지 ${days}일`}>
         D-{days}
       </span>
     );
@@ -1057,7 +1063,7 @@ function DDayBadge({ debutDate }: { debutDate: string }) {
   }
   return (
     <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300 tabular-nums"
-          title={`데뷔 ${debutDate} 후 ${Math.abs(days)}일`}>
+          title={`데뷔 ${debutDate} (KST) 후 ${Math.abs(days)}일`}>
       D+{Math.abs(days)}
     </span>
   );
@@ -1102,8 +1108,8 @@ function GroupAlertSection(props: {
                 {GROUP_ALERT_RULE_LABEL[a.rule] ?? a.rule}
               </span>
               <span class="font-semibold">{a.title}</span>
-              <span class="ml-auto text-hint text-zinc-500">
-                {a.fired_at?.slice(0, 16).replace("T", " ")}
+              <span class="ml-auto text-hint text-zinc-500" title={formatKST(a.fired_at)}>
+                {formatKST(a.fired_at)}
               </span>
             </div>
             <div class="mt-1 text-xs text-zinc-400">{a.body}</div>
@@ -1132,7 +1138,7 @@ function GroupInsightSection(props: {
           <li key={i.id}
               class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
             <div class="text-hint text-zinc-500">
-              {i.type} · {i.generated_at?.slice(0, 10)}
+              {i.type} · {formatKSTDate(i.generated_at)}
             </div>
             <div class="mt-0.5 font-semibold">{i.title}</div>
             <div class="mt-1 text-sm text-zinc-400">{i.body}</div>

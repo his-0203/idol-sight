@@ -14,7 +14,7 @@ export function WeeklyUpdate() {
     <div class="space-y-6">
       {(weekStart || weekEnd) && (
         <header class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
-          <div class="text-xs uppercase tracking-wider text-zinc-500">Reporting Window</div>
+          <div class="text-xs uppercase tracking-wider text-zinc-500">Reporting Window (KST)</div>
           <div class="text-base font-semibold tabular-nums">
             Week of {weekStart ?? "?"}{weekEnd ? ` ~ ${weekEnd}` : ""}
           </div>

@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
+import { formatKST, formatKSTDate } from "../lib/datetime";
 
 const TYPE_LABEL: Record<string, string> = {
   weekly: "주간",
@@ -88,7 +89,9 @@ export function Insights() {
                 <span>·</span>
                 <span>{TYPE_LABEL[i.type] ?? i.type}</span>
                 <span>·</span>
-                <span>{i.week_start ?? i.generated_at?.slice(0, 10)}</span>
+                <span title={i.generated_at ? formatKST(i.generated_at) : undefined}>
+                  {i.week_start ?? formatKSTDate(i.generated_at)}
+                </span>
                 {isNew && (
                   <span class="ml-auto rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 text-emerald-400">NEW</span>
                 )}

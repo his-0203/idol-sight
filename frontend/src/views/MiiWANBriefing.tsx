@@ -25,6 +25,7 @@ import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { colorOf } from "../design/groups";
+import { formatKST, formatKSTDate } from "../lib/datetime";
 
 type SummaryShape = {
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
@@ -404,7 +405,7 @@ export function MiiWANBriefing() {
       {/* 4) Core KPIs (existing) */}
       <section>
         <h2 class="section-title mb-3">핵심 지표 (최신 스냅샷
-          {data.summary ? ` · ${data.summary.snapshot_at.slice(0, 10)}` : ""})
+          {data.summary ? ` · ${formatKSTDate(data.summary.snapshot_at)} KST` : ""})
         </h2>
         {!data.summary ? (
           <EmptyState
@@ -480,7 +481,7 @@ export function MiiWANBriefing() {
                         style={{ color: colorOf(b.group_key) }}>
                       {b.name}<br />
                       <span class="text-hint normal-case text-zinc-500">
-                        D-day 직전 {b.snapshot_at?.slice(0, 10) ?? "—"}
+                        D-day 직전 {b.snapshot_at ? `${formatKSTDate(b.snapshot_at)} KST` : "—"}
                       </span>
                     </th>
                   ))}
@@ -665,8 +666,8 @@ export function MiiWANBriefing() {
                           {RULE_LABEL[a.rule] ?? a.rule}
                         </span>
                         <span class="font-semibold">{a.title}</span>
-                        <span class="ml-auto text-hint text-zinc-500">
-                          {a.fired_at?.slice(0, 16).replace("T", " ")}
+                        <span class="ml-auto text-hint text-zinc-500" title={formatKST(a.fired_at)}>
+                          {formatKST(a.fired_at)}
                         </span>
                       </div>
                       <div class="mt-1 text-xs text-zinc-400">{a.body}</div>
@@ -743,8 +744,8 @@ export function MiiWANBriefing() {
                     {RULE_LABEL[a.rule] ?? a.rule}
                   </span>
                   <span class="font-semibold">{a.title}</span>
-                  <span class="ml-auto text-hint text-zinc-500">
-                    {a.fired_at?.slice(0, 16).replace("T", " ")}
+                  <span class="ml-auto text-hint text-zinc-500" title={formatKST(a.fired_at)}>
+                    {formatKST(a.fired_at)}
                   </span>
                 </div>
                 <div class="mt-1 text-sm text-zinc-300">{a.body}</div>
@@ -1061,7 +1062,7 @@ function InsightGroup(props: {
           <li key={i.id}
               class={`rounded-lg border p-3 ${toneCls}`}>
             <div class="text-hint text-zinc-500">
-              {i.scope} · {i.type} · {i.generated_at?.slice(0, 10)}
+              {i.scope} · {i.type} · {formatKSTDate(i.generated_at)}
             </div>
             <div class="mt-0.5 font-semibold">{i.title}</div>
             <div class="mt-1 text-sm text-zinc-400">{i.body}</div>

@@ -4,6 +4,7 @@ import { fmt } from "../format";
 import { writeState } from "../router";
 import { ExportMenu } from "../components/ExportMenu";
 import { EmptyState } from "../components/EmptyState";
+import { formatKST, formatKSTDate } from "../lib/datetime";
 
 // Notices, vote/poll templates, and other sticky moderator posts dominate
 // "top by views" lists without reflecting fan activity, so we hide them by
@@ -134,7 +135,7 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
         <table class="w-full text-xs">
           <thead><tr class="text-left text-zinc-500">
             <th class="py-1">#</th><th>플랫폼</th><th>감정</th><th>제목</th>
-            <th class="text-right">조회수</th><th class="text-right">좋아요</th><th>날짜</th><th></th>
+            <th class="text-right">조회수</th><th class="text-right">좋아요</th><th>날짜 (KST)</th><th></th>
           </tr></thead>
           <tbody>
             {rows.map((p: any, i: number) => {
@@ -162,7 +163,9 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
                   </td>
                   <td class="text-right tabular-nums">{fmt(p.views)}</td>
                   <td class="text-right tabular-nums">{fmt(p.likes)}</td>
-                  <td class="text-zinc-500">{(p.posted_at ?? "").slice(0, 10)}</td>
+                  <td class="text-zinc-500" title={p.posted_at ? formatKST(p.posted_at) : undefined}>
+                    {formatKSTDate(p.posted_at)}
+                  </td>
                   <td class="text-right">
                     <button
                       type="button"

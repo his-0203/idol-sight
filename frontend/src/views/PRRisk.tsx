@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
+import { formatKST, formatKSTDate } from "../lib/datetime";
 
 function wowDelta(curr: number | null | undefined, prev: number | null | undefined): number | null {
   if (curr == null || prev == null) return null;
@@ -181,7 +182,7 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
               <li key={a.alert_key} class="rounded border border-red-500/40 bg-zinc-900/40 p-2">
                 <div class="font-semibold">{a.title}</div>
                 <div class="mt-1 text-zinc-400">{a.body}</div>
-                <div class="mt-1 text-zinc-500">{(a.fired_at ?? "").slice(0, 16).replace("T", " ")}</div>
+                <div class="mt-1 text-zinc-500" title={formatKST(a.fired_at)}>{formatKST(a.fired_at)}</div>
               </li>
             ))}
           </ul>
@@ -200,7 +201,7 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
               <li key={a.alert_key} class="rounded border border-amber-500/40 bg-zinc-900/40 p-2">
                 <div class="font-semibold">{a.title}</div>
                 <div class="mt-1 text-zinc-400">{a.body}</div>
-                <div class="mt-1 text-zinc-500">{(a.fired_at ?? "").slice(0, 16).replace("T", " ")}</div>
+                <div class="mt-1 text-zinc-500" title={formatKST(a.fired_at)}>{formatKST(a.fired_at)}</div>
               </li>
             ))}
           </ul>
@@ -219,7 +220,7 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
                     {RULE_LABEL[a.rule] ?? a.rule}
                   </span>
                   <span class="font-semibold">{a.title}</span>
-                  <span class="ml-auto text-zinc-500">{(a.fired_at ?? "").slice(0, 16).replace("T", " ")}</span>
+                  <span class="ml-auto text-zinc-500" title={formatKST(a.fired_at)}>{formatKST(a.fired_at)}</span>
                 </div>
                 <div class="mt-1 text-zinc-400">{a.body}</div>
               </li>
@@ -235,7 +236,9 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
             {news.map((n: any, i: number) => (
               <li key={i}>
                 <a class="hover:underline" href={n.url} target="_blank" rel="noopener">{n.title}</a>
-                <span class="ml-2 text-zinc-500">{n.source ?? ""} · {(n.published_at ?? "").slice(0, 10)}</span>
+                <span class="ml-2 text-zinc-500" title={n.published_at ? formatKST(n.published_at) : undefined}>
+                  {n.source ?? ""} · {formatKSTDate(n.published_at)}
+                </span>
               </li>
             ))}
           </ul>

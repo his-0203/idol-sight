@@ -1,3 +1,5 @@
+import { formatKST, formatKSTRelative } from "../lib/datetime";
+
 type Freshness = "fresh" | "stale" | "broken";
 
 function classify(lastSuccessAt: string | null, intervalH: number): Freshness {
@@ -22,16 +24,16 @@ export function FreshnessBadge(props: {
   intervalH: number;
 }) {
   const f = classify(props.lastSuccessAt, props.intervalH);
-  const ageH = props.lastSuccessAt
-    ? (Date.now() - Date.parse(props.lastSuccessAt)) / 3_600_000
-    : null;
-  const ageText = ageH == null
-    ? "마지막 갱신 없음"
-    : ageH < 1 ? `${Math.round(ageH * 60)}분 전`
-    : ageH < 48 ? `${Math.round(ageH)}시간 전`
-    : `${Math.round(ageH / 24)}일 전`;
+  // Relative wording ("5분 전") for at-a-glance freshness, KST absolute
+  // on hover so the operator can audit the exact moment without doing
+  // UTC→KST math in their head.
+  const ageText = formatKSTRelative(props.lastSuccessAt);
+  const exactKST = props.lastSuccessAt ? formatKST(props.lastSuccessAt) : null;
   return (
-    <span class={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${COLORS[f]}`}>
+    <span
+      class={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs ${COLORS[f]}`}
+      title={exactKST ?? "마지막 갱신 없음"}
+    >
       <span>{ICONS[f]}</span>
       {props.label && <span class="text-zinc-300">{props.label}:</span>}
       <span>{ageText}</span>
