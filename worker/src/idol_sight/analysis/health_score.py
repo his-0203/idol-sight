@@ -83,7 +83,13 @@ DEFAULT_REFS: dict[str, float] = {
 # 1.0 then means "this group sits at the top decile of the market", which
 # is the right semantic for an idol BI: top tier = saturated, mid tier =
 # half-filled, debut tier = small but visible.
-DYNAMIC_REF_PERCENTILE = 0.90
+# V2.14: 0.90 → 0.75. With 7 active groups + PLAVE 5-10× the rest on
+# every axis, p90 effectively = PLAVE → SKINZ/OWIS/MY:RAKL all
+# normalize to <0.1 and pile into D-tier indistinguishably. p75 means
+# "1.0 = top quartile" and stretches the bottom range from [0–0.1] to
+# [0–0.3] giving the small groups room to differentiate without
+# affecting PLAVE/ISEDOL (still saturate at 1.0).
+DYNAMIC_REF_PERCENTILE = 0.75
 # Floor each dynamic REF so a one-group cohort or all-zero column doesn't
 # collapse to 0 (which would divide-by-zero through _normalize). The floor
 # values are intentionally small — they only kick in for empty markets.
@@ -172,6 +178,26 @@ def _is_pre_debut(debut_date: str | None) -> bool:
     except ValueError:
         return True
     return d > date.today()
+
+
+def _tenure_days(debut_date: str | None) -> int | None:
+    """Days since debut. Returns None for pre-debut / unknown."""
+    if not debut_date:
+        return None
+    try:
+        d = date.fromisoformat(debut_date)
+    except ValueError:
+        return None
+    diff = (date.today() - d).days
+    return diff if diff >= 0 else None
+
+
+# V2.14 cold-start floor — a group debuted < 90 days cannot have
+# accumulated cohort-relative signal at PLAVE/ISEDOL scale, so the raw
+# score reads as "this group is in the bottom decile" trivially.
+# Linear ramp: day 0 → floor 3.5, day 89 → floor ≈ 0 (no adjustment).
+COLD_START_FLOOR_BASE = 3.5
+COLD_START_DAYS = 90
 
 
 def _normalize(value: float | None, ref: float) -> float:
@@ -390,6 +416,15 @@ def _factor_inputs(
     # 1.0 saturates around 1M album sales (PLAVE millennium-album scale).
     hanteo_n = min(hanteo_sales / 1_000_000.0, 1.0)
 
+    # V2.14: video cadence (last 90 days) promoted from bonus-only to a
+    # weighted Mobilization signal. Without this, a group like SKINZ
+    # with 593 videos but no recent hanteo album barely registers on
+    # mobilization (only the +0.9-pt bonus reflected it). 30 videos
+    # in 90d (~10/mo) saturates. Always alive — derived from worker's
+    # own youtube_videos table, no external collector.
+    v90_count = float(agg.get("v90_count", 0) or 0)
+    cadence_n = min(v90_count / 30.0, 1.0)
+
     # V2 sentiment polarity. negative_ratio in [0, 1] — 0 = no negative
     # signal, 1 = all classified posts negative/controversy. We interpret
     # high negativity as compressing intimacy (fans aren't intimate, they
@@ -411,13 +446,15 @@ def _factor_inputs(
             (hanteo_n, 0.70, "hanteo" in L),
             (news_n,   0.30, "news"   in L),
         ]),
-        # Mobilization — recent video cadence (proxy for active output)
-        # + raw views (fans showing up). v90/v30 counts get folded into
-        # the bonus, so here we use views and an album signal.
+        # Mobilization — active output (cadence + views) + album-driven
+        # initial-sales signal + subs. cadence carries 0.25 weight as
+        # the always-alive internal signal; v30 stays in the additive
+        # bonus on top.
         "mobilization": _wmean([
-            (view_n,   0.50, "views"       in L),
-            (hanteo_n, 0.35, "hanteo"      in L),
-            (sub_n,    0.15, "subscribers" in L),
+            (view_n,    0.40, "views"       in L),
+            (cadence_n, 0.25, True),
+            (hanteo_n,  0.25, "hanteo"      in L),
+            (sub_n,     0.10, "subscribers" in L),
         ]),
         # Intimacy — engagement rate + community activity, compressed by
         # negative sentiment ratio.
@@ -502,6 +539,17 @@ def compute_health_score(
 
     raw_total = factor_base + bonus_total
     total = round(raw_total / FACTOR_DENOM * 10.0, 1)
+
+    # V2.14 cold-start floor for newly debuted groups (< 90 days). Lifts
+    # the score off the cohort-comparison floor for the period when
+    # accumulation is mechanically impossible. After day 90 the group
+    # competes on merit — no permanent participation lift.
+    tenure = _tenure_days(debut_date)
+    if tenure is not None and tenure < COLD_START_DAYS:
+        floor = COLD_START_FLOOR_BASE * (1.0 - tenure / COLD_START_DAYS)
+        if total < floor:
+            total = round(floor, 1)
+
     grade = next(g for thr, g in GRADE_THRESHOLDS if total >= thr)
 
     # Risk score for the legacy breakdown — same factor, scaled by the
