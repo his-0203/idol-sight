@@ -368,10 +368,17 @@ export function DebutCurve() {
               },
             },
             grid: { color: (ctx: any) => ctx.tick.value === 0 ? "rgba(245,158,11,0.4)" : undefined },
+            // News bar 차트는 그룹별로 같은 weekly bucket 위에 막대를
+            // 그리는데 Chart.js 의 linear scale 은 dataset 간 자동
+            // dodge 가 없음. stacked: true 로 두면 그룹별 막대가
+            // 위로 쌓여서 "이 주의 뉴스량 + 그룹 contribution" 가
+            // 단일 visual 로 보임.
+            stacked: isBarMetric,
           },
           y: {
             title: { display: true, text: METRIC_OPTIONS.find((m) => m.key === metric)?.label ?? metric },
             ticks: { callback: (v) => fmtScale(v as number) },
+            stacked: isBarMetric,
           },
         },
         plugins: {
