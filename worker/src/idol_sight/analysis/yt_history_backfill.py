@@ -52,8 +52,8 @@ INSERT INTO agg_summary
   (group_key, snapshot_at,
    yt_total_videos, yt_total_views, yt_subscribers,
    dc_total_posts, theqoo_posts, instiz_posts,
-   naver_total_news, twitter_posts, controversy_count)
-VALUES (?, ?, ?, ?, NULL, 0, 0, 0, 0, 0, 0)
+   naver_total_news, twitter_posts, controversy_count, data_source)
+VALUES (?, ?, ?, ?, NULL, 0, 0, 0, 0, 0, 0, 'backfill_estimate')
 ON CONFLICT(group_key, snapshot_at) DO NOTHING
 """.strip()
 
