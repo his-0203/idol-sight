@@ -121,7 +121,7 @@ class YouTubeCollector:
         members_loader: Callable[[str], list[dict]] | None = None,
     ):
         self._key = api_key
-        self._http_factory = http_factory or (lambda: httpx.Client(timeout=30.0))
+        self._http_factory = http_factory or (lambda: httpx.Client(timeout=60.0))
         # Returns a list of {"yt_channel_id": "..."} for the group's
         # active members that have a solo channel. Default = no members,
         # which keeps unit tests and one-off invocations simple.
@@ -171,32 +171,43 @@ class YouTubeCollector:
 
         Capped at FULL_HISTORY_MAX_PAGES per channel as a quota guard.
         """
+        # Per-channel try/except: a transient ReadTimeout on one member
+        # channel must not abort the entire group's backfill. Failed
+        # channels log + continue; the operator can re-dispatch later
+        # for just that channel (the INSERT OR IGNORE pattern makes
+        # subsequent walks idempotent — already-indexed pages skip
+        # without re-fetching from YouTube).
         ids: list[str] = []
         for ch_id in channel_ids:
-            uploads_pl = self._lookup_uploads_playlist(client, ch_id)
-            if not uploads_pl:
-                log.warning("no uploads playlist for channel_id=%s", ch_id)
+            try:
+                uploads_pl = self._lookup_uploads_playlist(client, ch_id)
+                if not uploads_pl:
+                    log.warning("no uploads playlist for channel_id=%s", ch_id)
+                    continue
+                page_token: str | None = None
+                for _ in range(FULL_HISTORY_MAX_PAGES):
+                    params: dict[str, Any] = {
+                        "key": self._key,
+                        "playlistId": uploads_pl,
+                        "maxResults": PLAYLIST_ITEMS_MAX,
+                        "part": "contentDetails",
+                    }
+                    if page_token:
+                        params["pageToken"] = page_token
+                    r = client.get(f"{API}/playlistItems", params=params)
+                    r.raise_for_status()
+                    payload = r.json()
+                    for item in payload.get("items", []):
+                        vid = (item.get("contentDetails") or {}).get("videoId")
+                        if vid:
+                            ids.append(vid)
+                    page_token = payload.get("nextPageToken")
+                    if not page_token:
+                        break
+            except (httpx.HTTPError, httpx.TimeoutException) as exc:
+                log.warning("backfill skipping channel_id=%s on transient: %s",
+                            ch_id, exc)
                 continue
-            page_token: str | None = None
-            for _ in range(FULL_HISTORY_MAX_PAGES):
-                params: dict[str, Any] = {
-                    "key": self._key,
-                    "playlistId": uploads_pl,
-                    "maxResults": PLAYLIST_ITEMS_MAX,
-                    "part": "contentDetails",
-                }
-                if page_token:
-                    params["pageToken"] = page_token
-                r = client.get(f"{API}/playlistItems", params=params)
-                r.raise_for_status()
-                payload = r.json()
-                for item in payload.get("items", []):
-                    vid = (item.get("contentDetails") or {}).get("videoId")
-                    if vid:
-                        ids.append(vid)
-                page_token = payload.get("nextPageToken")
-                if not page_token:
-                    break
         return list(dict.fromkeys(ids))
 
     def _lookup_uploads_playlist(self, client: Any, channel_id: str) -> str | None:
