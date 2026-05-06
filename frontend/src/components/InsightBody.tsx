@@ -1,9 +1,14 @@
 // frontend/src/components/InsightBody.tsx
 //
-// LLM 인사이트 본문을 토큰 단위로 렌더한다. 평문은 그대로, 그룹 alias 는
-// <GroupBadge> 로, markdown bold / 톤 lexicon 매칭은 색이 들어간 강조로
-// 표시. 색은 design system 의 emerald(positive) / rose(negative) /
-// zinc-bold(neutral) 한정.
+// LLM 인사이트 본문을 토큰 단위로 렌더한다. 평문은 그대로, markdown bold
+// 와 톤 lexicon 매칭은 색이 들어간 강조로 표시. 색은 design system 의
+// emerald(positive) / rose(negative) / zinc-bold(neutral) 한정.
+//
+// **본문 안 그룹명은 뱃지로 시각화하지 않는다** (사용자 피드백 2026-05-07):
+// 상단 TopRow 의 GroupBadge 가 이미 어떤 그룹 카드인지 표시하므로
+// 본문에서 다시 뱃지를 노출하면 시각 노이즈/중복. 본문 그룹명은 일반
+// 텍스트로 자연스럽게 흐르도록 둔다 (파서는 group 토큰을 인식하지만
+// 렌더는 plain text 와 동일).
 //
 // 사용처:
 //   - WeeklyUpdate.tsx Weekly Insights 카드 본문
@@ -15,7 +20,6 @@
 // 다르므로 통일하지 않고 재사용 부품만 공유한다.
 
 import { parseInsightBody, type Tone } from "../lib/insightFormat";
-import { GroupBadge } from "./GroupBadge";
 
 const TONE_CLS: Record<Tone, string> = {
   // emerald: 다크모드 가독성 ≥ 4.5:1, 라이트모드도 충분.
@@ -43,15 +47,10 @@ export function InsightBody(props: InsightBodyProps) {
           return <span key={i}>{t.text}</span>;
         }
         if (t.kind === "group") {
-          return (
-            <GroupBadge
-              key={i}
-              groupKey={t.key}
-              label={t.label}
-              size="sm"
-              class="mx-0.5"
-            />
-          );
+          // 본문 안 그룹명은 일반 텍스트로 렌더 (상단 GroupBadge 와
+          // 중복되는 시각 노이즈 회피). 파서가 group 토큰으로 인식해도
+          // 결과적으로 plain text 와 동일하게 흐름.
+          return <span key={i}>{t.label}</span>;
         }
         // tone
         return (
