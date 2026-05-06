@@ -1,6 +1,7 @@
 # Historical Pre-Debut Backfill — 출처 및 검증 노트
 
 대상: PLAVE / OWIS / SKINZ / MYRAKL의 데뷔 D-180 ~ D+90 구간 yt_subscribers + naver_total_news 백필.
+**v2 추가 (2026-05-06)**: yt_total_videos + yt_total_views 백필 패스. migration 0020 참조.
 
 방법론과 검증은 `docs/superpowers/specs/2026-05-06-historical-debut-backfill-design.md` §5 참조.
 
@@ -71,6 +72,76 @@ YouTube 채널 페이지에서 구독자 수를 추출하는 두 가지 패턴 �
 | `"1.34K subscribers"` | 1,340 |
 | `"134K subscribers"` | 134,000 |
 | `"1.01M subscribers"` | 1,010,000 |
+
+---
+
+## v2 추가 패스 — yt_total_videos + yt_total_views (2026-05-06)
+
+migration 0018은 yt_subscribers + naver_total_news만 채웠음. v2 패스는 동일 Wayback 스냅샷에서 영상 수와 총 채널 조회수를 추가 추출.
+
+### 파싱 패턴 (Wayback — 영상 수)
+
+YouTube 채널 홈 페이지에서 두 가지 패턴 확인:
+
+**패턴 A — 구형 헤더 포맷 (PLAVE 2022-2023)**:
+```json
+"videosCountText":{"runs":[{"text":"127"},{"text":" videos"}]}
+```
+→ `runs[0].text`를 정수로 파싱.
+
+**패턴 B — 신형 메타데이터 포맷 (SKINZ 2024-2025)**:
+```json
+"metadataParts":[{"text":{"content":"1.34K subscribers"}},{"text":{"content":"4 videos"}}]
+```
+→ `content` 필드에서 `"N videos"` 정규식으로 추출.
+
+### 파싱 패턴 (Wayback — 총 조회수)
+
+채널 총 조회수는 **홈 페이지에 없음**. `/about` 페이지에서만 확인 가능:
+
+```json
+"viewCountText":{"simpleText":"7,474,945 views"},"joinedDateText":{...}
+```
+→ `viewCountText.simpleText` 값을 추출, 단 `joinedDateText` 근접 조건으로 개별 영상 viewCountText와 구분.
+
+### 그룹별 v2 결과
+
+| 그룹 | 영상수 채워진 행 | 총조회수 채워진 행 | 비고 |
+|---|---|---|---|
+| PLAVE | 10 (9 홈 + 1 about) | 1 | about 페이지 1개 스냅샷 발견 |
+| SKINZ | 2 | 0 | about 페이지 Wayback 없음 |
+| MYRAKL | 0 | 0 | 스냅샷 없음 |
+| OWIS | 0 | 0 | 스냅샷 없음 |
+
+### PLAVE — v2 영상수 및 총조회수 상세
+
+| 날짜 | 타임스탬프 | 영상수 | 총조회수 | 스냅샷 URL |
+|---|---|---|---|---|
+| 2022-11-02 | 20221102115835 | 25 | - | https://web.archive.org/web/20221102115835/https://www.youtube.com/@plave_official |
+| 2022-11-09 | 20221109114832 | 25 | - | https://web.archive.org/web/20221109114832/https://www.youtube.com/@plave_official |
+| 2023-03-25 | 20230325173246 | 127 | - | https://web.archive.org/web/20230325173246/https://www.youtube.com/@plave_official |
+| 2023-03-27 | 20230327074623 | 127 | 7,474,945 | https://web.archive.org/web/20230327074623/https://www.youtube.com/@plave_official/about |
+| 2023-03-29 | 20230329193241 | 129 | - | https://web.archive.org/web/20230329193241/https://www.youtube.com/@plave_official |
+| 2023-03-30 | 20230330093938 | 130 | - | https://web.archive.org/web/20230330093938/https://www.youtube.com/@plave_official |
+| 2023-04-15 | 20230415170728 | 139 | - | https://web.archive.org/web/20230415170728/https://www.youtube.com/@plave_official |
+| 2023-04-20 | 20230420005137 | 140 | - | https://web.archive.org/web/20230420005137/https://www.youtube.com/@plave_official |
+| 2023-05-05 | 20230505113228 | 145 | - | https://web.archive.org/web/20230505113228/https://www.youtube.com/@plave_official |
+| 2023-05-18 | 20230518181802 | 153 | - | https://web.archive.org/web/20230518181802/https://www.youtube.com/@plave_official |
+
+**총조회수 한계**: Wayback이 /about 페이지를 단 1회만 아카이브. 나머지 8개 홈 페이지 스냅샷에는 총 채널 조회수 없음 (홈 페이지의 viewCountText는 개별 영상 조회수임).
+
+### SKINZ — v2 영상수 상세
+
+| 날짜 | 타임스탬프 | 영상수 | 총조회수 | 스냅샷 URL |
+|---|---|---|---|---|
+| 2024-12-27 | 20241227210629 | 4 | - | https://web.archive.org/web/20241227210629/https://www.youtube.com/@SKINZOFFICIAL |
+| 2025-07-08 | 20250708062924 | 121 | - | https://web.archive.org/web/20250708062924/https://www.youtube.com/@SKINZOFFICIAL |
+
+SKINZ /about 페이지 Wayback 스냅샷: 0개. 총조회수 복구 불가.
+
+### 검증
+
+모든 값은 `/tmp/` 로컬 저장 스냅샷 파일에서 직접 확인 후 삽입. 스냅샷 다운로드 URL과 파싱 결과의 매핑은 `scrape.py`의 `parse_video_count_from_html()` + `parse_total_views_from_html()` 함수 참조.
 
 ---
 
@@ -308,16 +379,16 @@ CDX 쿼리: `https://web.archive.org/cdx/search/cdx?url=youtube.com/@OWISofficia
 
 ---
 
-## 전체 결과 요약 (스텔스 패스 포함)
+## 전체 결과 요약 (스텔스 패스 + v2 영상수/조회수 패스 포함)
 
-| 그룹 | 구독자 행 수 | 뉴스 비零 행 수 | 소스 |
-|---|---|---|---|
-| PLAVE | 11 (9 Wayback + 2 milestone) | 12/38 주 | Wayback + Wikipedia + Naver 스텔스 |
-| SKINZ | 2 | 7/39 주 | Wayback + Naver 스텔스 |
-| MYRAKL | 4 | 0/38 주 | Social Blade 최근 14일 |
-| OWIS | 14 | 6/32 주 | Social Blade 최근 14일 + Naver 스텔스 |
+| 그룹 | 구독자 행 수 | 영상수 채운 행 | 총조회수 채운 행 | 뉴스 비零 행 수 | 소스 |
+|---|---|---|---|---|---|
+| PLAVE | 11 (9 Wayback + 2 milestone) | 10 | 1 | 12/38 주 | Wayback + Wikipedia + Naver 스텔스 |
+| SKINZ | 2 | 2 | 0 | 7/39 주 | Wayback + Naver 스텔스 |
+| MYRAKL | 4 | 0 | 0 | 0/38 주 | Social Blade 최근 14일 |
+| OWIS | 14 | 0 | 0 | 6/32 주 | Social Blade 최근 14일 + Naver 스텔스 |
 
-**합계**: 구독자 행 31행, 뉴스 비零 행 25행, 전체 주간 행 177행
+**합계**: 구독자 행 31행, 영상수 행 12행, 총조회수 행 1행, 뉴스 비零 행 25행, 전체 주간 행 177행
 
 ## 한계 및 권고사항
 

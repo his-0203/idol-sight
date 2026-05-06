@@ -171,6 +171,145 @@ def parse_subscriber_count_from_html(text: str) -> Optional[str]:
     return None
 
 
+def parse_video_count_from_html(text: str) -> Optional[int]:
+    """
+    Extract total video count from a YouTube channel page HTML.
+
+    Patterns tried (in order):
+    1. videosCountText.runs[0].text  — older header format (e.g. PLAVE 2022-2023)
+       {"videosCountText":{"runs":[{"text":"127"},{"text":" videos"}]}}
+    2. metadataParts[*].text.content matching "N videos" — newer format (e.g. SKINZ 2024+)
+       {"metadataParts":[{"text":{"content":"1.34K subscribers"}},{"text":{"content":"4 videos"}}]}
+    3. Korean metadataParts: "동영상 N개" pattern
+
+    Returns integer count or None if not found.
+    Anti-fabrication: returns None rather than 0 if field is absent.
+    """
+    # Pattern 1: videosCountText with runs array
+    m = re.search(
+        r'"videosCountText"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"(\d+)"',
+        text,
+    )
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            pass
+
+    # Pattern 2: metadataParts content "N videos" (English, newer format)
+    m2 = re.search(
+        r'"content"\s*:\s*"(\d[\d,.]*)\s+videos?"',
+        text,
+        re.IGNORECASE,
+    )
+    if m2:
+        raw = m2.group(1).replace(",", "")
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+
+    # Pattern 3: Korean metadataParts "동영상 N개"
+    m3 = re.search(
+        r'"content"\s*:\s*"동영상\s*([\d,]+)개"',
+        text,
+    )
+    if m3:
+        raw = m3.group(1).replace(",", "")
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+
+    return None
+
+
+def parse_total_views_from_html(text: str) -> Optional[int]:
+    """
+    Extract total channel view count from a YouTube channel /about page HTML.
+
+    This field is ONLY available on the /about page, NOT on the home page.
+    On the home page, viewCountText refers to individual video view counts.
+
+    Patterns tried (in order):
+    1. viewCountText.simpleText on /about page (English):
+       {"viewCountText":{"simpleText":"7,474,945 views"},"joinedDateText":...}
+       Distinguished from per-video viewCountText by proximity to "joinedDateText".
+    2. Korean: "조회수 N회" in viewCountText
+
+    Returns integer count or None if not found.
+    Anti-fabrication: returns None rather than 0 if field is absent.
+    """
+    # Pattern 1: viewCountText adjacent to joinedDateText (about page marker)
+    # This distinguishes channel total views from per-video views
+    m = re.search(
+        r'"viewCountText"\s*:\s*\{"simpleText"\s*:\s*"([\d,]+)\s*views?"\}'
+        r'.{0,200}"joinedDateText"',
+        text,
+        re.DOTALL,
+    )
+    if m:
+        raw = m.group(1).replace(",", "")
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+
+    # Pattern 2: joinedDateText first, then viewCountText (reverse order)
+    m2 = re.search(
+        r'"joinedDateText".{0,200}"viewCountText"\s*:\s*\{"simpleText"\s*:\s*"([\d,]+)\s*views?"\}',
+        text,
+        re.DOTALL,
+    )
+    if m2:
+        raw = m2.group(1).replace(",", "")
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+
+    # Pattern 3: Korean format "조회수 N회"
+    m3 = re.search(
+        r'"simpleText"\s*:\s*"([\d,]+)\s*(?:조회수|회)"',
+        text,
+    )
+    if m3:
+        raw = m3.group(1).replace(",", "")
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+
+    return None
+
+
+def normalize_count_korean(s: Optional[str]) -> Optional[int]:
+    """
+    Convert Korean/English number formats to integer.
+    Examples: '1만' → 10000, '1.2천' → 1200, '1.5만' → 15000,
+              '123,456' → 123456, '1.34K' → 1340
+    Returns None if unparseable.
+    """
+    if not s:
+        return None
+    s = s.strip().lower().replace(",", "")
+    try:
+        if "만" in s:
+            return int(float(s.replace("만", "")) * 10_000)
+        elif "천" in s:
+            return int(float(s.replace("천", "")) * 1_000)
+        elif "k" in s:
+            return int(float(s.replace("k", "")) * 1_000)
+        elif "m" in s:
+            return int(float(s.replace("m", "")) * 1_000_000)
+        elif "b" in s:
+            return int(float(s.replace("b", "")) * 1_000_000_000)
+        else:
+            return int(float(s))
+    except ValueError:
+        return None
+
+
 def normalize_subs(s: Optional[str]) -> Optional[int]:
     """Convert '91.3K subscribers' → 91300, '1.34K subscribers' → 1340, etc."""
     if not s:
@@ -193,22 +332,102 @@ def normalize_subs(s: Optional[str]) -> Optional[int]:
         return None
 
 
-def fetch_wayback_snapshot(handle: str, timestamp: str, max_retries: int = 3) -> Optional[tuple[int, str]]:
+def fetch_wayback_about_snapshot(handle: str, from_ts: str, to_ts: str,
+                                  max_retries: int = 3) -> Optional[tuple[str, int, int, int]]:
+    """
+    Try to fetch a Wayback snapshot of the YouTube channel /about page.
+    The /about page contains total channel views (viewCountText), which is
+    NOT available on the home page (where viewCountText is per-video only).
+
+    Returns (source_url, yt_subscribers, yt_total_videos, yt_total_views) or None.
+    Any of the three int fields may be None individually if not parseable.
+    """
+    about_handle = f"{handle}/about"
+    cdx_url = "https://web.archive.org/cdx/search/cdx"
+    params = {
+        "url": f"youtube.com/{about_handle}",
+        "from": from_ts,
+        "to": to_ts,
+        "output": "json",
+        "limit": "10",
+        "fl": "timestamp,statuscode",
+    }
+    try:
+        r = requests.get(cdx_url, params=params, headers=HEADERS, timeout=30)
+        if r.status_code != 200 or not r.text.strip():
+            return None
+        data = r.json()
+        snaps = [row[0] for row in data[1:] if row[1] == "200"]
+        if not snaps:
+            return None
+    except Exception as e:
+        print(f"  [about CDX] {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+    for ts in snaps:
+        about_url = f"https://web.archive.org/web/{ts}/https://www.youtube.com/{about_handle}"
+        for attempt in range(max_retries):
+            try:
+                resp = requests.get(about_url, headers=HEADERS, timeout=40)
+                if resp.status_code == 200:
+                    html = resp.text
+                    raw_subs = parse_subscriber_count_from_html(html)
+                    subs = normalize_subs(raw_subs)
+                    videos = parse_video_count_from_html(html)
+                    views = parse_total_views_from_html(html)
+                    if views is not None:
+                        print(f"  [about] {ts}: subs={subs}, videos={videos}, views={views:,}", flush=True)
+                        return about_url, subs, videos, views
+                    else:
+                        print(f"  [about] {ts}: no total views found", file=sys.stderr)
+                        return None
+                else:
+                    print(f"  [about] {ts}: HTTP {resp.status_code}", file=sys.stderr)
+            except Exception as e:
+                print(f"  [about] {ts} attempt {attempt+1}: {type(e).__name__}", file=sys.stderr)
+                if attempt < max_retries - 1:
+                    time.sleep(5 * (attempt + 1))
+        time.sleep(1.0)
+    return None
+
+
+def fetch_wayback_snapshot(
+    handle: str,
+    timestamp: str,
+    max_retries: int = 3,
+) -> Optional[dict]:
     """
     Fetch Wayback snapshot for handle at timestamp.
-    Returns (subscriber_count, source_url) or None on failure.
+    Returns dict with keys: yt_subscribers, yt_total_videos, source_url
+    or None on total failure.
+
+    yt_total_views is NOT extracted here — it requires the /about page.
+    Use fetch_wayback_about_snapshot() separately to get that field.
     """
     snap_url = f"https://web.archive.org/web/{timestamp}/https://www.youtube.com/{handle}"
     for attempt in range(max_retries):
         try:
             r = requests.get(snap_url, headers=HEADERS, timeout=40)
             if r.status_code == 200:
-                raw = parse_subscriber_count_from_html(r.text)
+                html = r.text
+                raw = parse_subscriber_count_from_html(html)
                 count = normalize_subs(raw)
-                if count is not None:
-                    return count, snap_url
+                videos = parse_video_count_from_html(html)
+                if count is not None or videos is not None:
+                    print(
+                        f"→ subs={count}, videos={videos}",
+                        flush=True,
+                    )
+                    return {
+                        "yt_subscribers": count,
+                        "yt_total_videos": videos,
+                        "source_url": snap_url,
+                    }
                 else:
-                    print(f"  Snapshot {timestamp}: parsed='{raw}' count=None (no subs visible)", file=sys.stderr)
+                    print(
+                        f"  Snapshot {timestamp}: subs='{raw}' count=None, videos=None (no data visible)",
+                        file=sys.stderr,
+                    )
                     return None
             else:
                 print(f"  Snapshot {timestamp}: HTTP {r.status_code}", file=sys.stderr)
@@ -483,6 +702,8 @@ def scrape_group_stealth(group_key: str, dry_run: bool = False) -> list[dict]:
             existing.setdefault(date_str, {
                 "snapshot_date": date_str,
                 "yt_subscribers": "",
+                "yt_total_videos": "",
+                "yt_total_views": "",
                 "naver_total_news": "",
                 "subs_source": "",
                 "news_source": "",
@@ -545,6 +766,8 @@ def scrape_group_stealth(group_key: str, dry_run: bool = False) -> list[dict]:
                 existing.setdefault(date_str, {
                     "snapshot_date": date_str,
                     "yt_subscribers": "",
+                    "yt_total_videos": "",
+                    "yt_total_views": "",
                     "naver_total_news": "",
                     "subs_source": "",
                     "news_source": "",
@@ -563,8 +786,12 @@ def scrape_group_stealth(group_key: str, dry_run: bool = False) -> list[dict]:
     rows = sorted(existing.values(), key=lambda r: r["snapshot_date"])
     print(f"\nTotal rows for {group_key}: {len(rows)}")
     non_empty_subs = sum(1 for r in rows if r.get("yt_subscribers") not in ("", None))
+    non_empty_vids = sum(1 for r in rows if r.get("yt_total_videos") not in ("", None))
+    non_empty_views = sum(1 for r in rows if r.get("yt_total_views") not in ("", None))
     non_empty_news = sum(1 for r in rows if r.get("naver_total_news") not in ("", None, "0", 0))
     print(f"  Rows with yt_subscribers: {non_empty_subs}")
+    print(f"  Rows with yt_total_videos: {non_empty_vids}")
+    print(f"  Rows with yt_total_views: {non_empty_views}")
     print(f"  Rows with naver_total_news (>0): {non_empty_news}")
 
     return rows
@@ -574,13 +801,19 @@ def scrape_group_stealth(group_key: str, dry_run: bool = False) -> list[dict]:
 # Main scraping logic
 # ---------------------------------------------------------------------------
 
-Row = dict  # keys: snapshot_date, yt_subscribers, naver_total_news, subs_source, news_source
+Row = dict  # keys: snapshot_date, yt_subscribers, yt_total_videos, yt_total_views,
+            #       naver_total_news, subs_source, news_source
 
 
 def scrape_group(group_key: str, dry_run: bool = False) -> list[Row]:
     """
     Scrape historical data for one group.
     Returns list of Row dicts.
+
+    Extended in v2 to also extract yt_total_videos and yt_total_views.
+    - yt_total_videos: parsed from channel home page (videosCountText or metadataParts)
+    - yt_total_views: parsed from channel /about page (viewCountText adjacent to joinedDateText)
+                      Only available when Wayback has archived the /about page.
     """
     cfg = GROUPS[group_key]
     handle = cfg["yt_handle"]
@@ -593,9 +826,25 @@ def scrape_group(group_key: str, dry_run: bool = False) -> list[Row]:
     print(f"  Window: {window_start} ~ {window_end}")
     print(f"{'='*60}")
 
+    # Pre-load existing CSV rows so we can preserve naver_total_news and other
+    # previously scraped data while updating with new Wayback fields.
     results: dict[str, Row] = {}  # keyed by snapshot_date
+    csv_path = SCRIPT_DIR / f"{group_key}.csv"
+    if csv_path.exists():
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                results[row["snapshot_date"]] = {
+                    "snapshot_date": row["snapshot_date"],
+                    "yt_subscribers": row.get("yt_subscribers", ""),
+                    "yt_total_videos": row.get("yt_total_videos", ""),
+                    "yt_total_views": row.get("yt_total_views", ""),
+                    "naver_total_news": row.get("naver_total_news", ""),
+                    "subs_source": row.get("subs_source", ""),
+                    "news_source": row.get("news_source", ""),
+                }
+        print(f"  Loaded {len(results)} existing rows from {csv_path.name}")
 
-    # Step 1: Get CDX snapshots for the channel
+    # Step 1: Get CDX snapshots for the channel home page
     from_ts = window_start.replace("-", "")
     to_ts = window_end.replace("-", "")
     print(f"\n[1] Querying Wayback CDX for {handle}...")
@@ -610,20 +859,68 @@ def scrape_group(group_key: str, dry_run: bool = False) -> list[Row]:
             print(f"  Fetching snapshot {ts} ({date_str})...", end=" ", flush=True)
             result = fetch_wayback_snapshot(handle, ts)
             if result:
-                count, source_url = result
-                print(f"→ {count:,}")
-                # If we already have a row for this date, keep the one with data
-                if date_str not in results or results[date_str]["yt_subscribers"] is None:
+                existing_row = results.get(date_str)
+                if existing_row is None:
+                    # New row: create with all fields
                     results[date_str] = {
                         "snapshot_date": date_str,
-                        "yt_subscribers": count,
+                        "yt_subscribers": result["yt_subscribers"],
+                        "yt_total_videos": result["yt_total_videos"],
+                        "yt_total_views": "",
                         "naver_total_news": "",
-                        "subs_source": source_url,
+                        "subs_source": result["source_url"],
                         "news_source": "",
                     }
+                else:
+                    # Update existing row: merge new Wayback data into existing row,
+                    # preserving naver_total_news and other fields already present.
+                    if result["yt_subscribers"] is not None:
+                        existing_row["yt_subscribers"] = result["yt_subscribers"]
+                        existing_row["subs_source"] = result["source_url"]
+                    if result["yt_total_videos"] is not None:
+                        existing_row["yt_total_videos"] = result["yt_total_videos"]
             else:
-                print("→ no subs data")
+                print("→ no data")
             time.sleep(1.0)
+
+    # Step 1b: Try to fetch /about page snapshots for total channel views
+    # The /about page contains viewCountText with total channel views (not per-video).
+    # This is separate from the home page and may not be archived.
+    print(f"\n[1b] Querying Wayback CDX for {handle}/about (total channel views)...")
+    about_result = fetch_wayback_about_snapshot(handle, from_ts, to_ts)
+    if about_result:
+        about_url, about_subs, about_videos, about_views = about_result
+        # Find which snapshot date is closest to this about page
+        # The about page timestamp may differ from home page timestamps
+        # Store the views on the closest existing row or create a new one
+        # Parse the about URL timestamp
+        about_ts_match = re.search(r'/web/(\d{14})/', about_url)
+        if about_ts_match:
+            about_ts = about_ts_match.group(1)
+            about_date = ts_to_date(about_ts).isoformat()
+            if about_date in results:
+                results[about_date]["yt_total_views"] = about_views
+                # Also fill subs/videos if missing in existing row
+                if about_subs is not None and not results[about_date].get("yt_subscribers"):
+                    results[about_date]["yt_subscribers"] = about_subs
+                    results[about_date]["subs_source"] = about_url
+                if about_videos is not None and not results[about_date].get("yt_total_videos"):
+                    results[about_date]["yt_total_videos"] = about_videos
+                print(f"  [about] Applied total_views={about_views:,} to existing row {about_date}")
+            else:
+                # Create a new row for the about page date
+                results[about_date] = {
+                    "snapshot_date": about_date,
+                    "yt_subscribers": about_subs,
+                    "yt_total_videos": about_videos,
+                    "yt_total_views": about_views,
+                    "naver_total_news": "",
+                    "subs_source": about_url,
+                    "news_source": "",
+                }
+                print(f"  [about] Created new row {about_date}: subs={about_subs}, videos={about_videos}, views={about_views:,}")
+    else:
+        print(f"  [about] No /about page snapshot found for {handle} — yt_total_views will be NULL")
 
     # Step 2: Naver News (currently blocked from this IP — 403 on all requests)
     # All requests return 403 "검색 서비스 이용이 제한되었습니다."
@@ -646,6 +943,8 @@ def scrape_group(group_key: str, dry_run: bool = False) -> list[Row]:
             results[date_str] = {
                 "snapshot_date": date_str,
                 "yt_subscribers": "",
+                "yt_total_videos": "",
+                "yt_total_views": "",
                 "naver_total_news": "",
                 "subs_source": "no_snapshot",
                 "news_source": "",
@@ -654,19 +953,32 @@ def scrape_group(group_key: str, dry_run: bool = False) -> list[Row]:
 
     rows = sorted(results.values(), key=lambda r: r["snapshot_date"])
     print(f"\nTotal rows for {group_key}: {len(rows)}")
-    non_empty_subs = sum(1 for r in rows if r["yt_subscribers"] != "")
+    non_empty_subs = sum(1 for r in rows if r.get("yt_subscribers") not in ("", None))
+    non_empty_vids = sum(1 for r in rows if r.get("yt_total_videos") not in ("", None))
+    non_empty_views = sum(1 for r in rows if r.get("yt_total_views") not in ("", None))
     print(f"  Rows with yt_subscribers: {non_empty_subs}")
+    print(f"  Rows with yt_total_videos: {non_empty_vids}")
+    print(f"  Rows with yt_total_views: {non_empty_views}")
     print(f"  Rows with naver_total_news: 0 (blocked)")
 
     return rows
 
 
 def write_csv(group_key: str, rows: list[Row]) -> Path:
-    """Write rows to CSV file. Returns path."""
+    """Write rows to CSV file. Returns path.
+
+    Extended in v2 to include yt_total_videos and yt_total_views columns.
+    Added to the right of existing columns for backward compatibility.
+    Readers should treat missing columns as NULL.
+    """
     csv_path = SCRIPT_DIR / f"{group_key}.csv"
-    fieldnames = ["snapshot_date", "yt_subscribers", "naver_total_news", "subs_source", "news_source"]
+    fieldnames = [
+        "snapshot_date", "yt_subscribers", "naver_total_news",
+        "subs_source", "news_source",
+        "yt_total_videos", "yt_total_views",  # new columns (v2)
+    ]
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
     print(f"  Written: {csv_path}")
@@ -692,22 +1004,34 @@ def read_csv(group_key: str) -> list[Row]:
 # ---------------------------------------------------------------------------
 
 def emit_sql(group_key: str) -> None:
-    """Read CSV and print SQL INSERT block for the group."""
+    """Read CSV and print SQL INSERT block for the group.
+
+    Extended in v2 to emit yt_total_videos and yt_total_views from CSV.
+    ON CONFLICT clause now COALESCEs all three YouTube columns.
+    """
     rows = read_csv(group_key)
     cfg = GROUPS[group_key]
 
     # Filter to rows that have at least one data column
-    data_rows = [r for r in rows if r.get("yt_subscribers") or r.get("naver_total_news")]
+    data_rows = [
+        r for r in rows
+        if r.get("yt_subscribers") or r.get("naver_total_news")
+        or r.get("yt_total_videos") or r.get("yt_total_views")
+    ]
     if not data_rows:
         print(f"-- WARNING: no data rows for {group_key} — no INSERT generated", file=sys.stderr)
         return
 
     news_rows = sum(1 for r in data_rows if int(r.get("naver_total_news") or 0) > 0)
     subs_rows = sum(1 for r in data_rows if r.get("yt_subscribers"))
+    vids_rows = sum(1 for r in data_rows if r.get("yt_total_videos"))
+    views_rows = sum(1 for r in data_rows if r.get("yt_total_views"))
     print(f"-- ============================================================")
     print(f"-- {group_key.upper()} backfill via scrape.py (Wayback + Naver stealth + Social Blade)")
     print(f"-- debut {cfg['debut_date']}, window {cfg['window_start']} ~ {cfg['window_end']}")
     print(f"-- yt_subscribers rows: {subs_rows} (Wayback Machine + Social Blade free tier)")
+    print(f"-- yt_total_videos rows: {vids_rows} (Wayback Machine channel home page)")
+    print(f"-- yt_total_views rows: {views_rows} (Wayback Machine channel /about page)")
     print(f"-- naver_total_news rows with >0: {news_rows} (StealthyFetcher/Playwright)")
     print(f"-- See scripts/historical_backfill/SOURCES.md for per-row provenance.")
     print(f"-- ============================================================")
@@ -722,18 +1046,24 @@ def emit_sql(group_key: str) -> None:
     for row in data_rows:
         subs = row.get("yt_subscribers", "")
         news = row.get("naver_total_news", "")
+        videos = row.get("yt_total_videos", "")
+        views = row.get("yt_total_views", "")
         subs_val = int(subs) if subs else "NULL"
         news_val = int(news) if news else 0
+        videos_val = int(videos) if videos else "NULL"
+        views_val = int(views) if views else "NULL"
         snap_date = row["snapshot_date"]
         snapshot_at = f"{snap_date}T00:00:00Z"
         value_lines.append(
-            f"  ('{group_key}', '{snapshot_at}', NULL, NULL, {subs_val},"
+            f"  ('{group_key}', '{snapshot_at}', {videos_val}, {views_val}, {subs_val},"
             f"\n   0, 0, 0, {news_val}, 0, 0, 'backfill_estimate')"
         )
 
     print(",\n".join(value_lines))
     print("ON CONFLICT(group_key, snapshot_at) DO UPDATE SET")
     print("  yt_subscribers   = COALESCE(excluded.yt_subscribers, agg_summary.yt_subscribers),")
+    print("  yt_total_videos  = COALESCE(excluded.yt_total_videos, agg_summary.yt_total_videos),")
+    print("  yt_total_views   = COALESCE(excluded.yt_total_views, agg_summary.yt_total_views),")
     print("  naver_total_news = CASE")
     print("    WHEN agg_summary.naver_total_news = 0 THEN excluded.naver_total_news")
     print("    ELSE agg_summary.naver_total_news")
