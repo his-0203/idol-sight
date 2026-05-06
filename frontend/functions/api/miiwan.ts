@@ -188,17 +188,22 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       [gk],
     );
     if (!g || !g.debut_date) continue;
-    // Closest agg_summary snapshot to D-30 within [debut-60d, debut].
-    // Sparse backfill data: pick the row with the most BI-relevant
-    // signal first (non-NULL yt_subscribers), then break ties by
-    // proximity to D-30. Falls back to "any pre-debut row" if nothing
-    // in the D-60 window has subscriber data.
+    // Closest agg_summary snapshot to D-30 in the pre-debut window.
+    // Sparse backfill: pick the row with the MOST populated metrics
+    // (subscribers / videos / views / news count) so the benchmark
+    // table shows useful data instead of the closest-but-empty row.
+    // Tiebreak by proximity to D-30.
     const row = await d1QueryOne<SummaryRow>(
       env.DB,
       `SELECT * FROM agg_summary
         WHERE group_key=? AND date(snapshot_at) <= date(?)
         ORDER BY
-          (yt_subscribers IS NULL) ASC,
+          (
+            (yt_subscribers   IS NOT NULL) +
+            (yt_total_videos  IS NOT NULL) +
+            (yt_total_views   IS NOT NULL) +
+            (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
+          ) DESC,
           ABS(julianday(date(snapshot_at)) - julianday(date(?, '-30 days'))) ASC,
           snapshot_at DESC
         LIMIT 1`,
