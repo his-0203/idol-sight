@@ -46,9 +46,13 @@ ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
 
 
 def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResult:
-    # All groups touched across any source.
-    counts: dict[str, dict[str, int]] = defaultdict(lambda: {
-        "yt_videos": 0, "yt_views": 0, "yt_subs": 0,
+    # All groups touched across any source. yt_views / yt_subs default
+    # to None (not 0) so a group that has community/news activity but
+    # no youtube_channel_stats row yet writes NULL for those columns —
+    # the API forward-fills against the most recent backfill instead
+    # of pinning the latest snapshot to a misleading 0.
+    counts: dict[str, dict[str, Any]] = defaultdict(lambda: {
+        "yt_videos": 0, "yt_views": None, "yt_subs": None,
         "yt_likes": 0, "yt_comments": 0,
         "dc": 0, "theqoo": 0, "instiz": 0,
         "naver": 0, "twitter": 0, "controversy": 0,
@@ -102,12 +106,21 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
     # was 25.8M (SUM) vs ~795M (channel total), a 30× gap. Channel-
     # level total is authoritative and consistent with how subscribers
     # is already aggregated.
+    # NULL preferred over 0 for channel-stats columns: when a group has
+    # no youtube_channel_stats row yet (e.g. wegosix on collector D-1
+    # before channel-stats cron runs), MAX returns NULL and that's the
+    # accurate signal "we don't have this data". The previous COALESCE
+    # to 0 caused agg_summary live rows to mask the SB backfill (the
+    # /api/market MAX(snapshot_at) picks the live 0-row over the
+    # backfill_estimate row with real subs/views). yt_video_stats SUM
+    # legitimately defaults to 0 (a group with no indexed videos has
+    # zero likes/comments — that's accurate, not a missing-data case).
     rows = client.execute(
         "SELECT v.group_key, COUNT(DISTINCT v.video_id) AS n_videos, "
-        "  COALESCE(MAX(c.total_views), 0) AS total_views, "
+        "  MAX(c.total_views) AS total_views, "
         "  COALESCE(SUM(s.likes), 0) AS total_likes, "
         "  COALESCE(SUM(s.comments), 0) AS total_comments, "
-        "  COALESCE(MAX(c.subscribers), 0) AS subscribers "
+        "  MAX(c.subscribers) AS subscribers "
         "FROM youtube_videos v "
         "LEFT JOIN youtube_video_stats s "
         "  ON s.video_id = v.video_id AND s.snapshot_at = ("
@@ -121,6 +134,9 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
     )
     for r in rows:
         counts[r["group_key"]]["yt_videos"] = r["n_videos"]
+        # views/subs may be None (no channel_stats row). Pass through —
+        # downstream INSERT writes NULL, which the API forward-fills
+        # against the latest non-null backfill row.
         counts[r["group_key"]]["yt_views"] = r["total_views"]
         counts[r["group_key"]]["yt_likes"] = r["total_likes"]
         counts[r["group_key"]]["yt_comments"] = r["total_comments"]

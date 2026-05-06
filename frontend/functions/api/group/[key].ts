@@ -20,6 +20,32 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
         SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?
       )`, [key, key]);
 
+  // Forward-fill source for yt_* columns — when latest snapshot has
+  // NULL (e.g. wegosix on day-zero of channel-stats collection) we
+  // substitute the most recent non-null backfill row. Same defense
+  // as /api/market.
+  const fill = await d1QueryOne<{
+    yt_subscribers: number | null;
+    yt_total_views: number | null;
+    yt_total_videos: number | null;
+  }>(env.DB,
+    `SELECT
+        (SELECT yt_subscribers FROM agg_summary
+          WHERE group_key=? AND yt_subscribers IS NOT NULL
+          ORDER BY snapshot_at DESC LIMIT 1) AS yt_subscribers,
+        (SELECT yt_total_views FROM agg_summary
+          WHERE group_key=? AND yt_total_views IS NOT NULL
+          ORDER BY snapshot_at DESC LIMIT 1) AS yt_total_views,
+        (SELECT yt_total_videos FROM agg_summary
+          WHERE group_key=? AND yt_total_videos IS NOT NULL
+          ORDER BY snapshot_at DESC LIMIT 1) AS yt_total_videos`,
+    [key, key, key]);
+  if (summary) {
+    summary.yt_subscribers  = summary.yt_subscribers  ?? fill?.yt_subscribers  ?? null;
+    summary.yt_total_views  = summary.yt_total_views  ?? fill?.yt_total_views  ?? null;
+    summary.yt_total_videos = summary.yt_total_videos ?? fill?.yt_total_videos ?? null;
+  }
+
   // 7-day-ago snapshot for WoW delta. We grab the latest snapshot at
   // or before now-7d (rather than exact date arithmetic) so missed
   // collection windows degrade gracefully — if no snapshot existed

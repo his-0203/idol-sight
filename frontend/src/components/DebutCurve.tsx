@@ -222,16 +222,25 @@ export function DebutCurve() {
     const datasets: any[] = seriesForRender.map((s) => {
       const map = new Map(s.points.map((p) => [p.day_offset, p]));
       const isMiiwan = s.group_key === "miiwan";
-      const base = {
-        label: s.name,
-        data: xs.map((d) => {
-          const p = map.get(d);
-          return p
-            ? { x: d, y: p.value, source: p.source }
-            : { x: d, y: null, source: 'live' as const };
-        }),
-        borderColor: colorOf(s.group_key),
-      } as any;
+      // Bar branch needs a plain numeric array aligned to `labels`
+      // (Chart.js category x-axis). Line branch keeps {x,y,source}
+      // objects to drive parsing:false + segment-source borderDash.
+      const base = isBarMetric
+        ? {
+            label: s.name,
+            data: xs.map((d) => map.get(d)?.value ?? null),
+            borderColor: colorOf(s.group_key),
+          } as any
+        : {
+            label: s.name,
+            data: xs.map((d) => {
+              const p = map.get(d);
+              return p
+                ? { x: d, y: p.value, source: p.source }
+                : { x: d, y: null, source: 'live' as const };
+            }),
+            borderColor: colorOf(s.group_key),
+          } as any;
       if (isBarMetric) {
         return {
           ...base,
@@ -342,9 +351,17 @@ export function DebutCurve() {
 
     chart.current = new Chart(canvas.current, {
       type: isBarMetric ? "bar" : "line",
-      data: { datasets },
+      // Bar branch uses a category x-scale → labels=xs aligns plain
+      // numeric data arrays to ticks. Line branch keeps {x,y} objects
+      // on a linear x-scale (parsing:false). Mixing the two branches
+      // was the root cause of the empty news chart — Chart.js stacked
+      // bar on a linear axis collapsed bars to sub-pixel widths.
+      data: isBarMetric ? { labels: xs, datasets } : { datasets },
       options: {
-        parsing: false as any,  // we feed {x, y} objects directly
+        // parsing:false only valid on the linear-scale line path. On
+        // category-scale bar we want default parsing so Chart.js maps
+        // the numeric data array to label indexes.
+        parsing: isBarMetric ? undefined : (false as any),
         // mode='nearest' + intersect:false + axis:'xy' picks the single
         // data point physically closest to the cursor (in both axes),
         // so hovering OVER a line shows only that line's value rather
@@ -358,27 +375,42 @@ export function DebutCurve() {
           axis: "xy",
         },
         scales: {
-          x: {
-            type: "linear",
-            title: { display: true, text: "데뷔 기준 일수 (D-N / D+N)" },
-            ticks: {
-              callback: (v) => {
-                const n = Number(v);
-                return n === 0 ? "D-DAY" : n > 0 ? `D+${n}` : `D${n}`;
+          x: isBarMetric
+            ? {
+                // Category axis for stacked bars — labels=xs, ticks
+                // formatted as D-N / D+N. Chart.js stacks bars by
+                // category index; this is the only mode where its
+                // bar stacker actually emits visible rectangles.
+                type: "category",
+                title: { display: true, text: "데뷔 기준 일수 (D-N / D+N) · 주간 합산" },
+                ticks: {
+                  callback: (_v, i) => {
+                    const n = xs[i] ?? 0;
+                    return n === 0 ? "D-DAY" : n > 0 ? `D+${n}` : `D${n}`;
+                  },
+                  // 180+ weekly buckets → cap label density to keep
+                  // the axis readable.
+                  maxTicksLimit: 16,
+                  autoSkip: true,
+                },
+                stacked: true,
+              }
+            : {
+                type: "linear",
+                title: { display: true, text: "데뷔 기준 일수 (D-N / D+N)" },
+                ticks: {
+                  callback: (v) => {
+                    const n = Number(v);
+                    return n === 0 ? "D-DAY" : n > 0 ? `D+${n}` : `D${n}`;
+                  },
+                },
+                grid: { color: (ctx: any) => ctx.tick.value === 0 ? "rgba(245,158,11,0.4)" : undefined },
               },
-            },
-            grid: { color: (ctx: any) => ctx.tick.value === 0 ? "rgba(245,158,11,0.4)" : undefined },
-            // News bar 차트는 그룹별로 같은 weekly bucket 위에 막대를
-            // 그리는데 Chart.js 의 linear scale 은 dataset 간 자동
-            // dodge 가 없음. stacked: true 로 두면 그룹별 막대가
-            // 위로 쌓여서 "이 주의 뉴스량 + 그룹 contribution" 가
-            // 단일 visual 로 보임.
-            stacked: isBarMetric,
-          },
           y: {
             title: { display: true, text: METRIC_OPTIONS.find((m) => m.key === metric)?.label ?? metric },
             ticks: { callback: (v) => fmtScale(v as number) },
             stacked: isBarMetric,
+            beginAtZero: isBarMetric,
           },
         },
         plugins: {
@@ -470,7 +502,7 @@ export function DebutCurve() {
         <span class="ml-2 text-zinc-500">범위</span>
         {([
           [-30, 30],  [-60, 90],  [-60, 180],  [-60, 365],
-          [-180, 365], [-180, 1095],
+          [-180, 365], [-180, 1095], [-180, 1500],
         ] as const).map(([f, t]) => (
           <button
             key={`${f}_${t}`}

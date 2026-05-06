@@ -30,9 +30,49 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const groups = await d1Query<GroupRow>(env.DB,
     "SELECT key, name, name_kr, debut_date, group_model FROM groups WHERE is_active=1 ORDER BY key");
 
+  // Per-group latest snapshot. We deliberately do NOT take the global
+  // MAX(snapshot_at) row — a fresh live row that wrote NULL/0 for
+  // yt_subscribers/yt_total_views (e.g. when youtube_channel_stats
+  // hasn't been collected yet for a brand-new group) would otherwise
+  // mask the SB backfill row that has the real subs/views. Per-group
+  // MAX gives each group its own latest snapshot independently. The
+  // forward-fill below then patches missing columns from the most
+  // recent non-null backfill row.
   const sums = await d1Query<SummaryRow>(env.DB,
-    `SELECT * FROM agg_summary
-      WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_summary)`);
+    `SELECT s.* FROM agg_summary s
+      WHERE s.snapshot_at = (
+        SELECT MAX(snapshot_at) FROM agg_summary
+         WHERE group_key = s.group_key
+      )`);
+
+  // Forward-fill source: latest non-null value PER COLUMN across all
+  // snapshots (live + backfill). When the latest snapshot has NULL
+  // subs/views (e.g. wegosix on day-zero of channel-stats collection),
+  // we substitute the most recent rolling-up backfill_estimate value.
+  // Single SQL is fine because we run it once across all groups.
+  const fillRows = await d1Query<{
+    group_key: string;
+    yt_subscribers: number | null;
+    yt_total_views: number | null;
+    yt_total_videos: number | null;
+  }>(env.DB,
+    `SELECT group_key,
+            (SELECT yt_subscribers FROM agg_summary
+              WHERE group_key = a.group_key AND yt_subscribers IS NOT NULL
+              ORDER BY snapshot_at DESC LIMIT 1) AS yt_subscribers,
+            (SELECT yt_total_views FROM agg_summary
+              WHERE group_key = a.group_key AND yt_total_views IS NOT NULL
+              ORDER BY snapshot_at DESC LIMIT 1) AS yt_total_views,
+            (SELECT yt_total_videos FROM agg_summary
+              WHERE group_key = a.group_key AND yt_total_videos IS NOT NULL
+              ORDER BY snapshot_at DESC LIMIT 1) AS yt_total_videos
+       FROM (SELECT DISTINCT group_key FROM agg_summary) a`);
+  const fillByKey: Record<string, {
+    yt_subscribers: number | null;
+    yt_total_views: number | null;
+    yt_total_videos: number | null;
+  }> = {};
+  for (const f of fillRows) fillByKey[f.group_key] = f;
 
   // Per-group 7d-ago snapshot for WoW delta on the cards. We take the
   // latest snapshot per group at-or-before now-7d (graceful fallback
@@ -68,12 +108,17 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     const s = sumByKey[g.key];
     const h = healthByKey[g.key];
     const p = prevSumByKey[g.key];
+    const f = fillByKey[g.key] ?? {
+      yt_subscribers: null, yt_total_views: null, yt_total_videos: null,
+    };
     out[g.key] = {
       name: g.name, name_kr: g.name_kr, debut_date: g.debut_date,
       group_model: g.group_model ?? "corporate",
       summary: s ? {
-        yt_total_videos: s.yt_total_videos, yt_total_views: s.yt_total_views,
-        yt_subscribers: s.yt_subscribers,
+        // Forward-fill yt_* from latest non-null per column.
+        yt_total_videos: s.yt_total_videos ?? f.yt_total_videos,
+        yt_total_views:  s.yt_total_views  ?? f.yt_total_views,
+        yt_subscribers:  s.yt_subscribers  ?? f.yt_subscribers,
         dc_total_posts: s.dc_total_posts, theqoo_posts: s.theqoo_posts,
         instiz_posts: s.instiz_posts, naver_total_news: s.naver_total_news,
         twitter_posts: s.twitter_posts, controversy_count: s.controversy_count,
