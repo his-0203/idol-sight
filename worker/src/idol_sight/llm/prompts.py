@@ -148,7 +148,91 @@ If you cannot honestly write a non-trivial 함의 평어 for an item
 rather than emit boilerplate. NULL is a valid downstream state."""
 
 
+# Frontend renders insight bodies through a small lexicon-aware
+# formatter (see `frontend/src/lib/insightFormat.ts`, owned by the
+# frontend agent — DO NOT touch from this side). It does three things
+# automatically:
+#   1. detects canonical group names (English / Korean / known aliases)
+#      and wraps them in a colored group badge inline,
+#   2. renders any `**...**` markdown bold as a heavier weight + tone
+#      class (positive / negative / neutral),
+#   3. matches a Korean tone lexicon (상승·돌파·신기록 등 = positive,
+#      하락·둔화·논란 등 = negative) and tints those phrases even when
+#      no markdown is present.
+#
+# So the LLM does NOT need to emit colors or tone tags. It just needs
+# to (a) spell group names the canonical way, (b) wrap the 1-3 most
+# load-bearing tokens of each card in `**...**`, and (c) prefer the
+# tone-rich vocabulary below over colorless verbs ("기록했다" /
+# "나타났다") when the underlying signal genuinely is positive or
+# negative. Hierarchy / typography / badge color is fully owned by
+# the frontend formatter — overusing markdown will only fight the
+# automatic lexicon pass.
+_BODY_FORMATTING_GUIDELINES = """\
+BODY FORMATTING — frontend auto-styles your text, write to that contract:
+
+1) GROUP NAME FIDELITY (re-states the canonical table above)
+   When you mention a group, copy the spelling EXACTLY from the
+   canonical table:
+     PLAVE / 플레이브
+     ISEDOL / 이세계아이돌
+     STELLIVE / 스텔라이브
+     SKINZ / 스킨즈
+     MY:RAKL / 미라클           (NOT 마이래클, NOT 마이라클)
+     OWIS / 오위스
+     MiiWAN / 미완소년          (NOT 미이완, NOT 미완)
+     B:DAWN / 비던
+   Korean prose → use the Korean form. English/mixed prose → use the
+   English form. NEVER invent transliterations or hybrids
+   ("플라브", "이세돌", "스텔리브", "미완완", "비돈" 등 전부 금지).
+   Frontend only badge-colors EXACT matches — typos render as plain
+   text and the card looks broken.
+
+2) BOLD MARKDOWN — `**...**`, USE SPARINGLY
+   Wrap **at most 3 spans per card** in `**...**`. Reserve bold for:
+     - the single most load-bearing number       ("**+12.4%p**", "**5.2×**")
+     - a milestone event noun                    ("**첫 1위**", "**신기록**", "**데뷔 D-30**")
+     - the subject of a first-mention contrast   ("**MiiWAN** 만 약진")
+   DO NOT bold:
+     - every group name (the badge already styles it; bolding it on
+       top creates visual noise)
+     - generic verbs ("**상승했다**") — the lexicon pass handles tone
+     - long phrases (>10 chars). Bold a token, not a clause.
+   If you would need >3 bold spans, the card has too many claims —
+   split it.
+
+3) TONE LEXICON — prefer meaningful verbs
+   Frontend tints these terms automatically. Use the tone-bearing
+   vocabulary when the signal is genuinely positive or negative,
+   instead of colorless verbs like "기록했다" / "나타났다" /
+   "확인됐다".
+     긍정 (emerald): 상승, 증가, 돌파, 돌풍, 신기록, 호조, 견조,
+                     가속, 약진, 견인, 화제, 첫 1위, 우위, 반등,
+                     확대, 견실, 호재
+     부정 (rose):    하락, 감소, 둔화, 급락, 부진, 우려, 리스크,
+                     정체, 위축, 약세, 후퇴, 논란, 위기, 이탈,
+                     축소, 경계, 둔감
+   Natural Korean comes first — do NOT shoehorn lexicon terms into
+   neutral observations (e.g. a flat MoM should NOT be called "둔화").
+   When the signal really is neutral, plain verbs are fine; the
+   frontend will simply leave the line uncolored.
+
+4) WHAT YOU DO NOT NEED TO DO
+   - Do not emit color codes, HTML, span tags, emoji tone markers, or
+     `[positive]/[negative]` tags. Frontend infers tone from lexicon
+     + bold markdown alone.
+   - Do not try to control card layout, font size, or hierarchy —
+     frontend owns typography and badge styling.
+   - Do not re-bold a group name that the frontend will already badge.
+
+These rules COMPLEMENT the ipx_action and ai_comment guidelines below
+— they are about visual signal density, not about what to say. A
+strong card still leads with a verb, cites real numbers, and ends
+with a 함의."""
+
+
 PROMPT_WEEKLY_TAIL_AI_COMMENT = _AI_COMMENT_GUIDELINES
+PROMPT_WEEKLY_BODY_FORMATTING = _BODY_FORMATTING_GUIDELINES
 
 
 PROMPT_WEEKLY = f"""\
@@ -170,6 +254,7 @@ Produce 4-8 distinct items that a strategy team would act on. For each item:
   or 'ipx_action' (recommended action for the team).
 - `title`: ≤ 80 chars, Korean.
 - `body`: 1-3 sentences, Korean. Reference numbers from the context.
+  May contain `**bold**` markdown — see BODY FORMATTING block below.
 - `ai_comment`: optional one-liner (≤ 60 chars, Korean) capturing the
   *operator-side implication* of the observation. See guideline block
   below — emit the field only if you can write a non-trivial 함의
@@ -179,6 +264,28 @@ Produce 4-8 distinct items that a strategy team would act on. For each item:
 
 Be precise with numbers (use exactly what the context shows).
 Do NOT invent figures. If something cannot be sourced, leave it out.
+
+{_BODY_FORMATTING_GUIDELINES}
+
+GOOD-vs-BAD BODY EXEMPLARS (formatting only — numbers are illustrative):
+
+  ✅ GOOD #1 (single-group momentum, lexicon + 1 bold)
+     "PLAVE 24h velocity 가 **5.2×** 로 직전 주 3.1× 대비 가속.
+      동시기 ISEDOL 은 2.8× 에 머물러 단기 화제성 격차 확대."
+     ← 그룹명 정확, bold 1개 (핵심 수치), '가속'/'확대' 긍정 lexicon,
+       'ISEDOL'은 의미만 있어 bold 불필요 (badge가 처리).
+
+  ✅ GOOD #2 (MiiWAN debut readiness, milestone bold)
+     "MiiWAN 공식 채널 구독자가 **데뷔 D-30** 시점 12.6K 로 PLAVE
+      D-30 (28K) 대비 45% 수준에 머물러 베이스 부진."
+     ← '데뷔 D-30' milestone bold, '부진' 부정 lexicon, 그룹명 한국어
+       프로즈에서도 'MiiWAN'/'PLAVE' 영문 카논 표기 유지.
+
+  ❌ BAD — over-bolded, lexicon-free, group name typo
+     "**플라브**가 **이번주에** velocity 가 **5.2배 상승했고** **이세돌**
+      도 **함께** 좋은 흐름을 **기록했다**."
+     ← 그룹명 환각 표기 (플라브/이세돌), bold 5개 (과용),
+       '기록했다' 무색 동사, milestone/숫자 bold 우선순위 무시.
 
 {_IPX_ACTION_GUIDELINES}
 
