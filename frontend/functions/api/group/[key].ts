@@ -8,8 +8,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
 
   const group = await d1QueryOne<{
     key: string; name: string; name_kr: string; debut_date: string | null;
+    group_model: string | null;
   }>(env.DB,
-    "SELECT key, name, name_kr, debut_date FROM groups WHERE key=? AND is_active=1",
+    "SELECT key, name, name_kr, debut_date, group_model FROM groups WHERE key=? AND is_active=1",
     [key]);
   if (!group) return jsonResponse({ error: "not_found" }, 404);
 
@@ -223,6 +224,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
   return jsonResponse({
     group_key: group.key,
     name: group.name, name_kr: group.name_kr, debut_date: group.debut_date,
+    group_model: group.group_model ?? "corporate",
     summary,
     health_score: health ? {
       total: health.total, grade: health.grade, label: health.label,

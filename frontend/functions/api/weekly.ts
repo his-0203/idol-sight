@@ -12,7 +12,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
             COALESCE(g.name, h.group_key) AS group_name,
             h.album, h.rank, h.sales, h.note
        FROM hanteo_weekly h
-       LEFT JOIN groups g ON g.group_key = h.group_key
+       LEFT JOIN groups g ON g.key = h.group_key
       WHERE h.week_end = (SELECT MAX(week_end) FROM hanteo_weekly)
       ORDER BY h.rank ASC`);
   const movers = await d1Query<any>(env.DB,
@@ -21,7 +21,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
             s.yt_total_views - COALESCE(p.yt_total_views, 0) AS d_views,
             s.dc_total_posts  - COALESCE(p.dc_total_posts, 0)  AS d_dc
        FROM agg_summary s
-       LEFT JOIN groups g ON g.group_key = s.group_key
+       LEFT JOIN groups g ON g.key = s.group_key
        LEFT JOIN agg_summary p
               ON p.group_key = s.group_key
              AND p.snapshot_at = (

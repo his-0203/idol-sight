@@ -201,11 +201,19 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     // Tiebreak by proximity to D-30.
     const row = await d1QueryOne<SummaryRow>(
       env.DB,
+      // ORDER 우선순위:
+      //   1) yt_subscribers IS NOT NULL — pre-debut 표에서 가장 가치
+      //      높은 단일 메트릭. PLAVE 처럼 D-30 윈도에 views/videos 만
+      //      백필되고 subs 가 NULL 인 행이 살아있으면 사용자에겐
+      //      benchmark 가 의미 잃음. subs 살아있는 행을 무조건 우선.
+      //   2) 나머지 컬럼 충실도 (videos / views / news>0)
+      //   3) D-30 시점 근접도 (window 안에서 가장 D-30 에 가까운 행)
+      //   4) snapshot_at 최신
       `SELECT * FROM agg_summary
         WHERE group_key=? AND date(snapshot_at) <= date(?)
         ORDER BY
+          (yt_subscribers IS NOT NULL) DESC,
           (
-            (yt_subscribers   IS NOT NULL) +
             (yt_total_videos  IS NOT NULL) +
             (yt_total_views   IS NOT NULL) +
             (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
