@@ -93,39 +93,67 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
     # YouTube: video count + most-recent video stats (likes + comments)
     # + latest channel-level totals (subscribers + total views), all
     # grouped by group_key. We pick the most-recent stat snapshot per
-    # video so we never double-count a video across daily snapshots,
-    # and we pick the most-recent channel snapshot per (group, channel)
-    # so subscriber/total_views are current.
+    # video so we never double-count a video across daily snapshots.
     #
-    # ``total_views`` uses MAX(c.total_views) — the channel-level
-    # cumulative view count from YouTube's channel.statistics.viewCount,
-    # collected by collectors/channel_stats.py. The previous
-    # SUM(s.views) was sum-over-indexed-videos which severely
-    # underestimated for groups whose youtube_videos table is partial
-    # (the YouTube collector caps at recent uploads); for PLAVE this
-    # was 25.8M (SUM) vs ~795M (channel total), a 30× gap. Channel-
-    # level total is authoritative and consistent with how subscribers
-    # is already aggregated.
+    # Channel-level totals (total_views / subscribers): these are
+    # SUMMED across every distinct channel stamped to the group_key —
+    # not MAX. For corporate groups (PLAVE: only group_channel) the
+    # sum collapses to a single channel and matches the legacy MAX
+    # behaviour. For segmentary / confederation groups (ISEDOL,
+    # STELLIVE) where members have huge solo channels — also stamped
+    # with the group's group_key by the YouTubeCollector member fan-
+    # out (see cli._make_collector + collectors/youtube.py) — MAX
+    # would pick whichever single channel happens to be largest and
+    # silently drop every other. Concretely: ISEDOL group channel
+    # ~120K subs; six member channels ~1-2M each; SUM ≈ 8M; MAX ≈ 2M.
+    # The dual-entity table agg_group_combined (sum method) already
+    # computes this correctly via per-channel iteration; this query
+    # is the single-table equivalent so /api/market and Health Score
+    # see the same number without a JOIN.
+    #
+    # The DISTINCT-channel layer is enforced via a sub-aggregate: we
+    # pick each (group_key, channel_id) latest snapshot exactly once
+    # before summing, otherwise videos-per-channel would multiply the
+    # channel's stats.
+    #
     # NULL preferred over 0 for channel-stats columns: when a group has
     # no youtube_channel_stats row yet (e.g. wegosix on collector D-1
-    # before channel-stats cron runs), MAX returns NULL and that's the
-    # accurate signal "we don't have this data". The previous COALESCE
-    # to 0 caused agg_summary live rows to mask the SB backfill (the
-    # /api/market MAX(snapshot_at) picks the live 0-row over the
-    # backfill_estimate row with real subs/views). yt_video_stats SUM
-    # legitimately defaults to 0 (a group with no indexed videos has
-    # zero likes/comments — that's accurate, not a missing-data case).
+    # before channel-stats cron runs), the SUM over zero rows returns
+    # NULL via the LEFT JOIN — accurate signal "we don't have this
+    # data" for the API forward-fill against the latest non-null
+    # backfill row. yt_video_stats SUM legitimately defaults to 0 (a
+    # group with no indexed videos has zero likes/comments — that's
+    # accurate, not a missing-data case).
     rows = client.execute(
         "SELECT v.group_key, COUNT(DISTINCT v.video_id) AS n_videos, "
-        "  MAX(c.total_views) AS total_views, "
         "  COALESCE(SUM(s.likes), 0) AS total_likes, "
-        "  COALESCE(SUM(s.comments), 0) AS total_comments, "
-        "  MAX(c.subscribers) AS subscribers "
+        "  COALESCE(SUM(s.comments), 0) AS total_comments "
         "FROM youtube_videos v "
         "LEFT JOIN youtube_video_stats s "
         "  ON s.video_id = v.video_id AND s.snapshot_at = ("
         "    SELECT MAX(snapshot_at) FROM youtube_video_stats "
         "    WHERE video_id = v.video_id) "
+        "GROUP BY v.group_key"
+    )
+    for r in rows:
+        counts[r["group_key"]]["yt_videos"] = r["n_videos"]
+        counts[r["group_key"]]["yt_likes"] = r["total_likes"]
+        counts[r["group_key"]]["yt_comments"] = r["total_comments"]
+
+    # Channel-level totals (subs / total_views): one row per distinct
+    # (group_key, channel_id), then summed. The inner subquery picks
+    # the latest channel_stats snapshot per channel; the outer sum
+    # rolls up all channels stamped to the same group_key (group-
+    # owned + member solo channels for segmentary/confederation).
+    rows = client.execute(
+        "SELECT v.group_key, "
+        "  SUM(c.subscribers)  AS subscribers, "
+        "  SUM(c.total_views)  AS total_views "
+        "FROM ("
+        "  SELECT DISTINCT group_key, channel_id "
+        "  FROM youtube_videos "
+        "  WHERE channel_id IS NOT NULL AND channel_id != ''"
+        ") v "
         "LEFT JOIN youtube_channel_stats c "
         "  ON c.channel_id = v.channel_id AND c.snapshot_at = ("
         "    SELECT MAX(snapshot_at) FROM youtube_channel_stats "
@@ -133,13 +161,11 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
         "GROUP BY v.group_key"
     )
     for r in rows:
-        counts[r["group_key"]]["yt_videos"] = r["n_videos"]
-        # views/subs may be None (no channel_stats row). Pass through —
-        # downstream INSERT writes NULL, which the API forward-fills
-        # against the latest non-null backfill row.
+        # views/subs may be None (no channel_stats row at all for any
+        # of the group's channels). Pass through — downstream INSERT
+        # writes NULL, which the API forward-fills against the latest
+        # non-null backfill row.
         counts[r["group_key"]]["yt_views"] = r["total_views"]
-        counts[r["group_key"]]["yt_likes"] = r["total_likes"]
-        counts[r["group_key"]]["yt_comments"] = r["total_comments"]
         counts[r["group_key"]]["yt_subs"] = r["subscribers"]
 
     statements: list[tuple[str, list[Any]]] = []

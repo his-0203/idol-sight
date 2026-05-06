@@ -16,13 +16,19 @@ export const onRequestGet: PagesFunction = async () =>
       C: "초기 진입", D: "활동 미미", PRE: "데뷔 전 (활동량 부족)",
     },
     references: {
-      subscribers: "yt_subscribers / cohort p90",
-      views:       "yt_total_views / cohort p90",
-      quality:     "(likes + 5·comments) / views (engagement rate)",
-      community:   "(dc + theqoo + instiz) / cohort p90",
-      news:        "naver_total_news / cohort p90",
-      risk:        "1 − controversy_count/10",
-      bonus:       "최근 90d/30d 활동량 가산 (각 7/3점)",
+      subscribers: "yt_subscribers / cohort p75 (DYNAMIC_REF_PERCENTILE=0.75)",
+      views:       "yt_total_views / cohort p75",
+      quality:     "(likes + 5·comments) / views, normalized against cohort p75 engagement rate",
+      community:   "(dc + theqoo + instiz) / cohort p75",
+      news:        "naver_total_news / cohort p75",
+      risk:        "1 − controversy_count/10 (multiplies all 4 factors, not just one)",
+      bonus:       "최근 90d/30d 영상 활동량 가산 (각 ≤7/≤3점, 합산 ≤10)",
+      hanteo:      "초동 sales / 1,000,000 (절대값 정규화 — 코호트 무관, 1M=saturated)",
+      cold_start:  "데뷔 < 90일 그룹은 floor 적용 (day 0 → 3.5점, day 89 → 0점 선형 감소)",
+      cohort_percentile: "DYNAMIC_REF_PERCENTILE = 0.75 — 1.0=top quartile. " +
+                         "p90이 아니라 p75인 이유: 활성 7-그룹 + PLAVE가 모든 축에서 " +
+                         "5-10× 우위 → p90이 사실상 PLAVE-pin 되어 하위 그룹이 [0–0.1]에 " +
+                         "몰리던 문제(V2.14)를 풀기 위해 0.90 → 0.75로 완화.",
     },
 
     // V2.5 4-factor model — bundles raw signals into the four ways an

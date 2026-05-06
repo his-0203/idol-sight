@@ -405,9 +405,15 @@ def _factor_inputs(
     view_n = _normalize(agg.get("yt_total_views", 0), r["views"])
     news_n = _normalize(agg.get("naver_total_news", 0), r["news"])
     eng_n = _normalize(_engagement_rate(agg), r["quality"])
-    comm_total = (agg.get("dc_total_posts", 0)
-                  + agg.get("theqoo_posts", 0)
-                  + agg.get("instiz_posts", 0))
+    # Defensive: each community column may be NULL when the collector
+    # row is missing or the source is paused (V2.11 cleanup left NULL
+    # rather than 0 for dead sources). ``or 0`` prevents TypeError on
+    # ``int + None`` while preserving the live-metrics fold-out — a
+    # cohort-dead community signal is removed at the live_metrics
+    # layer above this function, not here.
+    comm_total = ((agg.get("dc_total_posts") or 0)
+                  + (agg.get("theqoo_posts") or 0)
+                  + (agg.get("instiz_posts") or 0))
     comm_n = _normalize(comm_total, r["community"])
 
     # Hanteo-driven mobilization (initial-week sales) when we have it.
@@ -511,9 +517,10 @@ def compute_health_score(
         _quality_score_from_engagement(eng_rate, r["quality"])
         * WEIGHTS["quality"]
     ) if "quality" in L else 0.0
-    comm_total = (agg.get("dc_total_posts", 0)
-                  + agg.get("theqoo_posts", 0)
-                  + agg.get("instiz_posts", 0))
+    # Same NULL defense as in _factor_inputs — see comment there.
+    comm_total = ((agg.get("dc_total_posts") or 0)
+                  + (agg.get("theqoo_posts") or 0)
+                  + (agg.get("instiz_posts") or 0))
     comm_score = (
         _normalize(comm_total, r["community"]) * WEIGHTS["community"]
     ) if "community" in L else 0.0
