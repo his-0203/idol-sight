@@ -2,7 +2,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { fmt } from "../format";
-import { SourceRef } from "../components/SourceRef";
+import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 
 export function WeeklyUpdate() {
   const [data, setData] = useState<any>(null);
@@ -25,15 +25,27 @@ export function WeeklyUpdate() {
         <section class="rounded-lg border border-zinc-800 p-3">
           <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">Weekly Insights ({data.insights.length})</h3>
           <ul class="space-y-2 text-sm">
-            {data.insights.map((i: any) => (
-              <li key={i.id} class="rounded-md border border-zinc-800/60 p-2">
-                <div class="text-xs text-zinc-500">{i.scope} · {i.week_start}</div>
-                <div class="font-semibold">{i.title}</div>
-                <div class="text-xs text-zinc-400">{i.body}</div>
-                <SourceRef refs={(() => { try { return JSON.parse(i.source_refs_json ?? "[]"); }
-                                            catch { return []; } })()} />
-              </li>
-            ))}
+            {data.insights.map((i: any) => {
+              const refs: RawRef[] = (() => {
+                try { return JSON.parse(i.source_refs_json ?? "[]"); }
+                catch { return []; }
+              })();
+              const aiComment: string | null = i.ai_comment ?? null;
+              return (
+                <li key={i.id} class="rounded-md border border-zinc-800/60 p-2">
+                  <div class="text-xs text-zinc-500">{i.scope} · {i.week_start}</div>
+                  <div class="font-semibold">{i.title}</div>
+                  <div class="text-xs text-zinc-400">{i.body}</div>
+                  {aiComment && (
+                    <div class="mt-1 text-[11px] italic text-zinc-400">
+                      <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
+                      {aiComment}
+                    </div>
+                  )}
+                  <DataSourceDetails refs={refs} />
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

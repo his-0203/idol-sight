@@ -179,17 +179,27 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
                 sparklines from summary_history (30d series). The
                 combined_views toggle only changes the displayed
                 aggregate — delta/sparkline still reflect the raw
-                summary metric since combined_views has no history. */}
+                summary metric since combined_views has no history.
+
+                NOTE: agg_group_combined is built from
+                youtube_channel_stats (live collector) and INSERTs 0
+                when the group has no live row yet (e.g. wegosix on
+                day-zero — channel exists but the worker hasn't run
+                its YT channel-stats pass for it). In that case the
+                row exists but every column is 0, so a `??` fallback
+                wouldn't trigger. We therefore treat 0 as "missing"
+                for the combined_views path and fall back to summary
+                (which itself forward-fills from SB backfill rows). */}
             <KPI
               label="영상"
-              value={data.combined_views?.[combinedMethod]?.videos
+              value={(data.combined_views?.[combinedMethod]?.videos || null)
                      ?? data.summary?.yt_total_videos ?? 0}
               delta={wowDelta(data.summary?.yt_total_videos, prev?.yt_total_videos)}
               sparkline={seriesOf(summaryHistory, "yt_total_videos")}
             />
             <KPI
               label="조회수"
-              value={data.combined_views?.[combinedMethod]?.views
+              value={(data.combined_views?.[combinedMethod]?.views || null)
                      ?? data.summary?.yt_total_views ?? 0}
               unit="(누적)"
               delta={wowDelta(data.summary?.yt_total_views, prev?.yt_total_views)}
@@ -197,7 +207,7 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
             />
             <KPI
               label="구독자"
-              value={data.combined_views?.[combinedMethod]?.subscribers
+              value={(data.combined_views?.[combinedMethod]?.subscribers || null)
                      ?? data.summary?.yt_subscribers ?? 0}
               delta={wowDelta(data.summary?.yt_subscribers, prev?.yt_subscribers)}
               sparkline={seriesOf(summaryHistory, "yt_subscribers")}

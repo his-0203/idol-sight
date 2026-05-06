@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
+import { Tooltip, FACTOR_TOOLTIP } from "./Tooltip";
 
 // "산식 보기" 모달. v2.5 4-factor 모델을 1차 view로 보여주고, 6-component
 // breakdown은 호환을 위해 보조 view로 보여준다. 그룹 모델 (corporate /
@@ -101,7 +102,14 @@ function FactorsView({ spec }: { spec: any }) {
           <tbody>
             {factors.map((f) => (
               <tr key={f} class="border-t border-zinc-800/60">
-                <td class="px-2 py-1.5 text-zinc-300">{FACTOR_LABELS[f]}</td>
+                <td class="px-2 py-1.5 text-zinc-300">
+                  <Tooltip
+                    content={FACTOR_TOOLTIP[f] ?? FACTOR_LABELS[f]}
+                    triggerClass="text-zinc-300"
+                  >
+                    {FACTOR_LABELS[f]}
+                  </Tooltip>
+                </td>
                 {models.map((m) => (
                   <td key={m} class="px-2 py-1.5 text-right">
                     {fw[m]?.[f] ?? "—"}
@@ -122,7 +130,12 @@ function FactorsView({ spec }: { spec: any }) {
       <div class="space-y-1 text-zinc-400">
         {factors.map((f) => (
           <div key={f}>
-            <span class="text-zinc-300">{FACTOR_LABELS[f]}</span>
+            <Tooltip
+              content={FACTOR_TOOLTIP[f] ?? FACTOR_LABELS[f]}
+              triggerClass="text-zinc-300"
+            >
+              {FACTOR_LABELS[f]}
+            </Tooltip>
             {fd[f] && <span class="ml-2 text-zinc-500">{fd[f]}</span>}
           </div>
         ))}

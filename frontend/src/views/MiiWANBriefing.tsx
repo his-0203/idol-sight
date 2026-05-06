@@ -23,7 +23,7 @@ import { api } from "../api";
 import { fmt } from "../format";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
-import { SourceRef } from "../components/SourceRef";
+import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { colorOf } from "../design/groups";
 
 type SummaryShape = {
@@ -44,6 +44,9 @@ type Insight = {
   scope: string; type: string;
   source_refs: Array<{ table: string; pk: string; label: string }>;
   generated_at: string;
+  /** Optional one-line LLM commentary slot (V2.x AI-comment feature).
+   *  Surfaced italic-muted under the body when populated; absent today. */
+  ai_comment?: string | null;
 };
 
 type AlertRow = {
@@ -634,8 +637,14 @@ export function MiiWANBriefing() {
                           class="rounded border-l-2 border-amber-500 bg-zinc-900/40 p-2.5 text-sm">
                         <div class="font-semibold">{i.title}</div>
                         <div class="mt-1 text-xs text-zinc-400">{i.body}</div>
+                        {i.ai_comment && (
+                          <div class="mt-1 text-[11px] italic text-zinc-400">
+                            <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
+                            {i.ai_comment}
+                          </div>
+                        )}
                         <IpxActionGuard score={score} />
-                        <SourceRef refs={i.source_refs ?? []} />
+                        <DataSourceDetails refs={(i.source_refs ?? []) as RawRef[]} />
                       </li>
                     );
                   })}
@@ -1056,7 +1065,13 @@ function InsightGroup(props: {
             </div>
             <div class="mt-0.5 font-semibold">{i.title}</div>
             <div class="mt-1 text-sm text-zinc-400">{i.body}</div>
-            <SourceRef refs={i.source_refs ?? []} />
+            {i.ai_comment && (
+              <div class="mt-1 text-[11px] italic text-zinc-400">
+                <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
+                {i.ai_comment}
+              </div>
+            )}
+            <DataSourceDetails refs={(i.source_refs ?? []) as RawRef[]} />
           </li>
         ))}
       </ul>

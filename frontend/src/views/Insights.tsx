@@ -1,7 +1,7 @@
 // frontend/src/views/Insights.tsx
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
-import { SourceRef } from "../components/SourceRef";
+import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 
 const TYPE_LABEL: Record<string, string> = {
   weekly: "주간",
@@ -95,7 +95,13 @@ export function Insights() {
               </div>
               <div class="mt-1 font-semibold">{i.title}</div>
               <div class="mt-1 text-xs text-zinc-400">{i.body}</div>
-              <SourceRef refs={i.source_refs ?? []} />
+              {i.ai_comment && (
+                <div class="mt-1 text-[11px] italic text-zinc-400">
+                  <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
+                  {i.ai_comment}
+                </div>
+              )}
+              <DataSourceDetails refs={(i.source_refs ?? []) as RawRef[]} />
             </li>
           );
         })}

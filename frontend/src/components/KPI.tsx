@@ -1,5 +1,7 @@
 import { fmt } from "../format";
 import { Sparkline } from "./Sparkline";
+import { Tooltip } from "./Tooltip";
+import type { ComponentChildren } from "preact";
 
 export function KPI(props: {
   label: string;
@@ -18,6 +20,14 @@ export function KPI(props: {
       negative=red, zero/missing=zinc) so trend direction reads at a
       glance. */
   sparkline?: Array<number | null | undefined>;
+  /** Optional tooltip content rendered next to the label. Use for 4-factor
+      cards (Reach / RitualVictory / Mobilization / Intimacy) where the
+      label alone doesn't convey what is being measured. */
+  labelTooltip?: ComponentChildren;
+  /** Optional one-line AI commentary slot. When provided, renders as a
+      muted italic line under the value (placeholder for V2.x AI-comment
+      feature — not surfaced unless populated). */
+  aiComment?: string;
 }) {
   const v = typeof props.value === "number" ? fmt(props.value) : (props.value ?? "—");
   const d = props.delta;
@@ -38,7 +48,11 @@ export function KPI(props: {
   return (
     <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 [.light_&]:border-zinc-200 [.light_&]:bg-white">
       <div class="flex items-start justify-between gap-2">
-        <div class="text-xs uppercase tracking-wider text-zinc-500">{props.label}</div>
+        <div class="text-xs uppercase tracking-wider text-zinc-500">
+          {props.labelTooltip
+            ? <Tooltip content={props.labelTooltip}>{props.label}</Tooltip>
+            : props.label}
+        </div>
         {props.sparkline && props.sparkline.length >= 2 && (
           <span class={sparkTone}>
             <Sparkline points={props.sparkline} width={56} height={16} />
@@ -56,6 +70,14 @@ export function KPI(props: {
         )}
       </div>
       {props.hint && <div class="mt-0.5 text-xs normal-case text-zinc-500">{props.hint}</div>}
+      {props.aiComment && (
+        <div class="mt-1 border-t border-zinc-800/60 pt-1 text-[11px] italic text-zinc-400">
+          <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">
+            AI
+          </span>
+          {props.aiComment}
+        </div>
+      )}
     </div>
   );
 }
