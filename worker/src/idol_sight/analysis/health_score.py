@@ -174,9 +174,13 @@ def _is_pre_debut(debut_date: str | None) -> bool:
     return d > date.today()
 
 
-def _normalize(value: float, ref: float) -> float:
-    """Clamp value/ref to [0, 1]."""
-    if ref <= 0:
+def _normalize(value: float | None, ref: float) -> float:
+    """Clamp value/ref to [0, 1]. None coerces to 0 — the live-metric
+    layer (cohort + per-group) already excludes truly-dead metrics from
+    weighted means, so a stray None at the normalizer just yields 0
+    rather than raising.
+    """
+    if value is None or ref <= 0:
         return 0.0
     return min(max(value / ref, 0.0), 1.0)
 
@@ -199,6 +203,37 @@ def _percentile(values: list[float], pct: float) -> float:
     hi = min(lo + 1, len(s) - 1)
     frac = k - lo
     return float(s[lo] + (s[hi] - s[lo]) * frac)
+
+
+def _per_group_live(agg: dict[str, Any]) -> set[str]:
+    """Return the set of metric keys this *individual* group has signal
+    for. Combines with cohort-level live (see ``compute_live_metrics``)
+    to also defend against NULL columns in a single group's row — e.g.
+    PLAVE's ``yt_total_views = NULL`` left over from V2.11 migration
+    cleanup. Without this layer the group eats a 0/REF normalization
+    on the dead column even though the cohort is otherwise healthy.
+
+    The ``> 0`` threshold treats genuine NULL / 0 as dead. A group with
+    a tiny but non-zero value (e.g. 50 subscribers) is still alive — its
+    score just normalizes low, which is the correct outcome.
+    """
+    live: set[str] = set()
+    if float(agg.get("yt_subscribers", 0) or 0) > 0:
+        live.add("subscribers")
+    if float(agg.get("yt_total_views", 0) or 0) > 0:
+        live.add("views")
+    if float(agg.get("naver_total_news", 0) or 0) > 0:
+        live.add("news")
+    if _engagement_rate(agg) > 0:
+        live.add("quality")
+    comm_total = (float(agg.get("dc_total_posts", 0) or 0)
+                  + float(agg.get("theqoo_posts", 0) or 0)
+                  + float(agg.get("instiz_posts", 0) or 0))
+    if comm_total > 0:
+        live.add("community")
+    if float(agg.get("hanteo_sales", 0) or 0) > 0:
+        live.add("hanteo")
+    return live
 
 
 def compute_live_metrics(cohort: list[dict[str, Any]]) -> set[str]:
@@ -410,9 +445,16 @@ def compute_health_score(
         )
 
     r = {**DEFAULT_REFS, **(refs or {})}
-    L: set[str] | frozenset[str] = (
+    cohort_L: set[str] | frozenset[str] = (
         live_metrics if live_metrics is not None else _ALL_METRICS
     )
+    # Effective per-group live set = cohort-live ∩ this-group-live. The
+    # intersection prevents a group with a NULL/0 column from eating a
+    # 0/REF normalization on a metric the cohort otherwise has signal
+    # in. Symmetric to the cohort-level fold-out: cohort-dead metrics
+    # disappear for everyone, group-dead metrics disappear just for
+    # that group, and surviving weights renormalize per factor.
+    L = set(cohort_L) & _per_group_live(agg)
     model = group_model if group_model in FACTOR_WEIGHTS else DEFAULT_GROUP_MODEL
     weights = FACTOR_WEIGHTS[model]
 
