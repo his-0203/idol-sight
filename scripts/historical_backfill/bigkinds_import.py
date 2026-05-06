@@ -91,8 +91,12 @@ def _week_start(d: date) -> date:
 
 
 def _read_xlsx(path: Path) -> Iterator[dict[str, Any]]:
+    """BIGKinds export 의 xlsx 는 read_only 모드와 호환 안 됨
+    (max_row 가 1로 잘못 보고됨). read_only=False 로 풀어 읽어야 정상.
+    파일이 그리 크지 않아 메모리 부담 없음 (PLAVE 847행 × 19열 ≈ 16K cells).
+    """
     from openpyxl import load_workbook  # type: ignore[import-untyped]
-    wb = load_workbook(path, read_only=True, data_only=True)
+    wb = load_workbook(path, read_only=False, data_only=True)
     ws = wb.active
     rows = ws.iter_rows(values_only=True)
     header = next(rows, None)
