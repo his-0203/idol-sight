@@ -51,6 +51,13 @@ ANTI-PATTERNS — 만약 body에 다음이 포함되면 다시 작성:
     "방안 모색", "지속적인", "꾸준한", "선제적", "체계적"
   - 동사가 마지막에 붙는 명사구 ("팬 소통 강화 필요")
   - 누가, 언제, 무엇을 측정할지 빠진 추상명사 나열
+  - 실재 여부 미확인 외부 시스템·채널·툴 이름 발명
+    (예: "#miiwan-pr 슬랙", "#miiwan-content 채널", "Notion XYZ
+    보드", "Asana 'MiiWAN-launch' 프로젝트"). 컨텍스트에 명시되지
+    않은 인프라는 추측해서 적지 말 것. 보고·공유 동선은 일반
+    표현으로 ("PR팀에 공유", "담당자에게 보고", "팀 채널에 1차
+    공유"). 채널 이름은 IPX/Abyss 측이 실제 운영 중인 것이
+    프롬프트에 주어졌을 때만 사용.
 
 EXEMPLARS (어조·길이·구체성 참고):
 
@@ -64,9 +71,9 @@ EXEMPLARS (어조·길이·구체성 참고):
   ② 보도 push (announcement)
     title: "Sports Kyunghyang·StarNews 데뷔 보도 1차 컨택"
     body:  "[Abyss PR팀] 이번 주 금요일 18시까지 데뷔 보도자료 v1
-            초안을 #miiwan-pr 슬랙에 공유한다. 다음 주 월요일
-            오전까지 Sports Kyunghyang/StarNews 음악부 데스크 2명에게
-            1차 컨택 메일 발송 + 회신 KPI 24시간 이내 응답률 ≥ 50%."
+            초안을 PR팀 내부에 공유한다. 다음 주 월요일 오전까지
+            Sports Kyunghyang/StarNews 음악부 데스크 2명에게 1차
+            컨택 메일 발송 + 회신 KPI 24시간 이내 응답률 ≥ 50%."
 
   ③ Viral 영상 후속 대응 (video_velocity_24h)
     title: "Mahajin Piece 4 영상 24h velocity 5× 미달 시 일정 조정"
@@ -80,14 +87,14 @@ EXEMPLARS (어조·길이·구체성 참고):
     body:  "[PR팀] 신고된 controversy 트윗을 12시간 이내 출처 5건
             검수한다. False positive면 dismiss 처리만 하고 직접
             대응·삭제 요청 금지 (Streisand effect). 실제 사안이면
-            #miiwan-pr 슬랙 통보 후 법무 24시간 응답 대기."
+            PR팀에 통보 후 법무 24시간 응답 대기."
 
   ⑤ Member reveal cadence
     title: "원주율 reveal Piece 5 — 5/15 KST 18시 동시 발화"
     body:  "[콘텐츠팀] 원주율 서사 영상 + 트위터 + Laftel 동시
             5/15 18시 KST 발화. 그 전 14일 동안 puzzle piece 티저
             1컷/일을 @miiwan_official에 업로드한다. 5/14까지 영상
-            완성본을 #miiwan-content 슬랙에 1차 공유."
+            완성본을 콘텐츠팀에 1차 공유."
 
 ALL ipx_action items must hit at least 4 of the 5 required elements
 (verb-first / due / owner / measurable / conditional). If you cannot
@@ -137,6 +144,6 @@ If MiiWAN data is too sparse to justify either item with real numbers,
 still emit ONE ipx_action explicitly stating an observable next step
 (e.g. "[Abyss 데이터팀] 24시간 이내 youtube_videos 수집 큐에 MiiWAN
 공식 채널 ID 우선순위 1로 등록하고 다음 cron에서 재시도 결과를
-#miiwan-data에 보고한다.") and pointing at the empty source row.
+데이터팀에 보고한다.") and pointing at the empty source row.
 NEVER fall back to "데이터 부족 — 검토 필요" or any vague phrasing.
 """
