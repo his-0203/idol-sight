@@ -33,7 +33,11 @@ type Series = {
   name: string;
   debut_date: string;
   group_model: string;
-  points: Array<{ day_offset: number; value: number }>;
+  points: Array<{
+    day_offset: number;
+    value: number;
+    source: 'live' | 'backfill_exact' | 'backfill_estimate';
+  }>;
 };
 
 type EventRow = {
@@ -176,11 +180,16 @@ export function DebutCurve() {
     const xs = [...allDays].sort((a, b) => a - b);
 
     const datasets: any[] = visibleSeries.map((s) => {
-      const map = new Map(s.points.map((p) => [p.day_offset, p.value]));
+      const map = new Map(s.points.map((p) => [p.day_offset, p]));
       const isMiiwan = s.group_key === "miiwan";
       return {
         label: s.name,
-        data: xs.map((d) => ({ x: d, y: map.get(d) ?? null })),
+        data: xs.map((d) => {
+          const p = map.get(d);
+          return p
+            ? { x: d, y: p.value, source: p.source }
+            : { x: d, y: null, source: 'live' as const };
+        }),
         borderColor: colorOf(s.group_key),
         backgroundColor: fillOf(s.group_key, 0.1),
         borderWidth: isMiiwan ? 3 : 2,
@@ -196,6 +205,24 @@ export function DebutCurve() {
         spanGaps: true,
         tension: 0.25,
         fill: false,
+        // segment 콜백: 두 인접 포인트 사이의 라인 세그먼트의 source 기준 분기.
+        // backfill_estimate가 한쪽이라도 있으면 굵은 점선, backfill_exact만이면
+        // 가는 점선, 둘 다 live이면 실선(undefined로 기본 borderDash 사용).
+        segment: {
+          borderDash: (ctx: any) => {
+            const a = ctx.p0?.raw?.source;
+            const b = ctx.p1?.raw?.source;
+            if (a === 'backfill_estimate' || b === 'backfill_estimate') return [6, 4];
+            if (a === 'backfill_exact'    || b === 'backfill_exact')    return [2, 2];
+            return undefined;
+          },
+          borderColor: (ctx: any) => {
+            const b = ctx.p1?.raw?.source;
+            return b && b !== 'live'
+              ? fillOf(s.group_key, 0.55)
+              : colorOf(s.group_key);
+          },
+        },
       };
     });
 
@@ -337,6 +364,11 @@ export function DebutCurve() {
         <h3 class="section-title">데뷔 정렬 곡선</h3>
         <span class="text-hint text-zinc-500">
           각 그룹의 debut_date 기준 D-N / D+N 으로 정렬한 코호트 비교. MiiWAN은 굵게 강조.
+        </span>
+        <span class="ml-auto text-[11px] text-zinc-500">
+          <span class="mr-2"><span class="inline-block w-4 border-t-2 border-zinc-400 align-middle"></span> 실측</span>
+          <span class="mr-2"><span class="inline-block w-4 border-t-2 border-dashed border-zinc-400 align-middle"></span> 백필 추정</span>
+          <span><span class="inline-block w-4 border-t border-dotted border-zinc-400 align-middle"></span> 백필 검증</span>
         </span>
       </div>
 
