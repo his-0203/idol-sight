@@ -86,15 +86,25 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
         counts[r["group_key"]]["twitter"] = r["n"]
         counts[r["group_key"]]["controversy"] = r.get("controversy_count") or 0
 
-    # YouTube: video count + most-recent video stats (views + likes +
-    # comments) + latest channel subscriber count, all grouped by
-    # group_key. We pick the most-recent stat snapshot per video so we
-    # never double-count a video across daily snapshots, and we pick the
-    # most-recent channel snapshot per (group, channel) so subscriber
-    # counts are current.
+    # YouTube: video count + most-recent video stats (likes + comments)
+    # + latest channel-level totals (subscribers + total views), all
+    # grouped by group_key. We pick the most-recent stat snapshot per
+    # video so we never double-count a video across daily snapshots,
+    # and we pick the most-recent channel snapshot per (group, channel)
+    # so subscriber/total_views are current.
+    #
+    # ``total_views`` uses MAX(c.total_views) — the channel-level
+    # cumulative view count from YouTube's channel.statistics.viewCount,
+    # collected by collectors/channel_stats.py. The previous
+    # SUM(s.views) was sum-over-indexed-videos which severely
+    # underestimated for groups whose youtube_videos table is partial
+    # (the YouTube collector caps at recent uploads); for PLAVE this
+    # was 25.8M (SUM) vs ~795M (channel total), a 30× gap. Channel-
+    # level total is authoritative and consistent with how subscribers
+    # is already aggregated.
     rows = client.execute(
         "SELECT v.group_key, COUNT(DISTINCT v.video_id) AS n_videos, "
-        "  COALESCE(SUM(s.views), 0) AS total_views, "
+        "  COALESCE(MAX(c.total_views), 0) AS total_views, "
         "  COALESCE(SUM(s.likes), 0) AS total_likes, "
         "  COALESCE(SUM(s.comments), 0) AS total_comments, "
         "  COALESCE(MAX(c.subscribers), 0) AS subscribers "
