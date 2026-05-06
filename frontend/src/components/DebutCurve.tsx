@@ -105,7 +105,28 @@ const METRIC_OPTIONS = [
 
 type MetricKey = typeof METRIC_OPTIONS[number]["key"];
 
-type CohortFilter = "all" | "kpop" | "subculture";
+// 누적(cumulative) 시계열 메트릭. 시간이 지날수록 단조증가해야 하며
+// 백필 estimate 와 live 데이터가 섞일 때 음의 차분이 발생할 수 있어
+// 시각화 단계에서 cummax 보정을 적용 (PLAVE D-180~D-1500 구간에서
+// 채널별 백필 추정치 < 일부 live snapshot 으로 라인이 V자 모양으로
+// 흔들리는 문제 수정).
+const CUMULATIVE_METRICS = new Set<MetricKey>([
+  "yt_subscribers",
+  "yt_total_views",
+  "yt_total_videos",
+]);
+
+// '뉴스' 메트릭은 누적 카운트이지만 막대차트에서 주간 *증분* 으로
+// 환산하여 빈도 분포로 보여줌 — bar 의 단위 라벨에 사용.
+const NEWS_BAR_UNIT = "주간 신규 기사 수 (BIGKinds + Naver Open API 합산)";
+
+// DebutCurve 한정으로 시리즈/범례에서 숨길 그룹. STELLIVE 는 6인
+// confederation (각 멤버 솔로 채널 합산) 모델이라 D-N 데뷔 정렬 축에서
+// 다른 그룹과 같은 평면에서 비교하면 왜곡이 큼 (예: 단일 채널 1개의
+// D-30 vs 6개 채널 합산의 D-30). is_active=0 으로 백엔드에서는 그대로
+// 유지하되 *이 차트에서만* 가린다. 다른 화면 (MarketOverview, GroupContent,
+// Insights 등) 에서는 정상 노출.
+const HIDDEN_GROUPS = new Set<string>(["stellive"]);
 
 function cohortOf(groupModel: string | null | undefined): "kpop" | "subculture" {
   return (groupModel === "segmentary" || groupModel === "confederation")
@@ -115,14 +136,11 @@ function cohortOf(groupModel: string | null | undefined): "kpop" | "subculture" 
 
 export function DebutCurve() {
   const [metric, setMetric] = useState<MetricKey>("yt_subscribers");
-  const [cohort, setCohort] = useState<CohortFilter>("all");
-  const [from, setFrom] = useState<number>(-60);
+  const [from, setFrom] = useState<number>(-90);
   const [to,   setTo]   = useState<number>(180);
   const [data, setData] = useState<{ series: Series[] } | null>(null);
   // hidden = explicitly toggled off. isolated = a group's panel item
-  // was clicked; only that group remains visible. Both states reset
-  // when the cohort filter changes (the filter would otherwise
-  // produce empty isolation states like "isolate=plave + cohort=서브컬처").
+  // was clicked; only that group remains visible.
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [isolated, setIsolated] = useState<string | null>(null);
   // Events for the isolated group only — overlaying every group's
@@ -149,18 +167,13 @@ export function DebutCurve() {
       .catch(() => setEvents([]));
   }, [isolated]);
 
-  // Reset visibility when cohort changes — otherwise an isolated
-  // group from a previous filter can paradoxically vanish.
-  useEffect(() => {
-    setHidden(new Set());
-    setIsolated(null);
-  }, [cohort]);
-
   const filteredSeries = useMemo<Series[]>(() => {
     if (!data) return [];
-    if (cohort === "all") return data.series;
-    return data.series.filter((s) => cohortOf(s.group_model) === cohort);
-  }, [data, cohort]);
+    // HIDDEN_GROUPS 적용 지점. 차트 데이터/범례/latestValues 모두 이
+    // 시리즈 리스트에서 파생되므로 여기서 한 번 거르면 단독 panel
+    // 토글 UI 와 차트 빌드 양쪽에서 동시에 사라진다.
+    return data.series.filter((s) => !HIDDEN_GROUPS.has(s.group_key));
+  }, [data]);
 
   const visibleSeries = useMemo<Series[]>(() => {
     if (isolated) return filteredSeries.filter((s) => s.group_key === isolated);
@@ -177,37 +190,80 @@ export function DebutCurve() {
     // 의미 전달이 더 깔끔. 다른 메트릭(구독자/조회수/영상수)은 누적·연속
     // 신호라 daily line 유지.
     const isBarMetric = metric === "naver_total_news";
+    const isCumulative = CUMULATIVE_METRICS.has(metric);
+
+    // 누적 보정: agg_summary 의 cumulative metric (구독자/조회수/영상수)
+    // 은 단조증가가 정상이지만 백필 estimate (Social Blade 채널 합계) 와
+    // live collector (영상 단위 합산) 가 섞여 일부 구간에서 음의 차분이
+    // 발생. PLAVE D-180~D-1500 의 V자 흔들림 + MiiWAN '영상 수' 탭의
+    // 0 으로 떨어지는 dip 이 모두 같은 원인. 표시 단계에서 cummax 적용.
+    const cumMaxAdjusted = isCumulative
+      ? visibleSeries.map((s) => {
+          const sorted = [...s.points].sort((a, b) => a.day_offset - b.day_offset);
+          let running = -Infinity;
+          const fixed = sorted.map((p) => {
+            const v = Number(p.value);
+            if (!Number.isFinite(v) || v <= 0) {
+              // null/0 처리: 누적 메트릭에서 0 은 거의 항상 결손. 직전
+              // 누적값(running) 으로 carry-forward 하여 라인이 0 으로
+              // 떨어지는 가짜 dip 제거. running 이 아직 없으면 skip.
+              return running > -Infinity
+                ? { ...p, value: running, source: p.source }
+                : null;
+            }
+            if (v < running) {
+              // 단조증가 위반 → 직전 누적값 유지. 색/소스는 estimate
+              // 으로 강등하여 점선으로 표시.
+              return { ...p, value: running, source: 'backfill_estimate' as const };
+            }
+            running = v;
+            return { ...p, value: v };
+          }).filter((p): p is NonNullable<typeof p> => p != null);
+          return { ...s, points: fixed };
+        })
+      : visibleSeries;
 
     // Weekly bucket aggregation for the news bar chart. PLAVE 의 1276
     // 일 데이터를 그대로 막대로 그리면 막대 폭이 1px 미만으로 invisible.
-    // 7일 윈도우 합산으로 ~180주 막대 → 화면에서 의미 있는 폭 확보.
-    // bucket key = floor(day_offset/7)*7 (start of week-window in D-N
-    // axis units). Continuous metric 차트는 영향 없음.
+    // 7일 윈도우 → 막대 폭 확보. agg_summary.naver_total_news 는 누적
+    // 카운트이므로 bucket 단위로 (마지막값 - 직전 bucket 마지막값) 차분
+    // 을 취해 *주간 신규 기사 수* 로 변환. (이전 코드는 누적값을 그대로
+    // 합산해서 x축 라벨/막대 의미가 어긋나 있었음.)
     const seriesForRender = isBarMetric
       ? visibleSeries.map((s) => {
-          const buckets = new Map<number, { sum: number; src: string }>();
-          for (const p of s.points) {
-            const v = Number(p.value ?? 0);
-            if (!v) continue;
+          // bucket 별로 마지막(=최대 day_offset) 누적값을 보존.
+          const sorted = [...s.points].sort((a, b) => a.day_offset - b.day_offset);
+          const bucketLast = new Map<number, { lastValue: number; src: string }>();
+          for (const p of sorted) {
+            const v = Number(p.value);
+            if (!Number.isFinite(v)) continue;
             const k = Math.floor(p.day_offset / 7) * 7;
-            const cur = buckets.get(k) ?? { sum: 0, src: 'live' };
-            cur.sum += v;
-            // source 우선순위: live > backfill_exact > backfill_estimate.
-            // bucket 안에 한 source 라도 추정값 있으면 추정값 처리.
-            if (p.source === 'backfill_estimate'
-                || (p.source === 'backfill_exact' && cur.src === 'live')) {
+            const cur = bucketLast.get(k);
+            if (!cur || p.day_offset >= 0) {
+              // 같은 bucket 내에서는 시간 순으로 마지막 값을 유지
+              // (정렬되어 있으므로 단순 덮어쓰기).
+              bucketLast.set(k, { lastValue: v, src: p.source });
+            } else {
+              cur.lastValue = v;
               cur.src = p.source;
             }
-            buckets.set(k, cur);
           }
-          return {
-            ...s,
-            points: [...buckets.entries()]
-              .map(([d, v]) => ({ day_offset: d, value: v.sum, source: v.src as any }))
-              .sort((a, b) => a.day_offset - b.day_offset),
-          };
+          // 차분 계산 → 주간 증분. 첫 bucket 은 baseline 으로 0 처리하여
+          // 표시 안 함.
+          const ordered = [...bucketLast.entries()].sort((a, b) => a[0] - b[0]);
+          let prev = ordered.length > 0 ? ordered[0]![1].lastValue : 0;
+          const out: Array<{ day_offset: number; value: number; source: any }> = [];
+          for (let i = 1; i < ordered.length; i++) {
+            const [d, v] = ordered[i]!;
+            const delta = Math.max(0, v.lastValue - prev);
+            prev = v.lastValue;
+            if (delta > 0) {
+              out.push({ day_offset: d, value: delta, source: v.src as any });
+            }
+          }
+          return { ...s, points: out };
         })
-      : visibleSeries;
+      : cumMaxAdjusted;
 
     // Build a sparse {day_offset: value} per group then materialize a
     // common x-axis from all observed offsets. This avoids forcing
@@ -377,16 +433,21 @@ export function DebutCurve() {
         scales: {
           x: isBarMetric
             ? {
-                // Category axis for stacked bars — labels=xs, ticks
-                // formatted as D-N / D+N. Chart.js stacks bars by
-                // category index; this is the only mode where its
-                // bar stacker actually emits visible rectangles.
+                // Category axis for stacked bars — labels=xs (week-start
+                // day offsets, multiples of 7). Each bar represents a
+                // 7-day window starting at that offset.
                 type: "category",
-                title: { display: true, text: "데뷔 기준 일수 (D-N / D+N) · 주간 합산" },
+                title: {
+                  display: true,
+                  text: "데뷔 기준 주차 (W-N / W+N) · 1막대 = 7일",
+                },
                 ticks: {
                   callback: (_v, i) => {
                     const n = xs[i] ?? 0;
-                    return n === 0 ? "D-DAY" : n > 0 ? `D+${n}` : `D${n}`;
+                    // Display week index instead of raw day to match
+                    // the bar binning (n is always a multiple of 7).
+                    const w = Math.round(n / 7);
+                    return w === 0 ? "W0 (데뷔주)" : w > 0 ? `W+${w}` : `W${w}`;
                   },
                   // 180+ weekly buckets → cap label density to keep
                   // the axis readable.
@@ -407,7 +468,12 @@ export function DebutCurve() {
                 grid: { color: (ctx: any) => ctx.tick.value === 0 ? "rgba(245,158,11,0.4)" : undefined },
               },
           y: {
-            title: { display: true, text: METRIC_OPTIONS.find((m) => m.key === metric)?.label ?? metric },
+            title: {
+              display: true,
+              text: isBarMetric
+                ? NEWS_BAR_UNIT
+                : (METRIC_OPTIONS.find((m) => m.key === metric)?.label ?? metric),
+            },
             ticks: { callback: (v) => fmtScale(v as number) },
             stacked: isBarMetric,
             beginAtZero: isBarMetric,
@@ -421,6 +487,16 @@ export function DebutCurve() {
           tooltip: {
             callbacks: {
               title: (items) => {
+                if (isBarMetric) {
+                  // Bar 차트의 parsed.x 는 category index → labels(xs)
+                  // 에서 실제 day offset 을 lookup. 막대 1개 = 7일 윈도.
+                  const idx = items[0]?.dataIndex ?? 0;
+                  const dStart = xs[idx] ?? 0;
+                  const dEnd = dStart + 6;
+                  const fmtD = (n: number) =>
+                    n === 0 ? "D-DAY" : n > 0 ? `D+${n}` : `D${n}`;
+                  return `${fmtD(dStart)} ~ ${fmtD(dEnd)} (7일 · 주간)`;
+                }
                 const x = (items[0]?.parsed as any)?.x;
                 if (typeof x !== "number") return "";
                 return x === 0 ? "D-DAY" : x > 0 ? `D+${x}` : `D${x}`;
@@ -433,6 +509,14 @@ export function DebutCurve() {
                   const e = raw._event as EventRow;
                   const icon = EVENT_ICON[e.event_type] ?? "•";
                   return `${icon} ${e.event_date} · ${e.title}`;
+                }
+                if (isBarMetric) {
+                  // Bar 분기의 데이터는 plain number array.
+                  const v = typeof ctx.parsed === "number"
+                    ? ctx.parsed
+                    : (ctx.parsed as any)?.y;
+                  if (v == null) return `${ctx.dataset.label}: —`;
+                  return `${ctx.dataset.label}: ${fmt(v)} 건/주`;
                 }
                 const v = raw?.y;
                 if (v == null) return `${ctx.dataset.label}: —`;
@@ -463,6 +547,11 @@ export function DebutCurve() {
         <span class="text-hint text-zinc-500">
           각 그룹의 debut_date 기준 D-N / D+N 으로 정렬한 코호트 비교. MiiWAN은 굵게 강조.
         </span>
+        {metric === "naver_total_news" && (
+          <span class="ml-2 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300">
+            단위: {NEWS_BAR_UNIT}
+          </span>
+        )}
         <span class="ml-auto text-[11px] text-zinc-500">
           <span class="mr-2"><span class="inline-block w-4 border-t-2 border-zinc-400 align-middle"></span> 실측</span>
           <span class="mr-2"><span class="inline-block w-4 border-t-2 border-dashed border-zinc-400 align-middle"></span> 백필 추정</span>
@@ -483,26 +572,10 @@ export function DebutCurve() {
             onClick={() => setMetric(m.key)}
           >{m.label}</button>
         ))}
-        <span class="ml-2 text-zinc-500">코호트</span>
-        {([
-          { key: "all" as const,        label: "전체" },
-          { key: "kpop" as const,       label: "K-POP" },
-          { key: "subculture" as const, label: "서브컬처" },
-        ]).map((c) => (
-          <button
-            key={c.key}
-            type="button"
-            onClick={() => setCohort(c.key)}
-            class={"rounded-md border px-2 py-1 transition-colors " +
-              (cohort === c.key
-                ? "border-violet-500 bg-violet-500/10 text-violet-300"
-                : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
-          >{c.label}</button>
-        ))}
         <span class="ml-2 text-zinc-500">범위</span>
         {([
-          [-30, 30],  [-60, 90],  [-60, 180],  [-60, 365],
-          [-180, 365], [-180, 1095], [-180, 1500],
+          [-30, 30],  [-60, 90],  [-90, 180],  [-60, 365],
+          [-180, 1095],
         ] as const).map(([f, t]) => (
           <button
             key={`${f}_${t}`}
@@ -520,7 +593,7 @@ export function DebutCurve() {
         <div class="text-hint text-zinc-500">Loading…</div>
       ) : filteredSeries.length === 0 ? (
         <div class="text-hint text-zinc-500">
-          선택한 코호트/범위에 해당하는 데이터가 아직 없습니다.
+          선택한 범위에 해당하는 데이터가 아직 없습니다.
           (PLAVE/ISEDOL/STELLIVE는 데뷔 후 오랜 기간이 지나 D-30 / D+30 데이터가 없을 수 있음)
         </div>
       ) : (
