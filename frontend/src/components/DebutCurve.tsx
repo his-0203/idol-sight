@@ -95,9 +95,9 @@ const METRIC_OPTIONS = [
   { key: "yt_subscribers",    label: "구독자" },
   { key: "yt_total_views",    label: "조회수 (누적)" },
   { key: "yt_total_videos",   label: "영상 수" },
-  { key: "dc_total_posts",    label: "디시 게시글" },
   { key: "naver_total_news",  label: "네이버 뉴스" },
-  { key: "twitter_posts",     label: "트위터 멘션" },
+  // dc_total_posts / twitter_posts removed 2026-05: collectors 부재로
+  // 데이터 거의 0, 차트 의미 없음. 향후 디시 / X API 통합 시 재추가.
 ] as const;
 
 type MetricKey = typeof METRIC_OPTIONS[number]["key"];
