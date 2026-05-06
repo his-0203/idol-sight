@@ -27,6 +27,13 @@ INSIGHT_OUTPUT_SCHEMA: dict[str, Any] = {
                     "type":  {"type": "string"},     # 'insight' | 'ipx_action' | 'weekly'
                     "title": {"type": "string"},
                     "body":  {"type": "string"},
+                    # Optional one-liner shown next to the card title in the
+                    # WeeklyUpdate / Insights / MiiWANBriefing UI. Not in the
+                    # `required` list on purpose: when Gemini occasionally
+                    # drops the key on a retry, the INSERT path still
+                    # succeeds and we just render the card without the
+                    # comment instead of failing the whole batch.
+                    "ai_comment": {"type": "string"},
                     "source_refs": {
                         "type": "array",
                         "items": {

@@ -46,3 +46,14 @@ def test_schema_constant_has_expected_shape():
     item_props = items_schema["items"]["properties"]
     for k in ("scope", "type", "title", "body", "source_refs"):
         assert k in item_props
+
+
+def test_schema_includes_optional_ai_comment():
+    """ai_comment is in `properties` (so Gemini structured output can
+    emit it) but NOT in `required` (so dropping the key on retries does
+    not invalidate the response)."""
+    s = INSIGHT_OUTPUT_SCHEMA
+    item_schema = s["properties"]["items"]["items"]
+    assert "ai_comment" in item_schema["properties"]
+    assert item_schema["properties"]["ai_comment"]["type"] == "string"
+    assert "ai_comment" not in item_schema["required"]

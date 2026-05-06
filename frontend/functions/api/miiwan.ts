@@ -61,7 +61,8 @@ interface HealthRow {
 
 interface InsightRow {
   id: number; title: string; body: string; scope: string; type: string;
-  source_refs_json: string | null; generated_at: string;
+  source_refs_json: string | null; ai_comment: string | null;
+  generated_at: string;
 }
 
 const safeJson = (s: string | null) => {
@@ -141,7 +142,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   // operator mental model: "이번 주 권고만 보여줘."
   const insights = await d1Query<InsightRow>(
     env.DB,
-    `SELECT id, title, body, scope, type, source_refs_json, generated_at
+    `SELECT id, title, body, scope, type, source_refs_json,
+            ai_comment, generated_at
        FROM insights
       WHERE (scope=? OR type='ipx_action')
         AND generated_at >= datetime('now','-7 days')
@@ -288,6 +290,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       id: i.id, title: i.title, body: i.body,
       scope: i.scope, type: i.type,
       source_refs: safeJson(i.source_refs_json),
+      ai_comment: i.ai_comment,
       generated_at: i.generated_at,
     })),
     benchmarks,

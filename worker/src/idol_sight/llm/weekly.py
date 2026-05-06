@@ -81,11 +81,21 @@ def generate_weekly(
     now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     statements: list[tuple[str, list]] = []
     for item in items:
+        # ai_comment is optional in the schema (migration 0039) and in
+        # the LLM response. Empty strings are treated as missing too —
+        # Gemini occasionally emits "" instead of dropping the key, and
+        # downstream UI checks `i.ai_comment && (...)` so "" would render
+        # an empty AI badge. Normalize to NULL.
+        raw_ai_comment = item.get("ai_comment")
+        ai_comment: str | None = None
+        if isinstance(raw_ai_comment, str):
+            stripped = raw_ai_comment.strip()
+            ai_comment = stripped[:200] if stripped else None
         statements.append((
             """
             INSERT INTO insights
-              (generated_at, week_start, scope, type, title, body, source_refs_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+              (generated_at, week_start, scope, type, title, body, source_refs_json, ai_comment)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """.strip(),
             [
                 now_iso, week_start,
@@ -94,6 +104,7 @@ def generate_weekly(
                 (item.get("title") or "")[:200],
                 item.get("body") or "",
                 json.dumps(item.get("source_refs") or [], ensure_ascii=False),
+                ai_comment,
             ],
         ))
 

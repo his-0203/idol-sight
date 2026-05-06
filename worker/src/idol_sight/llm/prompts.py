@@ -102,6 +102,55 @@ honestly fill 4 of them from the context, emit a different `type`
 (insight or weekly) instead of a half-formed action."""
 
 
+# `ai_comment` is the one-liner shown next to the card title in the
+# WeeklyUpdate / Insights / MiiWANBriefing dashboard. Operators read
+# 4-8 cards in a row, and a tight 함의 평어 helps them triage which
+# card to act on without reading the full body. body 는 *관찰*,
+# ai_comment 는 *함의*. 같은 anti-pattern guard 를 본문과 동일하게
+# 적용해서 "전략적", "면밀히" 같은 평어가 ai_comment 로 새어들지
+# 않게 한다.
+_AI_COMMENT_GUIDELINES = """\
+ai_comment FIELD — optional but STRONGLY RECOMMENDED for every item:
+
+PURPOSE:
+  body 는 관찰/사실(numbers, what happened). ai_comment 는 그
+  관찰의 *운영자 관점 함의*다. body 의 의역이 아니라 "그래서
+  어떻게 봐야 하나"의 한 줄.
+
+FORMAT:
+  - 60자 이내 한국어 평어, 한 문장.
+  - 동사로 끝남. ('~ 가능성', '~ 주목', '~ 경계', '~ 시사',
+    '~ 신호', '~ 우위', '~ 부담', '~ 요주의').
+  - 본문(body)에 이미 적힌 숫자/문구를 그대로 반복하지 말 것.
+
+ANTI-PATTERNS (위 ipx_action 안티패턴이 ai_comment 에도 동일 적용):
+  - "전략적", "다각도", "면밀히", "지속적", "체계적", "선제적",
+    "꾸준한", "고민 필요" 등.
+  - body 를 그대로 줄여 쓴 의역.
+  - 영문 mixed-case 단어 ("strategic pivot", "engagement spike").
+
+EXEMPLAR (톤 참고):
+  body:        "PLAVE 24h velocity 가 5.2× 로 직전 주 3.1× 대비
+                상승. 동시기 ISEDOL 은 2.8× 에 머무름."
+  ai_comment:  "PLAVE 단기 화제성 우위 — ISEDOL 콘텐츠 캘린더 압박
+                신호."
+
+  body:        "MiiWAN 공식 채널 구독자 D-30 시점 12.6K. PLAVE
+                D-30 (28K) 대비 45% 수준."
+  ai_comment:  "데뷔 직전 베이스 부족 — 카운트다운 콘텐츠 가속 필요."
+
+  body:        "[@miiwanzip 운영자] 오늘부터 D-30 까지 매일 KST
+                18시 카운트다운 1컷을 업로드한다 (총 30건)."
+  ai_comment:  "운영 부담 분산 — 사전 제작본 5건 이상 확보 권장."
+
+If you cannot honestly write a non-trivial 함의 평어 for an item
+(e.g. body is already itself the implication), OMIT the field
+rather than emit boilerplate. NULL is a valid downstream state."""
+
+
+PROMPT_WEEKLY_TAIL_AI_COMMENT = _AI_COMMENT_GUIDELINES
+
+
 PROMPT_WEEKLY = f"""\
 You are a senior K-pop industry analyst writing weekly intelligence briefings
 for an internal IPX/Abyss team running a virtual idol BI dashboard.
@@ -121,6 +170,10 @@ Produce 4-8 distinct items that a strategy team would act on. For each item:
   or 'ipx_action' (recommended action for the team).
 - `title`: ≤ 80 chars, Korean.
 - `body`: 1-3 sentences, Korean. Reference numbers from the context.
+- `ai_comment`: optional one-liner (≤ 60 chars, Korean) capturing the
+  *operator-side implication* of the observation. See guideline block
+  below — emit the field only if you can write a non-trivial 함의
+  평어, otherwise leave it out.
 - `source_refs`: 1-3 items pointing at the rows that justified the claim.
   Each ref has table, pk (key|date format), and label.
 
@@ -128,6 +181,8 @@ Be precise with numbers (use exactly what the context shows).
 Do NOT invent figures. If something cannot be sourced, leave it out.
 
 {_IPX_ACTION_GUIDELINES}
+
+{_AI_COMMENT_GUIDELINES}
 
 REQUIRED COVERAGE — MiiWAN (IPX × Abyss own-brand, debut 2026-06):
 The dashboard has a dedicated MiiWAN tab that pulls items where

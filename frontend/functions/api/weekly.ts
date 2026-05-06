@@ -3,7 +3,8 @@ import { jsonResponse } from "../lib/jsonResponse";
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
   const insights = await d1Query<any>(env.DB,
-    `SELECT id, week_start, scope, type, title, body, source_refs_json, generated_at
+    `SELECT id, week_start, scope, type, title, body, source_refs_json,
+            ai_comment, generated_at
        FROM insights
       WHERE type IN ('weekly', 'insight', 'ipx_action')
       ORDER BY generated_at DESC LIMIT 30`);
