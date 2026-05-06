@@ -86,10 +86,26 @@ CDX 쿼리: `https://web.archive.org/cdx/search/cdx?url=youtube.com/@plave_offic
 
 ### 데이터 품질 평가
 
-- **단조 증가 검증**: 1,010 → 1,010 → 10,000 → 91,300 → 134,000 → 138,000 → 206,000 → 213,000 → 243,000 → 263,000 ✅ 단조 증가
+- **단조 증가 검증 (Wayback 행만)**: 1,010 → 1,010 → 10,000 → 91,300 → 134,000 → 138,000 → 206,000 → 213,000 → 243,000 → 263,000 ✅ 단조 증가
 - **이상값**: 2022-11-02/09 모두 1,010 (7일간 동일) — Wayback이 같은 페이지 버전을 2번 캡처한 것으로 추정. 정상.
 - **급격한 성장 (2022-11 → 2023-03)**: Wayback 스냅샷 없는 4개월 갭. 이 기간 실제 성장은 1,010 → 10,000 → 91,300. 데뷔 직전 커뮤니티 형성 + 데뷔 당일 폭발적 유입 패턴으로 합리적.
 - **Naver News**: 완전 차단 — naver_total_news=0 전 행. 실제 기사 수 아님.
+
+### ⚠️ 데이터 불일치 경고 — 2023-04-25 행
+
+이전 Task 9 (commit 11955e2)에서 삽입된 milestone 행:
+- `snapshot_at = 2023-04-25, yt_subscribers = 100,000`
+- 출처: Wikipedia "first five-member broadcast on April 25, 2023, during which they celebrated reaching 100,000 subscribers"
+
+**문제**: Wayback 데이터에 따르면 PLAVE는 2023-03-29에 이미 134,000 구독자를 보유했음. 즉, 2023-04-25에 100,000이라는 수치는 시간적으로 역행하는 값.
+
+**해석 가능성**:
+1. Wikipedia 설명이 부정확 — 실제로는 데뷔 후 몇 주 안에 100K를 달성했고, 4월 25일 방송은 다른 이정표 기념
+2. 4월 25일에 첫 5인 전체 방송을 기념한 것은 맞지만, 당시 이미 213K였을 가능성 높음
+
+**현재 DB 상태**: `2023-04-25` 행에 `yt_subscribers=100000`이 남아있어 시계열 단조성 위반 발생. 이 행은 `backfill_estimate`로 마킹되어 있어 UI에서 "추정"으로 표시되나, 시각화 시 이상값으로 보일 수 있음.
+
+**권고**: 향후 마이그레이션에서 `UPDATE agg_summary SET yt_subscribers=NULL WHERE group_key='plave' AND snapshot_at='2023-04-25T00:00:00Z'` 실행을 검토할 것. (본 Task에서는 이전 commit의 milestone 행 보존 방침으로 수정 보류.)
 
 ### 회수 통계
 - 구독자 데이터: 11행 (9 Wayback + 2 milestone)
