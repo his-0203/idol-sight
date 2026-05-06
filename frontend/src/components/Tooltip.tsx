@@ -55,7 +55,7 @@ export function Tooltip(props: TooltipProps) {
     : "top-full mt-1.5";
 
   return (
-    <span class="relative inline-flex">
+    <span class="relative inline-block">
       <button
         type="button"
         ref={triggerRef}
@@ -81,12 +81,22 @@ export function Tooltip(props: TooltipProps) {
           id={id}
           role="tooltip"
           class={
-            "absolute left-0 z-40 " + positionCls + " " +
+            "absolute left-0 z-50 " + positionCls + " " +
             "rounded-md border border-zinc-700 bg-zinc-950/95 " +
             "px-2.5 py-1.5 text-xs leading-snug text-zinc-200 shadow-lg " +
             "pointer-events-none"
           }
-          style={{ maxWidth: props.maxWidth ?? "20rem", whiteSpace: "normal" }}
+          style={{
+            // width:max-content + min/max로 좁은 표 셀 안에서도 컨테이너에
+            // 클램핑되지 않도록 강제. 한국어는 wordBreak:keep-all로 어절
+            // 단위 줄바꿈해서 한 글자씩 떨어지지 않게.
+            width: "max-content",
+            minWidth: "14rem",
+            maxWidth: props.maxWidth ?? "22rem",
+            whiteSpace: "normal",
+            wordBreak: "keep-all",
+            overflowWrap: "break-word",
+          }}
         >
           {props.content}
         </span>
