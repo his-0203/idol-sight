@@ -80,11 +80,15 @@ class GeminiClient:
     def _call_with_retry(self, *, contents: str, config: Any) -> Any:
         """Retry transient Gemini errors (5xx, RESOURCE_EXHAUSTED, UNAVAILABLE).
 
-        Gemini Flash routinely returns 503 'high demand' bursts that resolve
-        within seconds. Retry up to 5 times with exponential backoff.
+        Gemini Flash returns 503 'high demand' bursts that often persist for
+        several minutes during regional capacity spikes. Retry up to 10
+        attempts with exponential backoff capped at 120s and small jitter
+        (avoids thundering-herd when multiple workers share a key). Worst
+        case wall time ~11 min — well under the 30 min job timeout.
         """
+        import random
         import time
-        delays = [2, 5, 10, 20, 40]
+        delays = [2, 5, 10, 20, 40, 60, 90, 120, 120]
         last_exc: Exception | None = None
         for attempt, delay in enumerate(delays + [0], start=1):
             try:
@@ -103,7 +107,10 @@ class GeminiClient:
                 )
                 if not transient or attempt > len(delays):
                     raise
-                log.warning("gemini transient error (attempt %d/%d): %s; sleeping %ss",
-                            attempt, len(delays) + 1, msg.split("\n")[0][:120], delay)
-                time.sleep(delay)
+                # ±20% jitter so concurrent retries fan out instead of
+                # synchronously hammering on the same edge of the backoff.
+                jittered = delay * (1.0 + random.uniform(-0.2, 0.2))
+                log.warning("gemini transient error (attempt %d/%d): %s; sleeping %.1fs",
+                            attempt, len(delays) + 1, msg.split("\n")[0][:120], jittered)
+                time.sleep(jittered)
         raise last_exc if last_exc else RuntimeError("gemini unknown failure")
