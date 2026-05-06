@@ -36,6 +36,7 @@ const ALLOWED_METRICS = new Set([
 interface Row {
   group_key: string; name: string; debut_date: string | null; group_model: string | null;
   snapshot_at: string; value: number | null;
+  source: 'live' | 'backfill_exact' | 'backfill_estimate';
 }
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, request }) => {
@@ -57,7 +58,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   // there's nothing to align them to.
   const rows = await d1Query<Row>(env.DB,
     `SELECT g.key AS group_key, g.name, g.debut_date, g.group_model,
-            s.snapshot_at, s.${metric} AS value
+            s.snapshot_at, s.${metric} AS value, s.data_source AS source
        FROM agg_summary s
        JOIN groups g ON g.key = s.group_key
       WHERE g.is_active = 1
@@ -71,7 +72,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   // pile up as duplicate points.
   const byGroup: Record<string, {
     name: string; debut_date: string; group_model: string;
-    points: Map<number, number>;
+    points: Map<number, { value: number; source: string }>;
   }> = {};
 
   for (const r of rows) {
@@ -84,9 +85,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
       name: r.name,
       debut_date: r.debut_date,
       group_model: r.group_model ?? "corporate",
-      points: new Map<number, number>(),
+      points: new Map<number, { value: number; source: string }>(),
     };
-    slot.points.set(offset, Number(r.value));
+    slot.points.set(offset, { value: Number(r.value), source: r.source });
     byGroup[r.group_key] = slot;
   }
 
@@ -97,7 +98,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
     group_model: v.group_model,
     points: [...v.points.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([day, value]) => ({ day_offset: day, value })),
+      .map(([day, p]) => ({ day_offset: day, value: p.value, source: p.source })),
   }));
 
   return jsonResponse({ metric, from, to, series });
