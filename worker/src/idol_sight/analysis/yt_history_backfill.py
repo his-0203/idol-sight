@@ -38,6 +38,7 @@ data-quality migrations.
 
 from __future__ import annotations
 
+from datetime import date as _date, timedelta
 from typing import Any, Protocol
 
 from idol_sight.collectors.base import CollectionResult
@@ -117,6 +118,34 @@ def backfill_yt_history(client: _Executor) -> CollectionResult:
         for cum_videos, (date, views) in enumerate(items, start=1):
             cum_views += views
             per_date[date] = (cum_videos, cum_views)
+
+        # Forward-fill across every calendar day from first publish to
+        # last. Without this, dates with no published_at have no row,
+        # and the DebutCurve chart sees gaps that span-gap-interpolation
+        # paints with non-monotonic curves whenever a different source
+        # (Wayback, SocialBlade) has a contemporaneously-correct-but-
+        # lower value at one of those gap dates. The forward-filled
+        # cumulative is monotonic by construction (max of carried
+        # value vs. that day's update), so even mixed with anchors from
+        # other sources the chart's max-wins picks a sensible value.
+        if per_date:
+            sorted_dates = sorted(per_date.keys())
+            try:
+                first_d = _date.fromisoformat(sorted_dates[0])
+                last_d  = _date.fromisoformat(sorted_dates[-1])
+            except ValueError:
+                first_d = last_d = None
+            if first_d and last_d and last_d >= first_d:
+                filled: dict[str, tuple[int, int]] = {}
+                last_val = per_date[sorted_dates[0]]
+                d = first_d
+                while d <= last_d:
+                    ds = d.isoformat()
+                    if ds in per_date:
+                        last_val = per_date[ds]
+                    filled[ds] = last_val
+                    d += timedelta(days=1)
+                per_date = filled
 
         for date, (videos, views) in per_date.items():
             snap = f"{date}T00:00:00Z"
