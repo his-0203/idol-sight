@@ -143,7 +143,11 @@ const ALERT_PLAYBOOK: Record<string, Playbook> = {
 // that violate the contract. The check is cheap heuristic, not a parser
 // — it errs on flagging too much rather than giving false comfort.
 const IPX_ANTI_PATTERN = /(전략적|강화\s*검토|검토\s*필요|면밀(?:히|한)|모색|관심을\s*가져|살펴보)/;
-const IPX_VERB_HEAD    = /^(?:[가-힣]+\s+)?(?:발행|발송|배포|등록|점검|호출|작성|차단|예약|모니터|보존|신고|결정|확인|할당|분리|호환|업로드|공지|고지|커뮤니케이션|협의|세팅|설정|롤아웃|롤백|푸시|논의|승인)/;
+// 한국어 SOV 특성상 verb-first 자체는 작위적 — 대신 본문 어디든 "실행
+// 가능한 행동 동사" 가 한 개라도 있으면 통과로 본다. anti-pattern 검사가
+// "관찰만 하고 행동이 없는" 케이스를 별도로 잡아주므로 두 검사가 서로
+// 보완.
+const IPX_ACTION_VERB  = /(발행|발송|배포|등록|점검|호출|작성|차단|예약|모니터링|보존|신고|결정|확인|할당|분리|업로드|공지|고지|커뮤니케이션|협의|세팅|설정|롤아웃|롤백|푸시|논의|승인|발표|제출|수정|업데이트|개시|시작|중단|정지)/;
 const IPX_DUE          = /(D[-+]\d+|이번\s*주|이번\s*달|오늘|내일|모레|\d+\s*(?:시간|분|일|주)|월요일|화요일|수요일|목요일|금요일|토요일|일요일|주말|즉시|당일|\+\d+h)/;
 const IPX_OWNER        = /(IPX|Abyss|어비스|PR\s*팀|콘텐츠\s*팀|운영\s*팀|법무|마케팅|BI|총괄|리드|CXO|에이전시|대행사)/;
 const IPX_MEASURABLE   = /(\d+(?:\.\d+)?\s*(?:%|×|배|건|회|명|만|천|MoM|WoW|p)|≥|≤|>=|<=)/;
@@ -158,7 +162,7 @@ type IpxScore = {
 function ipxFiveElements(body: string, title: string): IpxScore {
   const text = `${title}\n${body}`;
   const checks: Array<[string, boolean]> = [
-    ["동사 우선", IPX_VERB_HEAD.test(body) || IPX_VERB_HEAD.test(title)],
+    ["행동 동사", IPX_ACTION_VERB.test(text)],
     ["기한",     IPX_DUE.test(text)],
     ["담당",     IPX_OWNER.test(text)],
     ["측정",     IPX_MEASURABLE.test(text)],
@@ -840,7 +844,7 @@ function IpxActionGuard({ score }: { score: IpxScore }) {
             {score.antipattern
               ? "본문에 안티패턴 (\"전략적\"·\"검토 필요\"·\"면밀히 모니터링\") 포함. "
               : ""}
-            아래 5요소 중 빠진 항목을 채워 다시 작성: 동사 우선 / 담당자 / 기한 / 측정 가능한 목표 / 조건.
+            아래 5요소 중 빠진 항목을 채워 다시 작성: 행동 동사 / 담당자 / 기한 / 측정 가능한 목표 / 조건.
           </div>
           <div class="mt-1 rounded bg-zinc-950/40 px-2 py-1 font-mono text-[10.5px] text-zinc-300">
             예) "<span class="text-emerald-300">콘텐츠팀</span>이 <span class="text-emerald-300">D-21까지</span> <span class="text-emerald-300">티저 영상 1건 발행</span>, <span class="text-emerald-300">조회수 ≥ 5만</span> 미달 시 <span class="text-emerald-300">광고 boost 결정</span>"
