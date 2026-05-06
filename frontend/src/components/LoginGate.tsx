@@ -8,7 +8,7 @@ export function LoginGate() {
         <div class="mb-4 flex items-center gap-2">
           <span class="text-3xl">📊</span>
           <div>
-            <h2 class="text-lg font-bold">IDOL-SIGHT</h2>
+            <h2 class="text-lg font-bold">MiiWAN Orbit</h2>
             <p class="text-xs text-zinc-500">Internal access</p>
           </div>
         </div>

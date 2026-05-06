@@ -8,7 +8,6 @@ import { ExportMenu } from "../components/ExportMenu";
 import { ShareLink } from "../components/ShareLink";
 import { HealthSpec } from "../components/HealthSpec";
 import { DebutCurve } from "../components/DebutCurve";
-import { ExternalCohort } from "../components/ExternalCohort";
 import { colorOf, fillOf } from "../design/groups";
 import { gradeClasses } from "../design/grades";
 import { fmtScale, fmtTooltipCallback } from "../design/chart-defaults";
@@ -362,8 +361,6 @@ export function MarketOverview() {
       })()}
 
       <DebutCurve />
-
-      <ExternalCohort />
     </div>
   );
 }

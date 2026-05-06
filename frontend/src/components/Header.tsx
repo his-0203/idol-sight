@@ -1,8 +1,8 @@
 import { writeState, type RouterState } from "../router";
 
 // Market-scope tabs only. Group-scope tabs (그룹 상세/멤버/커뮤니티/PR·리스크)
-// live in <GroupContextBar /> beneath the header so the user always knows
-// "this section needs a group selected" vs "this is market-wide".
+// are entered via the MarketOverview group cards or the SearchPalette;
+// the group-context sub-bar has been removed.
 //
 // MiiWAN gets a dedicated GNB slot — IPX/Abyss build it together, so the
 // team needs an own-brand briefing view next to the cross-market tabs
@@ -26,7 +26,7 @@ export function Header({ state }: { state: RouterState }) {
           onClick={() => writeState({ tab: "market" })}
           title="홈 (시장 개요)"
         >
-          IDOL<span class="text-brand-fg">-SIGHT</span>
+          MiiWAN<span class="text-brand-fg"> Orbit</span>
         </button>
         <nav class="flex gap-1 overflow-x-auto text-data" aria-label="시장">
           {MARKET_TABS.map(([k, label]) => (
