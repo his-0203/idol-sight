@@ -78,6 +78,97 @@ type MiiwanData = {
 const CONTROVERSY_SPIKE_MULTIPLIER = 2.0;
 const CONTROVERSY_SPIKE_MIN_COUNT = 5;
 
+// Deterministic action playbook keyed by alert rule. Each step encodes
+// the V2.10 IPX action contract — verb-first / owner / due / measurable
+// or conditional — so the operator gets a concrete next move even when
+// the alert body is generic ("체크리스트를 점검하세요"). Note exists for
+// rules where Streisand or legal posture overrides "act fast" reflex.
+type PlaybookStep = {
+  verb: string;        // imperative action
+  owner?: string;      // accountable team/role
+  due?: string;        // time bound (D-N / 즉시 / 24h 내 / 조건부)
+  detail?: string;     // optional clarifying line
+};
+type Playbook = { steps: PlaybookStep[]; note?: string };
+
+const ALERT_PLAYBOOK: Record<string, Playbook> = {
+  debut_milestone: {
+    steps: [
+      { verb: "PR·SNS 카운트다운 슬롯 1차 콘텐츠 발행", owner: "콘텐츠팀", due: "D-25 까지" },
+      { verb: "미디어 보도자료 초안 IPX·Abyss 검토 의뢰",   owner: "PR팀",   due: "D-21 까지" },
+      { verb: "멤버 솔로 채널 5명 활성화 점검·시드",        owner: "운영팀",  due: "D-14 까지" },
+      { verb: "D-7 / D-1 자동 알림 트리거 사전 점검",      owner: "BI",     due: "이번 주" },
+    ],
+  },
+  controversy_spike: {
+    steps: [
+      { verb: "트리거 트윗·게시글 원문 보존 (스크린샷+URL)", owner: "PR팀",  due: "1시간 내" },
+      { verb: "naver / dc / theqoo cross-platform 확산 여부 확인", owner: "BI", due: "오늘 안" },
+      { verb: "대응 / 무대응 결정 — 기본은 무대응",         owner: "PR리드", due: "오늘 안",
+        detail: "Streisand 회피 우선. 공식 대응은 false positive 시 손해 큼." },
+      { verb: "24h 후 controversy_count 재측정 + 감쇄 판정", owner: "BI",    due: "내일" },
+    ],
+    note: "공식 대응은 Streisand 효과로 오히려 확산 가능. 인간 검증 필수.",
+  },
+  identity_leak: {
+    steps: [
+      { verb: "노출 키워드·URL 보존, 외부 공유·DM 금지",   owner: "PR팀",   due: "즉시" },
+      { verb: "IPX 법무·운영 라인에 통보",                 owner: "총괄",   due: "즉시" },
+      { verb: "원 출처 플랫폼 신고 (개인정보·명예훼손)",    owner: "법무",   due: "당일" },
+      { verb: "공식 채널 언급·인용·정정 자제 (지속)",      owner: "전 채널", due: "지속" },
+    ],
+    note: "본체 노출은 BI에 직접 저장 금지. 알림 본문조차 캡처·외부공유 X.",
+  },
+  model_theft: {
+    steps: [
+      { verb: "도용 콘텐츠 URL·스크린샷 보존",              owner: "운영팀",  due: "1시간 내" },
+      { verb: "원본 캐릭터 IP 권리 증빙 정리",              owner: "IPX 법무", due: "당일" },
+      { verb: "플랫폼 DMCA / 정책위반 신고 접수",           owner: "법무",    due: "24h 내" },
+      { verb: "확산 모니터 24h 지속 + 추가 발견 시 일괄 신고", owner: "BI",     due: "+24h" },
+    ],
+  },
+  video_velocity_24h: {
+    steps: [
+      { verb: "썸네일·제목 A/B 후보 1세트 준비",            owner: "콘텐츠팀", due: "오늘" },
+      { verb: "공식 SNS·커뮤니티 임베드 push",              owner: "마케팅팀", due: "12h 내" },
+      { verb: "후속 영상·숏츠 슬롯 1건 일정 확정",          owner: "콘텐츠팀", due: "이번 주" },
+      { verb: "광고 boost 검토 — viral_velocity ≥ 3× WoW 시", owner: "마케팅팀", due: "조건부" },
+    ],
+  },
+};
+
+// V2.10 IPX action contract: verb-first / due / owner / measurable /
+// conditional. We re-check on the client because past LLM cycles emit
+// stale anti-pattern bodies ("전략적 검토 필요", "면밀히 모니터링")
+// that violate the contract. The check is cheap heuristic, not a parser
+// — it errs on flagging too much rather than giving false comfort.
+const IPX_ANTI_PATTERN = /(전략적|강화\s*검토|검토\s*필요|면밀(?:히|한)|모색|관심을\s*가져|살펴보)/;
+const IPX_VERB_HEAD    = /^(?:[가-힣]+\s+)?(?:발행|발송|배포|등록|점검|호출|작성|차단|예약|모니터|보존|신고|결정|확인|할당|분리|호환|업로드|공지|고지|커뮤니케이션|협의|세팅|설정|롤아웃|롤백|푸시|논의|승인)/;
+const IPX_DUE          = /(D[-+]\d+|이번\s*주|이번\s*달|오늘|내일|모레|\d+\s*(?:시간|분|일|주)|월요일|화요일|수요일|목요일|금요일|토요일|일요일|주말|즉시|당일|\+\d+h)/;
+const IPX_OWNER        = /(IPX|Abyss|어비스|PR\s*팀|콘텐츠\s*팀|운영\s*팀|법무|마케팅|BI|총괄|리드|CXO|에이전시|대행사)/;
+const IPX_MEASURABLE   = /(\d+(?:\.\d+)?\s*(?:%|×|배|건|회|명|만|천|MoM|WoW|p)|≥|≤|>=|<=)/;
+const IPX_CONDITIONAL  = /(시\b|면\b|일\s*때|초과|이상|이하|미만|넘으면|이면|부터|까지)/;
+
+type IpxScore = {
+  passed: string[];
+  missing: string[];
+  antipattern: boolean;
+};
+
+function ipxFiveElements(body: string, title: string): IpxScore {
+  const text = `${title}\n${body}`;
+  const checks: Array<[string, boolean]> = [
+    ["동사 우선", IPX_VERB_HEAD.test(body) || IPX_VERB_HEAD.test(title)],
+    ["기한",     IPX_DUE.test(text)],
+    ["담당",     IPX_OWNER.test(text)],
+    ["측정",     IPX_MEASURABLE.test(text)],
+    ["조건",     IPX_CONDITIONAL.test(text)],
+  ];
+  const passed  = checks.filter(([, v]) => v).map(([k]) => k);
+  const missing = checks.filter(([, v]) => !v).map(([k]) => k);
+  return { passed, missing, antipattern: IPX_ANTI_PATTERN.test(text) };
+}
+
 // Strategic one-liner that summarizes "what phase is MiiWAN in and
 // what posture should the operator take today". Built from days-to-
 // debut + alerts severity + Health grade — i.e. signals that already
@@ -544,14 +635,18 @@ export function MiiWANBriefing() {
                   IPX 액션 권고 ({props.ipxActions.length})
                 </h3>
                 <ul class="space-y-2">
-                  {props.ipxActions.map((i) => (
-                    <li key={i.id}
-                        class="rounded border-l-2 border-amber-500 bg-zinc-900/40 p-2.5 text-sm">
-                      <div class="font-semibold">{i.title}</div>
-                      <div class="mt-1 text-xs text-zinc-400">{i.body}</div>
-                      <SourceRef refs={i.source_refs ?? []} />
-                    </li>
-                  ))}
+                  {props.ipxActions.map((i) => {
+                    const score = ipxFiveElements(i.body ?? "", i.title ?? "");
+                    return (
+                      <li key={i.id}
+                          class="rounded border-l-2 border-amber-500 bg-zinc-900/40 p-2.5 text-sm">
+                        <div class="font-semibold">{i.title}</div>
+                        <div class="mt-1 text-xs text-zinc-400">{i.body}</div>
+                        <IpxActionGuard score={score} />
+                        <SourceRef refs={i.source_refs ?? []} />
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             )}
@@ -574,6 +669,7 @@ export function MiiWANBriefing() {
                         </span>
                       </div>
                       <div class="mt-1 text-xs text-zinc-400">{a.body}</div>
+                      <AlertPlaybook rule={a.rule} />
                     </li>
                   ))}
                 </ul>
@@ -651,6 +747,7 @@ export function MiiWANBriefing() {
                   </span>
                 </div>
                 <div class="mt-1 text-sm text-zinc-300">{a.body}</div>
+                <AlertPlaybook rule={a.rule} />
               </li>
             ))}
           </ul>
@@ -658,6 +755,100 @@ export function MiiWANBriefing() {
       </section>
     );
   }
+}
+
+// Renders the deterministic 4-step playbook for a given alert rule. Sits
+// directly under the alert body so the operator doesn't have to context-
+// switch to a wiki to know "what do I actually do." If the rule isn't
+// in ALERT_PLAYBOOK we render nothing — fail soft, never block.
+function AlertPlaybook({ rule }: { rule: string }) {
+  const pb = ALERT_PLAYBOOK[rule];
+  if (!pb) return null;
+  return (
+    <div class="mt-2 rounded border border-zinc-800 bg-zinc-950/60 p-2.5">
+      <div class="mb-1.5 flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-400">
+        <span>권장 동선</span>
+        <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] text-zinc-500">
+          verb · owner · due
+        </span>
+      </div>
+      <ol class="space-y-1.5 text-xs text-zinc-300">
+        {pb.steps.map((s, i) => (
+          <li key={i} class="flex flex-wrap items-baseline gap-1.5">
+            <span class="rounded-full bg-zinc-800 px-1.5 py-[1px] text-[10px] tabular-nums text-zinc-400">
+              {i + 1}
+            </span>
+            <span class="font-medium text-zinc-200">{s.verb}</span>
+            {s.owner && (
+              <span class="rounded bg-indigo-500/15 px-1.5 py-[1px] text-[10px] text-indigo-200">
+                {s.owner}
+              </span>
+            )}
+            {s.due && (
+              <span class="rounded bg-amber-500/15 px-1.5 py-[1px] text-[10px] tabular-nums text-amber-200">
+                {s.due}
+              </span>
+            )}
+            {s.detail && (
+              <span class="basis-full pl-6 text-[11px] text-zinc-500">{s.detail}</span>
+            )}
+          </li>
+        ))}
+      </ol>
+      {pb.note && (
+        <div class="mt-2 rounded border-l-2 border-amber-500/60 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-200">
+          ※ {pb.note}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Renders V2.10 5-element score next to an LLM-generated IPX action.
+// passed elements show as zinc chips, missing as amber chips, and an
+// anti-pattern hit (e.g. "전략적", "검토 필요") downgrades the whole
+// item with a "구체화 필요" banner. Operator can still read the body —
+// we don't hide stale insights, just flag them so they're not acted on
+// as if they were concrete.
+function IpxActionGuard({ score }: { score: IpxScore }) {
+  const total = score.passed.length + score.missing.length;
+  const ratio = score.passed.length / total;
+  const weak = score.antipattern || ratio < 0.6;
+  return (
+    <div class="mt-2 space-y-1.5">
+      <div class="flex flex-wrap items-center gap-1">
+        <span class="text-[10px] uppercase tracking-wider text-zinc-500">
+          5요소 점검
+        </span>
+        {score.passed.map((k) => (
+          <span key={`p-${k}`}
+                class="rounded bg-emerald-500/10 px-1.5 py-[1px] text-[10px] text-emerald-300">
+            ✓ {k}
+          </span>
+        ))}
+        {score.missing.map((k) => (
+          <span key={`m-${k}`}
+                class="rounded bg-amber-500/10 px-1.5 py-[1px] text-[10px] text-amber-300">
+            · {k}
+          </span>
+        ))}
+      </div>
+      {weak && (
+        <div class="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-200">
+          <div class="font-semibold">구체화 필요 — 그대로 실행하지 말 것</div>
+          <div class="mt-0.5 text-amber-100/80">
+            {score.antipattern
+              ? "본문에 안티패턴 (\"전략적\"·\"검토 필요\"·\"면밀히 모니터링\") 포함. "
+              : ""}
+            아래 5요소 중 빠진 항목을 채워 다시 작성: 동사 우선 / 담당자 / 기한 / 측정 가능한 목표 / 조건.
+          </div>
+          <div class="mt-1 rounded bg-zinc-950/40 px-2 py-1 font-mono text-[10.5px] text-zinc-300">
+            예) "<span class="text-emerald-300">콘텐츠팀</span>이 <span class="text-emerald-300">D-21까지</span> <span class="text-emerald-300">티저 영상 1건 발행</span>, <span class="text-emerald-300">조회수 ≥ 5만</span> 미달 시 <span class="text-emerald-300">광고 boost 결정</span>"
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 type GroupEvent = {
