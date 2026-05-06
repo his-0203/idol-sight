@@ -171,6 +171,27 @@ function EstBadge({ source }: { source: string | null | undefined }) {
   );
 }
 
+// In backfill rows we INSERTed 0 as placeholder for community/twitter
+// metrics that weren't researched. Rendering those as "0" in benchmark
+// cells reads as "actually zero" and confuses operators. For backfill
+// rows specifically, treat 0 on these columns as "no data" → "—".
+const PLACEHOLDER_ZERO_KEYS = new Set([
+  "dc_total_posts", "theqoo_posts", "instiz_posts",
+  "twitter_posts", "controversy_count",
+]);
+
+function fmtBench(
+  v: number | null | undefined,
+  source: string | null | undefined,
+  key: string,
+): string {
+  if (v == null) return "—";
+  if (source && source !== "live" && PLACEHOLDER_ZERO_KEYS.has(key) && v === 0) {
+    return "—";
+  }
+  return fmt(v);
+}
+
 export function MiiWANBriefing() {
   const [data, setData] = useState<MiiwanData | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -344,7 +365,7 @@ export function MiiWANBriefing() {
         {data.benchmarks.length === 0 || !data.summary ? (
           <EmptyState
             title="벤치마크 비교 데이터 부족"
-            hint="비교 그룹의 과거 스냅샷이 누적되면 자동으로 채워집니다 (backfill-yt-history 실행 후)."
+            hint="비교 그룹의 D-30 부근 스냅샷이 누적되면 자동으로 채워집니다. 이미 백필된 그룹은 셀별 'est' 배지로 추정값임을 표시."
             icon="📐"
           />
         ) : (
@@ -385,13 +406,16 @@ export function MiiWANBriefing() {
                         {fmt(mine)}
                       </td>
                       {data.benchmarks.map((b) => {
-                        const v = b.summary?.[k as keyof SummaryShape];
-                        const ratio = v != null ? relativeRatio(mine, v) : "—";
+                        const key = k as string;
+                        const raw = b.summary?.[key as keyof SummaryShape];
+                        const display = fmtBench(raw as number | null | undefined, b.data_source, key);
+                        const isMissing = display === "—";
+                        const ratio = !isMissing && raw != null ? relativeRatio(mine, raw as number) : "—";
                         const positive = ratio.startsWith("+");
                         return (
                           <td key={b.group_key} class="px-3 py-2 text-right">
                             <div class="text-zinc-300">
-                              {v != null ? fmt(v) : "—"}
+                              {display}
                               <EstBadge source={b.data_source} />
                             </div>
                             <div class={"text-hint " +

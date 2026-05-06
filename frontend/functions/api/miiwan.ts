@@ -23,18 +23,17 @@ import { jsonResponse } from "../lib/jsonResponse";
 
 const TARGET = "miiwan";
 
-// Benchmark cohort = K-POP corporate newcomer groups debuted in the
-// 2025-2026 window (same generation as MiiWAN). ISEDOL/STELLIVE
-// dropped — different group_model (segmentary/confederation 서브컬처)
-// and different KPI weighting structure, so a flat D-30 comparison
-// against them implies an apples-to-apples relationship that doesn't
-// hold. PLAVE also dropped because it debuted 2023-03 and our
-// historical backfill for that pre-collection era only covers
-// yt_total_videos / yt_total_views — comparing 'D-30 subscribers vs
-// PLAVE D-30 subscribers' would silently use NULL on the PLAVE side.
-// SKINZ/MY:RAKL/OWIS/B:DAWN are all in the live-collection era so
-// every metric is available.
-const BENCHMARK_GROUPS = ["skinz", "myrakl", "owis", "bdawn"] as const;
+// Benchmark cohort = K-POP corporate newcomer groups (corporate
+// model). ISEDOL/STELLIVE dropped — different group_model
+// (segmentary/confederation 서브컬처) and different KPI weighting
+// structure, so a flat D-30 comparison against them implies an
+// apples-to-apples relationship that doesn't hold.
+//
+// PLAVE re-added (2026-05) — historical backfill via Wayback Machine
+// (migrations 0018 + 0020) now covers yt_subscribers / yt_total_videos
+// / yt_total_views around its 2023-03 debut window, so D-30 is no
+// longer silently NULL on the PLAVE side.
+const BENCHMARK_GROUPS = ["plave", "skinz", "myrakl", "owis", "bdawn"] as const;
 
 interface GroupRow {
   key: string; name: string; name_kr: string;
@@ -189,14 +188,21 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       [gk],
     );
     if (!g || !g.debut_date) continue;
-    // Last agg_summary snapshot whose date is on or before debut_date.
-    // We use date(snapshot_at) so timezone offset doesn't slide rows out.
+    // Closest agg_summary snapshot to D-30 within [debut-60d, debut].
+    // Sparse backfill data: pick the row with the most BI-relevant
+    // signal first (non-NULL yt_subscribers), then break ties by
+    // proximity to D-30. Falls back to "any pre-debut row" if nothing
+    // in the D-60 window has subscriber data.
     const row = await d1QueryOne<SummaryRow>(
       env.DB,
       `SELECT * FROM agg_summary
         WHERE group_key=? AND date(snapshot_at) <= date(?)
-        ORDER BY snapshot_at DESC LIMIT 1`,
-      [gk, g.debut_date],
+        ORDER BY
+          (yt_subscribers IS NULL) ASC,
+          ABS(julianday(date(snapshot_at)) - julianday(date(?, '-30 days'))) ASC,
+          snapshot_at DESC
+        LIMIT 1`,
+      [gk, g.debut_date, g.debut_date],
     );
     benchmarks.push({
       group_key: gk,
