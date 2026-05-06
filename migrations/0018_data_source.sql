@@ -125,19 +125,454 @@ ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   data_source = excluded.data_source;
 
 -- ============================================================
--- MYRAKL backfill: NO DATA RECOVERED
--- debut 2026-01-26, window 2025-07-30 ~ 2026-04-26
--- Wayback Machine: 0 snapshots of youtube.com/@myrakl_official in window
--- Naver News: BLOCKED (403 from scraper IP)
--- Channel too new to have Wayback coverage. No INSERT generated.
--- See scripts/historical_backfill/SOURCES.md for details.
+-- STEALTH PASS: Scrapling StealthyFetcher (Playwright/Chromium)
+-- Naver News: unblocked via stealth mode — weekly counts for all 4 groups
+-- Social Blade: free tier = last 14 days only (historical data behind paywall)
+-- Run: uv run scripts/historical_backfill/scrape.py --group X --stealth
 -- ============================================================
 
 -- ============================================================
--- OWIS backfill: NO DATA RECOVERED
--- debut 2026-03-23, window 2025-09-24 ~ 2026-05-06
--- Wayback Machine: 0 snapshots of youtube.com/@OWISofficial in window
--- Naver News: BLOCKED (403 from scraper IP)
--- Channel too new to have Wayback coverage. No INSERT generated.
--- See scripts/historical_backfill/SOURCES.md for details.
+-- PLAVE backfill via scrape.py (Wayback + Naver stealth + Social Blade)
+-- debut 2023-03-12, window 2022-09-13 ~ 2023-06-10
+-- yt_subscribers rows: 9 (Wayback Machine + Social Blade free tier)
+-- naver_total_news rows with >0: 12 (StealthyFetcher/Playwright)
+-- See scripts/historical_backfill/SOURCES.md for per-row provenance.
 -- ============================================================
+INSERT INTO agg_summary
+  (group_key, snapshot_at,
+   yt_total_videos, yt_total_views, yt_subscribers,
+   dc_total_posts, theqoo_posts, instiz_posts,
+   naver_total_news, twitter_posts, controversy_count, data_source)
+VALUES
+  ('plave', '2022-09-19T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-09-26T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-10-03T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-10-10T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-10-17T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-10-24T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-10-31T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-11-02T00:00:00Z', NULL, NULL, 1010,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-11-07T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-11-09T00:00:00Z', NULL, NULL, 1010,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-11-14T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-11-21T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-11-28T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-12-05T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-12-12T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-12-19T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-12-26T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-01-02T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-01-09T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-01-16T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-01-23T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-01-30T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-02-06T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-02-13T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-02-20T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-02-27T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 10, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-06T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-13T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 16, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-20T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-25T00:00:00Z', NULL, NULL, 91300,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-27T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 50, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-29T00:00:00Z', NULL, NULL, 134000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-30T00:00:00Z', NULL, NULL, 138000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-04-03T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-04-10T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 2, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-04-15T00:00:00Z', NULL, NULL, 206000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-04-17T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-04-20T00:00:00Z', NULL, NULL, 213000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-04-24T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-01T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-05T00:00:00Z', NULL, NULL, 243000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-08T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-15T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-18T00:00:00Z', NULL, NULL, 263000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-22T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 2, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-29T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 4, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-06-05T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate')
+ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
+  yt_subscribers   = COALESCE(excluded.yt_subscribers, agg_summary.yt_subscribers),
+  naver_total_news = CASE
+    WHEN agg_summary.naver_total_news = 0 THEN excluded.naver_total_news
+    ELSE agg_summary.naver_total_news
+  END,
+  data_source = excluded.data_source;
+
+-- ============================================================
+-- SKINZ backfill via scrape.py (Wayback + Naver stealth + Social Blade)
+-- debut 2025-04-10, window 2024-10-12 ~ 2025-07-09
+-- yt_subscribers rows: 2 (Wayback Machine + Social Blade free tier)
+-- naver_total_news rows with >0: 7 (StealthyFetcher/Playwright)
+-- See scripts/historical_backfill/SOURCES.md for per-row provenance.
+-- ============================================================
+INSERT INTO agg_summary
+  (group_key, snapshot_at,
+   yt_total_videos, yt_total_views, yt_subscribers,
+   dc_total_posts, theqoo_posts, instiz_posts,
+   naver_total_news, twitter_posts, controversy_count, data_source)
+VALUES
+  ('skinz', '2024-10-14T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-10-21T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-10-28T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-11-04T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-11-11T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-11-18T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-11-25T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-12-02T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-12-09T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-12-16T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-12-23T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 50, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-12-27T00:00:00Z', NULL, NULL, 1340,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2024-12-30T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-01-06T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-01-13T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-01-20T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-01-27T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-02-03T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-02-10T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-02-17T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-02-24T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-03-03T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-03-10T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1001, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-03-17T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-03-24T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1001, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-03-31T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-04-07T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-04-14T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-04-21T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-04-28T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-05-05T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-05-12T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-05-19T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 5, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-05-26T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-06-02T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-06-09T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-06-16T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-06-23T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-06-30T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-07-07T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1001, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-07-08T00:00:00Z', NULL, NULL, 61300,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate')
+ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
+  yt_subscribers   = COALESCE(excluded.yt_subscribers, agg_summary.yt_subscribers),
+  naver_total_news = CASE
+    WHEN agg_summary.naver_total_news = 0 THEN excluded.naver_total_news
+    ELSE agg_summary.naver_total_news
+  END,
+  data_source = excluded.data_source;
+
+-- ============================================================
+-- MYRAKL backfill via scrape.py (Wayback + Naver stealth + Social Blade)
+-- debut 2026-01-26, window 2025-07-30 ~ 2026-04-26
+-- yt_subscribers rows: 4 (Wayback Machine + Social Blade free tier)
+-- naver_total_news rows with >0: 0 (StealthyFetcher/Playwright)
+-- See scripts/historical_backfill/SOURCES.md for per-row provenance.
+-- ============================================================
+INSERT INTO agg_summary
+  (group_key, snapshot_at,
+   yt_total_videos, yt_total_views, yt_subscribers,
+   dc_total_posts, theqoo_posts, instiz_posts,
+   naver_total_news, twitter_posts, controversy_count, data_source)
+VALUES
+  ('myrakl', '2025-08-04T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-08-11T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-08-18T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-08-25T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-09-01T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-09-08T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-09-15T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-09-22T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-09-29T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-10-06T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-10-13T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-10-20T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-10-27T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-11-03T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-11-10T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-11-17T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-11-24T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-12-01T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-12-08T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-12-15T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-12-22T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2025-12-29T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-01-05T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-01-12T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-01-19T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-01-26T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-02-02T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-02-09T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-02-16T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-02-23T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-03-02T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-03-09T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-03-16T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-03-23T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-03-30T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-04-06T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-04-13T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-04-20T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-04-23T00:00:00Z', NULL, NULL, 5430,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-04-24T00:00:00Z', NULL, NULL, 5430,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-04-25T00:00:00Z', NULL, NULL, 5440,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('myrakl', '2026-04-26T00:00:00Z', NULL, NULL, 5430,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate')
+ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
+  yt_subscribers   = COALESCE(excluded.yt_subscribers, agg_summary.yt_subscribers),
+  naver_total_news = CASE
+    WHEN agg_summary.naver_total_news = 0 THEN excluded.naver_total_news
+    ELSE agg_summary.naver_total_news
+  END,
+  data_source = excluded.data_source;
+
+-- ============================================================
+-- OWIS backfill via scrape.py (Wayback + Naver stealth + Social Blade)
+-- debut 2026-03-23, window 2025-09-24 ~ 2026-05-06
+-- yt_subscribers rows: 14 (Wayback Machine + Social Blade free tier)
+-- naver_total_news rows with >0: 6 (StealthyFetcher/Playwright)
+-- Social Blade handle: owis_official (OWISofficial = 404 on SB)
+-- See scripts/historical_backfill/SOURCES.md for per-row provenance.
+-- ============================================================
+INSERT INTO agg_summary
+  (group_key, snapshot_at,
+   yt_total_videos, yt_total_views, yt_subscribers,
+   dc_total_posts, theqoo_posts, instiz_posts,
+   naver_total_news, twitter_posts, controversy_count, data_source)
+VALUES
+  ('owis', '2025-09-29T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-10-06T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-10-13T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-10-20T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-10-27T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-11-03T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-11-10T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-11-17T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-11-24T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-12-01T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-12-08T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-12-15T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-12-22T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2025-12-29T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-01-05T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 16, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-01-12T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 50, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-01-19T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-01-26T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-02-02T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-02-09T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-02-16T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-02-23T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 1001, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-03-02T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-03-09T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-03-16T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-03-23T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-03-30T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-06T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-13T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 4, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-20T00:00:00Z', NULL, NULL, NULL,
+   0, 0, 0, 8, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-23T00:00:00Z', NULL, NULL, 65099,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-24T00:00:00Z', NULL, NULL, 65200,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-25T00:00:00Z', NULL, NULL, 66400,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-26T00:00:00Z', NULL, NULL, 66200,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-27T00:00:00Z', NULL, NULL, 66100,
+   0, 0, 0, 1, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-28T00:00:00Z', NULL, NULL, 66000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-29T00:00:00Z', NULL, NULL, 66100,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-04-30T00:00:00Z', NULL, NULL, 66100,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-05-01T00:00:00Z', NULL, NULL, 66200,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-05-02T00:00:00Z', NULL, NULL, 66300,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-05-03T00:00:00Z', NULL, NULL, 66600,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-05-04T00:00:00Z', NULL, NULL, 66900,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-05-05T00:00:00Z', NULL, NULL, 67100,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('owis', '2026-05-06T00:00:00Z', NULL, NULL, 67300,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate')
+ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
+  yt_subscribers   = COALESCE(excluded.yt_subscribers, agg_summary.yt_subscribers),
+  naver_total_news = CASE
+    WHEN agg_summary.naver_total_news = 0 THEN excluded.naver_total_news
+    ELSE agg_summary.naver_total_news
+  END,
+  data_source = excluded.data_source;
+
+-- ============================================================
+-- Fix PLAVE 2023-04-25 monotonicity violation
+-- Wikipedia "100K celebration" 2023-04-25 was a public announcement of
+-- having SURPASSED 100K some weeks prior, not a real point-in-time count.
+-- Wayback Machine proves 134,000 subscribers by 2023-03-29.
+-- The wiki value is NULL'd to preserve curve integrity.
+-- See scripts/historical_backfill/SOURCES.md §PLAVE for full analysis.
+-- ============================================================
+UPDATE agg_summary
+   SET yt_subscribers = NULL
+ WHERE group_key = 'plave'
+   AND snapshot_at = '2023-04-25T00:00:00Z';

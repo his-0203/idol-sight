@@ -4,6 +4,7 @@
 # dependencies = [
 #     "requests>=2.32",
 #     "beautifulsoup4>=4.12",
+#     "scrapling[all]>=0.4",
 # ]
 # ///
 """
@@ -12,11 +13,24 @@ Historical backfill scraper for IDOL-SIGHT.
 Usage:
     uv run scripts/historical_backfill/scrape.py --group plave
     uv run scripts/historical_backfill/scrape.py --group plave --dry-run
+    uv run scripts/historical_backfill/scrape.py --group plave --stealth
     uv run scripts/historical_backfill/scrape.py --emit-sql plave
 
 Sources tried (in priority order):
     1. Wayback Machine CDX API + snapshot fetch  (high success for older groups)
-    2. Naver News search (BLOCKED from this IP — 403 on all requests)
+    2. Naver News via StealthyFetcher (Playwright) — unblocked with stealth
+    3. Social Blade via StealthyFetcher — free tier = last ~14 days only
+
+Naver News strategy:
+    StealthyFetcher fetches search.naver.com with headless Chromium.
+    Naver's Fender framework renders up to 10 articles per SSR page.
+    We probe start=1, 11, 21, ... to find total article count.
+    Binary search between last known good start and next probe for precision.
+
+Social Blade strategy:
+    Free tier only exposes last 14 days of daily subscriber data.
+    Historical data (for debut windows) is behind login/paywall.
+    Only rows within a group's debut window are emitted.
 
 Anti-fabrication: every row written must trace to a real HTTP response.
 Missing values are written as empty CSV cells — never interpolated.
@@ -31,6 +45,7 @@ import time
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote_plus
 
 import requests
 
@@ -74,6 +89,7 @@ GROUPS: dict[str, dict] = {
         "window_end": "2026-05-06",
         "yt_handle": "@OWISofficial",
         "yt_channel_id": None,
+        "sb_handle": "owis_official",  # Social Blade uses different handle (OWISofficial = 404)
         "naver_query": '"오위스" OR "OWIS"',
         "display_name": "OWIS",
     },
@@ -237,6 +253,324 @@ def find_nearest_monday(d: date) -> date:
 
 
 # ---------------------------------------------------------------------------
+# Stealth scraping helpers (Scrapling + Playwright)
+# ---------------------------------------------------------------------------
+
+def normalize_subs_sb(s: Optional[str]) -> Optional[int]:
+    """
+    Convert Social Blade subscriber display value to integer.
+    E.g. '1.15M' → 1150000, '67.3K' → 67300, '5.51K' → 5510.
+    """
+    if not s or s.strip() in ('--', '', '?', 'N/A'):
+        return None
+    s = s.strip().lower().replace(',', '')
+    try:
+        if 'k' in s:
+            return round(float(s.replace('k', '')) * 1_000)
+        elif 'm' in s:
+            return round(float(s.replace('m', '')) * 1_000_000)
+        elif 'b' in s:
+            return round(float(s.replace('b', '')) * 1_000_000_000)
+        else:
+            return int(float(s))
+    except ValueError:
+        return None
+
+
+def socialblade_history_stealth(handle: str) -> list[tuple[str, int]]:
+    """
+    Fetch daily subscriber data from Social Blade via StealthyFetcher.
+
+    Returns list of (date_str, subscriber_count) tuples for dates within
+    Social Blade's free-tier data window (last ~14 days).
+
+    Social Blade free tier limitation: only last 14 days of daily data.
+    Historical data (needed for debut windows) is behind paywall.
+    This function returns whatever is available — callers filter by window.
+    """
+    from scrapling.fetchers import StealthyFetcher
+    from bs4 import BeautifulSoup
+
+    url = f"https://socialblade.com/youtube/handle/{handle}"
+    print(f"  [SB] Fetching: {url}", flush=True)
+    try:
+        page = StealthyFetcher.fetch(url, headless=True, network_idle=True)
+        if page.status not in (200,):
+            print(f"  [SB] HTTP {page.status} — skipping", file=sys.stderr)
+            return []
+        soup = BeautifulSoup(page.html_content, 'html.parser')
+        tables = soup.find_all('table')
+        if not tables:
+            print(f"  [SB] No table found — page may require login", file=sys.stderr)
+            return []
+
+        rows = tables[0].find_all('tr')
+        data: list[tuple[str, int]] = []
+        for row in rows[1:]:  # skip header
+            cells = row.find_all('td')
+            if not cells:
+                continue
+            date_text = cells[0].get_text(strip=True)
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', date_text)
+            if not date_match:
+                continue
+            date_str = date_match.group(1)
+            # cells[1] = daily change, cells[2] = total subscribers
+            total_raw = cells[2].get_text(strip=True) if len(cells) > 2 else ''
+            count = normalize_subs_sb(total_raw)
+            if count is not None:
+                data.append((date_str, count))
+        print(f"  [SB] Got {len(data)} rows ({data[0][0] if data else 'none'} to {data[-1][0] if data else 'none'})")
+        return data
+    except Exception as e:
+        print(f"  [SB] ERROR: {type(e).__name__}: {e}", file=sys.stderr)
+        return []
+
+
+def _naver_query_encode(query: str) -> str:
+    """
+    Encode a Naver search query for URL use.
+
+    Naver's Fender framework expects:
+    - Quoted phrases: "word" → %22word%22
+    - Boolean OR: use pipe | encoded as %7C (NOT the word OR)
+    - The word OR in the query string causes Fender to return "no results"
+
+    Input may contain ' OR ' separators — these are converted to pipe.
+    """
+    # Replace ' OR ' with pipe character, then URL-encode the whole thing
+    query_normalized = query.replace(' OR ', '|')
+    return quote_plus(query_normalized)
+
+
+def naver_news_count_stealth_with_browser(bpage, query: str, ds: str, de: str) -> Optional[int]:
+    """
+    Count Naver news articles using a pre-opened Playwright page.
+
+    Called from scrape_group_stealth which manages the browser lifecycle.
+    Reusing the same page across calls avoids repeated browser launch overhead.
+
+    query: raw search string (e.g. '"플레이브" OR "PLAVE"')
+    ds: start date 'YYYY.MM.DD'
+    de: end date 'YYYY.MM.DD'
+
+    Returns article count estimate. Accuracy:
+    - 0: confirmed zero results (Fender shows "검색결과가 없습니다")
+    - 1-10: exact (Fender SSR renders all articles on first page)
+    - 11+: exact to ±10 (binary search narrows to nearest 10-article page boundary)
+    - 1001+: capped at 1001 (probed up to start=1001 without finding empty)
+    """
+    query_enc = _naver_query_encode(query)
+
+    def fetch_html(start: int) -> str:
+        url = (
+            "https://search.naver.com/search.naver"
+            f"?where=news&query={query_enc}&sort=1&pd=3"
+            f"&ds={ds}&de={de}&start={start}"
+        )
+        bpage.goto(url)
+        bpage.wait_for_load_state('networkidle')
+        return bpage.content()
+
+    def count_articles(html: str) -> int:
+        """Count SSR-rendered articles by Fender class marker."""
+        return html.count('Daw8Xs3TT8ELqac9gpFp')
+
+    def is_empty(html: str) -> bool:
+        """True if Naver returned no results for this start offset."""
+        return '검색결과가 없습니다' in html
+
+    html1 = fetch_html(1)
+    if is_empty(html1):
+        return 0
+    page1_count = count_articles(html1)
+    if page1_count == 0:
+        # Fender returned content but rendered 0 articles — treat as 0
+        return 0
+
+    # Fast-path: if page1 rendered fewer than 10, total ≤ 10
+    if page1_count < 10:
+        return page1_count
+
+    # Exponential probe to find upper bound
+    probes = [11, 21, 51, 101, 201, 501, 1001]
+    last_good_start = 1
+    for probe_start in probes:
+        html = fetch_html(probe_start)
+        if is_empty(html):
+            # Total < probe_start. Binary-search between last_good and probe_start.
+            lo, hi = last_good_start, probe_start
+            while hi - lo > 10:
+                mid = lo + ((hi - lo) // 10) * 10
+                if mid == lo:
+                    break
+                html_mid = fetch_html(mid)
+                if is_empty(html_mid):
+                    hi = mid
+                else:
+                    lo = mid
+            # lo is the last start where we got results; count its articles
+            last_page_html = fetch_html(lo)
+            return lo + count_articles(last_page_html) - 1
+        last_good_start = probe_start
+
+    # Reached start=1001 with results — over 1001 articles
+    return 1001
+
+
+def naver_news_count_stealth(query: str, ds: str, de: str) -> Optional[int]:
+    """
+    Standalone wrapper for naver_news_count_stealth_with_browser.
+    Opens its own browser context — use only for one-off calls / smoke tests.
+    For batch calls, use scrape_group_stealth which reuses the browser.
+    """
+    from playwright.sync_api import sync_playwright
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+            ctx = browser.new_context(viewport={'width': 1280, 'height': 900})
+            bpage = ctx.new_page()
+            result = naver_news_count_stealth_with_browser(bpage, query, ds, de)
+            browser.close()
+            return result
+    except Exception as e:
+        print(f"  [Naver] ERROR: {type(e).__name__}: {e}", file=sys.stderr)
+        return None
+
+
+def scrape_group_stealth(group_key: str, dry_run: bool = False) -> list[dict]:
+    """
+    Scrape historical data for one group using stealth fetchers.
+    Extends the data from existing CSV (if present) with:
+    - Naver News article counts (via StealthyFetcher + Playwright)
+    - Social Blade subscriber data (free tier: last ~14 days)
+
+    Returns merged list of Row dicts.
+    """
+    cfg = GROUPS[group_key]
+    # Social Blade handle may differ from YouTube handle
+    handle = cfg.get("sb_handle") or cfg["yt_handle"].lstrip('@')
+    window_start = cfg["window_start"]
+    window_end = cfg["window_end"]
+    naver_query = cfg["naver_query"]
+
+    print(f"\n{'='*60}")
+    print(f"[STEALTH] Scraping {cfg['display_name']}")
+    print(f"  Handle: {cfg['yt_handle']}")
+    print(f"  Window: {window_start} ~ {window_end}")
+    print(f"{'='*60}")
+
+    # Load existing CSV rows (may have Wayback subs data)
+    csv_path = SCRIPT_DIR / f"{group_key}.csv"
+    existing: dict[str, dict] = {}
+    if csv_path.exists():
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                existing[row["snapshot_date"]] = row
+
+    # --- Source 1: Social Blade (subscriber snapshots, last ~14 days) ---
+    print(f"\n[A] Social Blade subscriber data for @{handle}...")
+    sb_data = socialblade_history_stealth(handle)
+    sb_in_window = [
+        (d, c) for d, c in sb_data
+        if window_start <= d <= window_end
+    ]
+    print(f"    Total SB rows: {len(sb_data)}, in-window: {len(sb_in_window)}")
+
+    for date_str, count in sb_in_window:
+        if date_str not in existing or not existing[date_str].get("yt_subscribers"):
+            sb_url = f"https://socialblade.com/youtube/handle/{handle}"
+            existing.setdefault(date_str, {
+                "snapshot_date": date_str,
+                "yt_subscribers": "",
+                "naver_total_news": "",
+                "subs_source": "",
+                "news_source": "",
+            })
+            existing[date_str]["yt_subscribers"] = count
+            existing[date_str]["subs_source"] = sb_url
+
+    # --- Source 2: Naver News (weekly counts for all Mondays in window) ---
+    print(f"\n[B] Naver News counts for '{naver_query}'...")
+    mondays = mondays_in_range(window_start, window_end)
+    print(f"    {len(mondays)} Mondays in window")
+    naver_total = 0
+    naver_errors = 0
+
+    from playwright.sync_api import sync_playwright
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+            ctx = browser.new_context(viewport={'width': 1280, 'height': 900})
+            bpage = ctx.new_page()
+
+            for monday in mondays:
+                date_str = monday.isoformat()
+                sunday = monday + timedelta(days=6)
+                ds = monday.strftime("%Y.%m.%d")
+                de = sunday.strftime("%Y.%m.%d")
+
+                # Skip if we already have news data for this date
+                row = existing.get(date_str, {})
+                if row.get("naver_total_news") not in ("", None):
+                    print(f"  {date_str}: already has news ({row['naver_total_news']}), skip")
+                    continue
+
+                print(f"  {date_str} ({ds}~{de})...", end=" ", flush=True)
+                try:
+                    count = naver_news_count_stealth_with_browser(bpage, naver_query, ds, de)
+                except Exception as e:
+                    print(f"ERROR ({type(e).__name__})")
+                    naver_errors += 1
+                    # Try to recover: close and reopen page
+                    try:
+                        bpage.close()
+                        bpage = ctx.new_page()
+                    except Exception:
+                        pass
+                    continue
+
+                if count is None:
+                    print("→ None (error)")
+                    naver_errors += 1
+                    continue
+                print(f"→ {count}")
+                naver_total += 1
+
+                naver_url = (
+                    "https://search.naver.com/search.naver"
+                    f"?where=news&query={_naver_query_encode(naver_query)}"
+                    f"&sort=1&pd=3&ds={ds}&de={de}"
+                )
+                existing.setdefault(date_str, {
+                    "snapshot_date": date_str,
+                    "yt_subscribers": "",
+                    "naver_total_news": "",
+                    "subs_source": "",
+                    "news_source": "",
+                })
+                existing[date_str]["naver_total_news"] = count
+                existing[date_str]["news_source"] = naver_url
+
+                time.sleep(1.5)  # Polite delay between Naver requests
+
+            browser.close()
+    except Exception as e:
+        print(f"\n  [Naver] Browser-level error: {type(e).__name__}: {e}", file=sys.stderr)
+
+    print(f"\n  Naver: {naver_total} new counts retrieved, {naver_errors} errors")
+
+    rows = sorted(existing.values(), key=lambda r: r["snapshot_date"])
+    print(f"\nTotal rows for {group_key}: {len(rows)}")
+    non_empty_subs = sum(1 for r in rows if r.get("yt_subscribers") not in ("", None))
+    non_empty_news = sum(1 for r in rows if r.get("naver_total_news") not in ("", None, "0", 0))
+    print(f"  Rows with yt_subscribers: {non_empty_subs}")
+    print(f"  Rows with naver_total_news (>0): {non_empty_news}")
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Main scraping logic
 # ---------------------------------------------------------------------------
 
@@ -368,11 +702,13 @@ def emit_sql(group_key: str) -> None:
         print(f"-- WARNING: no data rows for {group_key} — no INSERT generated", file=sys.stderr)
         return
 
+    news_rows = sum(1 for r in data_rows if int(r.get("naver_total_news") or 0) > 0)
+    subs_rows = sum(1 for r in data_rows if r.get("yt_subscribers"))
     print(f"-- ============================================================")
-    print(f"-- {group_key.upper()} backfill via scrape.py")
+    print(f"-- {group_key.upper()} backfill via scrape.py (Wayback + Naver stealth + Social Blade)")
     print(f"-- debut {cfg['debut_date']}, window {cfg['window_start']} ~ {cfg['window_end']}")
-    print(f"-- Source: Wayback Machine snapshots of youtube.com/{cfg['yt_handle']}")
-    print(f"-- Naver News: BLOCKED (403 from scraper IP) — naver_total_news=0 for all rows")
+    print(f"-- yt_subscribers rows: {subs_rows} (Wayback Machine + Social Blade free tier)")
+    print(f"-- naver_total_news rows with >0: {news_rows} (StealthyFetcher/Playwright)")
     print(f"-- See scripts/historical_backfill/SOURCES.md for per-row provenance.")
     print(f"-- ============================================================")
     print(f"INSERT INTO agg_summary")
@@ -421,13 +757,18 @@ def main() -> None:
 
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview results without writing CSV")
+    parser.add_argument("--stealth", action="store_true",
+                        help="Use StealthyFetcher (Playwright) for Naver News + Social Blade")
 
     args = parser.parse_args()
 
     if args.emit_sql:
         emit_sql(args.emit_sql)
     elif args.group:
-        rows = scrape_group(args.group, dry_run=args.dry_run)
+        if args.stealth:
+            rows = scrape_group_stealth(args.group, dry_run=args.dry_run)
+        else:
+            rows = scrape_group(args.group, dry_run=args.dry_run)
         if args.dry_run:
             print("\n[DRY RUN] Would write:")
             for r in rows:
