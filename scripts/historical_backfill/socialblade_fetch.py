@@ -108,15 +108,21 @@ def fetch_daily(handle: str, client_id: str, token: str,
     return data
 
 
-def filter_window(daily: list[dict[str, Any]], debut_str: str) -> list[dict[str, Any]]:
-    """Slice daily array to [debut-180, debut+90].
+def normalize_daily(daily: list[dict[str, Any]],
+                    debut_str: str | None = None,
+                    apply_window: bool = False) -> list[dict[str, Any]]:
+    """Normalize SB daily array to {date,subs,views}, sorted ASC.
 
-    Sometimes the upstream `date` field is "YYYY-MM-DDT..." (ISO datetime)
-    or just "YYYY-MM-DD" — we coerce by slicing to first 10 chars.
+    apply_window=True clips to [debut-180, debut+90] (the original
+    backfill spec window). Default False keeps all rows since most
+    of our credit-burn returned data outside that window but still
+    valuable as recent live anchors.
     """
-    debut = date.fromisoformat(debut_str)
-    lo = debut - timedelta(days=WINDOW_BEFORE_DAYS)
-    hi = debut + timedelta(days=WINDOW_AFTER_DAYS)
+    lo = hi = None
+    if apply_window and debut_str:
+        debut = date.fromisoformat(debut_str)
+        lo = debut - timedelta(days=WINDOW_BEFORE_DAYS)
+        hi = debut + timedelta(days=WINDOW_AFTER_DAYS)
     out: list[dict[str, Any]] = []
     for entry in daily:
         date_str = str(entry.get("date") or "")[:10]
@@ -126,12 +132,13 @@ def filter_window(daily: list[dict[str, Any]], debut_str: str) -> list[dict[str,
             d = date.fromisoformat(date_str)
         except ValueError:
             continue
-        if lo <= d <= hi:
-            out.append({
-                "date": d.isoformat(),
-                "subs": int(entry.get("subs") or 0),
-                "views": int(entry.get("views") or 0),
-            })
+        if lo and hi and not (lo <= d <= hi):
+            continue
+        out.append({
+            "date": d.isoformat(),
+            "subs": int(entry.get("subs") or 0),
+            "views": int(entry.get("views") or 0),
+        })
     out.sort(key=lambda r: r["date"])
     return out
 
@@ -219,8 +226,14 @@ def run_smoke(group_key: str, client_id: str, token: str,
         "daily_last": daily[-1] if daily else None,
     }, indent=2, default=str), file=sys.stderr)
     if daily:
-        win = filter_window(daily, g["debut"])
-        print(f"[smoke {group_key}] window [{g['debut']} ±{WINDOW_BEFORE_DAYS}/-{WINDOW_AFTER_DAYS}]: {len(win)} rows",
+        all_rows = normalize_daily(daily, g["debut"], apply_window=False)
+        win_rows = normalize_daily(daily, g["debut"], apply_window=True)
+        # Always persist what we got — credit was paid, data is real.
+        write_csv(g["key"], all_rows)
+        print(f"[smoke {group_key}] all={len(all_rows)} window={len(win_rows)} "
+              f"(window=[debut-{WINDOW_BEFORE_DAYS}, debut+{WINDOW_AFTER_DAYS}])",
+              file=sys.stderr)
+        print(f"[smoke {group_key}] CSV saved → {OUT_DIR / (group_key + '_socialblade.csv')}",
               file=sys.stderr)
 
 
@@ -243,13 +256,16 @@ def run_full(client_id: str, token: str,
             continue
 
         daily = data.get("daily") or []
-        win = filter_window(daily, g["debut"])
-        print(f"[{g['key']}] {len(daily)} total daily, {len(win)} in window",
+        all_rows = normalize_daily(daily, g["debut"], apply_window=False)
+        win_rows = normalize_daily(daily, g["debut"], apply_window=True)
+        # Persist all retrieved rows. The window is informational —
+        # rows outside it (e.g. current state at D+400) are still
+        # valid live anchors that complement the live collector.
+        print(f"[{g['key']}] all={len(all_rows)} window={len(win_rows)}",
               file=sys.stderr)
-
-        write_csv(g["key"], win)
-        sql_blocks.append(emit_sql_block(g["key"], win))
-        summary.append((g["key"], "OK", len(win)))
+        write_csv(g["key"], all_rows)
+        sql_blocks.append(emit_sql_block(g["key"], all_rows))
+        summary.append((g["key"], "OK", len(all_rows)))
 
     # Write migration file
     MIGRATION_PATH.parent.mkdir(parents=True, exist_ok=True)
