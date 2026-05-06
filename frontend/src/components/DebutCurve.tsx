@@ -490,7 +490,10 @@ export function DebutCurve() {
                   maxTicksLimit: 16,
                   autoSkip: true,
                 },
-                stacked: true,
+                // dodge(grouped) 막대 — 사용자 피드백 "막대 보기 불편"에 대한
+                // 응답. weekly-bar는 cumulative-line의 fallback(spike 비교용)이라
+                // 그룹 간 변별력이 본질. stacked는 한 주의 총합만 보여 변별력 약함.
+                stacked: false,
               }
             : {
                 type: "linear",
@@ -513,7 +516,7 @@ export function DebutCurve() {
                 : (METRIC_OPTIONS.find((m) => m.key === metric)?.label ?? metric),
             },
             ticks: { callback: (v) => fmtScale(v as number) },
-            stacked: isBarMetric,
+            stacked: false,
             beginAtZero: isBarMetric || isNewsLineMetric,
           },
         },
