@@ -17,7 +17,12 @@ jobs:
         group:  [plave, isedol, stellive, skinz, myrakl, miiwan, owis, bdawn, wegosix]
         source: [channel-stats, youtube]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 15 → 20 min: ISEDOL/STELLIVE youtube collector가 멤버 솔로 채널까지
+    # 합산하느라 GitHub runner peak 시간대(KST 21~23시)에 15분 hit 발생.
+    # 2026-05-05 사건: 5개 그룹이 cancelled (timeout) → health-check이
+    # 24h 후 false-positive 알람 발사. 20분이면 worst-case ISEDOL
+    # 멤버 6채널 + STELLIVE 10채널도 여유.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3

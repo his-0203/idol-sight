@@ -1,11 +1,11 @@
 name: health-check
-# Twice daily at KST 09:30 / 21:30 (UTC 00:30 / 12:30) — between
-# collect-6h (:15) and alerts (:45). 24×/day was wasteful: the
-# audit only fires Discord pings when something is genuinely stale,
-# and stale collectors stay stale across hours.
+# Twice daily at KST 10:00 / 22:00 (UTC 01:00 / 13:00) — collect-daily가
+# KST 21:30(UTC 12:30)에 시작해 평균 5~10분 + GitHub Actions peak 지연
+# 최대 ~30분이라 안전하게 +30~40분 offset. 그 전엔 collect-daily가 진행
+# 중이라 audit이 false-positive 알람 발사 (2026-05-05 사건).
 on:
   schedule:
-    - cron: '30 0,12 * * *'
+    - cron: '0 1,13 * * *'
   workflow_dispatch:
 
 jobs:
