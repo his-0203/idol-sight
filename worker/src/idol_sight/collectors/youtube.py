@@ -1,21 +1,38 @@
 """YouTube Data API v3 collector. NOT a Scrapling collector.
 
-Per-group pipeline:
-  1. search.list?channelId=<id>&order=date -> recent video IDs (run once
-     for the group channel and once per active member solo channel)
-  2. videos.list?id=<csv> -> metadata + statistics for the merged ID set
-  3. Emit youtube_videos INSERT (idempotent on video_id) +
-     youtube_video_stats INSERT (composite PK on snapshot_at).
+Two modes:
 
-All resulting rows are stamped with the same group_key, so member solo
-videos roll up into the group totals downstream (agg_summary,
-member_popularity). The actual ``channel_id`` of each video is preserved
-on ``youtube_videos.channel_id``, so we can still split solo vs group
-contribution later.
+**Recent mode (default, used by daily cron)**
+  1. search.list?channelId=<id>&order=date&maxResults=50
+     → up to 50 most recent video IDs per channel
+  2. videos.list?id=<csv> → metadata + stats for that batch
+  Quota: ~101 units per channel.
 
-Quota cost: ~101 units per channel (search=100, videos=1). For ISEDOL
-(6 members + 1 group channel) that's ~707 units per run; well within the
-10K daily quota when scheduled at 6h cadence.
+**Full-history mode (one-shot via `idol-sight backfill-yt-videos`)**
+  1. channels.list?id=<id>&part=contentDetails
+     → contentDetails.relatedPlaylists.uploads (the "uploads" playlist
+       which YouTube auto-maintains with every video the channel ever
+       posted, oldest to newest)
+  2. playlistItems.list?playlistId=<uploads_pl>&maxResults=50&pageToken=…
+     → paginate through ALL video IDs in the channel's history
+  3. videos.list?id=<csv> for stats (batches of 50)
+  Quota: 1 unit per channels.list + 1 per playlistItems.list + 1 per
+  videos.list batch. PLAVE 1575 vids ≈ 32 playlistItems pages + 32
+  videos batches = ~65 units (vs search.list pagination which would be
+  100 × 32 = 3200).
+
+Both modes:
+  - Emit youtube_videos INSERT (idempotent on video_id) +
+    youtube_video_stats INSERT (composite PK on snapshot_at).
+  - All resulting rows are stamped with the same group_key, so member
+    solo videos roll up into the group totals downstream (agg_summary,
+    member_popularity). The actual ``channel_id`` of each video is
+    preserved on ``youtube_videos.channel_id``.
+
+Full-history mode is a one-time backfill — once run, subsequent recent-
+mode runs only top up new videos (idempotent INSERTs). After backfill,
+``yt_total_videos`` (count) and the synthesized cumulative-views series
+in agg_summary become accurate over the channel's full lifetime.
 """
 
 from __future__ import annotations
@@ -36,6 +53,11 @@ log = logging.getLogger(__name__)
 API = "https://www.googleapis.com/youtube/v3"
 SEARCH_LIST_MAX = 50         # max maxResults for search.list
 VIDEOS_LIST_MAX = 50         # max ids for videos.list
+PLAYLIST_ITEMS_MAX = 50      # max maxResults for playlistItems.list
+# Hard cap on pagination depth — guards against accidental quota burn
+# if a future channel has tens of thousands of videos. 200 pages ×
+# 50 = 10K videos, easily covers any K-pop or VTuber channel today.
+FULL_HISTORY_MAX_PAGES = 200
 
 
 def _classify_content_type(snippet: dict, duration_sec: int) -> tuple[str, bool]:
@@ -105,7 +127,105 @@ class YouTubeCollector:
         # which keeps unit tests and one-off invocations simple.
         self._members_loader = members_loader or (lambda _: [])
 
-    def collect(self, group: GroupConfig, since: str | None = None) -> CollectionResult:
+    def _fetch_recent(self, client: Any, channel_ids: list[str]) -> list[str]:
+        """search.list per channel — fast, capped at 50 latest videos.
+
+        Default daily-cron path. Cheap-but-shallow; covers MVs/teasers/
+        community uploads from the last few weeks for typical k-pop
+        cadence.
+        """
+        ids: list[str] = []
+        for ch_id in channel_ids:
+            r = client.get(
+                f"{API}/search",
+                params={
+                    "key": self._key,
+                    "channelId": ch_id,
+                    "order": "date",
+                    "maxResults": SEARCH_LIST_MAX,
+                    "type": "video",
+                    "part": "id",
+                },
+            )
+            r.raise_for_status()
+            ids.extend(
+                item["id"]["videoId"]
+                for item in r.json().get("items", [])
+                if item.get("id", {}).get("videoId")
+            )
+        # Dedupe while preserving order — collabs can appear under
+        # multiple channels' search results.
+        return list(dict.fromkeys(ids))
+
+    def _fetch_all_uploads(self, client: Any, channel_ids: list[str]) -> list[str]:
+        """Walk the channel's uploads playlist for FULL video history.
+
+        For each channel:
+          1. channels.list?id=…&part=contentDetails returns
+             contentDetails.relatedPlaylists.uploads — a YouTube-managed
+             playlist that contains every public video the channel ever
+             posted, ordered newest-first.
+          2. playlistItems.list?playlistId=…&maxResults=50&pageToken=…
+             paginates through every video in that playlist (1 quota
+             unit per page vs search.list's 100).
+
+        Capped at FULL_HISTORY_MAX_PAGES per channel as a quota guard.
+        """
+        ids: list[str] = []
+        for ch_id in channel_ids:
+            uploads_pl = self._lookup_uploads_playlist(client, ch_id)
+            if not uploads_pl:
+                log.warning("no uploads playlist for channel_id=%s", ch_id)
+                continue
+            page_token: str | None = None
+            for _ in range(FULL_HISTORY_MAX_PAGES):
+                params: dict[str, Any] = {
+                    "key": self._key,
+                    "playlistId": uploads_pl,
+                    "maxResults": PLAYLIST_ITEMS_MAX,
+                    "part": "contentDetails",
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                r = client.get(f"{API}/playlistItems", params=params)
+                r.raise_for_status()
+                payload = r.json()
+                for item in payload.get("items", []):
+                    vid = (item.get("contentDetails") or {}).get("videoId")
+                    if vid:
+                        ids.append(vid)
+                page_token = payload.get("nextPageToken")
+                if not page_token:
+                    break
+        return list(dict.fromkeys(ids))
+
+    def _lookup_uploads_playlist(self, client: Any, channel_id: str) -> str | None:
+        """Resolve a channel's uploads playlist id (1 quota unit)."""
+        r = client.get(
+            f"{API}/channels",
+            params={
+                "key": self._key,
+                "id": channel_id,
+                "part": "contentDetails",
+            },
+        )
+        r.raise_for_status()
+        items = r.json().get("items", [])
+        if not items:
+            return None
+        cd = items[0].get("contentDetails") or {}
+        rp = cd.get("relatedPlaylists") or {}
+        return rp.get("uploads")
+
+    def collect(self, group: GroupConfig, since: str | None = None,
+                full_history: bool = False) -> CollectionResult:
+        """Collect recent (default) or full-history videos for the group.
+
+        ``full_history=True`` paginates the channel's "uploads" playlist
+        and walks every video the channel ever posted. Use sparingly
+        (one-shot via the ``backfill-yt-videos`` CLI command); daily
+        cron should leave it False.
+        """
         if not group.yt_channel_id:
             return CollectionResult(0, 0, errors=[f"{group.key}: no yt_channel_id"])
 
@@ -121,29 +241,10 @@ class YouTubeCollector:
 
         started = perf_counter()
         with self._http_factory() as client:
-            # 1) search.list — one call per channel, ID lists are merged.
-            ids: list[str] = []
-            for ch_id in channel_ids:
-                r = client.get(
-                    f"{API}/search",
-                    params={
-                        "key": self._key,
-                        "channelId": ch_id,
-                        "order": "date",
-                        "maxResults": SEARCH_LIST_MAX,
-                        "type": "video",
-                        "part": "id",
-                    },
-                )
-                r.raise_for_status()
-                ids.extend(
-                    item["id"]["videoId"]
-                    for item in r.json().get("items", [])
-                    if item.get("id", {}).get("videoId")
-                )
-            # Dedupe while preserving order — collabs can appear under
-            # multiple channels' search results.
-            ids = list(dict.fromkeys(ids))
+            if full_history:
+                ids = self._fetch_all_uploads(client, channel_ids)
+            else:
+                ids = self._fetch_recent(client, channel_ids)
             if not ids:
                 return CollectionResult(0, 0, runtime_ms=int((perf_counter() - started) * 1000))
 

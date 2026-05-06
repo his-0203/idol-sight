@@ -250,6 +250,65 @@ def health_check() -> None:
 
 
 @app.command(
+    "backfill-yt-videos",
+    help="One-shot full-history walk of every active group's YouTube "
+         "channel(s). Uses playlistItems.list paginated against the "
+         "channel's uploads playlist (1 quota unit per page) to reach "
+         "every video the channel ever posted, not just the latest 50. "
+         "Run once per major group set or after schema changes; "
+         "subsequent daily collect runs only top up new uploads.",
+)
+def backfill_yt_videos_cmd() -> None:
+    from idol_sight.collectors.youtube import YouTubeCollector
+
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    api_key = settings.yt_api_key
+    if not api_key:
+        typer.echo("YT_API_KEY not set", err=True)
+        raise typer.Exit(code=2)
+
+    def _members(group_key: str) -> list[dict[str, Any]]:
+        rows = client.execute(
+            "SELECT yt_channel_id FROM members "
+            " WHERE group_key=? AND yt_channel_id IS NOT NULL "
+            "   AND COALESCE(active, 1) = 1",
+            [group_key],
+        )
+        return [{"yt_channel_id": r["yt_channel_id"]} for r in rows]
+
+    coll = YouTubeCollector(api_key, members_loader=_members)
+    total_videos = 0
+    total_groups = 0
+    errors: list[str] = []
+    for group_key in KNOWN_GROUPS:
+        grp = _load_group(client, group_key)
+        if not grp.yt_channel_id:
+            continue
+        try:
+            result = coll.collect(grp, full_history=True)
+        except Exception as exc:
+            errors.append(f"{group_key}: {exc}")
+            typer.echo(f"[{group_key}] FAIL: {exc}", err=True)
+            continue
+        if result.statements:
+            client.batch(result.statements)
+        total_videos += result.rows_inserted
+        total_groups += 1
+        typer.echo(
+            f"[{group_key}] {result.rows_inserted} videos walked "
+            f"({result.runtime_ms} ms)"
+        )
+    typer.echo(
+        f"backfill-yt-videos: {total_groups} groups, "
+        f"{total_videos} total videos written"
+    )
+    if errors:
+        typer.echo(f"errors: {errors}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command(
     "backfill-yt-history",
     help="Synthesize historical agg_summary rows from youtube_videos for "
          "every active group. Idempotent — real collector snapshots always "
