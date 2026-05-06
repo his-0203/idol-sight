@@ -67,9 +67,18 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
       ORDER BY g.key, s.snapshot_at ASC`,
     [from, to]);
 
-  // Group by group_key, then bucket by integer day offset. We keep
-  // the LAST snapshot per (group, day) so multi-snapshot days don't
-  // pile up as duplicate points.
+  // Group by group_key, then bucket by integer day offset. For each
+  // (group, day) we keep the MAX value across snapshots, not the
+  // chronologically-latest. Reason: cumulative metrics (subscribers,
+  // total_views, total_videos, news count) only grow over time, so
+  // the larger of two same-day rows is the trustworthier signal. This
+  // matters when backfill_estimate rows (e.g. Social Blade
+  // channel-level totals, tens of millions for PLAVE) coexist with
+  // live collector rows that SUM only the indexed-video subset (which
+  // underestimates by 10-100× when the worker hasn't paginated the
+  // full channel history). The earlier latest-wins rule produced
+  // visible "drops" near the current date for groups where we have
+  // rich backfill but partial live data.
   const byGroup: Record<string, {
     name: string; debut_date: string; group_model: string;
     points: Map<number, { value: number; source: string }>;
@@ -87,7 +96,11 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
       group_model: r.group_model ?? "corporate",
       points: new Map<number, { value: number; source: string }>(),
     };
-    slot.points.set(offset, { value: Number(r.value), source: r.source });
+    const v = Number(r.value);
+    const existing = slot.points.get(offset);
+    if (!existing || v > existing.value) {
+      slot.points.set(offset, { value: v, source: r.source });
+    }
     byGroup[r.group_key] = slot;
   }
 
