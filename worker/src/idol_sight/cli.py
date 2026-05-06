@@ -88,6 +88,23 @@ def _make_collector(source: str, *, d1: D1Client | None = None):
             )
 
         return cls(api_key=settings.yt_api_key, members_loader=members_loader)
+    if cls is NaverCollector:
+        # Naver fans out across the group anchor + per-member queries
+        # (V2.6 multi-query expansion — see _search_terms.py for the
+        # expansion rules). The loader returns name + name_en for every
+        # active member; the collector decides which subset to actually
+        # search based on the length gate. Without this loader the
+        # collector falls back to the single-fetch legacy behaviour.
+        client = d1 or _make_d1_client(settings)
+
+        def naver_members_loader(group_key: str) -> list[dict]:
+            return client.execute(
+                "SELECT name, name_en FROM members "
+                "WHERE group_key=? AND active=1",
+                [group_key],
+            )
+
+        return cls(members_loader=naver_members_loader)
     return cls()
 
 
