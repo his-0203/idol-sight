@@ -51,6 +51,7 @@ interface SummaryRow {
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
   dc_total_posts: number; theqoo_posts: number; instiz_posts: number;
   naver_total_news: number; twitter_posts: number; controversy_count: number;
+  data_source: string;
 }
 
 interface HealthRow {
@@ -177,6 +178,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const benchmarks: Array<{
     group_key: string; name: string; debut_date: string | null;
     snapshot_at: string | null;
+    data_source: string | null;
     summary: Omit<SummaryRow, "group_key" | "snapshot_at"> | null;
   }> = [];
 
@@ -201,6 +203,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       name: g.name,
       debut_date: g.debut_date,
       snapshot_at: row?.snapshot_at ?? null,
+      data_source: row?.data_source ?? null,
       summary: row ? {
         yt_total_videos: row.yt_total_videos,
         yt_total_views: row.yt_total_views,
@@ -211,6 +214,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         naver_total_news: row.naver_total_news,
         twitter_posts: row.twitter_posts,
         controversy_count: row.controversy_count,
+        data_source: row.data_source,
       } : null,
     });
   }
