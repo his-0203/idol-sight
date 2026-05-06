@@ -474,6 +474,7 @@ def analyze_weekly(
     from idol_sight.analysis.health_score import (
         compute_dynamic_refs,
         compute_health_score,
+        compute_live_metrics,
     )
     cohort_rows = client.execute(
         "SELECT group_key, yt_subscribers, yt_total_views, "
@@ -512,6 +513,14 @@ def analyze_weekly(
     )
     hanteo_by_key = {r["group_key"]: (r.get("sales") or 0) for r in hanteo_rows}
 
+    # Merge hanteo into cohort dicts so live-metrics detection sees the
+    # hanteo column too. Without this the "hanteo" key would always look
+    # dead and ritual / mobilization would lose it even when it has
+    # signal for at least one group.
+    for c in cohort:
+        c["hanteo_sales"] = hanteo_by_key.get(c["key"], 0)
+    live_metrics = compute_live_metrics(cohort) if cohort else None
+
     health_stmts: list = []
     for g in _load_active_groups_full(client):
         s = cohort_by_key.get(g["key"])
@@ -545,6 +554,7 @@ def analyze_weekly(
         score = compute_health_score(
             g["key"], agg_dict, g.get("debut_date"),
             refs=dyn_refs, group_model=g.get("group_model"),
+            live_metrics=live_metrics,
         )
         health_stmts.append((
             "INSERT INTO agg_health_scores"

@@ -179,10 +179,16 @@ export function DebutCurve() {
     }
     const xs = [...allDays].sort((a, b) => a - b);
 
+    // naver_total_news 는 시계열 신호라기보다 "어느 시기에 얼마나
+    // 기사가 나갔는가" 의 빈도 분포에 가까움 → bar 차트가 의미 전달이
+    // 더 깔끔. 다른 메트릭(구독자/조회수/영상수)은 누적·연속 신호라
+    // line 유지. chart-level type 도 같이 분기.
+    const isBarMetric = metric === "naver_total_news";
+
     const datasets: any[] = visibleSeries.map((s) => {
       const map = new Map(s.points.map((p) => [p.day_offset, p]));
       const isMiiwan = s.group_key === "miiwan";
-      return {
+      const base = {
         label: s.name,
         data: xs.map((d) => {
           const p = map.get(d);
@@ -191,6 +197,23 @@ export function DebutCurve() {
             : { x: d, y: null, source: 'live' as const };
         }),
         borderColor: colorOf(s.group_key),
+      } as any;
+      if (isBarMetric) {
+        return {
+          ...base,
+          // Bar 차트: 막대 fill 자체에 그룹 색을 60% opacity 로 입혀
+          // 여러 그룹이 같은 x에서 겹쳐도 색 구분 가능. MiiWAN 만
+          // 더 진하게.
+          backgroundColor: fillOf(s.group_key, isMiiwan ? 0.85 : 0.60),
+          borderColor: colorOf(s.group_key),
+          borderWidth: isMiiwan ? 1.5 : 1,
+          borderRadius: 2,
+          // 막대 폭은 자동 (linear x-axis 기준 1일 단위) — 범위 토글로
+          // 줌 가능. 여러 그룹은 같은 x에 overlap (dodge 안 함).
+        };
+      }
+      return {
+        ...base,
         backgroundColor: fillOf(s.group_key, 0.1),
         borderWidth: isMiiwan ? 3 : 2,
         // Hovering anywhere on the chart bumps every line's stroke
@@ -282,7 +305,7 @@ export function DebutCurve() {
     }
 
     chart.current = new Chart(canvas.current, {
-      type: "line",
+      type: isBarMetric ? "bar" : "line",
       data: { datasets },
       options: {
         parsing: false as any,  // we feed {x, y} objects directly
@@ -404,6 +427,7 @@ export function DebutCurve() {
         <span class="ml-2 text-zinc-500">범위</span>
         {([
           [-30, 30],  [-60, 90],  [-60, 180],  [-60, 365],
+          [-180, 365], [-180, 1095],
         ] as const).map(([f, t]) => (
           <button
             key={`${f}_${t}`}

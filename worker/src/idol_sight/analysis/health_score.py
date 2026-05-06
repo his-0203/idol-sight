@@ -137,6 +137,18 @@ DEFAULT_GROUP_MODEL = "corporate"
 FACTOR_BONUS_MAX = 10
 FACTOR_DENOM = 100 + FACTOR_BONUS_MAX  # = 110
 
+# Sparse-collector defense: when a metric column has zero signal across
+# the entire cohort (typically because its collector is offline — e.g.
+# dc/theqoo/instiz scrapers paused since V2.11), it gets dropped from the
+# Health Score formula entirely. Otherwise every group eats a 0/REF
+# normalization on that axis and intimacy / community factors collapse —
+# the heaviest-weighted bands hit segmentary (40) and confederation (55)
+# the worst. Dropping the dead metric and renormalizing the remaining
+# weights inside the same factor keeps the score interpretable.
+_ALL_METRICS = frozenset({
+    "subscribers", "views", "news", "quality", "community", "hanteo",
+})
+
 
 @dataclass
 class HealthScore:
@@ -187,6 +199,57 @@ def _percentile(values: list[float], pct: float) -> float:
     hi = min(lo + 1, len(s) - 1)
     frac = k - lo
     return float(s[lo] + (s[hi] - s[lo]) * frac)
+
+
+def compute_live_metrics(cohort: list[dict[str, Any]]) -> set[str]:
+    """Return the set of metric keys with at least one non-zero signal
+    across the cohort. Metrics absent from the set are dropped from the
+    factor formulas and their weight redistributes to remaining live
+    signals in the same factor (see _wmean / _factor_inputs).
+
+    Truth table:
+      "subscribers" - any g.yt_subscribers > 0
+      "views"       - any g.yt_total_views > 0
+      "news"        - any g.naver_total_news > 0
+      "quality"     - any _engagement_rate(g) > 0
+      "community"   - any (dc + theqoo + instiz) > 0
+      "hanteo"      - any g.hanteo_sales > 0
+    """
+    live: set[str] = set()
+    if any(float(g.get("yt_subscribers", 0) or 0) > 0 for g in cohort):
+        live.add("subscribers")
+    if any(float(g.get("yt_total_views", 0) or 0) > 0 for g in cohort):
+        live.add("views")
+    if any(float(g.get("naver_total_news", 0) or 0) > 0 for g in cohort):
+        live.add("news")
+    if any(_engagement_rate(g) > 0 for g in cohort):
+        live.add("quality")
+    if any(
+        (float(g.get("dc_total_posts", 0) or 0)
+         + float(g.get("theqoo_posts", 0) or 0)
+         + float(g.get("instiz_posts", 0) or 0)) > 0
+        for g in cohort
+    ):
+        live.add("community")
+    if any(float(g.get("hanteo_sales", 0) or 0) > 0 for g in cohort):
+        live.add("hanteo")
+    return live
+
+
+def _wmean(parts: list[tuple[float, float, bool]]) -> float:
+    """Weighted mean over parts marked alive=True. Skips dead parts in
+    BOTH numerator and denominator so the surviving weights renormalize
+    naturally. Returns 0 when nothing is alive.
+
+    Each part is (value, weight, alive).
+    """
+    live = [(v, w) for v, w, alive in parts if alive]
+    if not live:
+        return 0.0
+    total_w = sum(w for _, w in live)
+    if total_w <= 0:
+        return 0.0
+    return sum(v * w for v, w in live) / total_w
 
 
 def compute_dynamic_refs(cohort: list[dict[str, Any]]) -> dict[str, float]:
@@ -264,11 +327,19 @@ def _recent_bonus(v90: int, v30: int) -> tuple[float, dict]:
 
 def _factor_inputs(
     agg: dict[str, Any], r: dict[str, float],
+    live_metrics: set[str] | frozenset[str] | None = None,
 ) -> dict[str, float]:
     """Compute the [0, 1] saturated value for each 4-factor component
     BEFORE multiplying by the group-model weight. Returns a dict keyed
     on factor name. Each factor blends 1-3 normalized signals.
+
+    ``live_metrics`` lists the metric keys that have signal across the
+    cohort. Dead metrics drop out of the weighted mean and the surviving
+    weights renormalize. Default = treat every metric as alive (the
+    legacy behavior, preserved for callers that don't pass cohort
+    awareness — e.g. unit tests).
     """
+    L = live_metrics if live_metrics is not None else _ALL_METRICS
     sub_n = _normalize(agg.get("yt_subscribers", 0), r["subscribers"])
     view_n = _normalize(agg.get("yt_total_views", 0), r["views"])
     news_n = _normalize(agg.get("naver_total_news", 0), r["news"])
@@ -293,18 +364,32 @@ def _factor_inputs(
 
     return {
         # Reach — raw audience size: subscribers, views, news exposure.
-        "reach": (sub_n * 0.5 + view_n * 0.35 + news_n * 0.15),
+        "reach": _wmean([
+            (sub_n,  0.50, "subscribers" in L),
+            (view_n, 0.35, "views"       in L),
+            (news_n, 0.15, "news"        in L),
+        ]),
         # RitualVictory — initial-album mobilization (Hanteo) + news
         # spike that often correlates with chart entries. We don't have
         # explicit "음방 1위" signal yet — that's a future P0.
-        "ritual": (hanteo_n * 0.7 + news_n * 0.3),
+        "ritual": _wmean([
+            (hanteo_n, 0.70, "hanteo" in L),
+            (news_n,   0.30, "news"   in L),
+        ]),
         # Mobilization — recent video cadence (proxy for active output)
         # + raw views (fans showing up). v90/v30 counts get folded into
         # the bonus, so here we use views and an album signal.
-        "mobilization": (view_n * 0.5 + hanteo_n * 0.35 + sub_n * 0.15),
+        "mobilization": _wmean([
+            (view_n,   0.50, "views"       in L),
+            (hanteo_n, 0.35, "hanteo"      in L),
+            (sub_n,    0.15, "subscribers" in L),
+        ]),
         # Intimacy — engagement rate + community activity, compressed by
         # negative sentiment ratio.
-        "intimacy": ((eng_n * 0.55 + comm_n * 0.45) * intimacy_compression),
+        "intimacy": _wmean([
+            (eng_n,  0.55, "quality"   in L),
+            (comm_n, 0.45, "community" in L),
+        ]) * intimacy_compression,
     }
 
 
@@ -315,6 +400,7 @@ def compute_health_score(
     *,
     refs: dict[str, float] | None = None,
     group_model: str | None = None,
+    live_metrics: set[str] | frozenset[str] | None = None,
 ) -> HealthScore:
     if _is_pre_debut(debut_date):
         return HealthScore(
@@ -324,36 +410,44 @@ def compute_health_score(
         )
 
     r = {**DEFAULT_REFS, **(refs or {})}
+    L: set[str] | frozenset[str] = (
+        live_metrics if live_metrics is not None else _ALL_METRICS
+    )
     model = group_model if group_model in FACTOR_WEIGHTS else DEFAULT_GROUP_MODEL
     weights = FACTOR_WEIGHTS[model]
 
     # ── Old 6-component breakdown (kept for backwards compatibility).
+    #    Dead metrics surface as 0 contribution — accurate communication
+    #    of "this signal isn't being collected" rather than "this group
+    #    has none".
     sub_score = (
         _normalize(agg.get("yt_subscribers", 0), r["subscribers"])
         * WEIGHTS["subscribers"]
-    )
+    ) if "subscribers" in L else 0.0
     view_score = (
         _normalize(agg.get("yt_total_views", 0), r["views"]) * WEIGHTS["views"]
-    )
+    ) if "views" in L else 0.0
     eng_rate = _engagement_rate(agg)
     qual_score = (
         _quality_score_from_engagement(eng_rate, r["quality"])
         * WEIGHTS["quality"]
-    )
+    ) if "quality" in L else 0.0
     comm_total = (agg.get("dc_total_posts", 0)
                   + agg.get("theqoo_posts", 0)
                   + agg.get("instiz_posts", 0))
-    comm_score = _normalize(comm_total, r["community"]) * WEIGHTS["community"]
+    comm_score = (
+        _normalize(comm_total, r["community"]) * WEIGHTS["community"]
+    ) if "community" in L else 0.0
     news_score = (
         _normalize(agg.get("naver_total_news", 0), r["news"]) * WEIGHTS["news"]
-    )
+    ) if "news" in L else 0.0
 
     # ── V2.5 4-factor scores. Each saturated component gets multiplied
     #    by the model-specific weight, then the factor totals are
     #    multiplied by the controversy factor (so a scandal compresses
     #    *all four* dimensions, not just risk).
     risk_factor = _controversy_factor(agg.get("controversy_count", 0))
-    fi = _factor_inputs(agg, r)
+    fi = _factor_inputs(agg, r, live_metrics=L)
     factor_scores = {
         name: round(fi[name] * weights[name] * risk_factor, 2)
         for name in ("reach", "ritual", "mobilization", "intimacy")

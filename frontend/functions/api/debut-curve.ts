@@ -56,12 +56,18 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   // julianday() handles ISO dates fine; we cast to int for an integer
   // day offset bucket. Groups without a debut_date are excluded —
   // there's nothing to align them to.
+  // confederation 모델 (STELLIVE) 은 우산형 산하 멤버 그룹별로 데뷔
+  // 일자가 다른 구조라 단일 debut_date 정렬이 의미가 없음.
+  // MarketOverview 카드에서는 정상 표시되지만 DebutCurve 차트에서만
+  // 제외 — 산하 그룹별 D-day 라인을 그릴 수 있는 별도 view 가 생기면
+  // 그때 다시 포함.
   const rows = await d1Query<Row>(env.DB,
     `SELECT g.key AS group_key, g.name, g.debut_date, g.group_model,
             s.snapshot_at, s.${metric} AS value, s.data_source AS source
        FROM agg_summary s
        JOIN groups g ON g.key = s.group_key
       WHERE g.is_active = 1
+        AND (g.group_model IS NULL OR g.group_model != 'confederation')
         AND g.debut_date IS NOT NULL
         AND CAST(julianday(date(s.snapshot_at)) - julianday(g.debut_date) AS INTEGER) BETWEEN ? AND ?
       ORDER BY g.key, s.snapshot_at ASC`,
