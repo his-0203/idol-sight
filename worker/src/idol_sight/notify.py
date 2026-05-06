@@ -8,8 +8,25 @@ Retry policy:
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 import httpx
+
+KST = timezone(timedelta(hours=9))
+
+
+def fmt_kst(dt_or_iso: datetime | str | None) -> str:
+    """ISO-8601 / datetime → 'YYYY-MM-DD HH:MM KST'. None/parse-fail → 'never'."""
+    if dt_or_iso is None or dt_or_iso == "never":
+        return "never"
+    if isinstance(dt_or_iso, str):
+        try:
+            dt = datetime.fromisoformat(dt_or_iso.replace("Z", "+00:00"))
+        except ValueError:
+            return str(dt_or_iso)
+    else:
+        dt = dt_or_iso
+    return dt.astimezone(KST).strftime("%Y-%m-%d %H:%M KST")
 from tenacity import (
     retry,
     retry_if_exception_type,

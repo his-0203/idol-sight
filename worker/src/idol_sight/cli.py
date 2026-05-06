@@ -177,6 +177,7 @@ def collect(
 
 @app.command("notify-fail", help="Send a failure notification to Discord.")
 def notify_fail(job: str = typer.Option(..., "--job")) -> None:
+    from idol_sight.notify import fmt_kst
     webhook = os.environ.get("DISCORD_WEBHOOK")
     if not webhook:
         typer.echo("DISCORD_WEBHOOK unset; nothing to send", err=True)
@@ -184,7 +185,7 @@ def notify_fail(job: str = typer.Option(..., "--job")) -> None:
     notify_failure(
         webhook_url=webhook,
         job=job,
-        error=f"job failed at {datetime.now(UTC).isoformat()}",
+        error=f"job failed at {fmt_kst(datetime.now(UTC))}",
     )
     typer.echo(f"notified: {job}")
 
@@ -250,6 +251,7 @@ def aggregate() -> None:
 )
 def health_check() -> None:
     from idol_sight.cli_health import audit_freshness
+    from idol_sight.notify import fmt_kst
     settings = load_settings()
     client = _make_d1_client(settings)
     stale = audit_freshness(client)
@@ -258,9 +260,10 @@ def health_check() -> None:
         return
     webhook = settings.discord_webhook
     for s in stale:
-        last = s.get("last_success_at") or "never"
+        last = fmt_kst(s.get("last_success_at"))
         age = s.get("age_h")
-        msg = f"{s['job']}: last_success_at={last} (age_h={age})"
+        age_str = f"{age:.1f}h" if isinstance(age, (int, float)) else "?"
+        msg = f"{s['job']}: last_success_at={last} (age={age_str})"
         typer.echo(f"STALE: {msg}", err=True)
         notify_failure(webhook_url=webhook, job=s["job"], error=msg)
     raise typer.Exit(code=1)
