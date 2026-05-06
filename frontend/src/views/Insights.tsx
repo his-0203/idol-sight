@@ -3,6 +3,10 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { formatKST, formatKSTDate } from "../lib/datetime";
+import { InsightBody } from "../components/InsightBody";
+import { GroupBadge } from "../components/GroupBadge";
+import { extractGroupKeys } from "../lib/insightFormat";
+import { colorOf } from "../design/groups";
 
 const TYPE_LABEL: Record<string, string> = {
   weekly: "주간",
@@ -73,37 +77,55 @@ export function Insights() {
         <span class="ml-auto text-xs text-zinc-500">{filtered.length}건</span>
       </div>
 
-      <ul class="space-y-2 text-sm">
+      <ul class="space-y-2.5 text-sm">
         {filtered.map((i: any) => {
           const isNew = lastSeen && i.generated_at > lastSeen;
+          // 본문에서 검출된 그룹 → 좌측 accent bar 색 + 헤더 뱃지.
+          const bodyGroups = extractGroupKeys(i.body);
+          const accentKey = bodyGroups[0] ?? null;
           return (
             <li
               key={i.id}
-              class={"rounded-lg border p-3 " +
-                (isNew
-                  ? "border-emerald-500/40 bg-emerald-500/5"
-                  : "border-zinc-800")}
+              class={"rounded-lg border bg-zinc-900/30 px-3 py-2.5 border-l-4 " +
+                (isNew ? "border-emerald-500/40 bg-emerald-500/5" : "border-zinc-800")}
+              style={{ borderLeftColor: colorOf(accentKey) }}
             >
-              <div class="flex items-center gap-2 text-xs text-zinc-500">
+              {/* 1) 상단 라인 — 그룹 뱃지 + scope/type 칩 + KST + NEW */}
+              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
+                {bodyGroups.slice(0, 3).map((k) => (
+                  <GroupBadge key={k} groupKey={k} size="sm" />
+                ))}
+                <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] uppercase tracking-wider text-zinc-400">
+                  {TYPE_LABEL[i.type] ?? i.type}
+                </span>
+                <span class="text-zinc-600">·</span>
                 <span>{i.scope}</span>
-                <span>·</span>
-                <span>{TYPE_LABEL[i.type] ?? i.type}</span>
-                <span>·</span>
-                <span title={i.generated_at ? formatKST(i.generated_at) : undefined}>
+                <span class="text-zinc-600">·</span>
+                <span
+                  class="tabular-nums"
+                  title={i.generated_at ? formatKST(i.generated_at) : undefined}
+                >
                   {i.week_start ?? formatKSTDate(i.generated_at)}
                 </span>
                 {isNew && (
-                  <span class="ml-auto rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 text-emerald-400">NEW</span>
+                  <span class="ml-auto rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-[1px] text-[10px] uppercase tracking-wider text-emerald-300">NEW</span>
                 )}
               </div>
-              <div class="mt-1 font-semibold">{i.title}</div>
-              <div class="mt-1 text-xs text-zinc-400">{i.body}</div>
+              {/* 2) Title */}
+              <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">{i.title}</div>
+              {/* 3) Body — 그룹 뱃지/톤 강조 포함 */}
+              <InsightBody
+                body={i.body}
+                class="mt-1 block text-sm leading-relaxed text-zinc-400"
+              />
+              {/* 4) AI 코멘트 */}
               {i.ai_comment && (
-                <div class="mt-1 text-[11px] italic text-zinc-400">
+                <div class="mt-2 rounded border-l-2 border-violet-500/40 bg-violet-500/5 px-2 py-1 text-[12px] italic text-zinc-300">
                   <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
                   {i.ai_comment}
                 </div>
               )}
+              {/* 5) 메타/출처 */}
               <DataSourceDetails refs={(i.source_refs ?? []) as RawRef[]} />
             </li>
           );

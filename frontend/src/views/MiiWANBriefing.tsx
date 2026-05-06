@@ -26,6 +26,9 @@ import { EmptyState } from "../components/EmptyState";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { colorOf } from "../design/groups";
 import { formatKST, formatKSTDate } from "../lib/datetime";
+import { InsightBody } from "../components/InsightBody";
+import { GroupBadge } from "../components/GroupBadge";
+import { extractGroupKeys } from "../lib/insightFormat";
 
 type SummaryShape = {
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
@@ -633,13 +636,30 @@ export function MiiWANBriefing() {
                 <ul class="space-y-2">
                   {props.ipxActions.map((i) => {
                     const score = ipxFiveElements(i.body ?? "", i.title ?? "");
+                    const bodyGroups = extractGroupKeys(i.body);
                     return (
                       <li key={i.id}
                           class="rounded border-l-2 border-amber-500 bg-zinc-900/40 p-2.5 text-sm">
-                        <div class="font-semibold">{i.title}</div>
-                        <div class="mt-1 text-xs text-zinc-400">{i.body}</div>
+                        {/* 상단 라인: 본문 등장 그룹 뱃지 + KST */}
+                        {(bodyGroups.length > 0 || i.generated_at) && (
+                          <div class="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-zinc-500">
+                            {bodyGroups.slice(0, 3).map((k) => (
+                              <GroupBadge key={k} groupKey={k} size="sm" />
+                            ))}
+                            {i.generated_at && (
+                              <span class="ml-auto tabular-nums" title={formatKST(i.generated_at)}>
+                                {formatKSTDate(i.generated_at)}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <div class="text-base font-semibold tracking-tight text-zinc-100">{i.title}</div>
+                        <InsightBody
+                          body={i.body}
+                          class="mt-1 block text-sm leading-relaxed text-zinc-400"
+                        />
                         {i.ai_comment && (
-                          <div class="mt-1 text-[11px] italic text-zinc-400">
+                          <div class="mt-2 rounded border-l-2 border-violet-500/40 bg-violet-500/5 px-2 py-1 text-[12px] italic text-zinc-300">
                             <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
                             {i.ai_comment}
                           </div>
@@ -1057,24 +1077,45 @@ function InsightGroup(props: {
           <span class="text-hint text-zinc-500">{props.hint}</span>
         )}
       </div>
-      <ul class="space-y-2">
-        {props.items.map((i) => (
-          <li key={i.id}
-              class={`rounded-lg border p-3 ${toneCls}`}>
-            <div class="text-hint text-zinc-500">
-              {i.scope} · {i.type} · {formatKSTDate(i.generated_at)}
-            </div>
-            <div class="mt-0.5 font-semibold">{i.title}</div>
-            <div class="mt-1 text-sm text-zinc-400">{i.body}</div>
-            {i.ai_comment && (
-              <div class="mt-1 text-[11px] italic text-zinc-400">
-                <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
-                {i.ai_comment}
+      <ul class="space-y-2.5">
+        {props.items.map((i) => {
+          const bodyGroups = extractGroupKeys(i.body);
+          const accentKey = bodyGroups[0] ?? null;
+          return (
+            <li
+              key={i.id}
+              class={`rounded-lg border p-3 border-l-4 ${toneCls}`}
+              style={{ borderLeftColor: colorOf(accentKey) }}
+            >
+              {/* 상단 라인 — 그룹 뱃지 + scope/type + KST */}
+              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
+                {bodyGroups.slice(0, 3).map((k) => (
+                  <GroupBadge key={k} groupKey={k} size="sm" />
+                ))}
+                <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] uppercase tracking-wider text-zinc-400">
+                  {i.type}
+                </span>
+                <span class="text-zinc-600">·</span>
+                <span>{i.scope}</span>
+                <span class="ml-auto tabular-nums" title={formatKST(i.generated_at)}>
+                  {formatKSTDate(i.generated_at)}
+                </span>
               </div>
-            )}
-            <DataSourceDetails refs={(i.source_refs ?? []) as RawRef[]} />
-          </li>
-        ))}
+              <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">{i.title}</div>
+              <InsightBody
+                body={i.body}
+                class="mt-1 block text-sm leading-relaxed text-zinc-400"
+              />
+              {i.ai_comment && (
+                <div class="mt-2 rounded border-l-2 border-violet-500/40 bg-violet-500/5 px-2 py-1 text-[12px] italic text-zinc-300">
+                  <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
+                  {i.ai_comment}
+                </div>
+              )}
+              <DataSourceDetails refs={(i.source_refs ?? []) as RawRef[]} />
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
