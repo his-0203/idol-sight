@@ -34,7 +34,9 @@ type SummaryShape = {
 
 type Benchmark = {
   group_key: string; name: string; debut_date: string | null;
-  snapshot_at: string | null; summary: SummaryShape | null;
+  snapshot_at: string | null;
+  data_source: string | null;
+  summary: SummaryShape | null;
 };
 
 type Insight = {
@@ -153,6 +155,20 @@ function relativeRatio(mine: number, theirs: number): string {
   const r = mine / theirs;
   if (r >= 1) return `+${Math.round((r - 1) * 100)}%`;
   return `−${Math.round((1 - r) * 100)}%`;
+}
+
+function EstBadge({ source }: { source: string | null | undefined }) {
+  if (!source || source === 'live') return null;
+  const tip = source === 'backfill_estimate'
+    ? 'Social Blade 추정 (±5%) — 곡선 모양 신뢰, 절대값은 참고만'
+    : '네이버 뉴스 검색 키워드 카운트 — 검증값';
+  const label = source === 'backfill_estimate' ? 'est' : 'bf';
+  return (
+    <span
+      title={tip}
+      class="ml-1 rounded bg-zinc-800/60 px-1 py-[1px] text-[10px] text-zinc-500"
+    >{label}</span>
+  );
 }
 
 export function MiiWANBriefing() {
@@ -374,7 +390,10 @@ export function MiiWANBriefing() {
                         const positive = ratio.startsWith("+");
                         return (
                           <td key={b.group_key} class="px-3 py-2 text-right">
-                            <div class="text-zinc-300">{v != null ? fmt(v) : "—"}</div>
+                            <div class="text-zinc-300">
+                              {v != null ? fmt(v) : "—"}
+                              <EstBadge source={b.data_source} />
+                            </div>
                             <div class={"text-hint " +
                               (ratio === "—" ? "text-zinc-600"
                                 : positive ? "text-emerald-400" : "text-red-400")}>
