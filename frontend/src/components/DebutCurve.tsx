@@ -116,9 +116,20 @@ const CUMULATIVE_METRICS = new Set<MetricKey>([
   "yt_total_videos",
 ]);
 
-// '뉴스' 메트릭은 누적 카운트이지만 막대차트에서 주간 *증분* 으로
-// 환산하여 빈도 분포로 보여줌 — bar 의 단위 라벨에 사용.
-const NEWS_BAR_UNIT = "주간 신규 기사 수 (BIGKinds + Naver Open API 합산)";
+// '뉴스' 메트릭의 단위 라벨. agg_summary.naver_total_news 의 backfill
+// 행 (BIGKinds 0030 / Naver API 0025) 은 *그 주(또는 일)에 발생한 기사
+// 수* 를 그대로 저장 — 누적이 아님. live 행도 raw_naver_articles 의
+// retention window 내 row count 라 일별 작은 값 (한자릿수~10대) 로 들어옴.
+// 따라서 차트 표현은 두 가지 view 를 지원:
+//   1) 'cumulative-line' (기본): 주간 합을 누적합 → 라인 차트 (다른
+//      메트릭과 일관). 그룹 간 우월/열위 비교 직관적.
+//   2) 'weekly-bar' (legacy): 주간 합 막대. spike pattern 가시화.
+// (이전 PR 의 누적값 차분 방식은 데이터 의미를 잘못 가정한 결과 — 차분
+// 적용 시 음수 발생으로 0 clamp 되어 실제 데이터 대비 막대가 누락됐음.)
+const NEWS_WEEKLY_UNIT = "주간 기사 수 (BIGKinds + Naver Open API 합산)";
+const NEWS_CUMULATIVE_UNIT = "누적 기사 수 (BIGKinds + Naver Open API 합산)";
+
+type NewsView = 'cumulative-line' | 'weekly-bar';
 
 // DebutCurve 한정으로 시리즈/범례에서 숨길 그룹. STELLIVE 는 6인
 // confederation (각 멤버 솔로 채널 합산) 모델이라 D-N 데뷔 정렬 축에서
@@ -138,6 +149,9 @@ export function DebutCurve() {
   const [metric, setMetric] = useState<MetricKey>("yt_subscribers");
   const [from, setFrom] = useState<number>(-90);
   const [to,   setTo]   = useState<number>(180);
+  // 뉴스 탭 한정 시각화 모드 토글. cumulative-line 기본 — 다른 메트릭과
+  // 일관된 라인 형식이고 9그룹 비교 시 stacked bar 보다 가독성이 높음.
+  const [newsView, setNewsView] = useState<NewsView>('cumulative-line');
   const [data, setData] = useState<{ series: Series[] } | null>(null);
   // hidden = explicitly toggled off. isolated = a group's panel item
   // was clicked; only that group remains visible.
@@ -185,11 +199,12 @@ export function DebutCurve() {
     chart.current?.destroy();
     if (visibleSeries.length === 0) return;
 
-    // 뉴스 (naver_total_news) 는 시계열 신호라기보다 "어느 시기에 얼마나
-    // 기사가 나갔는가" 의 빈도 분포에 가까움 → bar 차트 + weekly 집계가
-    // 의미 전달이 더 깔끔. 다른 메트릭(구독자/조회수/영상수)은 누적·연속
-    // 신호라 daily line 유지.
-    const isBarMetric = metric === "naver_total_news";
+    // 뉴스 (naver_total_news) 표시 모드. 'cumulative-line' 기본 — 다른
+    // 메트릭과 동일한 라인 차트 표현. 'weekly-bar' 토글 시 주간 집계 막대.
+    // 다른 메트릭(구독자/조회수/영상수)은 항상 daily line 유지.
+    const isNewsMetric = metric === "naver_total_news";
+    const isBarMetric = isNewsMetric && newsView === 'weekly-bar';
+    const isNewsLineMetric = isNewsMetric && newsView === 'cumulative-line';
     const isCumulative = CUMULATIVE_METRICS.has(metric);
 
     // 누적 보정: agg_summary 의 cumulative metric (구독자/조회수/영상수)
@@ -223,44 +238,65 @@ export function DebutCurve() {
         })
       : visibleSeries;
 
-    // Weekly bucket aggregation for the news bar chart. PLAVE 의 1276
-    // 일 데이터를 그대로 막대로 그리면 막대 폭이 1px 미만으로 invisible.
-    // 7일 윈도우 → 막대 폭 확보. agg_summary.naver_total_news 는 누적
-    // 카운트이므로 bucket 단위로 (마지막값 - 직전 bucket 마지막값) 차분
-    // 을 취해 *주간 신규 기사 수* 로 변환. (이전 코드는 누적값을 그대로
-    // 합산해서 x축 라벨/막대 의미가 어긋나 있었음.)
-    const seriesForRender = isBarMetric
+    // Weekly bucket aggregation for the news chart.
+    //
+    // 핵심 의미: agg_summary.naver_total_news 의 각 행은 *누적값이 아니라
+    // 그 시점(주차) 카운트* 다. BIGKinds backfill (0030) / Naver API
+    // backfill (0025) 모두 weekly bucketed pubDate count 로 INSERT, live
+    // collector 도 raw_naver_articles 의 (retention 적용된) row count
+    // 라서 일별 작은 값. 따라서 bucket 합산 시 *값을 그대로 SUM* 해야
+    // 주간 총합이 됨. (이전 코드는 누적이라 가정하고 차분을 계산 → 음수
+    // 0 clamp 으로 실제 데이터 대비 막대가 누락되는 버그 발생.)
+    //
+    // 같은 day_offset 안에 여러 row 가 있을 때 (live + backfill 혼재),
+    // API 가 이미 (group, day) 당 max 1개로 dedupe 하므로 단순 sum 가능.
+    // backfill_estimate 기반 zero-fill 행 (0027/0029 잔재) 은 0 이라
+    // sum 에 영향 없음.
+    //
+    // newsView='weekly-bar' → 주간 합. 'cumulative-line' → 주간 합의
+    // 누적합 (cumsum) 으로 다른 메트릭과 동일한 단조증가 라인.
+    const seriesForRender = isNewsMetric
       ? visibleSeries.map((s) => {
-          // bucket 별로 마지막(=최대 day_offset) 누적값을 보존.
+          // 1) 같은 (group, week-bucket) 안의 raw point 들의 값을 SUM.
+          //    같은 day_offset 에 들어온 multi-snapshot 은 API 단에서
+          //    max 1개로 dedupe 되었으므로 추가 정규화 불필요.
           const sorted = [...s.points].sort((a, b) => a.day_offset - b.day_offset);
-          const bucketLast = new Map<number, { lastValue: number; src: string }>();
+          // weekly bucket 키: 데뷔일(D=0) 기준 7일 윈도. floor 사용으로
+          // D-1 ~ D-7 = bucket -7, D0 ~ D+6 = bucket 0 (데뷔주).
+          const bucketSum = new Map<number, { sum: number; src: string; hasExact: boolean; hasLive: boolean }>();
           for (const p of sorted) {
             const v = Number(p.value);
-            if (!Number.isFinite(v)) continue;
+            if (!Number.isFinite(v) || v <= 0) continue;
             const k = Math.floor(p.day_offset / 7) * 7;
-            const cur = bucketLast.get(k);
-            if (!cur || p.day_offset >= 0) {
-              // 같은 bucket 내에서는 시간 순으로 마지막 값을 유지
-              // (정렬되어 있으므로 단순 덮어쓰기).
-              bucketLast.set(k, { lastValue: v, src: p.source });
+            const cur = bucketSum.get(k);
+            const isExact = p.source === 'backfill_exact';
+            const isLive = p.source === 'live';
+            if (!cur) {
+              bucketSum.set(k, { sum: v, src: p.source, hasExact: isExact, hasLive: isLive });
             } else {
-              cur.lastValue = v;
-              cur.src = p.source;
+              cur.sum += v;
+              cur.hasExact = cur.hasExact || isExact;
+              cur.hasLive = cur.hasLive || isLive;
+              // src priority: live > backfill_exact > backfill_estimate.
+              if (isLive) cur.src = 'live';
+              else if (isExact && cur.src === 'backfill_estimate') cur.src = 'backfill_exact';
             }
           }
-          // 차분 계산 → 주간 증분. 첫 bucket 은 baseline 으로 0 처리하여
-          // 표시 안 함.
-          const ordered = [...bucketLast.entries()].sort((a, b) => a[0] - b[0]);
-          let prev = ordered.length > 0 ? ordered[0]![1].lastValue : 0;
-          const out: Array<{ day_offset: number; value: number; source: any }> = [];
-          for (let i = 1; i < ordered.length; i++) {
-            const [d, v] = ordered[i]!;
-            const delta = Math.max(0, v.lastValue - prev);
-            prev = v.lastValue;
-            if (delta > 0) {
-              out.push({ day_offset: d, value: delta, source: v.src as any });
+          const ordered = [...bucketSum.entries()].sort((a, b) => a[0] - b[0]);
+          if (newsView === 'cumulative-line') {
+            // 2a) 누적합 변환. 라인 차트가 단조증가하도록.
+            let running = 0;
+            const out: Array<{ day_offset: number; value: number; source: any }> = [];
+            for (const [d, v] of ordered) {
+              running += v.sum;
+              out.push({ day_offset: d, value: running, source: v.src as any });
             }
+            return { ...s, points: out };
           }
+          // 2b) 주간 합 그대로 (막대 분기).
+          const out: Array<{ day_offset: number; value: number; source: any }> = ordered.map(
+            ([d, v]) => ({ day_offset: d, value: v.sum, source: v.src as any })
+          );
           return { ...s, points: out };
         })
       : cumMaxAdjusted;
@@ -471,12 +507,14 @@ export function DebutCurve() {
             title: {
               display: true,
               text: isBarMetric
-                ? NEWS_BAR_UNIT
+                ? NEWS_WEEKLY_UNIT
+                : isNewsLineMetric
+                ? NEWS_CUMULATIVE_UNIT
                 : (METRIC_OPTIONS.find((m) => m.key === metric)?.label ?? metric),
             },
             ticks: { callback: (v) => fmtScale(v as number) },
             stacked: isBarMetric,
-            beginAtZero: isBarMetric,
+            beginAtZero: isBarMetric || isNewsLineMetric,
           },
         },
         plugins: {
@@ -520,6 +558,9 @@ export function DebutCurve() {
                 }
                 const v = raw?.y;
                 if (v == null) return `${ctx.dataset.label}: —`;
+                if (isNewsLineMetric) {
+                  return `${ctx.dataset.label}: ${fmt(v)} 건 (누적)`;
+                }
                 return `${ctx.dataset.label}: ${fmt(v)}`;
               },
             },
@@ -527,7 +568,7 @@ export function DebutCurve() {
         },
       },
     });
-  }, [visibleSeries, metric, events, isolated, from, to]);
+  }, [visibleSeries, metric, events, isolated, from, to, newsView]);
 
   // Latest observed value per series — shown in the side panel so the
   // panel doubles as a "snapshot at end of range" reference.
@@ -549,7 +590,7 @@ export function DebutCurve() {
         </span>
         {metric === "naver_total_news" && (
           <span class="ml-2 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300">
-            단위: {NEWS_BAR_UNIT}
+            단위: {newsView === 'cumulative-line' ? NEWS_CUMULATIVE_UNIT : NEWS_WEEKLY_UNIT}
           </span>
         )}
         <span class="ml-auto text-[11px] text-zinc-500">
@@ -572,6 +613,25 @@ export function DebutCurve() {
             onClick={() => setMetric(m.key)}
           >{m.label}</button>
         ))}
+        {metric === "naver_total_news" && (
+          <>
+            <span class="ml-2 text-zinc-500">표시</span>
+            {([
+              ['cumulative-line', '누적 라인'],
+              ['weekly-bar',      '주간 막대'],
+            ] as const).map(([v, lbl]) => (
+              <button
+                key={v}
+                type="button"
+                class={"rounded-md border px-2 py-1 transition-colors " +
+                  (newsView === v
+                    ? "border-amber-500 bg-amber-500/10 text-amber-300"
+                    : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
+                onClick={() => setNewsView(v)}
+              >{lbl}</button>
+            ))}
+          </>
+        )}
         <span class="ml-2 text-zinc-500">범위</span>
         {([
           [-30, 30],  [-60, 90],  [-90, 180],  [-60, 365],
