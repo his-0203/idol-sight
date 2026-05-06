@@ -48,14 +48,37 @@ INSIGHT_OUTPUT_SCHEMA: dict[str, Any] = {
 }
 
 
+# Default model chain: primary → fallback. When the primary returns
+# persistent 5xx (regional capacity spike), we transparently retry on
+# the fallback which lives in a different capacity pool. Both support
+# system_instruction + structured JSON output.
+DEFAULT_MODEL_CHAIN: tuple[str, ...] = ("gemini-2.5-flash", "gemini-2.0-flash")
+
+
 class GeminiClient:
-    def __init__(self, api_key: str, client: Any | None = None,
-                 model: str = "gemini-2.5-flash"):
+    def __init__(
+        self,
+        api_key: str,
+        client: Any | None = None,
+        model: str | None = None,
+        models: tuple[str, ...] | None = None,
+    ):
         if client is None:
             from google import genai  # local import to keep tests fast
             client = genai.Client(api_key=api_key)
         self._client = client
-        self._model = model
+        # Back-compat: if a single `model` was passed, treat it as a
+        # 1-element chain. New callers should pass `models=` to opt
+        # into fallback.
+        if models is not None:
+            self._models: tuple[str, ...] = models
+        elif model is not None:
+            self._models = (model,)
+        else:
+            self._models = DEFAULT_MODEL_CHAIN
+        # Primary model attribute kept for tests that still introspect
+        # `_model` from the previous API.
+        self._model = self._models[0]
 
     def generate(
         self,
@@ -78,24 +101,19 @@ class GeminiClient:
         return json.loads(resp.text)
 
     def _call_with_retry(self, *, contents: str, config: Any) -> Any:
-        """Retry transient Gemini errors (5xx, RESOURCE_EXHAUSTED, UNAVAILABLE).
+        """Retry transient Gemini errors with backoff, then fall back to the
+        next model in the chain.
 
-        Gemini Flash returns 503 'high demand' bursts that often persist for
-        several minutes during regional capacity spikes. Retry up to 10
-        attempts with exponential backoff capped at 120s and small jitter
-        (avoids thundering-herd when multiple workers share a key). Worst
-        case wall time ~11 min — well under the 30 min job timeout.
+        Each model gets its own retry budget (~640s wall). On persistent
+        5xx (regional capacity spike) we move to the fallback. Worst-case
+        wall time = sum of per-model budgets, still under the 30-min job
+        timeout for a 2-model chain.
         """
-        import random
-        import time
-        delays = [2, 5, 10, 20, 40, 60, 90, 120, 120]
         last_exc: Exception | None = None
-        for attempt, delay in enumerate(delays + [0], start=1):
+        for idx, model_name in enumerate(self._models):
             try:
-                return self._client.models.generate_content(
-                    model=self._model,
-                    contents=contents,
-                    config=config,
+                return self._call_one_model(
+                    model=model_name, contents=contents, config=config,
                 )
             except Exception as e:                  # noqa: BLE001
                 last_exc = e
@@ -105,12 +123,48 @@ class GeminiClient:
                     or "RESOURCE_EXHAUSTED" in msg or "429" in msg
                     or "500" in msg or "INTERNAL" in msg
                 )
+                more_models = idx + 1 < len(self._models)
+                if not transient or not more_models:
+                    raise
+                next_model = self._models[idx + 1]
+                log.warning(
+                    "gemini model %s exhausted retries; falling back to %s",
+                    model_name, next_model,
+                )
+        raise last_exc if last_exc else RuntimeError("gemini unknown failure")
+
+    def _call_one_model(
+        self, *, model: str, contents: str, config: Any,
+    ) -> Any:
+        """Call a single model with exponential backoff + jitter.
+
+        Delays: [2, 5, 10, 20, 40, 60, 90, 120, 120] (10 attempts, ~640s).
+        ±20% jitter so concurrent retries fan out.
+        """
+        import random
+        import time
+        delays = [2, 5, 10, 20, 40, 60, 90, 120, 120]
+        for attempt, delay in enumerate(delays + [0], start=1):
+            try:
+                return self._client.models.generate_content(
+                    model=model,
+                    contents=contents,
+                    config=config,
+                )
+            except Exception as e:                  # noqa: BLE001
+                msg = str(e)
+                transient = (
+                    "503" in msg or "UNAVAILABLE" in msg
+                    or "RESOURCE_EXHAUSTED" in msg or "429" in msg
+                    or "500" in msg or "INTERNAL" in msg
+                )
                 if not transient or attempt > len(delays):
                     raise
-                # ±20% jitter so concurrent retries fan out instead of
-                # synchronously hammering on the same edge of the backoff.
                 jittered = delay * (1.0 + random.uniform(-0.2, 0.2))
-                log.warning("gemini transient error (attempt %d/%d): %s; sleeping %.1fs",
-                            attempt, len(delays) + 1, msg.split("\n")[0][:120], jittered)
+                log.warning(
+                    "gemini[%s] transient error (attempt %d/%d): %s; sleeping %.1fs",
+                    model, attempt, len(delays) + 1,
+                    msg.split("\n")[0][:120], jittered,
+                )
                 time.sleep(jittered)
-        raise last_exc if last_exc else RuntimeError("gemini unknown failure")
+        raise RuntimeError("gemini unreachable retry exit")
