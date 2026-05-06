@@ -74,6 +74,13 @@ GROUPS: list[dict[str, Any]] = [
     # WE GO-6 (위고식스) — pre-debut, debut date TBA. apply_window auto-
     # False because debut is None (normalize_daily short-circuits).
     {"key": "wegosix", "handle": "@wegosix",         "debut": None},
+    # B:DAWN (비던) — debut 2026-05-06 (BEOM, Duri Entertainment).
+    # Channel ID UCSIqs6OAVAedCmCo8GtVoHQ confirmed via groups seed
+    # (migration 0002). Handle '@b_dawn_official' is a guess derived
+    # from twitter_handles in the seed; if SB rejects, retry with the
+    # bare channel ID (Matrix API accepts both):
+    #   --handle bdawn=UCSIqs6OAVAedCmCo8GtVoHQ
+    {"key": "bdawn",   "handle": "@b_dawn_official", "debut": "2026-05-06"},
 ]
 
 WINDOW_BEFORE_DAYS = 180
