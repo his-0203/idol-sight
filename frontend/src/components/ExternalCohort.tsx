@@ -80,7 +80,7 @@ export function ExternalCohort() {
       <div class="mb-3 flex flex-wrap items-baseline gap-2">
         <h3 class="section-title">외부 K-POP 신인 코호트 (수동 시드)</h3>
         <span class="text-hint text-zinc-500">
-          MiiWAN(D-{Math.abs(Math.round((Date.parse("2026-06-01") - Date.now()) / 86_400_000))}) 기준 동시기 데뷔 보이그룹 비교 — Spotify 월간 리스너 내림차순.
+          MiiWAN(D-{Math.abs(Math.round((Date.parse("2026-06-16") - Date.now()) / 86_400_000))}) 기준 동시기 데뷔 보이그룹 비교 — Spotify 월간 리스너 내림차순.
         </span>
         <span class="ml-auto text-hint text-zinc-500">{sorted.length}그룹 · 자동 수집 미구현</span>
       </div>

@@ -14,8 +14,8 @@
 //   5. COHORT    — 비교 대상 대비 어디에 있나? (D-30 벤치마크 표)
 //   6. INSIGHT   — 분석가의 권고 (LLM weekly insights)
 //
-// The "활성 멤버" 카드는 D-7 이상 남은 시점에서는 정보값이 0(분산
-// 없음, 솔로 채널 boolean만)이라 의도적으로 collapse 처리. D-7 이내
+// The "활성 멤버" 카드는 D-7 이상 남은 시점에서는 정보값이 거의
+// 없으므로 (이름/영문명 정도) 의도적으로 collapse 처리. D-7 이내
 // 또는 데뷔 후에만 자동 노출.
 
 import { useEffect, useMemo, useState } from "preact/hooks";
@@ -94,10 +94,10 @@ type Playbook = { steps: PlaybookStep[]; note?: string };
 const ALERT_PLAYBOOK: Record<string, Playbook> = {
   debut_milestone: {
     steps: [
-      { verb: "PR·SNS 카운트다운 슬롯 1차 콘텐츠 발행", owner: "콘텐츠팀", due: "D-25 까지" },
-      { verb: "미디어 보도자료 초안 IPX·Abyss 검토 의뢰",   owner: "PR팀",   due: "D-21 까지" },
-      { verb: "멤버 솔로 채널 5명 활성화 점검·시드",        owner: "운영팀",  due: "D-14 까지" },
-      { verb: "D-7 / D-1 자동 알림 트리거 사전 점검",      owner: "BI",     due: "이번 주" },
+      { verb: "PR·SNS 카운트다운 슬롯 1차 콘텐츠 발행",            owner: "콘텐츠팀", due: "D-25 까지" },
+      { verb: "미디어 보도자료 초안 IPX·Abyss 검토 의뢰",          owner: "PR팀",     due: "D-21 까지" },
+      { verb: "그룹 공식 채널(YT/X/Instagram) 콘텐츠 큐 14일치 확보", owner: "콘텐츠팀", due: "D-14 까지" },
+      { verb: "D-7 / D-1 자동 알림 트리거 사전 점검",              owner: "BI",       due: "이번 주" },
     ],
   },
   controversy_spike: {
@@ -221,7 +221,7 @@ function strategicDiagnosis(d: MiiwanData): { tone: "ok" | "warn" | "critical"; 
   }
   return {
     tone: "ok",
-    line: `데뷔 D-${days} — 베이스라인 누적 단계. 코호트 곡선 fitting 추적 + 솔로 채널 시드 점검.`,
+    line: `데뷔 D-${days} — 베이스라인 누적 단계. 코호트 곡선 fitting 추적 + 그룹 공식 채널 업로드 페이스 유지.`,
   };
 }
 
@@ -558,8 +558,8 @@ export function MiiWANBriefing() {
       </section>
 
       {/* 7) MEMBERS — debut D-7 이내 또는 데뷔 후에만 자동 노출.
-          이전에는 D-30+ 시점에서도 무조건 노출됐는데, 솔로 채널
-          boolean 5개 동일 상태라 의사결정 가치 0이었음. */}
+          MiiWAN 은 corporate K-POP 모델이라 멤버별 솔로 채널을
+          운영하지 않음 → 카드는 이름·영문명만 표시. */}
       <section>
         <div class="mb-3 flex items-baseline gap-2">
           <h2 class="section-title">활성 멤버 ({data.members.length}명)</h2>
@@ -570,11 +570,6 @@ export function MiiWANBriefing() {
           >
             {showMembers ? "접기" : "펼치기"}
           </button>
-          {!showMembers && (
-            <span class="text-hint text-zinc-500">
-              {data.members.filter((m) => m.has_solo_channel).length}/{data.members.length}명 솔로 채널 등록
-            </span>
-          )}
         </div>
         {showMembers && (
           data.members.length === 0 ? (
@@ -588,13 +583,6 @@ export function MiiWANBriefing() {
                   {m.name_en && (
                     <div class="text-xs text-zinc-500">{m.name_en}</div>
                   )}
-                  <div class="mt-2 text-xs">
-                    {m.has_solo_channel ? (
-                      <span class="text-emerald-400">● 솔로 채널 등록</span>
-                    ) : (
-                      <span class="text-zinc-500">○ 솔로 채널 미등록</span>
-                    )}
-                  </div>
                 </li>
               ))}
             </ul>
