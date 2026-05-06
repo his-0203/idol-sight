@@ -258,7 +258,15 @@ def health_check() -> None:
          "Run once per major group set or after schema changes; "
          "subsequent daily collect runs only top up new uploads.",
 )
-def backfill_yt_videos_cmd() -> None:
+def backfill_yt_videos_cmd(
+    group: str | None = typer.Option(
+        None, "--group",
+        help="Single group key (e.g. 'isedol'). Omit to walk every "
+             "group in KNOWN_GROUPS — but the all-groups path can run "
+             "30+ min and may hit workflow timeouts; prefer scoped "
+             "runs after channel_id seed corrections.",
+    ),
+) -> None:
     from idol_sight.collectors.youtube import YouTubeCollector
 
     settings = load_settings()
@@ -277,11 +285,19 @@ def backfill_yt_videos_cmd() -> None:
         )
         return [{"yt_channel_id": r["yt_channel_id"]} for r in rows]
 
+    if group:
+        if group not in KNOWN_GROUPS:
+            typer.echo(f"unknown group: {group}", err=True)
+            raise typer.Exit(code=2)
+        targets: list[str] = [group]
+    else:
+        targets = sorted(KNOWN_GROUPS)
+
     coll = YouTubeCollector(api_key, members_loader=_members)
     total_videos = 0
     total_groups = 0
     errors: list[str] = []
-    for group_key in KNOWN_GROUPS:
+    for group_key in targets:
         grp = _load_group(client, group_key)
         if not grp.yt_channel_id:
             continue

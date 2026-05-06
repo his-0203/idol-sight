@@ -6,17 +6,28 @@ name: backfill-yt-videos
 # every video the channel ever posted via playlistItems.list.
 on:
   workflow_dispatch:
+    inputs:
+      group:
+        description: 'Single group key (e.g. isedol) — or "all" for every group'
+        default: 'all'
+        required: false
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --frozen
         working-directory: worker
-      - run: uv run python -m idol_sight backfill-yt-videos
+      - name: Run backfill (scoped or all)
+        run: |
+          if [ "${{ inputs.group }}" = "all" ] || [ -z "${{ inputs.group }}" ]; then
+            uv run python -m idol_sight backfill-yt-videos
+          else
+            uv run python -m idol_sight backfill-yt-videos --group ${{ inputs.group }}
+          fi
         working-directory: worker
         env:
           CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
