@@ -134,11 +134,17 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   //    MiiWAN, plus the latest 5 ipx_actions (those are recommended-
   //    actions that the strategy team should see even when Gemini
   //    didn't pick MiiWAN as the scope literal).
+  // 7-day window: stale ipx_actions / market insights from prior cycles
+  // pile up if we don't bound the read. analyze-weekly runs Monday 09:00
+  // KST (00:00 UTC) so a 7-day cutoff always covers exactly one fresh
+  // cycle plus a small carry-over window for late-day reads. Matches
+  // operator mental model: "이번 주 권고만 보여줘."
   const insights = await d1Query<InsightRow>(
     env.DB,
     `SELECT id, title, body, scope, type, source_refs_json, generated_at
        FROM insights
-      WHERE scope=? OR type='ipx_action'
+      WHERE (scope=? OR type='ipx_action')
+        AND generated_at >= datetime('now','-7 days')
       ORDER BY generated_at DESC LIMIT 30`,
     [TARGET],
   );
