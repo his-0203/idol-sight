@@ -57,3 +57,87 @@ ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
     ELSE agg_summary.naver_total_news
   END,
   data_source = excluded.data_source;
+
+-- ============================================================
+-- PLAVE backfill via scrape.py (Wayback Machine snapshots)
+-- debut 2023-03-12, window 2022-09-13 ~ 2023-06-10
+-- Source: web.archive.org CDX API + snapshot fetch for @plave_official
+-- 9 snapshots recovered — all traced to real HTTP responses.
+-- Naver News: BLOCKED (403 from scraper IP) — naver_total_news=0 all rows
+-- See scripts/historical_backfill/SOURCES.md for per-row provenance.
+-- ============================================================
+INSERT INTO agg_summary
+  (group_key, snapshot_at,
+   yt_total_videos, yt_total_views, yt_subscribers,
+   dc_total_posts, theqoo_posts, instiz_posts,
+   naver_total_news, twitter_posts, controversy_count, data_source)
+VALUES
+  ('plave', '2022-11-02T00:00:00Z', NULL, NULL, 1010,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2022-11-09T00:00:00Z', NULL, NULL, 1010,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-25T00:00:00Z', NULL, NULL, 91300,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-29T00:00:00Z', NULL, NULL, 134000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-03-30T00:00:00Z', NULL, NULL, 138000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-04-15T00:00:00Z', NULL, NULL, 206000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-04-20T00:00:00Z', NULL, NULL, 213000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-05T00:00:00Z', NULL, NULL, 243000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('plave', '2023-05-18T00:00:00Z', NULL, NULL, 263000,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate')
+ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
+  yt_subscribers   = COALESCE(excluded.yt_subscribers, agg_summary.yt_subscribers),
+  naver_total_news = CASE
+    WHEN agg_summary.naver_total_news = 0 THEN excluded.naver_total_news
+    ELSE agg_summary.naver_total_news
+  END,
+  data_source = excluded.data_source;
+
+-- ============================================================
+-- SKINZ backfill via scrape.py (Wayback Machine snapshots)
+-- debut 2025-04-10, window 2024-10-12 ~ 2025-07-09
+-- Source: web.archive.org CDX API + snapshot fetch for @SKINZOFFICIAL
+-- 2 snapshots recovered — both traced to real HTTP responses.
+-- Naver News: BLOCKED (403 from scraper IP) — naver_total_news=0 all rows
+-- See scripts/historical_backfill/SOURCES.md for per-row provenance.
+-- ============================================================
+INSERT INTO agg_summary
+  (group_key, snapshot_at,
+   yt_total_videos, yt_total_views, yt_subscribers,
+   dc_total_posts, theqoo_posts, instiz_posts,
+   naver_total_news, twitter_posts, controversy_count, data_source)
+VALUES
+  ('skinz', '2024-12-27T00:00:00Z', NULL, NULL, 1340,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate'),
+  ('skinz', '2025-07-08T00:00:00Z', NULL, NULL, 61300,
+   0, 0, 0, 0, 0, 0, 'backfill_estimate')
+ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
+  yt_subscribers   = COALESCE(excluded.yt_subscribers, agg_summary.yt_subscribers),
+  naver_total_news = CASE
+    WHEN agg_summary.naver_total_news = 0 THEN excluded.naver_total_news
+    ELSE agg_summary.naver_total_news
+  END,
+  data_source = excluded.data_source;
+
+-- ============================================================
+-- MYRAKL backfill: NO DATA RECOVERED
+-- debut 2026-01-26, window 2025-07-30 ~ 2026-04-26
+-- Wayback Machine: 0 snapshots of youtube.com/@myrakl_official in window
+-- Naver News: BLOCKED (403 from scraper IP)
+-- Channel too new to have Wayback coverage. No INSERT generated.
+-- See scripts/historical_backfill/SOURCES.md for details.
+-- ============================================================
+
+-- ============================================================
+-- OWIS backfill: NO DATA RECOVERED
+-- debut 2026-03-23, window 2025-09-24 ~ 2026-05-06
+-- Wayback Machine: 0 snapshots of youtube.com/@OWISofficial in window
+-- Naver News: BLOCKED (403 from scraper IP)
+-- Channel too new to have Wayback coverage. No INSERT generated.
+-- See scripts/historical_backfill/SOURCES.md for details.
+-- ============================================================
