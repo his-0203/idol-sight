@@ -15,6 +15,7 @@ export const GROUP_COLORS = {
   owis:     "#3b82f6", // blue-500
   miiwan:   "#14b8a6", // teal-500   — MiiWAN brand
   bdawn:    "#ef4444", // red-500
+  wegosix:  "#f97316", // orange-500 — 23rd Century Kids virtual boy group
 } as const;
 
 export type GroupKey = keyof typeof GROUP_COLORS;
@@ -38,5 +39,5 @@ export function fillOf(key: string | null | undefined, alpha = 0.18): string {
 
 export const GROUP_KEYS: GroupKey[] = [
   "plave", "isedol", "stellive", "skinz",
-  "myrakl", "owis", "miiwan", "bdawn",
+  "myrakl", "owis", "miiwan", "bdawn", "wegosix",
 ];

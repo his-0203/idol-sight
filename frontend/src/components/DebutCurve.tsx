@@ -95,10 +95,13 @@ const METRIC_OPTIONS = [
   { key: "yt_subscribers",    label: "구독자" },
   { key: "yt_total_views",    label: "조회수 (누적)" },
   { key: "yt_total_videos",   label: "영상 수" },
-  { key: "naver_total_news",  label: "네이버 뉴스" },
+  { key: "naver_total_news",  label: "뉴스" },
   // dc_total_posts / twitter_posts removed 2026-05: collectors 부재로
   // 데이터 거의 0, 차트 의미 없음. 향후 디시 / X API 통합 시 재추가.
 ] as const;
+// `naver_total_news` 컬럼은 V2.11에서 BIGKinds 통합값 (Naver Open API
+// + BIGKinds 한국언론진흥재단 archive 합산) 으로 확장됨. 표시 라벨은
+// "뉴스" 로 일반화 — naver 단독 카운트 의미가 더 이상 아님.
 
 type MetricKey = typeof METRIC_OPTIONS[number]["key"];
 
@@ -169,23 +172,54 @@ export function DebutCurve() {
     chart.current?.destroy();
     if (visibleSeries.length === 0) return;
 
+    // 뉴스 (naver_total_news) 는 시계열 신호라기보다 "어느 시기에 얼마나
+    // 기사가 나갔는가" 의 빈도 분포에 가까움 → bar 차트 + weekly 집계가
+    // 의미 전달이 더 깔끔. 다른 메트릭(구독자/조회수/영상수)은 누적·연속
+    // 신호라 daily line 유지.
+    const isBarMetric = metric === "naver_total_news";
+
+    // Weekly bucket aggregation for the news bar chart. PLAVE 의 1276
+    // 일 데이터를 그대로 막대로 그리면 막대 폭이 1px 미만으로 invisible.
+    // 7일 윈도우 합산으로 ~180주 막대 → 화면에서 의미 있는 폭 확보.
+    // bucket key = floor(day_offset/7)*7 (start of week-window in D-N
+    // axis units). Continuous metric 차트는 영향 없음.
+    const seriesForRender = isBarMetric
+      ? visibleSeries.map((s) => {
+          const buckets = new Map<number, { sum: number; src: string }>();
+          for (const p of s.points) {
+            const v = Number(p.value ?? 0);
+            if (!v) continue;
+            const k = Math.floor(p.day_offset / 7) * 7;
+            const cur = buckets.get(k) ?? { sum: 0, src: 'live' };
+            cur.sum += v;
+            // source 우선순위: live > backfill_exact > backfill_estimate.
+            // bucket 안에 한 source 라도 추정값 있으면 추정값 처리.
+            if (p.source === 'backfill_estimate'
+                || (p.source === 'backfill_exact' && cur.src === 'live')) {
+              cur.src = p.source;
+            }
+            buckets.set(k, cur);
+          }
+          return {
+            ...s,
+            points: [...buckets.entries()]
+              .map(([d, v]) => ({ day_offset: d, value: v.sum, source: v.src as any }))
+              .sort((a, b) => a.day_offset - b.day_offset),
+          };
+        })
+      : visibleSeries;
+
     // Build a sparse {day_offset: value} per group then materialize a
     // common x-axis from all observed offsets. This avoids forcing
     // every group onto a dense 0-padded axis (which would suggest
     // they had data we don't have).
     const allDays = new Set<number>();
-    for (const s of visibleSeries) {
+    for (const s of seriesForRender) {
       for (const p of s.points) allDays.add(p.day_offset);
     }
     const xs = [...allDays].sort((a, b) => a - b);
 
-    // naver_total_news 는 시계열 신호라기보다 "어느 시기에 얼마나
-    // 기사가 나갔는가" 의 빈도 분포에 가까움 → bar 차트가 의미 전달이
-    // 더 깔끔. 다른 메트릭(구독자/조회수/영상수)은 누적·연속 신호라
-    // line 유지. chart-level type 도 같이 분기.
-    const isBarMetric = metric === "naver_total_news";
-
-    const datasets: any[] = visibleSeries.map((s) => {
+    const datasets: any[] = seriesForRender.map((s) => {
       const map = new Map(s.points.map((p) => [p.day_offset, p]));
       const isMiiwan = s.group_key === "miiwan";
       const base = {
@@ -203,13 +237,15 @@ export function DebutCurve() {
           ...base,
           // Bar 차트: 막대 fill 자체에 그룹 색을 60% opacity 로 입혀
           // 여러 그룹이 같은 x에서 겹쳐도 색 구분 가능. MiiWAN 만
-          // 더 진하게.
-          backgroundColor: fillOf(s.group_key, isMiiwan ? 0.85 : 0.60),
+          // 더 진하게. categoryPercentage / barPercentage 1.0 로 두면
+          // 막대 폭이 weekly 윈도(7일) 가까이 채워져서 sparse 데이터
+          // 에서도 시각적으로 보임.
+          backgroundColor: fillOf(s.group_key, isMiiwan ? 0.85 : 0.55),
           borderColor: colorOf(s.group_key),
-          borderWidth: isMiiwan ? 1.5 : 1,
+          borderWidth: isMiiwan ? 1.5 : 0.5,
           borderRadius: 2,
-          // 막대 폭은 자동 (linear x-axis 기준 1일 단위) — 범위 토글로
-          // 줌 가능. 여러 그룹은 같은 x에 overlap (dodge 안 함).
+          barPercentage: 1.0,
+          categoryPercentage: 1.0,
         };
       }
       return {

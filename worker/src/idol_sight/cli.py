@@ -35,7 +35,7 @@ KNOWN_SOURCES = {
 }
 KNOWN_GROUPS = {
     "plave", "isedol", "stellive", "skinz",
-    "myrakl", "miiwan", "owis", "bdawn",
+    "myrakl", "miiwan", "owis", "bdawn", "wegosix",
 }
 
 # Source → constructor.
