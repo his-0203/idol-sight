@@ -26,9 +26,14 @@ twitter, controversy) cannot be backfilled and are written as 0.
 The DebutCurve metric selector caps at the columns we can fill, so
 the operator never sees a flat-zero curve for those.
 
-Idempotent via ``ON CONFLICT(group_key, snapshot_at) DO NOTHING`` —
-real snapshots from the live collectors always win, and re-running
-the backfill is a no-op once it's been applied.
+Idempotent via ``ON CONFLICT … DO UPDATE … WHERE data_source =
+'backfill_estimate'``: re-running the backfill (a) only touches rows
+the backfill itself owns (live collector rows are protected by the
+WHERE clause), and (b) only fills NULL slots in those rows
+(``COALESCE(existing, excluded)``) so non-NULL values from earlier
+backfill passes (e.g. Wayback or SocialBlade) survive. Re-running is
+safe and re-populates rows that were previously cleared by ad-hoc
+data-quality migrations.
 """
 
 from __future__ import annotations
@@ -54,7 +59,10 @@ INSERT INTO agg_summary
    dc_total_posts, theqoo_posts, instiz_posts,
    naver_total_news, twitter_posts, controversy_count, data_source)
 VALUES (?, ?, ?, ?, NULL, 0, 0, 0, 0, 0, 0, 'backfill_estimate')
-ON CONFLICT(group_key, snapshot_at) DO NOTHING
+ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
+  yt_total_videos = COALESCE(agg_summary.yt_total_videos, excluded.yt_total_videos),
+  yt_total_views  = COALESCE(agg_summary.yt_total_views, excluded.yt_total_views)
+WHERE agg_summary.data_source = 'backfill_estimate'
 """.strip()
 
 
