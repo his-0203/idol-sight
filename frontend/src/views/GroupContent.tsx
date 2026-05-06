@@ -104,7 +104,11 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
                 </div>
               </div>
               <div class="flex-1">
-                <div class="text-lg font-semibold">{data.name} <span class="text-zinc-500 text-sm">· {data.name_kr}</span></div>
+                <div class="text-lg font-semibold flex flex-wrap items-baseline gap-2">
+                  {data.name}
+                  <span class="text-zinc-500 text-sm">· {data.name_kr}</span>
+                  {data.debut_date && <DDayBadge debutDate={data.debut_date} />}
+                </div>
                 <div class="text-xs text-zinc-400">
                   {hasHealth ? hs.label : (fallback != null ? "구독자 (점수 미산출)" : "데뷔 전 (활동량 부족)")}
                 </div>
@@ -155,6 +159,14 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
           </section>
 
           <GroupSignals data={data} />
+
+          {(data.alerts?.length ?? 0) > 0 && (
+            <GroupAlertSection alerts={data.alerts} controversyTrend={data.controversy_trend} />
+          )}
+
+          {(data.insights?.length ?? 0) > 0 && (
+            <GroupInsightSection insights={data.insights} />
+          )}
 
           <CombinedToggle
             views={data.combined_views ?? {}}
@@ -1010,5 +1022,113 @@ function FactorBreakdown(props: {
         );
       })}
     </div>
+  );
+}
+
+
+function DDayBadge({ debutDate }: { debutDate: string }) {
+  const ms = Date.parse(debutDate);
+  if (!Number.isFinite(ms)) return null;
+  const days = Math.round((ms - Date.now()) / 86_400_000);
+  if (days > 0) {
+    return (
+      <span class="rounded bg-amber-500/15 px-1.5 py-0.5 text-xs font-medium text-amber-200 tabular-nums"
+            title={`데뷔 ${debutDate} 까지 ${days}일`}>
+        D-{days}
+      </span>
+    );
+  }
+  if (days === 0) {
+    return (
+      <span class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs font-semibold text-emerald-200">
+        D-DAY
+      </span>
+    );
+  }
+  return (
+    <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300 tabular-nums"
+          title={`데뷔 ${debutDate} 후 ${Math.abs(days)}일`}>
+      D+{Math.abs(days)}
+    </span>
+  );
+}
+
+
+// Mirrors MiiWANBriefing.RiskWatch's tone palette + rule mapping so the
+// per-group detail page surfaces the worker's actual critical signals
+// instead of leaving the operator to hop to /pr-risk for context.
+const GROUP_ALERT_RULE_LABEL: Record<string, string> = {
+  controversy_spike:  "논란 급증",
+  identity_leak:      "본체 노출 가능성",
+  model_theft:        "AI 도용 / 딥페이크",
+  video_velocity_24h: "24h Viral",
+  debut_milestone:    "데뷔 마일스톤",
+};
+const GROUP_ALERT_TONE: Record<string, string> = {
+  critical: "border-red-500/60 bg-red-500/10 text-red-200",
+  warn:     "border-amber-500/40 bg-amber-500/10 text-amber-200",
+  info:     "border-zinc-700 bg-zinc-900/40 text-zinc-300",
+};
+
+function GroupAlertSection(props: {
+  alerts: Array<{ alert_key: string; rule: string; severity: string;
+                  title: string; body: string; fired_at: string }>;
+  controversyTrend: { current: number; previous: number | null } | null | undefined;
+}) {
+  return (
+    <section>
+      <div class="mb-2 flex items-baseline gap-2">
+        <h3 class="section-title">위기 모니터 (14일)</h3>
+        <span class="text-hint text-zinc-500">
+          worker 가 발화한 알림 — 별도 PR/Risk 페이지로 이동 없이 그룹 컨텍스트에서 확인.
+        </span>
+      </div>
+      <ul class="space-y-2">
+        {props.alerts.map((a) => (
+          <li key={a.alert_key}
+              class={`rounded border-l-2 p-2.5 text-sm ${GROUP_ALERT_TONE[a.severity] ?? GROUP_ALERT_TONE.info}`}>
+            <div class="flex items-baseline gap-2">
+              <span class="rounded bg-zinc-900/60 px-1.5 text-[11px] text-zinc-300">
+                {GROUP_ALERT_RULE_LABEL[a.rule] ?? a.rule}
+              </span>
+              <span class="font-semibold">{a.title}</span>
+              <span class="ml-auto text-hint text-zinc-500">
+                {a.fired_at?.slice(0, 16).replace("T", " ")}
+              </span>
+            </div>
+            <div class="mt-1 text-xs text-zinc-400">{a.body}</div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+
+function GroupInsightSection(props: {
+  insights: Array<{ id: number; title: string; body: string;
+                    scope: string; type: string; generated_at: string }>;
+}) {
+  return (
+    <section>
+      <div class="mb-2 flex items-baseline gap-2">
+        <h3 class="section-title">전략 인사이트 (LLM weekly · 30일)</h3>
+        <span class="text-hint text-zinc-500">
+          이 그룹 scope 로 생성된 LLM 분석 — 시장 전체 인사이트는 MarketOverview 에 별도.
+        </span>
+      </div>
+      <ul class="space-y-2">
+        {props.insights.map((i) => (
+          <li key={i.id}
+              class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <div class="text-hint text-zinc-500">
+              {i.type} · {i.generated_at?.slice(0, 10)}
+            </div>
+            <div class="mt-0.5 font-semibold">{i.title}</div>
+            <div class="mt-1 text-sm text-zinc-400">{i.body}</div>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

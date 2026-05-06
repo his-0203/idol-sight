@@ -137,6 +137,16 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
       WHERE scope=? AND fired_at >= datetime('now', '-14 days')
       ORDER BY fired_at DESC LIMIT 30`, [key]);
 
+  // Scope-filtered insights for this group's page (last 30d window —
+  // matches the WeeklyUpdate retention). LLM weekly emits scope='miiwan'
+  // / 'plave' / etc. Group page should surface only the items that name
+  // this group; market-scope items belong on MarketOverview.
+  const insights = await d1Query<any>(env.DB,
+    `SELECT id, title, body, scope, type, source_refs_json, generated_at
+       FROM insights
+      WHERE scope=? AND generated_at >= datetime('now', '-30 days')
+      ORDER BY generated_at DESC LIMIT 20`, [key]);
+
   // Controversy trend — the worker's controversy_spike rule fires on a
   // 2× WoW multiplier with a 5-count floor; the frontend mirrors those
   // thresholds so the displayed Risk Level stays in lock-step with the
@@ -265,6 +275,13 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     twitter_posts: tweets,
     albums: albumLifecycles,            // V2.5 dive curves
     alerts,                             // worker-emitted critical signals
+    insights: insights.map((i) => ({
+      id: i.id, title: i.title, body: i.body,
+      scope: i.scope, type: i.type,
+      source_refs: (() => { try { return JSON.parse(i.source_refs_json ?? "[]"); }
+                            catch { return []; } })(),
+      generated_at: i.generated_at,
+    })),
     controversy_trend: controversyTrend,
     prev_summary: prevSummary,          // 7-day-ago WoW baseline
     health_history: healthHistory,      // 30d sparkline points
