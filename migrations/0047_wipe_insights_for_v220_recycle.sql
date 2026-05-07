@@ -1,0 +1,23 @@
+-- 0047_wipe_insights_for_v220_recycle.sql
+-- One-shot wipe of the insights table to enable a clean V2.20.1 cycle.
+--
+-- Operator request 2026-05-07: now that prompts.py (V2.20) + weekly.py
+-- post-validation guard (V2.20.1) + cleanup migration 0046 are all in
+-- place, the dashboard should be repopulated from a single fresh
+-- analyze-weekly run rather than a mix of old and new outputs.
+--
+-- Affected dashboard surfaces (all sourced from `insights`):
+--   - 주간 업데이트 (WeeklyUpdate.tsx, /api/weekly)
+--   - 인사이트       (Insights.tsx, /api/insights)
+--   - IPX 액션      (type='ipx_action' rows, MiiWANBriefing + Insights)
+--   - 전략 인사이트  (type='weekly' rows from llm/weekly.py)
+--   - MiiWAN 카드 일부 (scope='miiwan' OR type='ipx_action' subset)
+--
+-- Untouched: agg_summary, agg_health_scores, agg_market_share,
+-- hanteo_weekly, agg_member_popularity. Health-score cards (which carry
+-- their own breakdown_json from compute_health_score) survive intact.
+--
+-- Re-population is via the next analyze-weekly run (manual dispatch or
+-- Monday 00:00 UTC cron).
+
+DELETE FROM insights;
