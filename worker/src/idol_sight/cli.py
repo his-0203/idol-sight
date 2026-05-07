@@ -422,6 +422,94 @@ def melon_chart_run() -> None:
 
 
 @app.command(
+    "backfill-music-show-wins",
+    help=(
+        "Backfill 음방 1위 events from Naver news + Gemini structured "
+        "extraction. Caches all processed urls to avoid re-running LLM. "
+        "Verifies via ≥2 url confirmation before status='confirmed'."
+    ),
+)
+def backfill_music_show_wins_cmd(
+    group: str = typer.Option(
+        None, "--group",
+        help="Single group_key filter (default: 6 candidates all).",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="Run extraction but don't write D1.",
+    ),
+) -> None:
+    """음방 1위 1회 백필 또는 주간 cron entry. Naver news search →
+    Gemini structured extraction → music_show_wins_log + extraction_cache.
+    같은 (program, episode_date, group_key) 가 별개 url 2건+ 보도되면
+    status='confirmed' 로 승격. agg_summary.music_show_wins 합산은 cli
+    의 다른 path (analyze-weekly) 에서 in-memory join 으로 별도 처리.
+    """
+    from scrapling import Fetcher
+
+    from idol_sight.collectors.music_show import (
+        GROUP_KEY_ENUM as _MS_GROUPS,
+    )
+    from idol_sight.collectors.music_show import (
+        backfill_music_show_wins,
+        refresh_confirmation_status,
+    )
+    from idol_sight.llm.gemini import GeminiClient
+
+    settings = load_settings()
+    if not settings.gemini_api_key:
+        typer.echo(
+            "ERROR: GEMINI_API_KEY required for music-show backfill",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if group is not None and group not in _MS_GROUPS:
+        typer.echo(
+            f"ERROR: --group must be one of {list(_MS_GROUPS)!r}",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    client = _make_d1_client(settings)
+    gemini = GeminiClient(api_key=settings.gemini_api_key)
+    group_keys = [group] if group else list(_MS_GROUPS)
+
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    result = backfill_music_show_wins(
+        fetcher=Fetcher,
+        gemini_client=gemini,
+        db_client=client,
+        group_keys=group_keys,
+        now_iso=now_iso,
+    )
+
+    if dry_run:
+        typer.echo(
+            f"DRY-RUN: {result.rows_inserted} new wins, "
+            f"{len(result.statements)} statements (NOT written)"
+        )
+        for sql, params in result.statements[:5]:
+            typer.echo(f"  - {sql.split()[0]} | {params[:5]}")
+        return
+
+    if result.statements:
+        client.batch(result.statements)
+        typer.echo(
+            f"backfill-music-show-wins: wrote {len(result.statements)} stmts "
+            f"({result.rows_inserted} new wins) for {len(group_keys)} groups"
+        )
+        promoted = refresh_confirmation_status(
+            db_client=client, now_iso=now_iso,
+        )
+        typer.echo(
+            f"  verification: promoted {promoted} pending → confirmed"
+        )
+    else:
+        typer.echo("backfill-music-show-wins: no new statements")
+    raise typer.Exit(code=0 if result.statements or not result.errors else 1)
+
+
+@app.command(
     "external-cohort-run",
     help="Refresh external_metrics YT columns via the YouTube Data API. "
          "Spotify columns are left NULL (Premium-required policy 2026-02 "
@@ -738,6 +826,24 @@ def _recompute_health_scores(client, snap: str) -> int:
     hanteo_by_key = {r["group_key"]: (r.get("sales") or 0) for r in hanteo_rows}
     for c in cohort:
         c["hanteo_sales"] = hanteo_by_key.get(c["key"], 0)
+
+    # 음방 1위 confirmed 카운트. status='confirmed' 만 카운트 — pending
+    # (≥2 url 컨퍼메이션 미달) 은 hallucination 위험으로 점수 영향 차단.
+    # 같은 (program, episode_date) 의 multi-source 보도가 verification
+    # 용으로 여러 row 존재하므로 DISTINCT (program||'|'||episode_date)
+    # 로 회차 단위 카운트.
+    music_rows = client.execute(
+        "SELECT group_key, "
+        "COUNT(DISTINCT program || '|' || episode_date) AS wins "
+        "FROM music_show_wins_log "
+        "WHERE status='confirmed' "
+        "GROUP BY group_key"
+    )
+    music_by_key = {
+        r["group_key"]: int(r.get("wins") or 0) for r in music_rows
+    }
+    for c in cohort:
+        c["music_show_wins"] = music_by_key.get(c["key"], 0)
     live_metrics = compute_live_metrics(cohort) if cohort else None
 
     health_stmts: list = []
@@ -767,7 +873,7 @@ def _recompute_health_scores(client, snap: str) -> int:
             "controversy_count": s["controversy_count"],
             "negative_ratio": s.get("negative_ratio") or 0,
             "hanteo_sales": hanteo_by_key.get(g["key"], 0),
-            "music_show_wins": s.get("music_show_wins") or 0,
+            "music_show_wins": music_by_key.get(g["key"], 0),
             "melon_top100_peak": s.get("melon_top100_peak"),
             "melon_top100_depth": s.get("melon_top100_depth"),
             "v90_count": (v90[0].get("n", 0) if v90 else 0),

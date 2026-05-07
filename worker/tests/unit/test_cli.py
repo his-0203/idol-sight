@@ -88,3 +88,42 @@ def test_analyze_weekly_subcommand_present():
     res = runner.invoke(app, ["analyze-weekly", "--help"])
     assert res.exit_code == 0
     assert "weekly" in res.output.lower()
+
+
+# --- backfill-music-show-wins -------------------------------------------
+
+
+def test_backfill_music_show_wins_help_present():
+    res = runner.invoke(app, ["backfill-music-show-wins", "--help"])
+    assert res.exit_code == 0
+    assert "1위" in res.output or "music" in res.output.lower()
+
+
+def test_backfill_music_show_wins_requires_gemini_key(monkeypatch):
+    """GEMINI_API_KEY 미설정 → exit code 2 + 명시적 에러."""
+    from unittest.mock import MagicMock
+
+    import idol_sight.cli as cli
+
+    fake_settings = MagicMock(gemini_api_key=None)
+    monkeypatch.setattr(cli, "load_settings", lambda: fake_settings)
+
+    res = runner.invoke(app, ["backfill-music-show-wins"])
+    assert res.exit_code == 2
+    assert "GEMINI_API_KEY" in res.output
+
+
+def test_backfill_music_show_wins_rejects_invalid_group(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import idol_sight.cli as cli
+
+    fake_settings = MagicMock(gemini_api_key="fake-key")
+    monkeypatch.setattr(cli, "load_settings", lambda: fake_settings)
+
+    res = runner.invoke(
+        app, ["backfill-music-show-wins", "--group", "isedol"],
+    )
+    # ISEDOL 은 후보 6개 그룹에 없음 → 거부
+    assert res.exit_code == 2
+    assert "must be one of" in res.output
