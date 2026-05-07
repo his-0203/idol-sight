@@ -28,8 +28,9 @@ INSERT INTO agg_summary
    yt_total_videos, yt_total_views, yt_subscribers,
    yt_likes_total, yt_comments_total,
    dc_total_posts, theqoo_posts, instiz_posts,
-   naver_total_news, twitter_posts, controversy_count)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   naver_total_news, twitter_posts, controversy_count,
+   music_show_wins)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   yt_total_videos=excluded.yt_total_videos,
   yt_total_views=excluded.yt_total_views,
@@ -41,7 +42,8 @@ ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   instiz_posts=excluded.instiz_posts,
   naver_total_news=excluded.naver_total_news,
   twitter_posts=excluded.twitter_posts,
-  controversy_count=excluded.controversy_count
+  controversy_count=excluded.controversy_count,
+  music_show_wins=COALESCE(excluded.music_show_wins, agg_summary.music_show_wins)
 """.strip()
 
 
@@ -178,6 +180,11 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
                 c["yt_likes"], c["yt_comments"],
                 c["dc"], c["theqoo"], c["instiz"],
                 c["naver"], c["twitter"], c["controversy"],
+                # music_show_wins: NULL — collector not shipped (V2.16
+                # stub). The COALESCE in _UPSERT preserves any value
+                # already in the row from a manual seed, so this UPSERT
+                # never clobbers a hand-entered win count.
+                None,
             ],
         ))
 

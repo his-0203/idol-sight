@@ -516,7 +516,8 @@ def analyze_weekly(
         "SELECT group_key, yt_subscribers, yt_total_views, "
         "  yt_likes_total, yt_comments_total, "
         "  dc_total_posts, theqoo_posts, instiz_posts, "
-        "  naver_total_news, controversy_count, negative_ratio "
+        "  naver_total_news, controversy_count, negative_ratio, "
+        "  music_show_wins "
         "FROM agg_summary WHERE snapshot_at = "
         "  (SELECT MAX(snapshot_at) FROM agg_summary)"
     )
@@ -533,10 +534,42 @@ def analyze_weekly(
             "naver_total_news": r.get("naver_total_news") or 0,
             "controversy_count": r.get("controversy_count") or 0,
             "negative_ratio": r.get("negative_ratio") or 0,
+            "music_show_wins": r.get("music_show_wins") or 0,
         }
         for r in cohort_rows
     ]
-    dyn_refs = compute_dynamic_refs(cohort) if cohort else None
+    # V2.16: external K-pop benchmark cohort folded into the dynamic-REF
+    # percentile so PLAVE no longer saturates against an 8-group cohort
+    # that consists of itself. Pulls the latest external_metrics row per
+    # active external group; if the table is empty (table missing or no
+    # seed yet) we fall through to cohort-only refs — backwards compat.
+    try:
+        ext_rows = client.execute(
+            "SELECT m.group_key, m.yt_subscribers, m.yt_total_views, "
+            "  m.spotify_monthly_listeners "
+            "FROM external_metrics m "
+            "JOIN external_groups g ON g.key = m.group_key "
+            "WHERE g.is_active = 1 AND m.snapshot_at = ("
+            "  SELECT MAX(snapshot_at) FROM external_metrics "
+            "  WHERE group_key = m.group_key)"
+        )
+    except Exception:  # noqa: BLE001 — table may not exist in tests
+        ext_rows = []
+    external_cohort = [
+        {
+            "yt_subscribers": r.get("yt_subscribers") or 0,
+            "yt_total_views": r.get("yt_total_views") or 0,
+            # external_metrics doesn't track naver news for K-pop
+            # mainline; leave 0 so it doesn't depress news REF below
+            # the internal cohort's level.
+            "naver_total_news": 0,
+        }
+        for r in ext_rows
+    ]
+    dyn_refs = (
+        compute_dynamic_refs(cohort, external_cohort=external_cohort)
+        if cohort else None
+    )
     cohort_by_key = {c["key"]: c for c in cohort}
 
     # Latest hanteo first-week sales per group (drives RitualVictory +
@@ -584,6 +617,7 @@ def analyze_weekly(
             "controversy_count": s["controversy_count"],
             "negative_ratio": s.get("negative_ratio") or 0,
             "hanteo_sales": hanteo_by_key.get(g["key"], 0),
+            "music_show_wins": s.get("music_show_wins") or 0,
             "v90_count": (v90[0].get("n", 0) if v90 else 0),
             "v30_count": (v30[0].get("n", 0) if v30 else 0),
         }

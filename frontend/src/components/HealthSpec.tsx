@@ -37,7 +37,7 @@ export function HealthSpec() {
                       rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm"
                onClick={(e) => e.stopPropagation()}>
             <div class="mb-3 flex items-center justify-between">
-              <h3 class="font-semibold">Health Score 산식 (V2.5)</h3>
+              <h3 class="font-semibold">Health Score 산식 (V2.16)</h3>
               <button class="text-zinc-500 hover:text-zinc-300"
                       onClick={() => setOpen(false)}>✕</button>
             </div>
@@ -137,8 +137,25 @@ function FactorsView({ spec }: { spec: any }) {
               {FACTOR_LABELS[f]}
             </Tooltip>
             {fd[f] && <span class="ml-2 text-zinc-500">{fd[f]}</span>}
+            {spec.factor_inputs?.[f] && (
+              <div class="ml-4 text-[11px] text-zinc-500">
+                input weights: {spec.factor_inputs[f]}
+              </div>
+            )}
           </div>
         ))}
+      </div>
+
+      <div class="rounded border border-amber-900/40 bg-amber-950/20 p-2 text-zinc-500">
+        <div class="mb-1 font-semibold text-amber-400">V2.16 산식 보정</div>
+        <ul class="ml-3 list-disc space-y-0.5">
+          <li>Ritual factor: <code>redistribute=False</code> — 한터/음방 부재 시 weight가
+              news로 재분배되지 않음 (corporate 신생 그룹 ritual 부풀림 차단).</li>
+          <li>Ritual에 <code>music_show_wins</code> 0.30 가중치 신호 추가 (collector 미구현, manual seed 가능).</li>
+          <li><code>compute_dynamic_refs</code>가 external K-pop 벤치마크 코호트도 흡수
+              — subscribers/views/news REF가 시장 정합성 회복.</li>
+          <li>Cold-start floor (debut &lt; 90d) 제거 — 절대평가. 신생 그룹도 raw score 그대로.</li>
+        </ul>
       </div>
 
       <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-500">

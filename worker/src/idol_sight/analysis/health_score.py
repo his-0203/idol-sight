@@ -151,8 +151,16 @@ FACTOR_DENOM = 100 + FACTOR_BONUS_MAX  # = 110
 # the heaviest-weighted bands hit segmentary (40) and confederation (55)
 # the worst. Dropping the dead metric and renormalizing the remaining
 # weights inside the same factor keeps the score interpretable.
+#
+# V2.16: ritual factor opts OUT of redistribution (see _wmean
+# ``redistribute`` flag + _factor_inputs). For ritual specifically we
+# want hanteo absence to read as "this group has no album cycle this
+# window" — i.e. real loss of the ritual signal — not "redistribute the
+# 0.5 weight to news so a single naver hit count carries the whole
+# factor". Reach / Mobilization / Intimacy keep redistribute=True.
 _ALL_METRICS = frozenset({
     "subscribers", "views", "news", "quality", "community", "hanteo",
+    "music_show_wins",
 })
 
 
@@ -180,24 +188,11 @@ def _is_pre_debut(debut_date: str | None) -> bool:
     return d > date.today()
 
 
-def _tenure_days(debut_date: str | None) -> int | None:
-    """Days since debut. Returns None for pre-debut / unknown."""
-    if not debut_date:
-        return None
-    try:
-        d = date.fromisoformat(debut_date)
-    except ValueError:
-        return None
-    diff = (date.today() - d).days
-    return diff if diff >= 0 else None
-
-
-# V2.14 cold-start floor — a group debuted < 90 days cannot have
-# accumulated cohort-relative signal at PLAVE/ISEDOL scale, so the raw
-# score reads as "this group is in the bottom decile" trivially.
-# Linear ramp: day 0 → floor 3.5, day 89 → floor ≈ 0 (no adjustment).
-COLD_START_FLOOR_BASE = 3.5
-COLD_START_DAYS = 90
+# V2.16: cold-start floor removed. The earlier 3.5-pt floor for
+# debut < 90d groups was a participation lift — it inflated B:DAWN
+# (raw 1.9 → 3.5) and any other neonate against the absolute scale.
+# The user wants absolute scoring: a group on day 1 with no traction
+# reads near-zero, which is correct. The floor masked this.
 
 
 def _normalize(value: float | None, ref: float) -> float:
@@ -259,6 +254,8 @@ def _per_group_live(agg: dict[str, Any]) -> set[str]:
         live.add("community")
     if float(agg.get("hanteo_sales", 0) or 0) > 0:
         live.add("hanteo")
+    if float(agg.get("music_show_wins", 0) or 0) > 0:
+        live.add("music_show_wins")
     return live
 
 
@@ -294,42 +291,94 @@ def compute_live_metrics(cohort: list[dict[str, Any]]) -> set[str]:
         live.add("community")
     if any(float(g.get("hanteo_sales", 0) or 0) > 0 for g in cohort):
         live.add("hanteo")
+    if any(float(g.get("music_show_wins", 0) or 0) > 0 for g in cohort):
+        live.add("music_show_wins")
     return live
 
 
-def _wmean(parts: list[tuple[float, float, bool]]) -> float:
-    """Weighted mean over parts marked alive=True. Skips dead parts in
-    BOTH numerator and denominator so the surviving weights renormalize
-    naturally. Returns 0 when nothing is alive.
+def _wmean(
+    parts: list[tuple[float, float, bool]],
+    *,
+    redistribute: bool = True,
+) -> float:
+    """Weighted mean over parts marked alive=True.
 
     Each part is (value, weight, alive).
+
+    ``redistribute=True`` (default): dead parts skipped in BOTH
+    numerator and denominator so surviving weights renormalize. Useful
+    for sparse-collector defense — if a cohort-wide signal is dead, the
+    remaining signals carry full weight.
+
+    ``redistribute=False``: dead parts contribute 0 to the numerator
+    but their weight stays in the denominator. The factor genuinely
+    drops by the missing weight share. Used by ritual (V2.16) where
+    hanteo absence must NOT redistribute to news — that's the bug we're
+    fixing in the corporate-without-album-cycle case.
+
+    Returns 0 when total weight is zero (degenerate input).
     """
-    live = [(v, w) for v, w, alive in parts if alive]
-    if not live:
-        return 0.0
-    total_w = sum(w for _, w in live)
+    if redistribute:
+        live = [(v, w) for v, w, alive in parts if alive]
+        if not live:
+            return 0.0
+        total_w = sum(w for _, w in live)
+        if total_w <= 0:
+            return 0.0
+        return sum(v * w for v, w in live) / total_w
+
+    total_w = sum(w for _, w, _ in parts)
     if total_w <= 0:
         return 0.0
-    return sum(v * w for v, w in live) / total_w
+    return sum((v if alive else 0.0) * w for v, w, alive in parts) / total_w
 
 
-def compute_dynamic_refs(cohort: list[dict[str, Any]]) -> dict[str, float]:
-    """Derive per-dimension REF values from cohort p90.
+def compute_dynamic_refs(
+    cohort: list[dict[str, Any]],
+    *,
+    external_cohort: list[dict[str, Any]] | None = None,
+) -> dict[str, float]:
+    """Derive per-dimension REF values from cohort p75.
 
-    ``cohort`` is the list of agg dicts (one per active group, same
-    snapshot) that's about to feed into ``compute_health_score``. We
-    compute each REF as max(p90 of cohort, MIN_REFS[dim]) so that:
+    ``cohort`` is the list of agg dicts (one per active virtual-idol
+    group, same snapshot) that's about to feed into
+    ``compute_health_score``.
 
-    - top tier (≥p90) → normalized to 1.0
-    - mid tier         → ~0.5
-    - debut tier       → small but non-saturated
+    ``external_cohort`` (V2.16) is an optional list of K-pop benchmark
+    groups (RIIZE / aespa / NewJeans / etc.) that share at least the
+    ``yt_subscribers`` / ``yt_total_views`` / ``naver_total_news``
+    keys. When provided, their values are MERGED into the percentile
+    inputs so the REF reflects the broader market — preventing PLAVE
+    from saturating against itself and pulling every other group's
+    subscribers/views normalize values flat. External entries lack
+    engagement (likes/comments) and community signals so those
+    dimensions stay cohort-only — there is no equivalent of
+    dc_total_posts on aespa.
 
-    All five normalized inputs (sub/view/quality/community/news) are
-    derived this way; risk/bonus stay model-fixed.
+    We compute each REF as max(p75 of cohort∪external, MIN_REFS[dim]) so:
+
+    - top tier (≥p75)   → normalized to 1.0
+    - mid tier          → ~0.5
+    - debut tier        → small but non-saturated
     """
     refs: dict[str, float] = {}
-    sub_vals = [float(g.get("yt_subscribers", 0) or 0) for g in cohort]
-    view_vals = [float(g.get("yt_total_views", 0) or 0) for g in cohort]
+    ext = external_cohort or []
+    # Keys that are reasonable cross-cohort (same units, same meaning).
+    sub_vals = (
+        [float(g.get("yt_subscribers", 0) or 0) for g in cohort]
+        + [float(g.get("yt_subscribers", 0) or 0) for g in ext]
+    )
+    view_vals = (
+        [float(g.get("yt_total_views", 0) or 0) for g in cohort]
+        + [float(g.get("yt_total_views", 0) or 0) for g in ext]
+    )
+    news_vals = (
+        [float(g.get("naver_total_news", 0) or 0) for g in cohort]
+        + [float(g.get("naver_total_news", 0) or 0) for g in ext]
+    )
+    # Engagement / community stay cohort-only — external_cohort is K-pop
+    # mainline, no per-channel likes/comments aggregate, and dc/theqoo
+    # community posts aren't tracked for them.
     qual_vals = [float(_engagement_rate(g)) for g in cohort]
     comm_vals = [
         float((g.get("dc_total_posts", 0) or 0)
@@ -337,7 +386,6 @@ def compute_dynamic_refs(cohort: list[dict[str, Any]]) -> dict[str, float]:
               + (g.get("instiz_posts", 0) or 0))
         for g in cohort
     ]
-    news_vals = [float(g.get("naver_total_news", 0) or 0) for g in cohort]
 
     refs["subscribers"] = max(_percentile(sub_vals, DYNAMIC_REF_PERCENTILE),
                               MIN_REFS["subscribers"])
@@ -349,6 +397,10 @@ def compute_dynamic_refs(cohort: list[dict[str, Any]]) -> dict[str, float]:
                             MIN_REFS["community"])
     refs["news"] = max(_percentile(news_vals, DYNAMIC_REF_PERCENTILE),
                        MIN_REFS["news"])
+    # music_show_wins REF: 5 wins saturates a comeback cycle. Stays
+    # fixed (not cohort-driven) because the signal is sparse and a
+    # percentile over mostly-zero would be useless.
+    refs["music_show_wins"] = 5.0
     return refs
 
 
@@ -422,6 +474,16 @@ def _factor_inputs(
     # 1.0 saturates around 1M album sales (PLAVE millennium-album scale).
     hanteo_n = min(hanteo_sales / 1_000_000.0, 1.0)
 
+    # V2.16 music_show_wins — explicit ritual signal. 음방 1위 누적
+    # 횟수 (M Countdown / Show Champion / The Show / Music Bank /
+    # Inkigayo). Saturates at refs["music_show_wins"] (default 5).
+    # Collector is a stub — column exists in agg_summary but no live
+    # crawler yet. Until then every group reads NULL/0 and the cohort-
+    # level live_metrics fold-out drops it. As soon as one group gets
+    # a manual seed or the collector ships, the signal activates.
+    music_show_wins = float(agg.get("music_show_wins", 0) or 0)
+    music_show_n = _normalize(music_show_wins, r.get("music_show_wins", 5.0))
+
     # V2.14: video cadence (last 90 days) promoted from bonus-only to a
     # weighted Mobilization signal. Without this, a group like SKINZ
     # with 593 videos but no recent hanteo album barely registers on
@@ -446,12 +508,16 @@ def _factor_inputs(
             (news_n, 0.15, "news"        in L),
         ]),
         # RitualVictory — initial-album mobilization (Hanteo) + news
-        # spike that often correlates with chart entries. We don't have
-        # explicit "음방 1위" signal yet — that's a future P0.
+        # spike + music-show wins. V2.16: redistribute=False so a
+        # corporate group without an album cycle (hanteo=0) does NOT
+        # have the news weight redistributed to 100% — the factor
+        # genuinely drops by the missing weight share. This was the
+        # MY:RAKL ritual-inflation bug.
         "ritual": _wmean([
-            (hanteo_n, 0.70, "hanteo" in L),
-            (news_n,   0.30, "news"   in L),
-        ]),
+            (hanteo_n,     0.50, "hanteo"          in L),
+            (news_n,       0.20, "news"            in L),
+            (music_show_n, 0.30, "music_show_wins" in L),
+        ], redistribute=False),
         # Mobilization — active output (cadence + views) + album-driven
         # initial-sales signal + subs. cadence carries 0.25 weight as
         # the always-alive internal signal; v30 stays in the additive
@@ -547,15 +613,8 @@ def compute_health_score(
     raw_total = factor_base + bonus_total
     total = round(raw_total / FACTOR_DENOM * 10.0, 1)
 
-    # V2.14 cold-start floor for newly debuted groups (< 90 days). Lifts
-    # the score off the cohort-comparison floor for the period when
-    # accumulation is mechanically impossible. After day 90 the group
-    # competes on merit — no permanent participation lift.
-    tenure = _tenure_days(debut_date)
-    if tenure is not None and tenure < COLD_START_DAYS:
-        floor = COLD_START_FLOOR_BASE * (1.0 - tenure / COLD_START_DAYS)
-        if total < floor:
-            total = round(floor, 1)
+    # V2.16: cold-start floor removed. Absolute scoring — a group
+    # with no traction reads as such, regardless of tenure.
 
     grade = next(g for thr, g in GRADE_THRESHOLDS if total >= thr)
 

@@ -227,3 +227,153 @@ def test_controversy_compresses_all_four_factors():
     for k in ("reach", "ritual", "mobilization", "intimacy"):
         # Strictly less when risk fires (5 controversies → factor 0.5).
         assert scandal.factors[k] < clean.factors[k]
+
+
+# ─── V2.16 산식 보정 ────────────────────────────────────────────────────
+
+
+def test_ritual_does_not_redistribute_when_hanteo_absent():
+    """V2.16 Fix 1 — corporate 그룹에 hanteo가 없으면 ritual 산식이
+    news/music_show 단독으로 100% 재정규화되지 않아야 한다.
+
+    이전 동작: hanteo 부재 시 _wmean이 dead 항목을 분모에서 빼서
+    news weight 0.20 → 1.00로 redistribute → ritual factor input ≈ news_n.
+    의도하지 않은 boost.
+
+    새 동작: ritual factor는 redistribute=False로 호출. dead 항목의
+    weight는 분모에 살아있어서 그 만큼 자연 감소.
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    # hanteo 없음, music_show_wins 없음, news만 살아 있는 corporate 그룹
+    agg = _agg(
+        yt_subscribers=80_000, yt_total_views=8_000_000,
+        likes_total=200_000, comments_total=10_000,
+        naver_total_news=100,    # cohort REF에 비해 충분히 큼
+        hanteo_sales=0,
+    )
+    # cohort에 hanteo가 한 그룹만 있어도 cohort-level live 통과 →
+    # per-group은 여전히 dead. 호출 시 live_metrics에 hanteo 포함시킴
+    # (cohort에서 살아있다고 가정).
+    refs = {
+        "subscribers": 1_000_000, "views": 200_000_000,
+        "quality": 0.05, "community": 200_000, "news": 200,
+        "music_show_wins": 5,
+    }
+    score = compute_health_score(
+        "myrakl", agg, debut_date=past, refs=refs,
+        group_model="corporate",
+        live_metrics={"subscribers", "views", "news", "quality",
+                      "hanteo", "music_show_wins"},
+    )
+    # news_n = 100/200 = 0.5 → 이전 산식이면 ritual_factor_input = 0.5,
+    # weight 30 곱 → 15점. 새 산식이면 weight 0.20만 살아 있고 분모는
+    # 1.00이라 ritual_factor_input ≈ 0.5 × 0.20 = 0.10, weight 30 × 0.10
+    # = 3점. 적어도 절반 이하로 떨어져야 한다.
+    assert score.factors["ritual"] < 7.5, (
+        f"ritual={score.factors['ritual']} — hanteo 부재 시 redistribute 차단 "
+        f"실패. news 단독 100% boost 그대로."
+    )
+
+
+def test_dynamic_refs_includes_external_cohort_when_provided():
+    """V2.16 Fix 2 — external_cohort 인자가 있으면 p75 계산에 함께 합쳐
+    REF가 외부 K-POP 시장 기준으로 끌어올려진다.
+
+    이전 동작: cohort 8그룹 안에서만 p75 → PLAVE = top → 다른 그룹들은
+    PLAVE 대비 비교. 외부 시장(에스파/뉴진스/RIIZE) 보이지 않음.
+
+    새 동작: external_cohort 리스트도 percentile 입력에 합침.
+    """
+    cohort = [
+        {"yt_subscribers": 1_000_000, "yt_total_views": 100_000_000,
+         "likes_total": 4_000_000, "comments_total": 200_000,
+         "dc_total_posts": 50_000, "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 300},
+        {"yt_subscribers": 200_000, "yt_total_views": 20_000_000,
+         "likes_total": 800_000, "comments_total": 30_000,
+         "dc_total_posts": 10_000, "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 80},
+    ]
+    # 외부 K-POP 톱티어
+    external = [
+        {"yt_subscribers": 15_000_000, "yt_total_views": 8_000_000_000,
+         "likes_total": 0, "comments_total": 0,
+         "dc_total_posts": 0, "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 5_000},
+        {"yt_subscribers": 8_000_000, "yt_total_views": 3_000_000_000,
+         "likes_total": 0, "comments_total": 0,
+         "dc_total_posts": 0, "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 2_500},
+    ]
+    refs_solo = compute_dynamic_refs(cohort)
+    refs_w_ext = compute_dynamic_refs(cohort, external_cohort=external)
+    # 외부 시장 합산하면 subscribers/views REF가 의미 있게 커진다.
+    assert refs_w_ext["subscribers"] > refs_solo["subscribers"]
+    assert refs_w_ext["views"] > refs_solo["views"]
+    assert refs_w_ext["news"] > refs_solo["news"]
+
+
+def test_dynamic_refs_external_cohort_none_is_backward_compat():
+    """external_cohort=None 또는 미전달 시 기존 동작 유지."""
+    cohort = [
+        {"yt_subscribers": 100, "yt_total_views": 1_000,
+         "likes_total": 0, "comments_total": 0,
+         "dc_total_posts": 0, "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 5},
+        {"yt_subscribers": 200, "yt_total_views": 2_000,
+         "likes_total": 0, "comments_total": 0,
+         "dc_total_posts": 0, "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 10},
+    ]
+    refs_a = compute_dynamic_refs(cohort)
+    refs_b = compute_dynamic_refs(cohort, external_cohort=None)
+    assert refs_a == refs_b
+
+
+def test_music_show_wins_signal_lifts_ritual():
+    """V2.16 Fix 3 — agg.music_show_wins (음방 1위 누적 횟수) 가
+    ritual factor를 끌어올린다.
+
+    동일 그룹 / 동일 입력에서 music_show_wins=5 vs 0 → ritual 차이.
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(
+        yt_subscribers=300_000, yt_total_views=30_000_000,
+        likes_total=2_000_000, comments_total=200_000,
+        dc_total_posts=20_000, naver_total_news=80,
+        hanteo_sales=300_000,   # 한터 살림 → ritual base 확보
+    )
+    refs = {
+        "subscribers": 1_000_000, "views": 200_000_000,
+        "quality": 0.05, "community": 200_000, "news": 500,
+        "music_show_wins": 5,
+    }
+    L = {"subscribers", "views", "news", "quality",
+         "hanteo", "music_show_wins"}
+    no_show = compute_health_score(
+        "x", base, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    with_show = compute_health_score(
+        "x", {**base, "music_show_wins": 5},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    assert with_show.factors["ritual"] > no_show.factors["ritual"]
+
+
+def test_cold_start_floor_removed_absolute_scoring():
+    """V2.16 Fix 4 — cold-start floor 제거. 90일 미만 그룹도 절대값 그대로.
+
+    이전 동작: debut < 90일 → linear floor (3.5 ~ 0). 0일차 그룹이
+    raw_total ≈ 0이어도 total ≥ 3.5.
+
+    새 동작: floor 적용 안 함. raw_total이 그대로 [0, 10]에 매핑.
+    """
+    debut_3d_ago = (date.today() - timedelta(days=3)).isoformat()
+    # 거의 zero-activity 신생 그룹
+    score = compute_health_score("bdawn", _agg(), debut_date=debut_3d_ago)
+    assert score.total is not None
+    # 이전엔 floor=3.4 이상이었음. 새 동작은 0에 가까워야 함.
+    assert score.total < 1.0, (
+        f"total={score.total} — cold-start floor가 여전히 적용 중."
+    )
