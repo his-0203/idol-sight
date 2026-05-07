@@ -1,0 +1,23 @@
+-- 0043_stellive_segmentary.sql — V2.18 STELLIVE entity model 통합.
+--
+-- 사용자 운영 판단 (2026-05-07): ISEDOL과 STELLIVE는 둘 다 서브컬처
+-- 버추얼 IP라 동일 산식으로 평가하는 게 맞다. 0007에서 STELLIVE를
+-- confederation으로 분류한 근거 ("V-tuber 우산 모델 — intimacy 55")는
+-- 이론적으로 ISEDOL과 차별화되지만, 운영자가 두 그룹을 같은 줄자로
+-- 비교하고 싶어한다는 판단이 우선.
+--
+-- 변경:
+--   STELLIVE.group_model: 'confederation' → 'segmentary'
+--   가중치 변화: Reach 15→20, Ritual 10→15, Mob 20→25, Intim 55→40.
+--   결과: STELLIVE intimacy 점수 ~10pt ↓, 다른 factor 5pt씩 ↑.
+--
+-- confederation 모델 정의 자체는 health_score.py FACTOR_WEIGHTS에 그대로
+-- 남겨둠 — 향후 다른 그룹이 들어오거나 STELLIVE 분리 복구할 때 use 가능.
+-- 운영 default만 segmentary로 통합.
+--
+-- DebutCurve 자동 제외 (frontend HIDDEN_GROUPS 상수)는 group_model과
+-- 무관한 별도 결정이라 그대로 유지 — STELLIVE는 산하 멤버 그룹마다
+-- 데뷔일이 다른 우산형이라 단일 debut_date 정렬이 무의미하다는 사실은
+-- entity model과 별개.
+
+UPDATE groups SET group_model='segmentary' WHERE key='stellive';

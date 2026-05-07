@@ -29,8 +29,8 @@ INSERT INTO agg_summary
    yt_likes_total, yt_comments_total,
    dc_total_posts, theqoo_posts, instiz_posts,
    naver_total_news, twitter_posts, controversy_count,
-   music_show_wins)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   music_show_wins, melon_top100_peak)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   yt_total_videos=excluded.yt_total_videos,
   yt_total_views=excluded.yt_total_views,
@@ -43,7 +43,8 @@ ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   naver_total_news=excluded.naver_total_news,
   twitter_posts=excluded.twitter_posts,
   controversy_count=excluded.controversy_count,
-  music_show_wins=COALESCE(excluded.music_show_wins, agg_summary.music_show_wins)
+  music_show_wins=COALESCE(excluded.music_show_wins, agg_summary.music_show_wins),
+  melon_top100_peak=COALESCE(excluded.melon_top100_peak, agg_summary.melon_top100_peak)
 """.strip()
 
 
@@ -184,6 +185,9 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
                 # stub). The COALESCE in _UPSERT preserves any value
                 # already in the row from a manual seed, so this UPSERT
                 # never clobbers a hand-entered win count.
+                None,
+                # melon_top100_peak: NULL — V2.18 stub, same pattern as
+                # music_show_wins. melon.com chart collector future P0.
                 None,
             ],
         ))

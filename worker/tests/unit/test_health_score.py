@@ -361,6 +361,57 @@ def test_music_show_wins_signal_lifts_ritual():
     assert with_show.factors["ritual"] > no_show.factors["ritual"]
 
 
+# ─── V2.18 chart_peak ritual signal ─────────────────────────────────────
+
+
+def test_chart_peak_lifts_ritual_when_present():
+    """V2.18 — agg.melon_top100_peak (멜론 TOP 100 최고 순위) 가
+    ritual factor를 끌어올린다. D-tier 변별력 회복용 stub.
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(yt_subscribers=300_000, yt_total_views=30_000_000,
+                likes_total=2_000_000, comments_total=200_000,
+                naver_total_news=80, hanteo_sales=300_000)
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 500,
+            "music_show_wins": 5.0}
+    L = {"subscribers", "views", "news", "quality",
+         "hanteo", "music_show_wins", "chart_peak"}
+    no_chart = compute_health_score(
+        "x", base, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    # peak_rank=10 (top10) → chart_n = 0.91
+    with_chart = compute_health_score(
+        "x", {**base, "melon_top100_peak": 10},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    assert with_chart.factors["ritual"] > no_chart.factors["ritual"]
+
+
+def test_chart_peak_normalize_lower_rank_smaller():
+    """rank 1 (최고) > rank 50 > rank 100 > 미진입(0)."""
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(hanteo_sales=0, naver_total_news=0)
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 500,
+            "music_show_wins": 5.0}
+    L = {"chart_peak"}  # ritual에서 chart_peak만 살아있음
+    s_top = compute_health_score(
+        "x", {**base, "melon_top100_peak": 1},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    s_mid = compute_health_score(
+        "x", {**base, "melon_top100_peak": 50},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    s_bot = compute_health_score(
+        "x", {**base, "melon_top100_peak": 100},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    assert s_top.factors["ritual"] > s_mid.factors["ritual"] > s_bot.factors["ritual"]
+
+
 # ─── V2.17 news 정규화 보정 ─────────────────────────────────────────────
 
 

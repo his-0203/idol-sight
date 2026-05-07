@@ -37,7 +37,7 @@ export function HealthSpec() {
                       rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm"
                onClick={(e) => e.stopPropagation()}>
             <div class="mb-3 flex items-center justify-between">
-              <h3 class="font-semibold">Health Score 산식 (V2.17)</h3>
+              <h3 class="font-semibold">Health Score 산식 (V2.18)</h3>
               <button class="text-zinc-500 hover:text-zinc-300"
                       onClick={() => setOpen(false)}>✕</button>
             </div>
@@ -147,18 +147,17 @@ function FactorsView({ spec }: { spec: any }) {
       </div>
 
       <div class="rounded border border-amber-900/40 bg-amber-950/20 p-2 text-zinc-500">
-        <div class="mb-1 font-semibold text-amber-400">V2.17 산식 보정 (news-driven 변별력 회복)</div>
+        <div class="mb-1 font-semibold text-amber-400">V2.18 산식 보정 (D-tier 변별력 + entity 통합)</div>
         <ul class="ml-3 list-disc space-y-0.5">
-          <li>news에 <code>log1p</code> normalize 도입 — 영문 brand 그룹(SKINZ)이 한국
-              naver 뉴스에 잘 안 잡히는 group-name spelling effect 압축.</li>
-          <li>reach factor의 news weight 0.15 → 0.05 (sub 0.55 / view 0.40 / news 0.05).</li>
-          <li>ritual factor의 news weight 0.20 → 0.10 (hanteo 0.55 / music 0.35 / news 0.10).</li>
-          <li>external cohort REF 머지 호출 제거 — D-tier 그룹간 subs/views 변별력 보호.
-              (PLAVE saturate는 percentile p75로 충분히 풀림.)</li>
+          <li>ritual factor에 <code>chart_peak</code> (멜론 TOP 100 최고 순위) 0.20 weight 신설.
+              hanteo 0.55→0.50, music_show 0.35→0.20로 흡수. D-tier 그룹간 변별 시그널.</li>
+          <li>STELLIVE entity model: confederation → segmentary. ISEDOL과 동일 산식.
+              (서브컬처 버추얼 IP 통합 — Reach 20 / Ritual 15 / Mob 25 / Intim 40)</li>
         </ul>
         <div class="mt-1 text-[11px] text-zinc-500">
-          V2.16 유지 동작: <code>redistribute=False</code> ritual / music_show_wins stub /
-          cold-start floor 제거.
+          V2.17 유지: news log1p normalize + news weight (reach 0.05 / ritual 0.10) +
+          external cohort 머지 미사용. V2.16 유지: redistribute=False ritual /
+          music_show_wins stub / cold-start floor 제거.
         </div>
       </div>
 

@@ -161,7 +161,7 @@ FACTOR_DENOM = 100 + FACTOR_BONUS_MAX  # = 110
 # factor". Reach / Mobilization / Intimacy keep redistribute=True.
 _ALL_METRICS = frozenset({
     "subscribers", "views", "news", "quality", "community", "hanteo",
-    "music_show_wins",
+    "music_show_wins", "chart_peak",
 })
 
 
@@ -277,6 +277,10 @@ def _per_group_live(agg: dict[str, Any]) -> set[str]:
         live.add("hanteo")
     if float(agg.get("music_show_wins", 0) or 0) > 0:
         live.add("music_show_wins")
+    # chart_peak: 1~100 (lower = better). 0 또는 NULL = 미진입 (dead).
+    peak = agg.get("melon_top100_peak")
+    if peak is not None and 1 <= int(peak) <= 100:
+        live.add("chart_peak")
     return live
 
 
@@ -314,6 +318,12 @@ def compute_live_metrics(cohort: list[dict[str, Any]]) -> set[str]:
         live.add("hanteo")
     if any(float(g.get("music_show_wins", 0) or 0) > 0 for g in cohort):
         live.add("music_show_wins")
+    if any(
+        (g.get("melon_top100_peak") is not None
+         and 1 <= int(g.get("melon_top100_peak") or 0) <= 100)
+        for g in cohort
+    ):
+        live.add("chart_peak")
     return live
 
 
@@ -507,6 +517,17 @@ def _factor_inputs(
     music_show_wins = float(agg.get("music_show_wins", 0) or 0)
     music_show_n = _normalize(music_show_wins, r.get("music_show_wins", 5.0))
 
+    # V2.18 chart_peak — 멜론 TOP 100 최고 순위 (lower=better, 1~100).
+    # 0 / NULL / >100 = 미진입 → 0. 진입 시 (101 - peak) / 100 = chart_n.
+    # 1위면 1.0, 100위면 0.01. D-tier 그룹간 변별력 회복용 stub —
+    # collector 미구현이라 manual seed 기반 운영 시작 (music_show_wins
+    # 와 동일 패턴).
+    peak_raw = agg.get("melon_top100_peak")
+    if peak_raw is None or int(peak_raw) < 1 or int(peak_raw) > 100:
+        chart_peak_n = 0.0
+    else:
+        chart_peak_n = (101 - int(peak_raw)) / 100.0
+
     # V2.14: video cadence (last 90 days) promoted from bonus-only to a
     # weighted Mobilization signal. Without this, a group like SKINZ
     # with 593 videos but no recent hanteo album barely registers on
@@ -535,15 +556,17 @@ def _factor_inputs(
             (news_n, 0.05, "news"        in L),
         ]),
         # RitualVictory — initial-album mobilization (Hanteo) + news
-        # spike + music-show wins. V2.16: redistribute=False so a
-        # corporate group without an album cycle (hanteo=0) does NOT
-        # have the news weight redistributed to 100%. V2.17: news weight
-        # 0.20 → 0.10, hanteo 0.50 → 0.55, music_show 0.30 → 0.35 —
-        # naver-driven ritual swing 절반으로 축소.
+        # spike + music-show wins + 음원 차트 진입. V2.16 redistribute
+        # =False 유지. V2.18: chart_peak (멜론 TOP 100 최고 순위) 0.20
+        # weight 신설. hanteo 0.55 → 0.50, music_show 0.35 → 0.20 으로
+        # 흡수. 신생 D-tier 그룹간 변별력은 한터(0)/음방(0)/뉴스(영문 brand
+        # 효과 압축됨)로 잡히지 않고 음원 차트 진입 여부에서 갈리는 게
+        # 시장 컨센서스 — 그 시그널을 의례 축에 명시적으로 인입.
         "ritual": _wmean([
-            (hanteo_n,     0.55, "hanteo"          in L),
-            (news_n,       0.10, "news"            in L),
-            (music_show_n, 0.35, "music_show_wins" in L),
+            (hanteo_n,      0.50, "hanteo"          in L),
+            (news_n,        0.10, "news"            in L),
+            (music_show_n,  0.20, "music_show_wins" in L),
+            (chart_peak_n,  0.20, "chart_peak"      in L),
         ], redistribute=False),
         # Mobilization — active output (cadence + views) + album-driven
         # initial-sales signal + subs. cadence carries 0.25 weight as

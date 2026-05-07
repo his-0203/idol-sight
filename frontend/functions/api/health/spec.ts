@@ -29,6 +29,10 @@ export const onRequestGet: PagesFunction = async () =>
       music_show_wins:
                    "음방 1위 누적 횟수 / 5 (saturate). V2.16 ritual stub — collector 미구현, " +
                    "manual seed 가능. cohort-level 모두 0이면 dead 처리.",
+      melon_top100_peak:
+                   "멜론 TOP 100 최고 순위 (1=최고, 100=최저, 미진입=NULL). V2.18 ritual stub. " +
+                   "(101 - peak) / 100 정규화 → 1위 1.0 / 100위 0.01. D-tier 변별력용. " +
+                   "collector 미구현, manual seed 가능.",
       cohort_percentile: "DYNAMIC_REF_PERCENTILE = 0.75 — 1.0=top quartile. " +
                          "내부 9그룹 코호트 단독 p75 (V2.17: external 머지 철회).",
       external_cohort:
@@ -50,20 +54,21 @@ export const onRequestGet: PagesFunction = async () =>
     },
     factor_inputs: {
       reach:        "0.55 subscribers + 0.40 views + 0.05 news (V2.17: news 0.15→0.05)",
-      ritual:       "0.55 hanteo + 0.10 news + 0.35 music_show_wins (V2.17 news 0.20→0.10, " +
-                    "redistribute=False — 한터/음방 부재 시 weight가 news로 재분배되지 않음)",
+      ritual:       "0.50 hanteo + 0.10 news + 0.20 music_show_wins + 0.20 chart_peak " +
+                    "(V2.18: chart_peak 신규 0.20, music_show 0.35→0.20, hanteo 0.55→0.50; " +
+                    "redistribute=False — 어느 시그널 부재 시 그 weight 만큼 ritual 자연 감소)",
       mobilization: "0.40 views + 0.25 cadence(v90) + 0.25 hanteo + 0.10 subs",
       intimacy:     "(0.55 quality + 0.45 community) × (1 − negative_ratio)",
     },
     factor_descriptions: {
       reach:        "도달 — 구독자, 누적 조회수, 뉴스 노출",
-      ritual:       "의례 승리 — 한터 초동, 뉴스, 음방 1위 (V2.16: redistribute 차단)",
+      ritual:       "의례 승리 — 한터 초동, 뉴스, 음방 1위, 음원 차트 (V2.18: chart_peak 추가)",
       mobilization: "동원 — 누적 조회수, 영상 cadence, 한터 초동, 구독자",
       intimacy:     "친밀성 — 인게이지먼트(좋아요+댓글)·커뮤니티, 부정 sentiment 시 압축",
     },
     group_models: {
       corporate:     "K-pop 정통 (그룹 1차) — PLAVE / SKINZ / OWIS / MY:RAKL / MiiWAN / B:DAWN / WE GO-6",
-      segmentary:    "왁타버스 IP 위성 (솔로 활동 비중 높음) — ISEDOL",
-      confederation: "V-tuber 우산 모델 (멤버 portfolio) — STELLIVE",
+      segmentary:    "서브컬처 버추얼 IP (멤버 솔로 활동 비중 높음) — ISEDOL / STELLIVE (V2.18 통합)",
+      confederation: "V-tuber 우산 모델 (해체 시 복구용 카테고리, 운영 default 미사용)",
     },
   });
