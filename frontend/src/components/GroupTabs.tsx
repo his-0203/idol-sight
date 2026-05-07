@@ -15,7 +15,7 @@ import { onStateChange, readState, writeState, type RouterState } from "../route
 // bar.
 //
 // Reads/writes router state directly so callers don't need to thread
-// `tab` through their props.
+// `tab` through their props (each view just renders <GroupTabs />).
 const GROUP_TABS: Array<[RouterState["tab"], string]> = [
   ["content",   "그룹 상세"],
   ["members",   "멤버"],
