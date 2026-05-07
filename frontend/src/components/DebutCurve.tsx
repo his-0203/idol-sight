@@ -575,14 +575,46 @@ export function DebutCurve() {
 
   // Latest observed value per series — shown in the side panel so the
   // panel doubles as a "snapshot at end of range" reference.
+  //
+  // 뉴스 메트릭은 그래프(seriesForRender)에서 7일 bucket SUM 후
+  // cumulative-line 일 때 cumsum 으로 단조증가 누적 라인을 그린다.
+  // 같은 변환을 panel 숫자에도 적용해야 그래프 끝점과 일치한다.
+  // 일치 안 시키면 OWIS 처럼 그래프는 ~108 까지 가는데 panel 은 0
+  // 으로 표시되는 부조화가 발생.
   const latestValues = useMemo(() => {
     const out: Record<string, number | null> = {};
+    const isNewsMetric = metric === "naver_total_news";
+    const isNewsCumulative = isNewsMetric && newsView === 'cumulative-line';
     for (const s of filteredSeries) {
-      const last = s.points.length ? s.points[s.points.length - 1] : null;
-      out[s.group_key] = last?.value ?? null;
+      if (isNewsMetric) {
+        const bucketSum = new Map<number, number>();
+        for (const p of s.points) {
+          const v = Number(p.value);
+          if (!Number.isFinite(v) || v <= 0) continue;
+          const k = Math.floor(p.day_offset / 7) * 7;
+          bucketSum.set(k, (bucketSum.get(k) ?? 0) + v);
+        }
+        if (bucketSum.size === 0) {
+          out[s.group_key] = null;
+          continue;
+        }
+        if (isNewsCumulative) {
+          // cumulative-line 마지막 점 = 모든 주간 bucket 합
+          let total = 0;
+          for (const v of bucketSum.values()) total += v;
+          out[s.group_key] = total;
+        } else {
+          // weekly-bar 마지막 막대 = 가장 큰 day_offset bucket
+          const ordered = [...bucketSum.entries()].sort((a, b) => a[0] - b[0]);
+          out[s.group_key] = ordered[ordered.length - 1]![1];
+        }
+      } else {
+        const last = s.points.length ? s.points[s.points.length - 1] : null;
+        out[s.group_key] = last?.value ?? null;
+      }
     }
     return out;
-  }, [filteredSeries]);
+  }, [filteredSeries, metric, newsView]);
 
   return (
     <section class="card">
