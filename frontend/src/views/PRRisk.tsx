@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
+import { GroupTabs } from "../components/GroupTabs";
 import { formatKST, formatKSTDate } from "../lib/datetime";
 
 function wowDelta(curr: number | null | undefined, prev: number | null | undefined): number | null {
@@ -94,26 +95,38 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
 
   if (!groupKey) {
     return (
-      <EmptyState
-        title="그룹을 선택하세요"
-        hint="상단 그룹 컨텍스트 바에서 그룹을 고르면 PR/리스크 신호가 표시됩니다."
-        icon="👆"
-      />
+      <div class="space-y-4">
+        <GroupTabs />
+        <EmptyState
+          title="그룹을 선택하세요"
+          hint="상단 시장 개요 카드 또는 Cmd+K 검색에서 그룹을 고르면 PR/리스크 신호가 표시됩니다."
+          icon="👆"
+        />
+      </div>
     );
   }
-  if (!data) return <div class="text-zinc-500">Loading…</div>;
+  if (!data) return (
+    <div class="space-y-4">
+      <GroupTabs />
+      <div class="text-zinc-500">Loading…</div>
+    </div>
+  );
   if (news.length === 0 && tweets.length === 0 && alerts.length === 0) {
     return (
-      <EmptyState
-        title="아직 추적된 PR/리스크 신호 없음"
-        hint="뉴스 기사와 트위터 멘션은 수집 파이프라인이 신호를 발견하는 즉시 표시됩니다."
-        icon="🛡️"
-      />
+      <div class="space-y-4">
+        <GroupTabs />
+        <EmptyState
+          title="아직 추적된 PR/리스크 신호 없음"
+          hint="뉴스 기사와 트위터 멘션은 수집 파이프라인이 신호를 발견하는 즉시 표시됩니다."
+          icon="🛡️"
+        />
+      </div>
     );
   }
 
   return (
     <div class="space-y-4">
+      <GroupTabs />
       {/* Risk banner — driven by alerts severity + worker-aligned spike check. */}
       <div class={"rounded border-l-4 px-3 py-2 text-sm " +
         (riskLevel === "CRITICAL"

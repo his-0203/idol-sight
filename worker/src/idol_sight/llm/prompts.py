@@ -58,6 +58,13 @@ ANTI-PATTERNS — 만약 body에 다음이 포함되면 다시 작성:
     표현으로 ("PR팀에 공유", "담당자에게 보고", "팀 채널에 1차
     공유"). 채널 이름은 IPX/Abyss 측이 실제 운영 중인 것이
     프롬프트에 주어졌을 때만 사용.
+  - "데이터 누락", "수집 큐 검수", "수집 실패", "지속적으로
+    누락" 같은 데이터 파이프라인 장애 주장: 컨텍스트에 해당
+    그룹의 raw 시그널이 비어있는 게 명시적으로 보여야만 (예:
+    yt_subscribers 가 NULL/0 + 직전 7일 모두 NULL) 작성 허용.
+    수치가 표시되면(0이 아닌 값) 파이프라인은 정상이므로
+    "누락" 류 표현 금지. 운영자가 즉시 한터/디스코드로 검증해
+    틀리면 신뢰도 즉시 손상.
 
 EXEMPLARS (어조·길이·구체성 참고):
 
@@ -299,13 +306,17 @@ include AT LEAST:
     (debut readiness, member-level signal, competitive position vs
     PLAVE/ISEDOL D-30 baseline, anomalies in news/community pulse).
   - 1 item with `type='ipx_action'` recommending a concrete next step
-    for the IPX/Abyss team (content push, channel coordination,
-    pre-debut campaign action). `scope` for ipx_action items SHOULD be
-    'miiwan' unless the action is genuinely cross-market.
-If MiiWAN data is too sparse to justify either item with real numbers,
-still emit ONE ipx_action explicitly stating an observable next step
-(e.g. "[Abyss 데이터팀] 24시간 이내 youtube_videos 수집 큐에 MiiWAN
-공식 채널 ID 우선순위 1로 등록하고 다음 cron에서 재시도 결과를
-데이터팀에 보고한다.") and pointing at the empty source row.
-NEVER fall back to "데이터 부족 — 검토 필요" or any vague phrasing.
+    for the IPX/Abyss team. `scope` for ipx_action items MUST be
+    'miiwan' (no exceptions — operators have a separate competitive
+    insight surface for non-MiiWAN groups). The action body MUST be
+    about MiiWAN — do not start an ipx_action with another group's
+    metric and pivot to a generic recommendation.
+If MiiWAN data is too sparse for either item to ground in real numbers,
+emit ONE ipx_action stating a concrete pre-debut MiiWAN initiative
+based on what IS in context (debut milestone, member reveal cadence,
+@miiwanzip content push, PR coordination). Use the exemplars above —
+do NOT default to data-pipeline language ("수집 큐 검수", "채널 ID
+재등록") unless agg_summary actually shows a NULL run for the
+relevant signal. NEVER fall back to "데이터 부족 — 검토 필요" or any
+vague phrasing.
 """

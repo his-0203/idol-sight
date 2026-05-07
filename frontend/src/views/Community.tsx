@@ -4,6 +4,7 @@ import { fmt } from "../format";
 import { writeState } from "../router";
 import { ExportMenu } from "../components/ExportMenu";
 import { EmptyState } from "../components/EmptyState";
+import { GroupTabs } from "../components/GroupTabs";
 import { formatKST, formatKSTDate } from "../lib/datetime";
 
 // Notices, vote/poll templates, and other sticky moderator posts dominate
@@ -64,14 +65,22 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
 
   if (!groupKey) {
     return (
-      <EmptyState
-        title="그룹을 선택하세요"
-        hint="상단 그룹 컨텍스트 바에서 그룹을 고르면 커뮤니티 게시글이 표시됩니다."
-        icon="👆"
-      />
+      <div class="space-y-4">
+        <GroupTabs />
+        <EmptyState
+          title="그룹을 선택하세요"
+          hint="상단 시장 개요 카드 또는 Cmd+K 검색에서 그룹을 고르면 커뮤니티 게시글이 표시됩니다."
+          icon="👆"
+        />
+      </div>
     );
   }
-  if (!data) return <div class="text-zinc-500">Loading…</div>;
+  if (!data) return (
+    <div class="space-y-4">
+      <GroupTabs />
+      <div class="text-zinc-500">Loading…</div>
+    </div>
+  );
 
   async function flagRow(p: any) {
     if (!p.url_hash || flagged[p.url_hash]) return;
@@ -90,6 +99,7 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
 
   return (
     <div class="space-y-4">
+      <GroupTabs />
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <label class="text-zinc-500">기간</label>
         {[null, 7, 30, 90].map((p) => (

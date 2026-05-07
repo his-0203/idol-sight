@@ -4,6 +4,7 @@ import { api } from "../api";
 import { fmt } from "../format";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
+import { GroupTabs } from "../components/GroupTabs";
 
 export function Members({ groupKey }: { groupKey: string | null }) {
   const [data, setData] = useState<any>(null);
@@ -55,21 +56,34 @@ export function Members({ groupKey }: { groupKey: string | null }) {
 
   if (!groupKey) {
     return (
-      <EmptyState
-        title="그룹을 선택하세요"
-        hint="상단 그룹 컨텍스트 바에서 그룹을 고르면 멤버 분포가 표시됩니다."
-        icon="👆"
-      />
+      <div class="space-y-4">
+        <GroupTabs />
+        <EmptyState
+          title="그룹을 선택하세요"
+          hint="상단 시장 개요 카드 또는 Cmd+K 검색에서 그룹을 고르면 멤버 분포가 표시됩니다."
+          icon="👆"
+        />
+      </div>
     );
   }
-  if (!data) return <div class="text-zinc-500">Loading…</div>;
+  if (!data) {
+    return (
+      <div class="space-y-4">
+        <GroupTabs />
+        <div class="text-zinc-500">Loading…</div>
+      </div>
+    );
+  }
   if (data.status === "insufficient") {
     return (
-      <EmptyState
-        title="데이터 부족"
-        hint="활동량 부족으로 멤버 인기도 산출 불가 (HHI 미계산)."
-        icon="📊"
-      />
+      <div class="space-y-4">
+        <GroupTabs />
+        <EmptyState
+          title="데이터 부족"
+          hint="활동량 부족으로 멤버 인기도 산출 불가 (HHI 미계산)."
+          icon="📊"
+        />
+      </div>
     );
   }
 
@@ -82,6 +96,7 @@ export function Members({ groupKey }: { groupKey: string | null }) {
   // different things across groups.
   return (
     <div class="space-y-4">
+      <GroupTabs />
       <section class="grid grid-cols-2 gap-2">
         <KPI
           label="Evenness"

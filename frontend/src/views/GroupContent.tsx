@@ -5,6 +5,7 @@ import { KPI } from "../components/KPI";
 import { ExportMenu } from "../components/ExportMenu";
 import { HealthSpec } from "../components/HealthSpec";
 import { EmptyState } from "../components/EmptyState";
+import { GroupTabs } from "../components/GroupTabs";
 import { Sparkline } from "../components/Sparkline";
 import { formatKST, formatKSTDate, todayKST, daysBetweenKST } from "../lib/datetime";
 
@@ -58,10 +59,11 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
 
   return (
     <div class="space-y-4">
+      <GroupTabs />
       {!groupKey && (
         <EmptyState
           title="그룹을 선택하세요"
-          hint="상단 그룹 컨텍스트 바에서 보고 싶은 그룹을 고르면 상세 분석이 표시됩니다."
+          hint="상단 시장 개요 카드 또는 Cmd+K 검색에서 그룹을 고르면 상세 분석이 표시됩니다."
           icon="👆"
         />
       )}
