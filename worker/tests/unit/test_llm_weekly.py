@@ -95,6 +95,47 @@ def test_generate_weekly_inserts_null_ai_comment_when_empty_string():
     assert params[7] is None
 
 
+def test_ipx_action_with_non_miiwan_scope_is_dropped():
+    """V2.20.1 post-validation guard. Gemini occasionally violates the
+    'ipx_action MUST be miiwan scope' prompt rule (Korean dashboards
+    showed myrakl ipx_action cards on 2026-05-07). Schema has no enum
+    enforcement, so we filter at the INSERT stage. Only ipx_action /
+    non-miiwan combos are dropped — `insight` items for any group are
+    fine; `ipx_action` for miiwan is fine.
+    """
+    gemini = MagicMock()
+    gemini.generate.return_value = {
+        "items": [
+            # KEEP: ipx_action + miiwan scope
+            {"scope": "miiwan", "type": "ipx_action",
+             "title": "MiiWAN ok", "body": "B",
+             "source_refs": [{"table": "agg_summary", "pk": "miiwan|w", "label": "L"}]},
+            # DROP: ipx_action + non-miiwan scope
+            {"scope": "myrakl", "type": "ipx_action",
+             "title": "MyRAKL leak", "body": "B",
+             "source_refs": [{"table": "agg_summary", "pk": "myrakl|w", "label": "L"}]},
+            # KEEP: insight + non-miiwan (insights about other groups are OK)
+            {"scope": "plave", "type": "insight",
+             "title": "PLAVE ok", "body": "B",
+             "source_refs": [{"table": "agg_summary", "pk": "plave|w", "label": "L"}]},
+            # DROP: ipx_action + null/missing scope (defaults to "market")
+            {"type": "ipx_action",
+             "title": "no scope", "body": "B",
+             "source_refs": [{"table": "agg_summary", "pk": "x|w", "label": "L"}]},
+        ],
+    }
+    result = generate_weekly(
+        db=_stub_db(), gemini=gemini,
+        week_start="2026-04-22", week_end="2026-04-28",
+    )
+    titles = [params[4] for _sql, params in result.statements]
+    assert "MiiWAN ok" in titles
+    assert "PLAVE ok" in titles
+    assert "MyRAKL leak" not in titles
+    assert "no scope" not in titles
+    assert len(result.statements) == 2
+
+
 def test_generate_weekly_persists_ai_comment_when_present():
     """Happy path — when Gemini emits a 함의 평어, it ends up in the
     last bound parameter so D1 stores it as the ai_comment column."""

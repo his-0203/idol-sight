@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from idol_sight.collectors.base import CollectionResult
 from idol_sight.llm.gemini import INSIGHT_OUTPUT_SCHEMA
 from idol_sight.llm.prompts import PROMPT_WEEKLY
+
+log = logging.getLogger(__name__)
 
 
 class _Executor(Protocol):
@@ -77,6 +80,28 @@ def generate_weekly(
         response_schema=INSIGHT_OUTPUT_SCHEMA,
     )
     items = parsed.get("items") or []
+
+    # V2.20.1 post-validation guard: ipx_action items MUST have
+    # scope='miiwan' (the prompt says so, but Gemini schema has no enum
+    # constraint and operators saw a myrakl ipx_action card on
+    # 2026-05-07 despite V2.20 prompt hardening). Filter here at the
+    # INSERT boundary so a single LLM regression can't repopulate the
+    # dashboard with cross-group "action" cards. `insight` and `weekly`
+    # types remain free to scope to any group.
+    accepted: list[dict] = []
+    dropped = 0
+    for it in items:
+        if (it.get("type") == "ipx_action"
+                and (it.get("scope") or "market") != "miiwan"):
+            dropped += 1
+            continue
+        accepted.append(it)
+    if dropped:
+        log.warning(
+            "weekly: dropped %d non-miiwan ipx_action items "
+            "(LLM violated scope constraint)", dropped,
+        )
+    items = accepted
 
     now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     statements: list[tuple[str, list]] = []
