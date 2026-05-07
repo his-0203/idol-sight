@@ -16,11 +16,13 @@ export const onRequestGet: PagesFunction = async () =>
       C: "초기 진입", D: "활동 미미", PRE: "데뷔 전 (활동량 부족)",
     },
     references: {
-      subscribers: "yt_subscribers / (내부+외부 코호트 p75)",
-      views:       "yt_total_views / (내부+외부 코호트 p75)",
+      subscribers: "yt_subscribers / 내부 코호트 p75 (linear)",
+      views:       "yt_total_views / 내부 코호트 p75 (linear)",
       quality:     "(likes + 5·comments) / views, 내부 코호트 p75 engagement rate 정규화",
       community:   "(dc + theqoo + instiz) / 내부 코호트 p75",
-      news:        "naver_total_news / (내부+외부 코호트 p75)",
+      news:        "log1p(naver_total_news) / log1p(내부 코호트 p75) — V2.17 log scale. " +
+                   "영문 brand 그룹(SKINZ)이 한국 naver 뉴스에 잘 안 잡혀 raw count 차이가 " +
+                   "reach/ritual을 좌우하던 group-name spelling 효과를 압축.",
       risk:        "1 − controversy_count/10 (4-factor 모두에 곱)",
       bonus:       "최근 90d/30d 영상 활동량 가산 (각 ≤7/≤3점, 합산 ≤10)",
       hanteo:      "초동 sales / 1,000,000 (절대값 정규화 — 코호트 무관, 1M=saturated)",
@@ -28,12 +30,11 @@ export const onRequestGet: PagesFunction = async () =>
                    "음방 1위 누적 횟수 / 5 (saturate). V2.16 ritual stub — collector 미구현, " +
                    "manual seed 가능. cohort-level 모두 0이면 dead 처리.",
       cohort_percentile: "DYNAMIC_REF_PERCENTILE = 0.75 — 1.0=top quartile. " +
-                         "내부 9그룹 + 외부 K-pop 벤치마크(external_groups) 합쳐서 percentile 계산. " +
-                         "PLAVE saturate 방지 + 시장 정합성 회복.",
+                         "내부 9그룹 코호트 단독 p75 (V2.17: external 머지 철회).",
       external_cohort:
-                   "external_groups/external_metrics — 에스파/RIIZE/뉴진스 등 K-pop 벤치마크. " +
-                   "subscribers/views/news REF에만 머지 (engagement·community는 내부 코호트만 — K-pop " +
-                   "메인라인은 dc/theqoo 추적 안 함).",
+                   "V2.17 운영 default: 비활성. external_groups/external_metrics는 표시용으로만 " +
+                   "유지 (MarketOverview 별도 view). health_score REF는 내부 코호트 단독 — D-tier " +
+                   "그룹 변별력 보호.",
       absolute_scoring:
                    "V2.16: cold-start floor 제거. 데뷔 첫날 그룹도 절대값 그대로. " +
                    "참여 가산 없음.",
@@ -48,9 +49,9 @@ export const onRequestGet: PagesFunction = async () =>
       confederation: { reach: 15, ritual: 10, mobilization: 20, intimacy: 55 },
     },
     factor_inputs: {
-      reach:        "0.50 subscribers + 0.35 views + 0.15 news (redistribute=True)",
-      ritual:       "0.50 hanteo + 0.20 news + 0.30 music_show_wins (V2.16 redistribute=False — " +
-                    "한터/음방 부재 시 weight가 news로 재분배되지 않음)",
+      reach:        "0.55 subscribers + 0.40 views + 0.05 news (V2.17: news 0.15→0.05)",
+      ritual:       "0.55 hanteo + 0.10 news + 0.35 music_show_wins (V2.17 news 0.20→0.10, " +
+                    "redistribute=False — 한터/음방 부재 시 weight가 news로 재분배되지 않음)",
       mobilization: "0.40 views + 0.25 cadence(v90) + 0.25 hanteo + 0.10 subs",
       intimacy:     "(0.55 quality + 0.45 community) × (1 − negative_ratio)",
     },

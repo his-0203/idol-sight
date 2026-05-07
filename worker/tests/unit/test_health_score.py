@@ -361,6 +361,73 @@ def test_music_show_wins_signal_lifts_ritual():
     assert with_show.factors["ritual"] > no_show.factors["ritual"]
 
 
+# ─── V2.17 news 정규화 보정 ─────────────────────────────────────────────
+
+
+def test_news_uses_log_normalize_compresses_extreme_values():
+    """V2.17 — news_n에 log scale 도입.
+
+    raw news count의 변동성(영문 그룹명 vs 한글 표기)이 reach/ritual을 좌우
+    하던 문제를 완화. naver hit count 차이가 2 vs 5 같은 작은 차이여도
+    이전 linear normalize로는 0.25 vs 0.625 (2.5×) 압축 — log scale이면
+    0.50 vs 0.81 정도(1.6×).
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(yt_subscribers=10_000, yt_total_views=1_000_000,
+                hanteo_sales=0)
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 8.0,
+            "music_show_wins": 5.0}
+    L = {"subscribers", "views", "news", "quality"}
+    s_low = compute_health_score(
+        "x", {**base, "naver_total_news": 2}, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    s_high = compute_health_score(
+        "x", {**base, "naver_total_news": 5}, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    # high - low < 1.0 (이전 linear는 ~1.5pt 차이 발생)
+    delta_total = (s_high.total or 0) - (s_low.total or 0)
+    assert delta_total < 0.3, (
+        f"news 2→5 차이가 total {delta_total:.2f}pt — log normalize "
+        f"적용되어 압축됐어야 한다."
+    )
+
+
+def test_news_weight_reduced_in_reach_and_ritual():
+    """V2.17 — reach factor의 news weight 0.15→0.05, ritual의 0.20→0.10.
+
+    같은 그룹에 news를 5×로 늘려도 total 변동이 V2.16(0.15+0.20=0.35
+    weight share)보다 작아야 한다.
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(yt_subscribers=10_000, yt_total_views=1_000_000,
+                hanteo_sales=0, naver_total_news=2)
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 8.0,
+            "music_show_wins": 5.0}
+    L = {"subscribers", "views", "news", "quality"}
+    s_2 = compute_health_score(
+        "x", base, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    s_50 = compute_health_score(
+        "x", {**base, "naver_total_news": 50}, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    # ritual factor 한정으로 비교: news_n × 0.10 × ritual weight 30.
+    # 이전 V2.16: news_n × 0.20 × 30 = 6× news_n. 새 산식: 3× news_n.
+    # 즉 news 25× 늘려도 ritual 점수 변동 폭 절반.
+    delta_ritual = s_50.factors["ritual"] - s_2.factors["ritual"]
+    # V2.17: news weight 0.10 × ritual factor weight 30 = 최대 3.0pt
+    # (이전 V2.16: 0.20 × 30 = 6.0pt). log normalize 추가 압축까지 함께
+    # 작용해 실제 swing은 더 작음. "절반 이하"를 보장하는 임계 2.5pt.
+    assert delta_ritual < 2.5, (
+        f"ritual delta={delta_ritual:.2f}pt — news weight 0.10 적용 안 된 듯."
+    )
+
+
 def test_cold_start_floor_removed_absolute_scoring():
     """V2.16 Fix 4 — cold-start floor 제거. 90일 미만 그룹도 절대값 그대로.
 

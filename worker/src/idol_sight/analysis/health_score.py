@@ -53,6 +53,7 @@ controversy spike compresses every factor, not just one).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
@@ -204,6 +205,26 @@ def _normalize(value: float | None, ref: float) -> float:
     if value is None or ref <= 0:
         return 0.0
     return min(max(value / ref, 0.0), 1.0)
+
+
+def _normalize_log(value: float | None, ref: float) -> float:
+    """log1p-based [0, 1] normalize.
+
+    Used for news only (V2.17): naver_total_news is highly volatile —
+    영문 그룹명("SKINZ")은 한국 naver 뉴스에 거의 안 잡혀 raw 2회,
+    한글 표기 그룹("미라클" 등)은 같은 인기에서도 raw 5-10회로 잡힌다.
+    Linear normalize에서는 그 2.5× 차이가 reach/ritual 점수를 결정적으로
+    가르지만 시장 인기와 무관한 group-name spelling 효과. log scale로
+    변환하면 작은 raw 차이가 정규화 후 더 작아져 (2 vs 5 linear 0.25 vs
+    0.625 → log 0.50 vs 0.81) 영향력이 절반 가까이 줄어든다. 한계도 같
+    이 줄어들어 raw 5000+ 같은 outlier도 saturate.
+
+    Subscribers / views는 채널-단위 누적이라 분포가 비교적 균질해 linear
+    유지. quality(engagement rate)는 이미 ratio 기반이라 log 불필요.
+    """
+    if value is None or value <= 0 or ref <= 0:
+        return 0.0
+    return min(math.log1p(value) / math.log1p(ref), 1.0)
 
 
 def _percentile(values: list[float], pct: float) -> float:
@@ -455,7 +476,9 @@ def _factor_inputs(
     L = live_metrics if live_metrics is not None else _ALL_METRICS
     sub_n = _normalize(agg.get("yt_subscribers", 0), r["subscribers"])
     view_n = _normalize(agg.get("yt_total_views", 0), r["views"])
-    news_n = _normalize(agg.get("naver_total_news", 0), r["news"])
+    # V2.17: news는 log1p scale. 영문/한글 표기 비대칭 + naver hit count
+    # 변동성 압축. 다른 정규화는 linear 유지.
+    news_n = _normalize_log(agg.get("naver_total_news", 0), r["news"])
     eng_n = _normalize(_engagement_rate(agg), r["quality"])
     # Defensive: each community column may be NULL when the collector
     # row is missing or the source is paused (V2.11 cleanup left NULL
@@ -502,21 +525,25 @@ def _factor_inputs(
 
     return {
         # Reach — raw audience size: subscribers, views, news exposure.
+        # V2.17: news weight 0.15 → 0.05. naver hit count는 group name
+        # spelling effect로 SKINZ 같은 영문 brand 그룹이 한글 표기
+        # 그룹 대비 systematically 낮게 잡힘 → reach 결정자가 되는
+        # 부작용 차단. 0.10pt만큼 sub로 흡수.
         "reach": _wmean([
-            (sub_n,  0.50, "subscribers" in L),
-            (view_n, 0.35, "views"       in L),
-            (news_n, 0.15, "news"        in L),
+            (sub_n,  0.55, "subscribers" in L),
+            (view_n, 0.40, "views"       in L),
+            (news_n, 0.05, "news"        in L),
         ]),
         # RitualVictory — initial-album mobilization (Hanteo) + news
         # spike + music-show wins. V2.16: redistribute=False so a
         # corporate group without an album cycle (hanteo=0) does NOT
-        # have the news weight redistributed to 100% — the factor
-        # genuinely drops by the missing weight share. This was the
-        # MY:RAKL ritual-inflation bug.
+        # have the news weight redistributed to 100%. V2.17: news weight
+        # 0.20 → 0.10, hanteo 0.50 → 0.55, music_show 0.30 → 0.35 —
+        # naver-driven ritual swing 절반으로 축소.
         "ritual": _wmean([
-            (hanteo_n,     0.50, "hanteo"          in L),
-            (news_n,       0.20, "news"            in L),
-            (music_show_n, 0.30, "music_show_wins" in L),
+            (hanteo_n,     0.55, "hanteo"          in L),
+            (news_n,       0.10, "news"            in L),
+            (music_show_n, 0.35, "music_show_wins" in L),
         ], redistribute=False),
         # Mobilization — active output (cadence + views) + album-driven
         # initial-sales signal + subs. cadence carries 0.25 weight as

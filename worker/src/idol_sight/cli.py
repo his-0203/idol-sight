@@ -539,38 +539,14 @@ def analyze_weekly(
         }
         for r in cohort_rows
     ]
-    # V2.16: external K-pop benchmark cohort folded into the dynamic-REF
-    # percentile so PLAVE no longer saturates against an 8-group cohort
-    # that consists of itself. Pulls the latest external_metrics row per
-    # active external group; if the table is empty (table missing or no
-    # seed yet) we fall through to cohort-only refs — backwards compat.
-    try:
-        ext_rows = client.execute(
-            "SELECT m.group_key, m.yt_subscribers, m.yt_total_views, "
-            "  m.spotify_monthly_listeners "
-            "FROM external_metrics m "
-            "JOIN external_groups g ON g.key = m.group_key "
-            "WHERE g.is_active = 1 AND m.snapshot_at = ("
-            "  SELECT MAX(snapshot_at) FROM external_metrics "
-            "  WHERE group_key = m.group_key)"
-        )
-    except Exception:  # noqa: BLE001 — table may not exist in tests
-        ext_rows = []
-    external_cohort = [
-        {
-            "yt_subscribers": r.get("yt_subscribers") or 0,
-            "yt_total_views": r.get("yt_total_views") or 0,
-            # external_metrics doesn't track naver news for K-pop
-            # mainline; leave 0 so it doesn't depress news REF below
-            # the internal cohort's level.
-            "naver_total_news": 0,
-        }
-        for r in ext_rows
-    ]
-    dyn_refs = (
-        compute_dynamic_refs(cohort, external_cohort=external_cohort)
-        if cohort else None
-    )
+    # V2.17: external_cohort 머지 호출 제거. V2.16에서 K-pop 메인라인
+    # (RIIZE/aespa)을 subs/views REF에 합쳤지만, RIIZE/aespa subs가
+    # 수백만~수천만이라 REF가 5-10× 상승 → SKINZ 67K 같은 D-tier 그룹의
+    # subs 우위가 reach factor 안에서 압축되어 사라짐 (정규화 후 0.04 미만).
+    # 결과적으로 reach factor의 결정자가 news 단일 변수가 되어 시장 컨센
+    # 서스(SKINZ ≫ MY:RAKL)를 산식이 거꾸로 나타냄. 외부 cohort 인자는
+    # health_score 함수 시그니처엔 남겨두되 호출자에서 전달 안 함.
+    dyn_refs = compute_dynamic_refs(cohort) if cohort else None
     cohort_by_key = {c["key"]: c for c in cohort}
 
     # Latest hanteo first-week sales per group (drives RitualVictory +

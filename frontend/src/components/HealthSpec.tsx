@@ -37,7 +37,7 @@ export function HealthSpec() {
                       rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-sm"
                onClick={(e) => e.stopPropagation()}>
             <div class="mb-3 flex items-center justify-between">
-              <h3 class="font-semibold">Health Score 산식 (V2.16)</h3>
+              <h3 class="font-semibold">Health Score 산식 (V2.17)</h3>
               <button class="text-zinc-500 hover:text-zinc-300"
                       onClick={() => setOpen(false)}>✕</button>
             </div>
@@ -147,15 +147,19 @@ function FactorsView({ spec }: { spec: any }) {
       </div>
 
       <div class="rounded border border-amber-900/40 bg-amber-950/20 p-2 text-zinc-500">
-        <div class="mb-1 font-semibold text-amber-400">V2.16 산식 보정</div>
+        <div class="mb-1 font-semibold text-amber-400">V2.17 산식 보정 (news-driven 변별력 회복)</div>
         <ul class="ml-3 list-disc space-y-0.5">
-          <li>Ritual factor: <code>redistribute=False</code> — 한터/음방 부재 시 weight가
-              news로 재분배되지 않음 (corporate 신생 그룹 ritual 부풀림 차단).</li>
-          <li>Ritual에 <code>music_show_wins</code> 0.30 가중치 신호 추가 (collector 미구현, manual seed 가능).</li>
-          <li><code>compute_dynamic_refs</code>가 external K-pop 벤치마크 코호트도 흡수
-              — subscribers/views/news REF가 시장 정합성 회복.</li>
-          <li>Cold-start floor (debut &lt; 90d) 제거 — 절대평가. 신생 그룹도 raw score 그대로.</li>
+          <li>news에 <code>log1p</code> normalize 도입 — 영문 brand 그룹(SKINZ)이 한국
+              naver 뉴스에 잘 안 잡히는 group-name spelling effect 압축.</li>
+          <li>reach factor의 news weight 0.15 → 0.05 (sub 0.55 / view 0.40 / news 0.05).</li>
+          <li>ritual factor의 news weight 0.20 → 0.10 (hanteo 0.55 / music 0.35 / news 0.10).</li>
+          <li>external cohort REF 머지 호출 제거 — D-tier 그룹간 subs/views 변별력 보호.
+              (PLAVE saturate는 percentile p75로 충분히 풀림.)</li>
         </ul>
+        <div class="mt-1 text-[11px] text-zinc-500">
+          V2.16 유지 동작: <code>redistribute=False</code> ritual / music_show_wins stub /
+          cold-start floor 제거.
+        </div>
       </div>
 
       <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-500">
