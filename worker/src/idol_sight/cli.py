@@ -18,6 +18,7 @@ from idol_sight.collectors.external_cohort import (
 )
 from idol_sight.collectors.hanteo import HanteoCollector
 from idol_sight.collectors.instiz import InstizCollector
+from idol_sight.collectors.melon import MelonChartCollector
 from idol_sight.collectors.naver import NaverCollector
 from idol_sight.collectors.theqoo import TheQooCollector
 from idol_sight.collectors.twitter import TwitterCollector
@@ -369,6 +370,29 @@ def backfill_yt_history_cmd() -> None:
         f"backfill-yt-history: {len(result.statements)} synthetic rows "
         f"emitted (existing real snapshots preserved)"
     )
+
+
+@app.command(
+    "melon-chart",
+    help="Fetch Melon TOP 100 daily chart and update agg_summary.melon_top100_peak.",
+)
+def melon_chart_run() -> None:
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    collector = MelonChartCollector(
+        groups_loader=lambda: _load_active_groups(client),
+    )
+    result = collector.collect_global()
+    if result.errors:
+        for e in result.errors:
+            typer.echo(f"WARN: {e}", err=True)
+    if result.statements:
+        client.batch(result.statements)
+    typer.echo(
+        f"melon-chart: matched {result.rows_inserted} groups in "
+        f"{result.runtime_ms}ms"
+    )
+    raise typer.Exit(code=0 if result.statements or not result.errors else 1)
 
 
 @app.command(
