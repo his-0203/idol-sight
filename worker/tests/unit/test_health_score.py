@@ -412,6 +412,99 @@ def test_chart_peak_normalize_lower_rank_smaller():
     assert s_top.factors["ritual"] > s_mid.factors["ritual"] > s_bot.factors["ritual"]
 
 
+# ─── V2.19 chart_depth ritual signal ────────────────────────────────────
+
+
+def test_chart_depth_lifts_ritual_when_present():
+    """V2.19 — agg.melon_top100_depth (TOP 100 진입곡 수) 가 ritual을
+    끌어올린다. peak 단독으로는 PLAVE처럼 6곡 진입한 그룹과 1곡 진입
+    그룹의 변별이 안 됨 — depth 시그널이 그 갭을 메운다.
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(yt_subscribers=300_000, yt_total_views=30_000_000,
+                likes_total=2_000_000, comments_total=200_000,
+                naver_total_news=80, hanteo_sales=300_000)
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 500,
+            "music_show_wins": 5.0, "chart_depth": 5.0}
+    L = {"subscribers", "views", "news", "quality",
+         "hanteo", "music_show_wins", "chart_depth"}
+    no_depth = compute_health_score(
+        "x", base, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    with_depth = compute_health_score(
+        "x", {**base, "melon_top100_depth": 3},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    assert with_depth.factors["ritual"] > no_depth.factors["ritual"]
+
+
+def test_chart_depth_saturates_at_ref():
+    """depth=ref(5) 와 depth=10 (ref 초과) 동일한 ritual 점수 — 정규화
+    상한 1.0. PLAVE 6곡 같은 케이스가 D-tier 변별을 압도하지 않도록 보장.
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(hanteo_sales=0, naver_total_news=0)
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 500,
+            "music_show_wins": 5.0, "chart_depth": 5.0}
+    L = {"chart_depth"}
+    s_at_ref = compute_health_score(
+        "x", {**base, "melon_top100_depth": 5},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    s_above_ref = compute_health_score(
+        "x", {**base, "melon_top100_depth": 10},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    assert s_at_ref.factors["ritual"] == s_above_ref.factors["ritual"]
+
+
+def test_chart_depth_more_songs_lifts_ritual_more():
+    """depth=1 < depth=3 < depth=5. 단조 증가."""
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(hanteo_sales=0, naver_total_news=0)
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 500,
+            "music_show_wins": 5.0, "chart_depth": 5.0}
+    L = {"chart_depth"}
+    s1 = compute_health_score(
+        "x", {**base, "melon_top100_depth": 1},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    s3 = compute_health_score(
+        "x", {**base, "melon_top100_depth": 3},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    s5 = compute_health_score(
+        "x", {**base, "melon_top100_depth": 5},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=L,
+    )
+    assert s1.factors["ritual"] < s3.factors["ritual"] < s5.factors["ritual"]
+
+
+def test_chart_depth_zero_or_null_treated_as_dead():
+    """depth=0 (두 차트 모두 미진입) 와 depth=NULL (미수집) 모두
+    chart_depth 시그널 부재 — ritual 기여 0pt.
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    base = _agg(hanteo_sales=0, naver_total_news=0)
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 500,
+            "music_show_wins": 5.0, "chart_depth": 5.0}
+    # live_metrics에 chart_depth 미포함 (cohort에 아무도 없음)
+    s_zero = compute_health_score(
+        "x", {**base, "melon_top100_depth": 0},
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=set(),
+    )
+    s_null = compute_health_score(
+        "x", base,
+        debut_date=past, refs=refs, group_model="corporate", live_metrics=set(),
+    )
+    assert s_zero.factors["ritual"] == s_null.factors["ritual"]
+
+
 # ─── V2.17 news 정규화 보정 ─────────────────────────────────────────────
 
 

@@ -161,7 +161,7 @@ FACTOR_DENOM = 100 + FACTOR_BONUS_MAX  # = 110
 # factor". Reach / Mobilization / Intimacy keep redistribute=True.
 _ALL_METRICS = frozenset({
     "subscribers", "views", "news", "quality", "community", "hanteo",
-    "music_show_wins", "chart_peak",
+    "music_show_wins", "chart_peak", "chart_depth",
 })
 
 
@@ -281,6 +281,10 @@ def _per_group_live(agg: dict[str, Any]) -> set[str]:
     peak = agg.get("melon_top100_peak")
     if peak is not None and 1 <= int(peak) <= 100:
         live.add("chart_peak")
+    # chart_depth: TOP 100 진입곡 수. 0 또는 NULL = 미진입 (dead).
+    depth = agg.get("melon_top100_depth")
+    if depth is not None and int(depth) > 0:
+        live.add("chart_depth")
     return live
 
 
@@ -324,6 +328,8 @@ def compute_live_metrics(cohort: list[dict[str, Any]]) -> set[str]:
         for g in cohort
     ):
         live.add("chart_peak")
+    if any(int(g.get("melon_top100_depth") or 0) > 0 for g in cohort):
+        live.add("chart_depth")
     return live
 
 
@@ -519,14 +525,23 @@ def _factor_inputs(
 
     # V2.18 chart_peak — 멜론 TOP 100 최고 순위 (lower=better, 1~100).
     # 0 / NULL / >100 = 미진입 → 0. 진입 시 (101 - peak) / 100 = chart_n.
-    # 1위면 1.0, 100위면 0.01. D-tier 그룹간 변별력 회복용 stub —
-    # collector 미구현이라 manual seed 기반 운영 시작 (music_show_wins
-    # 와 동일 패턴).
+    # 1위면 1.0, 100위면 0.01. V2.19에서 weight 0.20 → 0.10 (절반은
+    # chart_depth로 양도). collector는 realtime + day union의 best rank.
     peak_raw = agg.get("melon_top100_peak")
     if peak_raw is None or int(peak_raw) < 1 or int(peak_raw) > 100:
         chart_peak_n = 0.0
     else:
         chart_peak_n = (101 - int(peak_raw)) / 100.0
+
+    # V2.19 chart_depth — 멜론 TOP 100 진입곡 수 (realtime + day union,
+    # song_id dedup). PLAVE처럼 일간 1곡 / 실시간 6곡 진입 그룹과 단곡
+    # 진입 그룹 변별 시그널. ref=5 saturated. 0 / NULL = 미진입 → 0.
+    depth_raw = agg.get("melon_top100_depth")
+    depth_ref = float(r.get("chart_depth", 5.0)) or 5.0
+    if depth_raw is None or int(depth_raw) <= 0:
+        chart_depth_n = 0.0
+    else:
+        chart_depth_n = min(float(depth_raw) / depth_ref, 1.0)
 
     # V2.14: video cadence (last 90 days) promoted from bonus-only to a
     # weighted Mobilization signal. Without this, a group like SKINZ
@@ -556,17 +571,18 @@ def _factor_inputs(
             (news_n, 0.05, "news"        in L),
         ]),
         # RitualVictory — initial-album mobilization (Hanteo) + news
-        # spike + music-show wins + 음원 차트 진입. V2.16 redistribute
-        # =False 유지. V2.18: chart_peak (멜론 TOP 100 최고 순위) 0.20
-        # weight 신설. hanteo 0.55 → 0.50, music_show 0.35 → 0.20 으로
-        # 흡수. 신생 D-tier 그룹간 변별력은 한터(0)/음방(0)/뉴스(영문 brand
-        # 효과 압축됨)로 잡히지 않고 음원 차트 진입 여부에서 갈리는 게
-        # 시장 컨센서스 — 그 시그널을 의례 축에 명시적으로 인입.
+        # spike + music-show wins + 음원 차트 진입(peak) + 음원 차트
+        # 깊이(depth). V2.16 redistribute=False 유지.
+        # V2.19: chart_peak 0.20 → 0.10, chart_depth 0.10 신설 — 운영
+        # 첫날 PLAVE 케이스(realtime 6곡 / day 1곡 진입)에서 best rank
+        # 단독으로는 곡 깊이 변별이 안 됨을 발견. 차트 축 0.20을
+        # peak/depth 반반 배정.
         "ritual": _wmean([
             (hanteo_n,      0.50, "hanteo"          in L),
             (news_n,        0.10, "news"            in L),
             (music_show_n,  0.20, "music_show_wins" in L),
-            (chart_peak_n,  0.20, "chart_peak"      in L),
+            (chart_peak_n,  0.10, "chart_peak"      in L),
+            (chart_depth_n, 0.10, "chart_depth"     in L),
         ], redistribute=False),
         # Mobilization — active output (cadence + views) + album-driven
         # initial-sales signal + subs. cadence carries 0.25 weight as

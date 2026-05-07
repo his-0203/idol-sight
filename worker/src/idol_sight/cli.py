@@ -374,7 +374,10 @@ def backfill_yt_history_cmd() -> None:
 
 @app.command(
     "melon-chart",
-    help="Fetch Melon TOP 100 daily chart and update agg_summary.melon_top100_peak.",
+    help=(
+        "Fetch Melon TOP 100 (realtime + daily) and update "
+        "agg_summary.melon_top100_peak / melon_top100_depth."
+    ),
 )
 def melon_chart_run() -> None:
     settings = load_settings()
@@ -542,7 +545,7 @@ def analyze_weekly(
         "  yt_likes_total, yt_comments_total, "
         "  dc_total_posts, theqoo_posts, instiz_posts, "
         "  naver_total_news, controversy_count, negative_ratio, "
-        "  music_show_wins, melon_top100_peak "
+        "  music_show_wins, melon_top100_peak, melon_top100_depth "
         "FROM agg_summary WHERE snapshot_at = "
         "  (SELECT MAX(snapshot_at) FROM agg_summary)"
     )
@@ -561,6 +564,7 @@ def analyze_weekly(
             "negative_ratio": r.get("negative_ratio") or 0,
             "music_show_wins": r.get("music_show_wins") or 0,
             "melon_top100_peak": r.get("melon_top100_peak"),
+            "melon_top100_depth": r.get("melon_top100_depth"),
         }
         for r in cohort_rows
     ]
@@ -621,6 +625,7 @@ def analyze_weekly(
             "hanteo_sales": hanteo_by_key.get(g["key"], 0),
             "music_show_wins": s.get("music_show_wins") or 0,
             "melon_top100_peak": s.get("melon_top100_peak"),
+            "melon_top100_depth": s.get("melon_top100_depth"),
             "v90_count": (v90[0].get("n", 0) if v90 else 0),
             "v30_count": (v30[0].get("n", 0) if v30 else 0),
         }

@@ -147,17 +147,21 @@ function FactorsView({ spec }: { spec: any }) {
       </div>
 
       <div class="rounded border border-amber-900/40 bg-amber-950/20 p-2 text-zinc-500">
-        <div class="mb-1 font-semibold text-amber-400">V2.18 산식 보정 (D-tier 변별력 + entity 통합)</div>
+        <div class="mb-1 font-semibold text-amber-400">V2.19 산식 보정 (음원 차트 두 축화)</div>
         <ul class="ml-3 list-disc space-y-0.5">
-          <li>ritual factor에 <code>chart_peak</code> (멜론 TOP 100 최고 순위) 0.20 weight 신설.
-              hanteo 0.55→0.50, music_show 0.35→0.20로 흡수. D-tier 그룹간 변별 시그널.</li>
-          <li>STELLIVE entity model: confederation → segmentary. ISEDOL과 동일 산식.
-              (서브컬처 버추얼 IP 통합 — Reach 20 / Ritual 15 / Mob 25 / Intim 40)</li>
+          <li>collector가 <strong>realtime + daily 두 차트</strong>를 fetch하고 song_id로 dedup union.
+              일간만 fetch하던 V2.18에서 PLAVE처럼 팬덤 깊은 그룹의 음원 깊이가
+              underrepresented (PLAVE 일간 1곡 / 실시간 6곡) 되던 문제 해결.</li>
+          <li>ritual factor 차트 축 0.20을 <strong>peak/depth 반반</strong> 분할.
+              <code>chart_peak</code> 0.20→0.10 (union의 best rank),
+              <code>chart_depth</code> 0.10 신설 (union 진입곡 수, ref=5 saturated).
+              단곡 진입과 다곡 진입 변별 가능.</li>
         </ul>
         <div class="mt-1 text-[11px] text-zinc-500">
-          V2.17 유지: news log1p normalize + news weight (reach 0.05 / ritual 0.10) +
-          external cohort 머지 미사용. V2.16 유지: redistribute=False ritual /
-          music_show_wins stub / cold-start floor 제거.
+          V2.18 유지: STELLIVE segmentary 통합. V2.17 유지: news log1p normalize +
+          news weight (reach 0.05 / ritual 0.10) + external cohort 머지 미사용.
+          V2.16 유지: redistribute=False ritual / music_show_wins stub /
+          cold-start floor 제거.
         </div>
       </div>
 

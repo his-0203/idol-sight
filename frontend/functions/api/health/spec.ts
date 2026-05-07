@@ -30,9 +30,14 @@ export const onRequestGet: PagesFunction = async () =>
                    "음방 1위 누적 횟수 / 5 (saturate). V2.16 ritual stub — collector 미구현, " +
                    "manual seed 가능. cohort-level 모두 0이면 dead 처리.",
       melon_top100_peak:
-                   "멜론 TOP 100 최고 순위 (1=최고, 100=최저, 미진입=NULL). V2.18 ritual stub. " +
-                   "(101 - peak) / 100 정규화 → 1위 1.0 / 100위 0.01. D-tier 변별력용. " +
-                   "collector 미구현, manual seed 가능.",
+                   "멜론 TOP 100 최고 순위 (1=최고, 100=최저, 미진입=NULL). " +
+                   "(101 - peak) / 100 정규화 → 1위 1.0 / 100위 0.01. " +
+                   "V2.19: collector가 realtime + daily 두 차트 union의 best rank를 기록. " +
+                   "weight 0.20 → 0.10 (절반은 chart_depth로 양도).",
+      melon_top100_depth:
+                   "멜론 TOP 100 진입곡 수 (realtime + daily union, song_id dedup, 미진입=NULL/0). " +
+                   "min(depth/5, 1.0) 정규화 → 5곡 동시 진입 saturated. " +
+                   "V2.19 신설 — best rank 단독으로 잡히지 않는 음원 깊이(PLAVE 6곡 vs 단곡 진입) 변별 시그널.",
       cohort_percentile: "DYNAMIC_REF_PERCENTILE = 0.75 — 1.0=top quartile. " +
                          "내부 9그룹 코호트 단독 p75 (V2.17: external 머지 철회).",
       external_cohort:
@@ -54,15 +59,15 @@ export const onRequestGet: PagesFunction = async () =>
     },
     factor_inputs: {
       reach:        "0.55 subscribers + 0.40 views + 0.05 news (V2.17: news 0.15→0.05)",
-      ritual:       "0.50 hanteo + 0.10 news + 0.20 music_show_wins + 0.20 chart_peak " +
-                    "(V2.18: chart_peak 신규 0.20, music_show 0.35→0.20, hanteo 0.55→0.50; " +
+      ritual:       "0.50 hanteo + 0.10 news + 0.20 music_show_wins + 0.10 chart_peak + 0.10 chart_depth " +
+                    "(V2.19: chart_peak 0.20→0.10, chart_depth 신규 0.10 — 차트 축 0.20을 peak/depth 반반. " +
                     "redistribute=False — 어느 시그널 부재 시 그 weight 만큼 ritual 자연 감소)",
       mobilization: "0.40 views + 0.25 cadence(v90) + 0.25 hanteo + 0.10 subs",
       intimacy:     "(0.55 quality + 0.45 community) × (1 − negative_ratio)",
     },
     factor_descriptions: {
       reach:        "도달 — 구독자, 누적 조회수, 뉴스 노출",
-      ritual:       "의례 승리 — 한터 초동, 뉴스, 음방 1위, 음원 차트 (V2.18: chart_peak 추가)",
+      ritual:       "의례 승리 — 한터 초동, 뉴스, 음방 1위, 음원 차트 peak/depth (V2.19: chart_depth 추가)",
       mobilization: "동원 — 누적 조회수, 영상 cadence, 한터 초동, 구독자",
       intimacy:     "친밀성 — 인게이지먼트(좋아요+댓글)·커뮤니티, 부정 sentiment 시 압축",
     },

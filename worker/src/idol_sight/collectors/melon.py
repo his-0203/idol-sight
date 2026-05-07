@@ -1,27 +1,35 @@
-"""Melon TOP 100 daily chart collector.
+"""Melon TOP 100 chart collector (V2.19 — realtime + daily union).
 
-Fetches the SSR-rendered chart page at /chart/day/index.htm, parses 100
-rows of (rank, song_id, song_title, artist_names), then matches each row
-against our seeded groups. The lowest rank number a group charts at is
-the **peak**; that peak gets UPSERTed into agg_summary.melon_top100_peak
-on the latest snapshot.
+Fetches both the realtime chart (/chart/index.htm) and the daily chart
+(/chart/day/index.htm), parses each into rows of
+(rank, song_id, song_title, artist_names), matches each row against our
+seeded groups, then per group:
 
-Why daily (not realtime / weekly):
-- Realtime updates every minute → noise + bot-detection load.
-- Weekly chart lag would mask same-week debut entries.
-- Daily strikes the balance: stable enough to dedup, fresh enough to
-  surface a comeback within a day.
+  peak  = min(rank)                across the union
+  depth = count(distinct song_id)  across the union (dedup by song_id)
 
-Match strategy:
+Both signals are UPDATEd onto the latest agg_summary row in a single
+statement per group.
+
+Why two charts (V2.19, replaces V2.18 daily-only):
+- Daily alone systematically underrepresents fan-driven multi-song
+  presence. PLAVE 2026-05-07: daily had 1 song @ rank 73; realtime had
+  6 songs, best @ rank 34. Day-only chart_peak missed both the better
+  rank and the depth signal entirely.
+- Realtime alone is volatile (per-minute updates) and time-of-day biased.
+- Union with song_id dedup recovers depth, and min(rank) across both
+  recovers the better peak — without inflating depth when a song appears
+  in both charts (the common case for stable hits).
+
+Failure model:
+- If one chart fetch fails (empty/unreachable), the other still drives
+  the UPDATE.
+- Only when BOTH fail does the run report ``chart_unreachable``.
+
+Match strategy (unchanged from V2.18):
 - group's `name`, `name_kr`, and `aliases` are checked against each row's
-  artist string with case-folded substring match (Korean names are typically
-  exact). 1차 정확도 위주, false-positive 최소화 — collab 케이스에서
-  artist 문자열 안에 우리 그룹 이름이 부분 포함되면 잡음.
-- 아티스트 이름이 멤버명만 적혀있는 솔로 발매 케이스는 잡지 않음
-  (그룹 단위 ritual 시그널이라는 의미).
-
-Like HanteoCollector, this one is `collect_global` only — per-group
-fan-out doesn't fit since one HTTP fetch covers all 100 ranks.
+  artist string with case-folded substring match. Solo / member-only
+  releases are not matched (group-level ritual signal).
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ from __future__ import annotations
 import html as html_mod
 import logging
 import re
+from collections import defaultdict
 from collections.abc import Callable
 from time import perf_counter
 from typing import Any
@@ -40,7 +49,8 @@ from idol_sight.config import GroupConfig
 
 log = logging.getLogger(__name__)
 
-CHART_URL = "https://www.melon.com/chart/day/index.htm"
+REALTIME_URL = "https://www.melon.com/chart/index.htm"
+DAILY_URL = "https://www.melon.com/chart/day/index.htm"
 
 # Per-row HTML structure (live as of 2026-05-07):
 #   <tr class="lst50|lst100" data-song-no="<song_id>">
@@ -141,37 +151,46 @@ class MelonChartCollector:
         if not seeded:
             return CollectionResult(0, 0, errors=["no_groups_seeded"])
 
-        html = self._fetch_html(CHART_URL)
-        if not html:
+        # Fetch both charts independently — partial failure tolerated.
+        realtime_rows = parse_chart_html(self._fetch_html(REALTIME_URL) or "")
+        daily_rows = parse_chart_html(self._fetch_html(DAILY_URL) or "")
+
+        if not realtime_rows and not daily_rows:
             return CollectionResult(0, 0, errors=["chart_unreachable"])
 
-        rows = parse_chart_html(html)
-        if not rows:
-            return CollectionResult(0, 0, errors=["chart_empty_or_unparseable"])
-
-        # Lowest rank wins per group (best peak).
-        peak_by_key: dict[str, int] = {}
-        for row in rows:
+        # Per group, dedup by song_id and keep the best (lowest) rank
+        # observed across both charts. After accumulation:
+        #   peak  = min(rank)         per group
+        #   depth = len(songs_dict)   per group
+        per_group_songs: dict[str, dict[str, int]] = defaultdict(dict)
+        for row in (*realtime_rows, *daily_rows):
+            sid = row["song_id"]
+            rank = row["rank"]
             for g in seeded:
                 if not _row_matches_group(row, g):
                     continue
                 key = g["key"]
-                cur = peak_by_key.get(key)
-                if cur is None or row["rank"] < cur:
-                    peak_by_key[key] = row["rank"]
+                cur = per_group_songs[key].get(sid)
+                if cur is None or rank < cur:
+                    per_group_songs[key][sid] = rank
 
         statements: list[tuple[str, list[Any]]] = []
-        for key, peak in peak_by_key.items():
+        for key, songs in per_group_songs.items():
+            if not songs:
+                continue
+            peak = min(songs.values())
+            depth = len(songs)
             # Update the latest agg_summary row. agg_summary is daily,
-            # built by build-agg-summary; we attach the chart peak to the
+            # built by build-agg-summary; we attach both signals to the
             # most recent snapshot. If there is no row yet (rare — only on
             # first-ever boot), this UPDATE becomes a no-op which is fine.
             statements.append((
-                "UPDATE agg_summary SET melon_top100_peak = ? "
+                "UPDATE agg_summary SET melon_top100_peak = ?, "
+                "melon_top100_depth = ? "
                 "WHERE group_key = ? AND snapshot_at = ("
                 "  SELECT MAX(snapshot_at) FROM agg_summary "
                 "  WHERE group_key = ?)",
-                [peak, key, key],
+                [peak, depth, key, key],
             ))
 
         runtime_ms = int((perf_counter() - started) * 1000)

@@ -29,8 +29,8 @@ INSERT INTO agg_summary
    yt_likes_total, yt_comments_total,
    dc_total_posts, theqoo_posts, instiz_posts,
    naver_total_news, twitter_posts, controversy_count,
-   music_show_wins, melon_top100_peak)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   music_show_wins, melon_top100_peak, melon_top100_depth)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   yt_total_videos=excluded.yt_total_videos,
   yt_total_views=excluded.yt_total_views,
@@ -44,7 +44,8 @@ ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   twitter_posts=excluded.twitter_posts,
   controversy_count=excluded.controversy_count,
   music_show_wins=COALESCE(excluded.music_show_wins, agg_summary.music_show_wins),
-  melon_top100_peak=COALESCE(excluded.melon_top100_peak, agg_summary.melon_top100_peak)
+  melon_top100_peak=COALESCE(excluded.melon_top100_peak, agg_summary.melon_top100_peak),
+  melon_top100_depth=COALESCE(excluded.melon_top100_depth, agg_summary.melon_top100_depth)
 """.strip()
 
 
@@ -186,8 +187,13 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
                 # already in the row from a manual seed, so this UPSERT
                 # never clobbers a hand-entered win count.
                 None,
-                # melon_top100_peak: NULL — V2.18 stub, same pattern as
-                # music_show_wins. melon.com chart collector future P0.
+                # melon_top100_peak / melon_top100_depth: NULL —
+                # written by MelonChartCollector after this aggregate
+                # runs. COALESCE in _UPSERT preserves the previous
+                # snapshot's values if today's chart fetch hasn't
+                # landed yet (avoids a window where the daily aggregate
+                # nukes a manual seed or yesterday's UPDATE).
+                None,
                 None,
             ],
         ))
