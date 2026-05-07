@@ -193,12 +193,25 @@ def notify_fail(job: str = typer.Option(..., "--job")) -> None:
 
 
 @app.command(help="Build agg_summary for the current snapshot.")
-def aggregate() -> None:
+def aggregate(
+    snapshot_at: str | None = typer.Option(
+        None,
+        "--snapshot-at",
+        help=(
+            "UTC timestamp like 2026-05-07T12:00:00Z. Defaults to current "
+            "UTC hour. Pass the same value across consecutive aggregate "
+            "runs (with melon-chart between) so the snapshot row is the "
+            "same one — the on-conflict COALESCE in agg_summary then "
+            "preserves the melon UPDATE while the second aggregate "
+            "recomputes health scores."
+        ),
+    ),
+) -> None:
     from idol_sight.analysis.agg_summary import build_agg_summary
     from idol_sight.analysis.group_combined import build_agg_group_combined
     settings = load_settings()
     client = _make_d1_client(settings)
-    snap = datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
+    snap = snapshot_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
     result = build_agg_summary(client, snapshot_at=snap)
     if result.statements:
         bs = client.batch(result.statements)
