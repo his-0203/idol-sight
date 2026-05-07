@@ -226,10 +226,10 @@ def expand_search_terms(
         #     Only emitted when EN differs meaningfully from KR — many
         #     ISEDOL/STELLIVE members have romanizations that are just
         #     the Hangul transliteration and add no recall.
-        if en and _passes_length_gate(en) and anchor:
-            if not kr or _normalize(en) != _normalize(kr):
-                combo = f"{anchor} {en}".strip()
-                _add(_quote_if_needed(combo))
+        if (en and _passes_length_gate(en) and anchor
+                and (not kr or _normalize(en) != _normalize(kr))):
+            combo = f"{anchor} {en}".strip()
+            _add(_quote_if_needed(combo))
 
     # 5. Aliases (hand-curated, e.g. fan-club names). Length-gated like
     #    member tokens, blocked from generic-keyword pollution.

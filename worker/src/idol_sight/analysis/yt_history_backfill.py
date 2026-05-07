@@ -38,7 +38,8 @@ data-quality migrations.
 
 from __future__ import annotations
 
-from datetime import date as _date, timedelta
+from datetime import date as _date
+from datetime import timedelta
 from typing import Any, Protocol
 
 from idol_sight.collectors.base import CollectionResult

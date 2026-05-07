@@ -11,6 +11,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_fixed,
+)
 
 KST = timezone(timedelta(hours=9))
 
@@ -27,12 +33,7 @@ def fmt_kst(dt_or_iso: datetime | str | None) -> str:
     else:
         dt = dt_or_iso
     return dt.astimezone(KST).strftime("%Y-%m-%d %H:%M KST")
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_fixed,
-)
+
 
 log = logging.getLogger(__name__)
 
