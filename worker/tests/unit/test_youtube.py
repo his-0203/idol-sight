@@ -174,6 +174,30 @@ def test_extract_hashtags_strips_short_tokens():
     assert _extract_hashtags(sn) == ["ab", "마하진"]
 
 
+def test_extract_hashtags_strips_hash_prefix_from_snippet_tags():
+    """V2.5.3: 일부 크리에이터가 snippet.tags 에 '#고세구' 형태로 입력 —
+    description regex 결과와 형식 일치를 위해 leading '#' 제거."""
+    sn = {
+        "tags": ["#고세구", "##double", "Mahajin", "#kpop"],
+        "description": "",
+    }
+    out = _extract_hashtags(sn)
+    # '#'-prefix 가 제거되어 'kpop' 으로 통합. '##double' 도 모두 제거.
+    assert out == ["고세구", "double", "Mahajin", "kpop"]
+
+
+def test_extract_hashtags_merges_prefixed_snippet_with_unprefixed_description():
+    """snippet.tags 의 #-prefix 와 description 의 # 토큰이 dedupe 된다."""
+    sn = {
+        "tags": ["#마하진"],
+        "description": "오늘의 무대 #마하진 #데뷔",
+    }
+    out = _extract_hashtags(sn)
+    # snippet.tags 의 '마하진' (prefix 제거 후) 가 먼저, description 의 동일
+    # 토큰은 dedupe 로 스킵, 새 토큰 '데뷔' 추가.
+    assert out == ["마하진", "데뷔"]
+
+
 def test_youtube_collector_populates_tags_for_miiwan():
     """MiiWAN 그룹: snippet.tags + description 해시태그가 INSERT params 에 JSON 으로 직렬화된다."""
     search = {"items": [{"id": {"videoId": "miiv1"}}]}
