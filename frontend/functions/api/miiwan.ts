@@ -184,17 +184,53 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     [TARGET, TARGET, TARGET, TARGET, TARGET],
   );
 
-  // 5) D-30 benchmark for comparison groups. We pick the agg_summary
-  //    snapshot whose snapshot_at falls in the [debut-30d, debut-1d]
-  //    window — i.e. the last reading we have before debut. If no row
-  //    falls in that window (we may not have been collecting that far
-  //    back), we fall back to the closest snapshot before debut_date.
-  const benchmarks: Array<{
+  // 5) Cohort benchmarks anchored at three points in the debut timeline:
+  //    D-30 (approach), D-DAY (debut), D+30 (early growth). Each tab in
+  //    the briefing shows the same comparison groups but anchored at
+  //    that point in their own debut window — gives the strategy team a
+  //    target trajectory ("MiiWAN 현재 vs PLAVE 데뷔 직전 / 데뷔 당일 /
+  //    데뷔 +30").
+  //
+  //    Pre-debut peers (debut_date NULL, e.g. WEGOSIX) ignore the anchor
+  //    and always show their latest agg_summary — there is no D-DAY for
+  //    a group without a debut date.
+  type AnchorKey = "d-30" | "d-day" | "d+30";
+  const ANCHORS: AnchorKey[] = ["d-30", "d-day", "d+30"];
+  type BenchmarkRow = {
     group_key: string; name: string; debut_date: string | null;
     snapshot_at: string | null;
     data_source: string | null;
     summary: Omit<SummaryRow, "group_key" | "snapshot_at"> | null;
-  }> = [];
+  };
+  const benchmarksByAnchor: Record<AnchorKey, BenchmarkRow[]> = {
+    "d-30": [], "d-day": [], "d+30": [],
+  };
+
+  // Per-anchor SQL window + target offset. Window restricts us to the
+  // semantically correct side of debut (pre vs post); target offset
+  // picks the closest row inside the window. fill-rate tiebreak from
+  // the original D-30 query is preserved across all anchors.
+  function anchorQuery(anchor: AnchorKey): { where: string; targetOffset: string } {
+    if (anchor === "d-30") {
+      return {
+        where: "date(snapshot_at) <= date(?)",
+        targetOffset: "-30 days",
+      };
+    }
+    if (anchor === "d-day") {
+      // ±14d window so a sparse week of missing snapshots around debut
+      // doesn't accidentally pull in a D-60 or D+60 row that the column
+      // header would mislabel.
+      return {
+        where: "date(snapshot_at) BETWEEN date(?, '-14 days') AND date(?, '+14 days')",
+        targetOffset: "+0 days",
+      };
+    }
+    return {
+      where: "date(snapshot_at) >= date(?)",
+      targetOffset: "+30 days",
+    };
+  }
 
   for (const gk of BENCHMARK_GROUPS) {
     const g = await d1QueryOne<GroupRow>(
@@ -203,41 +239,13 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       [gk],
     );
     if (!g) continue;
-    // Two query shapes:
-    //   (a) debuted group → closest agg_summary snapshot to D-30 in the
-    //       pre-debut window. Sparse backfill, so we tiebreak by column
-    //       fill rate before D-30 proximity.
-    //   (b) pre-debut peer (debut_date NULL, e.g. WEGOSIX) → latest
-    //       agg_summary. Refreshed daily by collect-daily, so the
-    //       column tracks the peer's current state without any cron.
-    let row: SummaryRow | null;
-    if (g.debut_date) {
-      row = await d1QueryOne<SummaryRow>(
-        env.DB,
-        // ORDER 우선순위:
-        //   1) yt_subscribers IS NOT NULL — pre-debut 표에서 가장 가치
-        //      높은 단일 메트릭. PLAVE 처럼 D-30 윈도에 views/videos 만
-        //      백필되고 subs 가 NULL 인 행이 살아있으면 사용자에겐
-        //      benchmark 가 의미 잃음. subs 살아있는 행을 무조건 우선.
-        //   2) 나머지 컬럼 충실도 (videos / views / news>0)
-        //   3) D-30 시점 근접도 (window 안에서 가장 D-30 에 가까운 행)
-        //   4) snapshot_at 최신
-        `SELECT * FROM agg_summary
-          WHERE group_key=? AND date(snapshot_at) <= date(?)
-          ORDER BY
-            (yt_subscribers IS NOT NULL) DESC,
-            (
-              (yt_total_videos  IS NOT NULL) +
-              (yt_total_views   IS NOT NULL) +
-              (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
-            ) DESC,
-            ABS(julianday(date(snapshot_at)) - julianday(date(?, '-30 days'))) ASC,
-            snapshot_at DESC
-          LIMIT 1`,
-        [gk, g.debut_date, g.debut_date],
-      );
-    } else {
-      row = await d1QueryOne<SummaryRow>(
+
+    // Pre-debut peer: same latest snapshot for every anchor tab. The
+    // column intentionally repeats across tabs because the peer's
+    // current state is the only meaningful comparison we have.
+    let preDebutRow: SummaryRow | null = null;
+    if (!g.debut_date) {
+      preDebutRow = await d1QueryOne<SummaryRow>(
         env.DB,
         `SELECT * FROM agg_summary
           WHERE group_key=? AND snapshot_at = (
@@ -245,25 +253,60 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         [gk, gk],
       );
     }
-    benchmarks.push({
-      group_key: gk,
-      name: g.name,
-      debut_date: g.debut_date,
-      snapshot_at: row?.snapshot_at ?? null,
-      data_source: row?.data_source ?? null,
-      summary: row ? {
-        yt_total_videos: row.yt_total_videos,
-        yt_total_views: row.yt_total_views,
-        yt_subscribers: row.yt_subscribers,
-        dc_total_posts: row.dc_total_posts,
-        theqoo_posts: row.theqoo_posts,
-        instiz_posts: row.instiz_posts,
-        naver_total_news: row.naver_total_news,
-        twitter_posts: row.twitter_posts,
-        controversy_count: row.controversy_count,
-        data_source: row.data_source,
-      } : null,
-    });
+
+    for (const anchor of ANCHORS) {
+      let row: SummaryRow | null;
+      if (g.debut_date) {
+        const { where, targetOffset } = anchorQuery(anchor);
+        // ORDER 우선순위:
+        //   1) yt_subscribers IS NOT NULL — 표에서 가장 가치 높은 단일
+        //      메트릭. 백필이 sparse 한 그룹에서 subs NULL 행이 anchor
+        //      에 더 가까워도, subs 살아있는 행을 무조건 우선.
+        //   2) 나머지 컬럼 충실도 (videos / views / news>0)
+        //   3) anchor 시점 근접도
+        //   4) snapshot_at 최신
+        const params: unknown[] = anchor === "d-day"
+          ? [gk, g.debut_date, g.debut_date, g.debut_date]
+          : [gk, g.debut_date, g.debut_date];
+        row = await d1QueryOne<SummaryRow>(
+          env.DB,
+          `SELECT * FROM agg_summary
+            WHERE group_key=? AND ${where}
+            ORDER BY
+              (yt_subscribers IS NOT NULL) DESC,
+              (
+                (yt_total_videos  IS NOT NULL) +
+                (yt_total_views   IS NOT NULL) +
+                (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
+              ) DESC,
+              ABS(julianday(date(snapshot_at)) - julianday(date(?, '${targetOffset}'))) ASC,
+              snapshot_at DESC
+            LIMIT 1`,
+          params,
+        );
+      } else {
+        row = preDebutRow;
+      }
+      benchmarksByAnchor[anchor].push({
+        group_key: gk,
+        name: g.name,
+        debut_date: g.debut_date,
+        snapshot_at: row?.snapshot_at ?? null,
+        data_source: row?.data_source ?? null,
+        summary: row ? {
+          yt_total_videos: row.yt_total_videos,
+          yt_total_views: row.yt_total_views,
+          yt_subscribers: row.yt_subscribers,
+          dc_total_posts: row.dc_total_posts,
+          theqoo_posts: row.theqoo_posts,
+          instiz_posts: row.instiz_posts,
+          naver_total_news: row.naver_total_news,
+          twitter_posts: row.twitter_posts,
+          controversy_count: row.controversy_count,
+          data_source: row.data_source,
+        } : null,
+      });
+    }
   }
 
   return jsonResponse({
@@ -313,7 +356,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       ai_comment: i.ai_comment,
       generated_at: i.generated_at,
     })),
-    benchmarks,
+    benchmarks_by_anchor: benchmarksByAnchor,
     alerts,
     controversy_trend: controversyTrend,
   });

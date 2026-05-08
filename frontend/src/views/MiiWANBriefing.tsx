@@ -11,7 +11,7 @@
 //   3. RISK      — 어떤 위기에 대비해야 하나? (identity_leak / model_theft
 //                   / controversy_spike — 가상 아이돌 운영의 critical 알림)
 //   4. KPIS      — 핵심 지표가 어떻게 움직이고 있나? (WoW + 30d sparkline)
-//   5. COHORT    — 비교 대상 대비 어디에 있나? (D-30 벤치마크 표)
+//   5. COHORT    — 비교 대상 대비 어디에 있나? (D-30 / D-DAY / D+30 탭 벤치마크 표)
 //   6. INSIGHT   — 분석가의 권고 (LLM weekly insights)
 //
 // The "활성 멤버" 카드는 D-7 이상 남은 시점에서는 정보값이 거의
@@ -42,6 +42,16 @@ type Benchmark = {
   data_source: string | null;
   summary: SummaryShape | null;
 };
+
+type AnchorKey = "d-30" | "d-day" | "d+30";
+const ANCHOR_TABS: Array<{ key: AnchorKey; label: string; description: string }> = [
+  { key: "d-30",  label: "D-30",
+    description: "비교 그룹의 데뷔 30일 전 시점 vs MiiWAN 현재. 가장 큰 갭이 다음 콘텐츠 슬롯의 근거." },
+  { key: "d-day", label: "D-DAY",
+    description: "비교 그룹의 데뷔 당일 ±14일 vs MiiWAN 현재. MiiWAN이 D-Day까지 도달해야 할 타겟선." },
+  { key: "d+30", label: "D+30",
+    description: "비교 그룹의 데뷔 30일 후 vs MiiWAN 현재. 1개월 트라젝토리 — MiiWAN의 중기 목표 라인." },
+];
 
 type Insight = {
   id: number; title: string; body: string;
@@ -76,7 +86,7 @@ type MiiwanData = {
   members: Array<{ id: number; name: string; name_en: string | null;
                    has_solo_channel: boolean }>;
   insights: Insight[];
-  benchmarks: Benchmark[];
+  benchmarks_by_anchor: Record<AnchorKey, Benchmark[]>;
   alerts: AlertRow[];
   controversy_trend: { current: number; previous: number | null } | null;
 };
@@ -298,6 +308,10 @@ export function MiiWANBriefing() {
   const [data, setData] = useState<MiiwanData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showMembers, setShowMembers] = useState<boolean>(false);
+  // Default tab = D-30. The strategy team's primary mental model is
+  // "where MiiWAN is approaching" — that matches the existing landing
+  // experience before tabs were added.
+  const [anchorTab, setAnchorTab] = useState<AnchorKey>("d-30");
 
   useEffect(() => {
     api.miiwan().then((d) => {
@@ -457,94 +471,122 @@ export function MiiWANBriefing() {
         })()}
       </section>
 
-      {/* 5) COHORT POSITION — 데뷔 D-30 벤치마크 표. 동시 시점 비교
-          가능한 유일한 그룹 데이터라 자체 가치가 큼. */}
+      {/* 5) COHORT POSITION — 코호트 비교 표. D-30 / D-DAY / D+30
+          앵커 탭으로 동일 그룹의 데뷔 타임라인 위 세 지점 비교. */}
       <section>
-        <h2 class="section-title mb-3">코호트 비교 — 데뷔 D-30 벤치마크</h2>
-        <p class="mb-3 text-hint text-zinc-500">
-          데뷔 그룹은 D-30 직전 스냅샷, pre-debut peer (WEGOSIX 등)는 최신 스냅샷.
-          현재 MiiWAN과 비교해 가장 큰 갭이 다음 콘텐츠 슬롯의 근거.
-        </p>
-        {data.benchmarks.length === 0 || !data.summary ? (
-          <EmptyState
-            title="벤치마크 비교 데이터 부족"
-            hint="비교 그룹의 D-30 부근 스냅샷이 누적되면 자동으로 채워집니다. 이미 백필된 그룹은 셀별 'est' 배지로 추정값임을 표시."
-            icon="📐"
-          />
-        ) : (
-          <div class="overflow-x-auto rounded-lg border border-zinc-800">
-            <table class="w-full min-w-[640px] text-sm tabular-nums">
-              <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
-                <tr>
-                  <th class="px-3 py-2 text-left">지표</th>
-                  <th class="px-3 py-2 text-right" style={{ color: accent }}>
-                    MiiWAN<br /><span class="text-hint normal-case text-zinc-500">현재</span>
-                  </th>
-                  {data.benchmarks.map((b) => {
-                    // Pre-debut peers (debut_date null, e.g. WEGOSIX) show
-                    // their LATEST snapshot — D-30 framing doesn't apply.
-                    // Subtitle distinguishes the two so the operator
-                    // doesn't mistake a current reading for a D-30 anchor.
-                    const isPreDebut = !b.debut_date;
-                    const stamp = b.snapshot_at
-                      ? `${formatKSTDate(b.snapshot_at)} KST` : "—";
-                    return (
-                      <th key={b.group_key} class="px-3 py-2 text-right"
-                          style={{ color: colorOf(b.group_key) }}>
-                        {b.name}<br />
-                        <span class="text-hint normal-case text-zinc-500">
-                          {isPreDebut ? `현재 (pre-debut) ${stamp}` : `D-day 직전 ${stamp}`}
-                        </span>
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ["yt_subscribers", "구독자 (그룹+멤버)"],
-                  ["yt_total_views", "누적 조회수"],
-                  ["yt_total_videos", "영상 수"],
-                  ["naver_total_news", "뉴스"],
-                  ["dc_total_posts", "디시 게시글"],
-                  ["twitter_posts", "트위터 멘션"],
-                ].map(([k, label]) => {
-                  const mine = data.summary![k as keyof SummaryShape] as number;
+        <h2 class="section-title mb-3">코호트 비교 — 데뷔 타임라인 벤치마크</h2>
+        {(() => {
+          const activeTab = ANCHOR_TABS.find((t) => t.key === anchorTab) ?? ANCHOR_TABS[0]!;
+          const rows = data.benchmarks_by_anchor?.[anchorTab] ?? [];
+          return (
+            <>
+              {/* Tabs — D-30 / D-DAY / D+30. 한 번 fetch 한 데이터를 분기만
+                  하므로 클릭 즉시 전환된다. */}
+              <div role="tablist" aria-label="benchmark anchor"
+                   class="mb-3 flex flex-wrap gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+                {ANCHOR_TABS.map((t) => {
+                  const active = t.key === anchorTab;
                   return (
-                    <tr key={k} class="border-t border-zinc-800/60">
-                      <td class="px-3 py-2 text-zinc-400">{label}</td>
-                      <td class="px-3 py-2 text-right font-semibold"
-                          style={{ color: accent }}>
-                        {fmt(mine)}
-                      </td>
-                      {data.benchmarks.map((b) => {
-                        const key = k as string;
-                        const raw = b.summary?.[key as keyof SummaryShape];
-                        const display = fmtBench(raw as number | null | undefined, b.data_source, key);
-                        const isMissing = display === "—";
-                        const ratio = !isMissing && raw != null ? relativeRatio(mine, raw as number) : "—";
-                        const positive = ratio.startsWith("+");
-                        return (
-                          <td key={b.group_key} class="px-3 py-2 text-right">
-                            <div class="text-zinc-300">
-                              {display}
-                              <EstBadge source={b.data_source} />
-                            </div>
-                            <div class={"text-hint " +
-                              (ratio === "—" ? "text-zinc-600"
-                                : positive ? "text-emerald-400" : "text-red-400")}>
-                              {ratio}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
+                    <button key={t.key} role="tab" aria-selected={active}
+                            class={"flex-1 min-w-[80px] rounded-md px-3 py-1.5 text-sm font-medium transition "
+                              + (active
+                                ? "bg-zinc-800 text-zinc-100"
+                                : "text-zinc-400 hover:text-zinc-200")}
+                            style={active ? { color: accent } : undefined}
+                            onClick={() => setAnchorTab(t.key)}>
+                      {t.label}
+                    </button>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        )}
+              </div>
+              <p class="mb-3 text-hint text-zinc-500">
+                {activeTab.description}
+                {" "}pre-debut peer (WEGOSIX 등)는 어느 탭에서도 최신 스냅샷.
+              </p>
+              {rows.length === 0 || !data.summary ? (
+                <EmptyState
+                  title="벤치마크 비교 데이터 부족"
+                  hint="비교 그룹의 해당 시점 스냅샷이 누적되면 자동으로 채워집니다. 이미 백필된 그룹은 셀별 'est' 배지로 추정값임을 표시."
+                  icon="📐"
+                />
+              ) : (
+                <div class="overflow-x-auto rounded-lg border border-zinc-800">
+                  <table class="w-full min-w-[640px] text-sm tabular-nums">
+                    <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
+                      <tr>
+                        <th class="px-3 py-2 text-left">지표</th>
+                        <th class="px-3 py-2 text-right" style={{ color: accent }}>
+                          MiiWAN<br /><span class="text-hint normal-case text-zinc-500">현재</span>
+                        </th>
+                        {rows.map((b) => {
+                          // Pre-debut peers (debut_date null, e.g. WEGOSIX)
+                          // ignore the anchor and always show current latest.
+                          const isPreDebut = !b.debut_date;
+                          const stamp = b.snapshot_at
+                            ? `${formatKSTDate(b.snapshot_at)} KST` : "—";
+                          const subtitle = isPreDebut
+                            ? `현재 (pre-debut) ${stamp}`
+                            : `${activeTab.label} ${stamp}`;
+                          return (
+                            <th key={b.group_key} class="px-3 py-2 text-right"
+                                style={{ color: colorOf(b.group_key) }}>
+                              {b.name}<br />
+                              <span class="text-hint normal-case text-zinc-500">
+                                {subtitle}
+                              </span>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        ["yt_subscribers", "구독자 (그룹+멤버)"],
+                        ["yt_total_views", "누적 조회수"],
+                        ["yt_total_videos", "영상 수"],
+                        ["naver_total_news", "뉴스"],
+                        ["dc_total_posts", "디시 게시글"],
+                        ["twitter_posts", "트위터 멘션"],
+                      ].map(([k, label]) => {
+                        const mine = data.summary![k as keyof SummaryShape] as number;
+                        return (
+                          <tr key={k} class="border-t border-zinc-800/60">
+                            <td class="px-3 py-2 text-zinc-400">{label}</td>
+                            <td class="px-3 py-2 text-right font-semibold"
+                                style={{ color: accent }}>
+                              {fmt(mine)}
+                            </td>
+                            {rows.map((b) => {
+                              const key = k as string;
+                              const raw = b.summary?.[key as keyof SummaryShape];
+                              const display = fmtBench(raw as number | null | undefined, b.data_source, key);
+                              const isMissing = display === "—";
+                              const ratio = !isMissing && raw != null ? relativeRatio(mine, raw as number) : "—";
+                              const positive = ratio.startsWith("+");
+                              return (
+                                <td key={b.group_key} class="px-3 py-2 text-right">
+                                  <div class="text-zinc-300">
+                                    {display}
+                                    <EstBadge source={b.data_source} />
+                                  </div>
+                                  <div class={"text-hint " +
+                                    (ratio === "—" ? "text-zinc-600"
+                                      : positive ? "text-emerald-400" : "text-red-400")}>
+                                    {ratio}
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </section>
 
       {/* 6) STRATEGIC INSIGHT — LLM weekly insights, MiiWAN-scoped first. */}
