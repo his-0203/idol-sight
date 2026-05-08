@@ -462,7 +462,8 @@ export function MiiWANBriefing() {
       <section>
         <h2 class="section-title mb-3">코호트 비교 — 데뷔 D-30 벤치마크</h2>
         <p class="mb-3 text-hint text-zinc-500">
-          비교 그룹의 데뷔 직전 스냅샷 vs 현재 MiiWAN. 가장 큰 갭이 다음 콘텐츠 슬롯의 근거.
+          데뷔 그룹은 D-30 직전 스냅샷, pre-debut peer (WEGOSIX 등)는 최신 스냅샷.
+          현재 MiiWAN과 비교해 가장 큰 갭이 다음 콘텐츠 슬롯의 근거.
         </p>
         {data.benchmarks.length === 0 || !data.summary ? (
           <EmptyState
@@ -479,15 +480,24 @@ export function MiiWANBriefing() {
                   <th class="px-3 py-2 text-right" style={{ color: accent }}>
                     MiiWAN<br /><span class="text-hint normal-case text-zinc-500">현재</span>
                   </th>
-                  {data.benchmarks.map((b) => (
-                    <th key={b.group_key} class="px-3 py-2 text-right"
-                        style={{ color: colorOf(b.group_key) }}>
-                      {b.name}<br />
-                      <span class="text-hint normal-case text-zinc-500">
-                        D-day 직전 {b.snapshot_at ? `${formatKSTDate(b.snapshot_at)} KST` : "—"}
-                      </span>
-                    </th>
-                  ))}
+                  {data.benchmarks.map((b) => {
+                    // Pre-debut peers (debut_date null, e.g. WEGOSIX) show
+                    // their LATEST snapshot — D-30 framing doesn't apply.
+                    // Subtitle distinguishes the two so the operator
+                    // doesn't mistake a current reading for a D-30 anchor.
+                    const isPreDebut = !b.debut_date;
+                    const stamp = b.snapshot_at
+                      ? `${formatKSTDate(b.snapshot_at)} KST` : "—";
+                    return (
+                      <th key={b.group_key} class="px-3 py-2 text-right"
+                          style={{ color: colorOf(b.group_key) }}>
+                        {b.name}<br />
+                        <span class="text-hint normal-case text-zinc-500">
+                          {isPreDebut ? `현재 (pre-debut) ${stamp}` : `D-day 직전 ${stamp}`}
+                        </span>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>

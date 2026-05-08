@@ -33,7 +33,14 @@ const TARGET = "miiwan";
 // (migrations 0018 + 0020) now covers yt_subscribers / yt_total_videos
 // / yt_total_views around its 2023-03 debut window, so D-30 is no
 // longer silently NULL on the PLAVE side.
-const BENCHMARK_GROUPS = ["plave", "skinz", "myrakl", "owis", "bdawn"] as const;
+//
+// WEGOSIX (2026-05) — pre-debut peer (debut_date NULL in 0034 seed).
+// Doesn't fit the literal "D-30 이전 스냅샷" framing, but since it's
+// the only other tracked corporate-model pre-debut group it gives the
+// strategy team a parallel "right-now" reading. Handled separately
+// below: when debut_date is null we pick the latest agg_summary
+// instead of an anchored window.
+const BENCHMARK_GROUPS = ["plave", "skinz", "myrakl", "owis", "bdawn", "wegosix"] as const;
 
 interface GroupRow {
   key: string; name: string; name_kr: string;
@@ -195,36 +202,49 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       "SELECT key, name, name_kr, debut_date, yt_channel_id FROM groups WHERE key=?",
       [gk],
     );
-    if (!g || !g.debut_date) continue;
-    // Closest agg_summary snapshot to D-30 in the pre-debut window.
-    // Sparse backfill: pick the row with the MOST populated metrics
-    // (subscribers / videos / views / news count) so the benchmark
-    // table shows useful data instead of the closest-but-empty row.
-    // Tiebreak by proximity to D-30.
-    const row = await d1QueryOne<SummaryRow>(
-      env.DB,
-      // ORDER 우선순위:
-      //   1) yt_subscribers IS NOT NULL — pre-debut 표에서 가장 가치
-      //      높은 단일 메트릭. PLAVE 처럼 D-30 윈도에 views/videos 만
-      //      백필되고 subs 가 NULL 인 행이 살아있으면 사용자에겐
-      //      benchmark 가 의미 잃음. subs 살아있는 행을 무조건 우선.
-      //   2) 나머지 컬럼 충실도 (videos / views / news>0)
-      //   3) D-30 시점 근접도 (window 안에서 가장 D-30 에 가까운 행)
-      //   4) snapshot_at 최신
-      `SELECT * FROM agg_summary
-        WHERE group_key=? AND date(snapshot_at) <= date(?)
-        ORDER BY
-          (yt_subscribers IS NOT NULL) DESC,
-          (
-            (yt_total_videos  IS NOT NULL) +
-            (yt_total_views   IS NOT NULL) +
-            (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
-          ) DESC,
-          ABS(julianday(date(snapshot_at)) - julianday(date(?, '-30 days'))) ASC,
-          snapshot_at DESC
-        LIMIT 1`,
-      [gk, g.debut_date, g.debut_date],
-    );
+    if (!g) continue;
+    // Two query shapes:
+    //   (a) debuted group → closest agg_summary snapshot to D-30 in the
+    //       pre-debut window. Sparse backfill, so we tiebreak by column
+    //       fill rate before D-30 proximity.
+    //   (b) pre-debut peer (debut_date NULL, e.g. WEGOSIX) → latest
+    //       agg_summary. Refreshed daily by collect-daily, so the
+    //       column tracks the peer's current state without any cron.
+    let row: SummaryRow | null;
+    if (g.debut_date) {
+      row = await d1QueryOne<SummaryRow>(
+        env.DB,
+        // ORDER 우선순위:
+        //   1) yt_subscribers IS NOT NULL — pre-debut 표에서 가장 가치
+        //      높은 단일 메트릭. PLAVE 처럼 D-30 윈도에 views/videos 만
+        //      백필되고 subs 가 NULL 인 행이 살아있으면 사용자에겐
+        //      benchmark 가 의미 잃음. subs 살아있는 행을 무조건 우선.
+        //   2) 나머지 컬럼 충실도 (videos / views / news>0)
+        //   3) D-30 시점 근접도 (window 안에서 가장 D-30 에 가까운 행)
+        //   4) snapshot_at 최신
+        `SELECT * FROM agg_summary
+          WHERE group_key=? AND date(snapshot_at) <= date(?)
+          ORDER BY
+            (yt_subscribers IS NOT NULL) DESC,
+            (
+              (yt_total_videos  IS NOT NULL) +
+              (yt_total_views   IS NOT NULL) +
+              (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
+            ) DESC,
+            ABS(julianday(date(snapshot_at)) - julianday(date(?, '-30 days'))) ASC,
+            snapshot_at DESC
+          LIMIT 1`,
+        [gk, g.debut_date, g.debut_date],
+      );
+    } else {
+      row = await d1QueryOne<SummaryRow>(
+        env.DB,
+        `SELECT * FROM agg_summary
+          WHERE group_key=? AND snapshot_at = (
+            SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)`,
+        [gk, gk],
+      );
+    }
     benchmarks.push({
       group_key: gk,
       name: g.name,
