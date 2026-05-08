@@ -141,3 +141,31 @@ uv run idol-sight backfill-yt-videos --group miiwan
 - §1 본체 정보 미저장: 해시태그는 공식 채널 발화이므로 무관
 - §2 2차 창작 양만: 본 스펙은 공식 채널만 대상. 팬 측 해시태그 추적 아님
 - §4 자사 그룹 위주 깊이: MiiWAN-only 분기로 명시 준수
+
+---
+
+## V2.5.2 후속 — 전 그룹 확장 (2026-05-08)
+
+§9 윤리 가이드라인 §4 의 "MiiWAN-only" 분기는 **공식 채널 발화 해시태그 한정** 으로 완화한다. 변경 사항:
+
+- `youtube.py` collector 의 `if group.key == "miiwan":` guard 제거 → 모든 그룹의 공식 채널에서 `tags` 수집
+- 멤버 attribution SQL (`cli._MEMBER_POP_FETCH_SQL`) 의 `OR EXISTS(json_each(tags))` 절은 이미 group-agnostic 이라 자동으로 PLAVE / ISEDOL / STELLIVE / SKINZ / MY:RAKL / OWIS / B:DAWN / WEGOSIX 멤버 attribution 정확도가 함께 개선됨
+
+**근거**:
+1. 해시태그는 운영자가 공식 채널에 직접 입력한 메타데이터이므로 §1 (본체 정보) / §2 (2차 창작 본문) 와 무관
+2. §4 "자사 그룹 위주 깊이" 의 의도는 위기 감지·신상 정보·팬 콘텐츠 본문 등 **민감 데이터** 의 비대칭이지, 공식 메타데이터는 아님
+3. 경쟁사 멤버 attribution 정확도 개선 → SOV / Health Score 등 cohort-비교 KPI 의 정확도 동반 상승
+
+**기존 영상 backfill**: 운영자 판단. 데이터 자연 누적을 기다리려면 daily cron 으로 충분. 정확도 즉시 개선이 필요하면:
+
+```bash
+uv run idol-sight backfill-yt-videos          # 전 그룹 walk
+# 또는 그룹별 (PLAVE 1575편 가장 큼)
+uv run idol-sight backfill-yt-videos --group plave
+```
+
+**테스트 변경**:
+- `test_youtube_collector_skips_tags_for_non_miiwan` → `test_youtube_collector_populates_tags_for_non_miiwan_group` (의미 반전)
+- `test_youtube_collector_tags_null_when_snippet_empty` 추가 — tags/description 양쪽 비면 NULL (그룹 무관)
+
+`test_member_attribution.py` 의 10건은 SQL 자체 검증이라 변경 없음.

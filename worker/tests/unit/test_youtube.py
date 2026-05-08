@@ -174,7 +174,7 @@ def test_extract_hashtags_strips_short_tokens():
     assert _extract_hashtags(sn) == ["ab", "마하진"]
 
 
-def test_youtube_collector_populates_tags_only_for_miiwan():
+def test_youtube_collector_populates_tags_for_miiwan():
     """MiiWAN 그룹: snippet.tags + description 해시태그가 INSERT params 에 JSON 으로 직렬화된다."""
     search = {"items": [{"id": {"videoId": "miiv1"}}]}
     videos = {
@@ -197,19 +197,17 @@ def test_youtube_collector_populates_tags_only_for_miiwan():
     c = YouTubeCollector(api_key="fake", http_factory=lambda: http)
     result = c.collect(_miiwan())
 
-    # video INSERT 의 마지막 param 이 tags JSON.
     sql_v, params_v = result.statements[0]
     assert "youtube_videos" in sql_v and "tags" in sql_v
     tags_param = params_v[-1]
     assert tags_param is not None
     parsed = json.loads(tags_param)
-    # MiiWAN snippet.tags 먼저 → description 의 새 태그(마하진).
-    # 'miiwan' 은 case-insensitive dedupe.
+    # snippet.tags 먼저 → description 토큰. 'miiwan' case-insensitive dedupe.
     assert parsed == ["MiiWAN", "데뷔", "마하진"]
 
 
-def test_youtube_collector_skips_tags_for_non_miiwan():
-    """비-MiiWAN 그룹: 동일한 fixture 라도 tags 컬럼은 NULL 로 들어간다."""
+def test_youtube_collector_populates_tags_for_non_miiwan_group():
+    """V2.5.2: 전 그룹 확장 — PLAVE 도 동일 fixture 에서 tags JSON 저장."""
     search = {"items": [{"id": {"videoId": "plv1"}}]}
     videos = {
         "items": [
@@ -220,7 +218,7 @@ def test_youtube_collector_skips_tags_for_non_miiwan():
                     "publishedAt": "2026-04-01T09:00:00Z",
                     "channelId": "UCPZIPuQPrfrUG9Xe_okEmQA",
                     "tags": ["PLAVE", "kpop"],
-                    "description": "무대 영상 #plave #caligo",
+                    "description": "무대 영상 #plave #caligo #노아",
                 },
                 "contentDetails": {"duration": "PT3M0S"},
                 "statistics": {"viewCount": "100000", "likeCount": "5000", "commentCount": "200"},
@@ -233,5 +231,34 @@ def test_youtube_collector_skips_tags_for_non_miiwan():
 
     sql_v, params_v = result.statements[0]
     assert "youtube_videos" in sql_v
-    # 윤리 가이드라인 §4 — 자사 그룹 위주 깊이. PLAVE 는 tags 비저장.
+    tags_param = params_v[-1]
+    assert tags_param is not None
+    parsed = json.loads(tags_param)
+    # 'plave' 는 'PLAVE' 와 case-insensitive 중복 → 'PLAVE' 만 유지.
+    assert parsed == ["PLAVE", "kpop", "caligo", "노아"]
+
+
+def test_youtube_collector_tags_null_when_snippet_empty():
+    """tags/description 양쪽이 비어있으면 tags 컬럼은 NULL — 그룹 무관."""
+    search = {"items": [{"id": {"videoId": "vEmpty"}}]}
+    videos = {
+        "items": [
+            {
+                "id": "vEmpty",
+                "snippet": {
+                    "title": "Untagged Video",
+                    "publishedAt": "2026-04-01T09:00:00Z",
+                    "channelId": "UC_X",
+                    # tags / description 모두 없음
+                },
+                "contentDetails": {"duration": "PT2M0S"},
+                "statistics": {"viewCount": "1000", "likeCount": "10", "commentCount": "1"},
+            }
+        ]
+    }
+    http = _api_returning(search, videos)
+    c = YouTubeCollector(api_key="fake", http_factory=lambda: http)
+    result = c.collect(_plave())
+
+    sql_v, params_v = result.statements[0]
     assert params_v[-1] is None

@@ -324,14 +324,16 @@ class YouTubeCollector:
             duration_sec = _iso8601_to_seconds(cd.get("duration", ""))
             content_type, is_short = _classify_content_type(sn, duration_sec)
 
-            # 윤리 가이드라인 §4 — 자사 그룹 위주 깊이. MiiWAN 공식 채널
-            # 영상에 한해서만 snippet.tags + description 해시태그를 추출해
-            # JSON array 로 보관한다. 다른 그룹은 NULL.
-            tags_json: str | None = None
-            if group.key == "miiwan":
-                extracted = _extract_hashtags(sn)
-                if extracted:
-                    tags_json = json.dumps(extracted, ensure_ascii=False)
+            # 모든 그룹의 공식 채널 영상에서 snippet.tags + description 해시태그
+            # 를 통합 추출해 JSON array 로 보관. 멤버 attribution SQL
+            # (cli._MEMBER_POP_FETCH_SQL) 의 OR EXISTS(json_each(tags)) 절이
+            # 그룹 무관하게 동작하므로, tags 수집을 전 그룹으로 확장하면
+            # PLAVE/ISEDOL/STELLIVE/SKINZ/MY:RAKL/OWIS/B:DAWN/WEGOSIX 멤버
+            # attribution 정확도도 함께 개선된다. 추출 결과가 비면 NULL.
+            extracted = _extract_hashtags(sn)
+            tags_json: str | None = (
+                json.dumps(extracted, ensure_ascii=False) if extracted else None
+            )
 
             statements.append((
                 """
