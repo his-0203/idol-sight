@@ -13,11 +13,13 @@ class _FakeClient:
         return self._rows
 
 
-def test_backfill_emits_one_row_per_unique_publication_date():
-    """Two videos on the same date should collapse to a single
-    agg_summary row carrying the cumulative count + view sum at end
-    of day. Videos across different dates should each produce their
-    own row, with the cumulative state monotonically growing."""
+def test_backfill_forward_fills_calendar_days_between_publications():
+    """Same-day videos collapse to a single (videos, views) value, then
+    that cumulative state is forward-filled across every calendar day
+    until the next publication updates it. 2023-03-12 → 2023-04-01 is
+    21 inclusive days, so we expect 21 rows: the first carrying the
+    debut-day state (2 videos, 1.5M views), the last carrying the
+    post-2nd-publication state (3 videos, 1.7M views)."""
     rows = [
         # debut day
         {"group_key": "plave", "pub_date": "2023-03-12", "views": 1_000_000},
@@ -28,19 +30,31 @@ def test_backfill_emits_one_row_per_unique_publication_date():
     client = _FakeClient(rows)
     result = backfill_yt_history(client)
 
-    assert len(result.statements) == 2
+    # 31 - 12 + 1 = 20 March days from the 12th + 1 April day = 21.
+    assert len(result.statements) == 21
     sql_a, params_a = result.statements[0]
-    sql_b, params_b = result.statements[1]
+    _,     params_z = result.statements[-1]
     assert "INSERT INTO agg_summary" in sql_a
-    assert "ON CONFLICT(group_key, snapshot_at) DO NOTHING" in sql_a
+    # Forward-fill is idempotent via UPDATE WHERE data_source clause.
+    assert "ON CONFLICT(group_key, snapshot_at) DO UPDATE" in sql_a
+    assert "data_source = 'backfill_estimate'" in sql_a
 
-    # Day 1: 2 videos, sum 1.5M views.
+    # Debut day end-of-day state: 2 videos, sum 1.5M.
     assert params_a == ["plave", "2023-03-12T00:00:00Z", 2, 1_500_000]
-    # Day 2: 3 videos cumulative, sum 1.7M views.
-    assert params_b == ["plave", "2023-04-01T00:00:00Z", 3, 1_700_000]
+    # Post-2nd-publication state: 3 videos, sum 1.7M.
+    assert params_z == ["plave", "2023-04-01T00:00:00Z", 3, 1_700_000]
+
+    # Mid-stretch row should carry the forward-filled debut state.
+    mid = next(p for _s, p in result.statements
+               if p[1] == "2023-03-20T00:00:00Z")
+    assert mid == ["plave", "2023-03-20T00:00:00Z", 2, 1_500_000]
 
 
 def test_backfill_handles_multiple_groups_independently():
+    """Per-group cumulative counters reset across groups, and each
+    group's forward-fill window is bounded by its own first/last
+    publication — isedol with a single date contributes a single row,
+    plave with two dates expands to a 21-day forward-fill."""
     rows = [
         {"group_key": "plave",  "pub_date": "2023-03-12", "views": 1_000_000},
         {"group_key": "isedol", "pub_date": "2021-12-17", "views":   500_000},
@@ -53,8 +67,8 @@ def test_backfill_handles_multiple_groups_independently():
     for _sql, params in result.statements:
         by_group.setdefault(params[0], []).append(params)
     assert set(by_group.keys()) == {"plave", "isedol"}
-    assert len(by_group["plave"]) == 2
-    assert len(by_group["isedol"]) == 1
+    assert len(by_group["plave"]) == 21         # 2023-03-12 → 2023-04-01
+    assert len(by_group["isedol"]) == 1         # single publication
     # Per-group cumulative counters reset across groups.
     assert by_group["isedol"][0][2] == 1                  # cum_videos
     assert by_group["isedol"][0][3] == 500_000            # cum_views

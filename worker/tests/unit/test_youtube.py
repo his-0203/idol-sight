@@ -75,6 +75,7 @@ def test_youtube_collector_fans_out_across_member_channels():
 
     def _get(url, *, params=None, **_):
         r = MagicMock()
+        params = params or {}
         if "/search" in url:
             calls.append(params["channelId"])
             ch = params["channelId"]

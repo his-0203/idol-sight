@@ -5,7 +5,11 @@ channel batch fetch path without touching the network. Spotify is
 deliberately out of scope (Premium-required policy 2026-02-06).
 """
 
+from collections.abc import Callable
+from typing import Any, cast
 from unittest.mock import MagicMock
+
+import httpx
 
 from idol_sight.collectors.external_cohort import (
     ExternalCohortCollector,
@@ -13,7 +17,7 @@ from idol_sight.collectors.external_cohort import (
 )
 
 
-def _make_http(handlers: dict[str, callable]):
+def _make_http(handlers: dict[str, Callable[[dict[str, Any]], dict[str, Any]]]):
     """handlers maps a URL substring to a callable(params, **kw) -> json dict.
 
     Returns a MagicMock httpx.Client supporting context-manager + .get().
@@ -125,8 +129,6 @@ def test_collect_continues_on_per_batch_http_error():
                          yt_channel_id="UC_X", spotify_artist_id=None),
     ]
 
-    import httpx
-
     class FailingClient:
         def __enter__(self):
             return self
@@ -137,7 +139,11 @@ def test_collect_continues_on_per_batch_http_error():
 
     coll = ExternalCohortCollector(
         yt_api_key="fake",
-        http_factory=lambda: FailingClient(),
+        # FailingClient is a structural stub — only implements the
+        # context-manager + .get() surface the collector touches.
+        # cast() keeps the signature honest for runtime while skipping
+        # the nominal subtype check Pyright would otherwise enforce.
+        http_factory=lambda: cast(httpx.Client, FailingClient()),
     )
     result = coll.collect(groups)
     assert result.statements == []

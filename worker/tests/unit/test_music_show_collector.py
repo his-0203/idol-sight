@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import MagicMock
 
 from idol_sight.collectors import music_show as ms
@@ -150,8 +151,11 @@ def test_fetch_all_articles_sleeps_between_queries(monkeypatch):
 # --- build_upsert_statements ---------------------------------------------
 
 
-def _win(article_id: str, **kw) -> ExtractedWin:
-    base = dict(
+def _win(article_id: str, **kw: Any) -> ExtractedWin:
+    # base annotated as dict[str, Any] so Pyright doesn't narrow values
+    # to `str | bool | float` and reject the **base unpack against the
+    # frozen dataclass's typed fields.
+    base: dict[str, Any] = dict(
         article_id=article_id,
         is_music_show_win=True,
         confidence=0.9,
