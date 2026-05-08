@@ -9,7 +9,6 @@ from idol_sight.llm.music_show import (
     extract_music_show_wins,
 )
 
-
 # --- schema --------------------------------------------------------------
 
 

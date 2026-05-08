@@ -25,7 +25,6 @@ from typing import Any
 
 from .gemini import GeminiClient
 
-
 # Q1 에서 6개 프로그램으로 고정 — SBS MTV `더쇼`, MBC `쇼! 음악중심`,
 # Mnet `엠카운트다운`, KBS `뮤직뱅크`, SBS `인기가요`, MBC M
 # `쇼챔피언`. 단독 1위가 있는 주류 프로그램 한정. 로컬 쇼·시상식

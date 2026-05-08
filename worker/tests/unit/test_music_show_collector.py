@@ -13,7 +13,6 @@ from idol_sight.collectors.music_show import (
 )
 from idol_sight.llm.music_show import ExtractedWin
 
-
 # --- build_queries -------------------------------------------------------
 
 
@@ -217,7 +216,7 @@ def test_upsert_log_row_has_pending_status_and_full_fields():
     assert params[1] == "쇼챔피언"
     assert params[2] == "2026-04-23"
     assert params[3] == "Pump Up The Volume"
-    assert "https://example.com/h1" == params[4]
+    assert params[4] == "https://example.com/h1"
     assert params[5] == "h1"
     assert params[7] == 0.95
 
