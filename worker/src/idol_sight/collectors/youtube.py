@@ -37,7 +37,9 @@ in agg_summary become accurate over the channel's full lifetime.
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from time import perf_counter
@@ -58,6 +60,43 @@ PLAYLIST_ITEMS_MAX = 50      # max maxResults for playlistItems.list
 # if a future channel has tens of thousands of videos. 200 pages ×
 # 50 = 10K videos, easily covers any K-pop or VTuber channel today.
 FULL_HISTORY_MAX_PAGES = 200
+
+# `#xxx` 패턴 — 한글/영문/숫자/언더스코어 토큰. `\w` 는 Python re 의 기본
+# UNICODE 모드에서 가-힣 을 포함하지만, 가독성을 위해 명시적으로 병기.
+_HASHTAG_RE = re.compile(r"#([\w가-힣]+)")
+
+
+def _extract_hashtags(snippet: dict) -> list[str] | None:
+    """Merge YouTube `snippet.tags` array and `#xxx` tokens parsed from
+    `snippet.description` into a single deduped list.
+
+    Dedupe key is lowercase; the first-encountered original casing is
+    preserved (Korean tokens are case-invariant so this is lossless for
+    them). Tokens of length ≤ 1 are dropped to suppress meaningless
+    matches like `#a` / `#가`.
+
+    Returns ``None`` when no usable tags are found, so callers can write
+    SQL NULL rather than a `[]` literal — keeps `WHERE tags IS NOT NULL`
+    queries simple downstream.
+    """
+    raw: list[str] = []
+    for t in snippet.get("tags") or []:
+        if isinstance(t, str):
+            raw.append(t.strip())
+    desc = snippet.get("description") or ""
+    if isinstance(desc, str):
+        raw.extend(m.group(1) for m in _HASHTAG_RE.finditer(desc))
+    seen: set[str] = set()
+    out: list[str] = []
+    for tok in raw:
+        if len(tok) < 2:
+            continue
+        key = tok.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(tok)
+    return out or None
 
 
 def _classify_content_type(snippet: dict, duration_sec: int) -> tuple[str, bool]:
@@ -285,23 +324,33 @@ class YouTubeCollector:
             duration_sec = _iso8601_to_seconds(cd.get("duration", ""))
             content_type, is_short = _classify_content_type(sn, duration_sec)
 
+            # 윤리 가이드라인 §4 — 자사 그룹 위주 깊이. MiiWAN 공식 채널
+            # 영상에 한해서만 snippet.tags + description 해시태그를 추출해
+            # JSON array 로 보관한다. 다른 그룹은 NULL.
+            tags_json: str | None = None
+            if group.key == "miiwan":
+                extracted = _extract_hashtags(sn)
+                if extracted:
+                    tags_json = json.dumps(extracted, ensure_ascii=False)
+
             statements.append((
                 """
                 INSERT INTO youtube_videos
                   (video_id, group_key, channel_id, title, duration_sec,
-                   published_at, content_type, is_short, first_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   published_at, content_type, is_short, first_seen_at, tags)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(video_id) DO UPDATE SET
                   title=excluded.title,
                   content_type=excluded.content_type,
-                  is_short=excluded.is_short
+                  is_short=excluded.is_short,
+                  tags=excluded.tags
                 """.strip(),
                 [
                     vid, group.key, sn.get("channelId"),
                     (sn.get("title") or "")[:500],
                     duration_sec, sn.get("publishedAt"),
                     content_type, 1 if is_short else 0,
-                    now_iso,
+                    now_iso, tags_json,
                 ],
             ))
             statements.append((
