@@ -1,24 +1,31 @@
 name: melon-chart
 on:
   schedule:
-    # 18:00 UTC daily ≈ 03:00 KST. Melon's daily chart finalizes around
-    # midnight KST; pulling at 03:00 gives the page time to settle and
-    # avoids overlap with collect-daily (12:30 UTC) and external-cohort
-    # (06:30 UTC).
+    # 21:00 UTC daily = 06:00 KST. Moved from 03:00 KST (18:00 UTC) to
+    # widen the gap from collect-daily (12:30 UTC ≈ 21:30 KST) and put
+    # the run in the quiet morning window. The previous 03:00 KST slot
+    # collided with the 10-min budget being too tight for the
+    # aggregate-melon-aggregate sandwich (3 sequential D1-heavy steps).
+    # 06:00 KST sits AFTER collect-daily/health-check finish and BEFORE
+    # external-cohort (06:30 UTC ≈ 15:30 KST) starts.
     #
-    # V2.19.1: this workflow now wraps the melon fetch with an
+    # V2.19.1: this workflow wraps the melon fetch with an
     # aggregate-melon-aggregate sandwich so health scores reflect the
     # fresh chart data. The pinned snapshot_at ensures both aggregate
     # runs target the same agg_summary row — the second one hits
     # ON CONFLICT, COALESCE preserves the melon UPDATE from the middle
     # step, and health scores recompute against the now-populated row.
-    - cron: '0 18 * * *'
+    - cron: '0 21 * * *'
   workflow_dispatch:
 
 jobs:
   fetch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 10 → 25 min: aggregate alone now takes 5–10min on the runner
+    # (sequential D1 round trips × hundreds of statements). Three
+    # D1-heavy steps in this workflow (aggregate → melon → aggregate)
+    # need a real budget — 10min was producing chronic timeouts.
+    timeout-minutes: 25
     defaults: { run: { working-directory: worker } }
     env:
       CF_ACCOUNT_ID:    ${{ secrets.CF_ACCOUNT_ID }}
