@@ -82,7 +82,13 @@ def _extract_hashtags(snippet: dict) -> list[str] | None:
     raw: list[str] = []
     for t in snippet.get("tags") or []:
         if isinstance(t, str):
-            raw.append(t.strip())
+            # 일부 크리에이터는 snippet.tags 에 '#고세구' 처럼 '#' prefix 를
+            # 직접 입력한다 (YouTube API 는 입력 그대로 반환). description
+            # 측 hashtag 는 정규식 capture 그룹이 '#' 를 제외하므로 두 소스
+            # 결과 형식을 일치시키려면 여기서도 leading '#' 를 제거해야
+            # 한다. 안 그러면 멤버 attribution SQL 의 LOWER(je.value) =
+            # LOWER(m.name) 매칭이 '#'-prefix 영상에 대해 실패한다 (V2.5.3).
+            raw.append(t.strip().lstrip("#"))
     desc = snippet.get("description") or ""
     if isinstance(desc, str):
         raw.extend(m.group(1) for m in _HASHTAG_RE.finditer(desc))
