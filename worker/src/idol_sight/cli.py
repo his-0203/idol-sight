@@ -59,6 +59,74 @@ _INTERVALS_H = {
 }
 
 
+# Member popularity 계산용 raw fetch.
+#
+# 한 row 당 멤버 1명 + (그룹 채널 + 솔로 채널) 신호 집계. 핵심은 영상 attribution:
+# 멤버를 영상과 잇는 두 가지 신호를 OR 로 합친다.
+#   1) v.title LIKE '%이름%' — 기존 방식. Korean name 부분 매칭.
+#   2) v.tags JSON 내부에 이름이 정확히 있을 때 — MiiWAN 한정으로 collector 가
+#      채우는 컬럼 (migration 0050). m.name (한글) 또는 m.name_en (영문) 둘
+#      다 case-insensitive 비교. 팬은 #마하진 / #mahajin 양쪽 사용하므로
+#      둘 다 잡아야 한다.
+#
+# `v.tags IS NOT NULL` guard 가 필요한 이유: SQLite/D1 의 json_each(NULL) 은
+# 'malformed JSON' 에러를 낸다. tags 컬럼이 비어있는(다른 그룹) row 도 같은
+# 쿼리로 통과해야 하므로 NULL 분기 필수.
+#
+# OR/EXISTS 로 합쳐도 COUNT(*) 와 AVG 는 row 수 기준이라 자동으로 dedupe 됨
+# (영상 1개에 title + tag 양쪽 매칭 → 1회만 카운트).
+_MEMBER_POP_FETCH_SQL = """
+SELECT m.id, m.name,
+  COALESCE((
+    SELECT MAX(cs.subscribers) FROM youtube_channel_stats cs
+    WHERE cs.channel_id = m.yt_channel_id
+  ), 0) AS solo_subscribers,
+  COALESCE((
+    SELECT AVG(s2.views) FROM youtube_video_stats s2
+    JOIN youtube_videos v2 ON v2.video_id = s2.video_id
+    WHERE v2.group_key = m.group_key
+      AND (
+        v2.title LIKE '%' || m.name || '%'
+        OR (
+          v2.tags IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM json_each(v2.tags) je
+            WHERE LOWER(je.value) = LOWER(m.name)
+               OR LOWER(je.value) = LOWER(m.name_en)
+          )
+        )
+      )
+  ), 0) AS group_video_avg_views,
+  (
+    SELECT COUNT(*) FROM youtube_videos v3
+    WHERE v3.group_key = m.group_key
+      AND (
+        v3.title LIKE '%' || m.name || '%'
+        OR (
+          v3.tags IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM json_each(v3.tags) je
+            WHERE LOWER(je.value) = LOWER(m.name)
+               OR LOWER(je.value) = LOWER(m.name_en)
+          )
+        )
+      )
+  ) AS group_video_mention_count,
+  (
+    SELECT COUNT(*) FROM community_posts cp
+    WHERE cp.group_key = m.group_key
+      AND cp.title LIKE '%' || m.name || '%'
+  ) + (
+    SELECT COUNT(*) FROM naver_articles na
+    WHERE na.group_key = m.group_key
+      AND COALESCE(na.is_excluded, 0) = 0
+      AND na.title LIKE '%' || m.name || '%'
+  ) AS comm_mentions
+FROM members m
+WHERE m.group_key = ? AND m.active = 1
+""".strip()
+
+
 def _make_d1_client(settings: Settings) -> D1Client:
     return D1Client(
         account_id=settings.cf_account_id,
@@ -659,37 +727,7 @@ def analyze_weekly(
         #                whose title mentions the member name (1M views=10pts).
         # - community_score: count of mentions across community_posts AND
         #                    naver_articles whose title contains member name.
-        members_raw = client.execute(
-            "SELECT m.id, m.name, "
-            "  COALESCE(("
-            "    SELECT MAX(cs.subscribers) FROM youtube_channel_stats cs "
-            "    WHERE cs.channel_id = m.yt_channel_id"
-            "  ), 0) AS solo_subscribers, "
-            "  COALESCE(("
-            "    SELECT AVG(s2.views) FROM youtube_video_stats s2 "
-            "    JOIN youtube_videos v2 ON v2.video_id = s2.video_id "
-            "    WHERE v2.group_key = m.group_key "
-            "      AND v2.title LIKE '%' || m.name || '%'"
-            "  ), 0) AS group_video_avg_views, "
-            "  ("
-            "    SELECT COUNT(*) FROM youtube_videos v3 "
-            "    WHERE v3.group_key = m.group_key "
-            "      AND v3.title LIKE '%' || m.name || '%'"
-            "  ) AS group_video_mention_count, "
-            "  ("
-            "    SELECT COUNT(*) FROM community_posts cp "
-            "    WHERE cp.group_key = m.group_key "
-            "      AND cp.title LIKE '%' || m.name || '%'"
-            "  ) + ("
-            "    SELECT COUNT(*) FROM naver_articles na "
-            "    WHERE na.group_key = m.group_key "
-            "      AND COALESCE(na.is_excluded, 0) = 0 "
-            "      AND na.title LIKE '%' || m.name || '%'"
-            "  ) AS comm_mentions "
-            "FROM members m "
-            "WHERE m.group_key = ? AND m.active = 1",
-            [g["key"]],
-        )
+        members_raw = client.execute(_MEMBER_POP_FETCH_SQL, [g["key"]])
         members = []
         for m in members_raw:
             solo_subs = m.get("solo_subscribers", 0) or 0
