@@ -22,9 +22,9 @@ Cloudflare D1 ◀── frontend/functions/api  (Pages Functions, TS)
 Browser ◀── frontend/  (Vite + Preact SPA, deployed to Cloudflare Pages)
 ```
 
-- **worker/**: Python collectors (YouTube, 디시, 더쿠, 네이버, 인스티즈, 한터, Twitter/X, external cohort) + analysis 모듈 + Gemini LLM 인사이트 + Discord alerts.
+- **worker/**: Python collectors (YouTube, 디시, 더쿠, 네이버, 인스티즈, 한터, Twitter/X) + analysis 모듈 + Gemini LLM 인사이트 + Discord alerts.
 - **frontend/**: Preact SPA + Pages Functions API + Cloudflare Access(추후) 인증.
-- **migrations/**: D1 SQL migrations (현재 0001 ~ 0017). `wrangler d1 migrations apply` 로 적용.
+- **migrations/**: D1 SQL migrations. `wrangler d1 migrations apply` 로 적용.
 - **scripts/setup.sh**: 최초 1회 Cloudflare 리소스 프로비저닝 + `wrangler.toml` 패치.
 - **docs/superpowers/specs/**: 기획·설계 명세서 (rebuild design, foundation, worker MVP, frontend UI, analysis/LLM, v2-roadmap).
 
@@ -135,11 +135,11 @@ idol-sight/
 │   ├── pyproject.toml
 │   └── src/idol_sight/
 │       ├── cli.py, orchestrator.py, d1.py, config.py, notify.py
-│       ├── collectors/            # youtube, dc, theqoo, naver, instiz, hanteo, twitter, external_cohort
+│       ├── collectors/            # youtube, dc, theqoo, naver, instiz, hanteo, twitter
 │       ├── analysis/              # health_score, market_share, agg_summary, ...
 │       ├── llm/                   # gemini, prompts, weekly
 │       └── alerts/
-├── migrations/                    # 0001 ~ 0017 SQL
+├── migrations/                    # D1 SQL (sequential numbered files)
 └── scripts/
     ├── setup.sh                   # 최초 1회 프로비저닝
     └── gen-password-hash.mjs

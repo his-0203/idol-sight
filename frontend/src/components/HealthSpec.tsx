@@ -159,7 +159,7 @@ function FactorsView({ spec }: { spec: any }) {
         </ul>
         <div class="mt-1 text-[11px] text-zinc-500">
           V2.18 유지: STELLIVE segmentary 통합. V2.17 유지: news log1p normalize +
-          news weight (reach 0.05 / ritual 0.10) + external cohort 머지 미사용.
+          news weight (reach 0.05 / ritual 0.10).
           V2.16 유지: redistribute=False ritual / music_show_wins stub /
           cold-start floor 제거.
         </div>

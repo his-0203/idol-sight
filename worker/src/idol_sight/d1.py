@@ -10,12 +10,21 @@ Both accept JSON bodies and return Cloudflare's standard envelope
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 API = "https://api.cloudflare.com/client/v4"
+
+# Transient HTTP statuses retried with exponential backoff. 429 is
+# Cloudflare-side rate limiting (collect-hourly's 9-group fan-out hits
+# this); 5xx covers brief D1 unavailability. Other 4xx (400/401/403/404)
+# are deterministic client errors and fail fast.
+_TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 4
+_BACKOFF_BASE = 0.2  # seconds; total worst-case sleep = 0.2+0.4+0.8 = 1.4s
 
 
 class D1Error(RuntimeError):
@@ -39,10 +48,24 @@ class D1Client:
         }
         self._timeout = timeout
 
+    def _post_with_retry(
+        self, c: httpx.Client, url: str, payload: dict
+    ) -> httpx.Response:
+        last: httpx.Response | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            r = c.post(url, json=payload, headers=self._headers)
+            last = r
+            if r.status_code in _TRANSIENT_STATUSES and attempt < _MAX_ATTEMPTS - 1:
+                time.sleep(_BACKOFF_BASE * (2 ** attempt))
+                continue
+            return r
+        assert last is not None
+        return last
+
     def execute(self, sql: str, params: list[Any] | None = None) -> list[dict]:
         payload = {"sql": sql, "params": params or []}
         with httpx.Client(timeout=self._timeout) as c:
-            r = c.post(self._url_query, json=payload, headers=self._headers)
+            r = self._post_with_retry(c, self._url_query, payload)
         r.raise_for_status()
         env = r.json()
         if not env.get("success"):
@@ -59,10 +82,8 @@ class D1Client:
         total_changes = 0
         with httpx.Client(timeout=self._timeout) as c:
             for sql, params in statements:
-                r = c.post(
-                    self._url_query,
-                    json={"sql": sql, "params": params or []},
-                    headers=self._headers,
+                r = self._post_with_retry(
+                    c, self._url_query, {"sql": sql, "params": params or []},
                 )
                 r.raise_for_status()
                 env = r.json()

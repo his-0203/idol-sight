@@ -12,10 +12,6 @@ import typer
 
 from idol_sight.collectors.channel_stats import ChannelStatsCollector
 from idol_sight.collectors.dc import DcCollector
-from idol_sight.collectors.external_cohort import (
-    ExternalCohortCollector,
-    load_external_groups,
-)
 from idol_sight.collectors.hanteo import HanteoCollector
 from idol_sight.collectors.instiz import InstizCollector
 from idol_sight.collectors.melon import MelonChartCollector
@@ -575,33 +571,6 @@ def backfill_music_show_wins_cmd(
     else:
         typer.echo("backfill-music-show-wins: no new statements")
     raise typer.Exit(code=0 if result.statements or not result.errors else 1)
-
-
-@app.command(
-    "external-cohort-run",
-    help="Refresh external_metrics YT columns via the YouTube Data API. "
-         "Spotify columns are left NULL (Premium-required policy 2026-02 "
-         "blocks the API path; manual SQL refresh until alternative).",
-)
-def external_cohort_run() -> None:
-    settings = load_settings()
-    client = _make_d1_client(settings)
-    groups = load_external_groups(client)
-    if not groups:
-        typer.echo("external-cohort-run: no active external_groups; skipping")
-        return
-    coll = ExternalCohortCollector(yt_api_key=settings.yt_api_key)
-    result = coll.collect(groups)
-    if result.errors:
-        for e in result.errors:
-            typer.echo(f"WARN: {e}", err=True)
-    if result.statements:
-        client.batch(result.statements)
-    typer.echo(
-        f"external-cohort: wrote {result.rows_inserted} rows in "
-        f"{result.runtime_ms}ms"
-    )
-    raise typer.Exit(code=0 if result.statements else 1)
 
 
 @app.command(

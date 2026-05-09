@@ -275,61 +275,6 @@ def test_ritual_does_not_redistribute_when_hanteo_absent():
     )
 
 
-def test_dynamic_refs_includes_external_cohort_when_provided():
-    """V2.16 Fix 2 — external_cohort 인자가 있으면 p75 계산에 함께 합쳐
-    REF가 외부 K-POP 시장 기준으로 끌어올려진다.
-
-    이전 동작: cohort 8그룹 안에서만 p75 → PLAVE = top → 다른 그룹들은
-    PLAVE 대비 비교. 외부 시장(에스파/뉴진스/RIIZE) 보이지 않음.
-
-    새 동작: external_cohort 리스트도 percentile 입력에 합침.
-    """
-    cohort = [
-        {"yt_subscribers": 1_000_000, "yt_total_views": 100_000_000,
-         "likes_total": 4_000_000, "comments_total": 200_000,
-         "dc_total_posts": 50_000, "theqoo_posts": 0, "instiz_posts": 0,
-         "naver_total_news": 300},
-        {"yt_subscribers": 200_000, "yt_total_views": 20_000_000,
-         "likes_total": 800_000, "comments_total": 30_000,
-         "dc_total_posts": 10_000, "theqoo_posts": 0, "instiz_posts": 0,
-         "naver_total_news": 80},
-    ]
-    # 외부 K-POP 톱티어
-    external = [
-        {"yt_subscribers": 15_000_000, "yt_total_views": 8_000_000_000,
-         "likes_total": 0, "comments_total": 0,
-         "dc_total_posts": 0, "theqoo_posts": 0, "instiz_posts": 0,
-         "naver_total_news": 5_000},
-        {"yt_subscribers": 8_000_000, "yt_total_views": 3_000_000_000,
-         "likes_total": 0, "comments_total": 0,
-         "dc_total_posts": 0, "theqoo_posts": 0, "instiz_posts": 0,
-         "naver_total_news": 2_500},
-    ]
-    refs_solo = compute_dynamic_refs(cohort)
-    refs_w_ext = compute_dynamic_refs(cohort, external_cohort=external)
-    # 외부 시장 합산하면 subscribers/views REF가 의미 있게 커진다.
-    assert refs_w_ext["subscribers"] > refs_solo["subscribers"]
-    assert refs_w_ext["views"] > refs_solo["views"]
-    assert refs_w_ext["news"] > refs_solo["news"]
-
-
-def test_dynamic_refs_external_cohort_none_is_backward_compat():
-    """external_cohort=None 또는 미전달 시 기존 동작 유지."""
-    cohort = [
-        {"yt_subscribers": 100, "yt_total_views": 1_000,
-         "likes_total": 0, "comments_total": 0,
-         "dc_total_posts": 0, "theqoo_posts": 0, "instiz_posts": 0,
-         "naver_total_news": 5},
-        {"yt_subscribers": 200, "yt_total_views": 2_000,
-         "likes_total": 0, "comments_total": 0,
-         "dc_total_posts": 0, "theqoo_posts": 0, "instiz_posts": 0,
-         "naver_total_news": 10},
-    ]
-    refs_a = compute_dynamic_refs(cohort)
-    refs_b = compute_dynamic_refs(cohort, external_cohort=None)
-    assert refs_a == refs_b
-
-
 def test_music_show_wins_signal_lifts_ritual():
     """V2.16 Fix 3 — agg.music_show_wins (음방 1위 누적 횟수) 가
     ritual factor를 끌어올린다.

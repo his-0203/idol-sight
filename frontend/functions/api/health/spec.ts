@@ -39,11 +39,7 @@ export const onRequestGet: PagesFunction = async () =>
                    "min(depth/5, 1.0) 정규화 → 5곡 동시 진입 saturated. " +
                    "V2.19 신설 — best rank 단독으로 잡히지 않는 음원 깊이(PLAVE 6곡 vs 단곡 진입) 변별 시그널.",
       cohort_percentile: "DYNAMIC_REF_PERCENTILE = 0.75 — 1.0=top quartile. " +
-                         "내부 9그룹 코호트 단독 p75 (V2.17: external 머지 철회).",
-      external_cohort:
-                   "V2.17 운영 default: 비활성. external_groups/external_metrics는 표시용으로만 " +
-                   "유지 (MarketOverview 별도 view). health_score REF는 내부 코호트 단독 — D-tier " +
-                   "그룹 변별력 보호.",
+                         "내부 9그룹 코호트 단독 p75.",
       absolute_scoring:
                    "V2.16: cold-start floor 제거. 데뷔 첫날 그룹도 절대값 그대로. " +
                    "참여 가산 없음.",

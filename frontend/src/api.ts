@@ -17,7 +17,6 @@ export const api = {
   miiwan:      () => getJson<any>("/api/miiwan"),
   debutCurve:  (metric = "yt_subscribers", from = -60, to = 180) =>
     getJson<any>(`/api/debut-curve?metric=${encodeURIComponent(metric)}&from=${from}&to=${to}`),
-  externalCohort: () => getJson<any>("/api/external-cohort"),
   groupEvents: (group?: string, from?: string, to?: string) => {
     const qs = new URLSearchParams();
     if (group) qs.set("group", group);

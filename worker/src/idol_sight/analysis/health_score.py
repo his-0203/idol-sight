@@ -372,8 +372,6 @@ def _wmean(
 
 def compute_dynamic_refs(
     cohort: list[dict[str, Any]],
-    *,
-    external_cohort: list[dict[str, Any]] | None = None,
 ) -> dict[str, float]:
     """Derive per-dimension REF values from cohort p75.
 
@@ -381,41 +379,16 @@ def compute_dynamic_refs(
     group, same snapshot) that's about to feed into
     ``compute_health_score``.
 
-    ``external_cohort`` (V2.16) is an optional list of K-pop benchmark
-    groups (RIIZE / aespa / NewJeans / etc.) that share at least the
-    ``yt_subscribers`` / ``yt_total_views`` / ``naver_total_news``
-    keys. When provided, their values are MERGED into the percentile
-    inputs so the REF reflects the broader market — preventing PLAVE
-    from saturating against itself and pulling every other group's
-    subscribers/views normalize values flat. External entries lack
-    engagement (likes/comments) and community signals so those
-    dimensions stay cohort-only — there is no equivalent of
-    dc_total_posts on aespa.
-
-    We compute each REF as max(p75 of cohort∪external, MIN_REFS[dim]) so:
+    We compute each REF as max(p75 of cohort, MIN_REFS[dim]) so:
 
     - top tier (≥p75)   → normalized to 1.0
     - mid tier          → ~0.5
     - debut tier        → small but non-saturated
     """
     refs: dict[str, float] = {}
-    ext = external_cohort or []
-    # Keys that are reasonable cross-cohort (same units, same meaning).
-    sub_vals = (
-        [float(g.get("yt_subscribers", 0) or 0) for g in cohort]
-        + [float(g.get("yt_subscribers", 0) or 0) for g in ext]
-    )
-    view_vals = (
-        [float(g.get("yt_total_views", 0) or 0) for g in cohort]
-        + [float(g.get("yt_total_views", 0) or 0) for g in ext]
-    )
-    news_vals = (
-        [float(g.get("naver_total_news", 0) or 0) for g in cohort]
-        + [float(g.get("naver_total_news", 0) or 0) for g in ext]
-    )
-    # Engagement / community stay cohort-only — external_cohort is K-pop
-    # mainline, no per-channel likes/comments aggregate, and dc/theqoo
-    # community posts aren't tracked for them.
+    sub_vals = [float(g.get("yt_subscribers", 0) or 0) for g in cohort]
+    view_vals = [float(g.get("yt_total_views", 0) or 0) for g in cohort]
+    news_vals = [float(g.get("naver_total_news", 0) or 0) for g in cohort]
     qual_vals = [float(_engagement_rate(g)) for g in cohort]
     comm_vals = [
         float((g.get("dc_total_posts", 0) or 0)

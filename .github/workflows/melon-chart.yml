@@ -6,8 +6,7 @@ on:
     # the run in the quiet morning window. The previous 03:00 KST slot
     # collided with the 10-min budget being too tight for the
     # aggregate-melon-aggregate sandwich (3 sequential D1-heavy steps).
-    # 06:00 KST sits AFTER collect-daily/health-check finish and BEFORE
-    # external-cohort (06:30 UTC ≈ 15:30 KST) starts.
+    # 06:00 KST sits AFTER collect-daily/health-check finish.
     #
     # V2.19.1: this workflow wraps the melon fetch with an
     # aggregate-melon-aggregate sandwich so health scores reflect the
