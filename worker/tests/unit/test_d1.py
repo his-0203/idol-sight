@@ -112,14 +112,14 @@ def test_execute_retries_on_503(client, httpx_mock: HTTPXMock, no_sleep):
 def test_execute_gives_up_after_max_attempts(
     client, httpx_mock: HTTPXMock, no_sleep,
 ):
-    # Hard-cap: 4 attempts (1 initial + 3 retries). Mocking exactly 4
+    # Hard-cap: 6 attempts (1 initial + 5 retries). Mocking exactly 6
     # responses double-checks the cap — pytest_httpx fails teardown if
     # any extra response goes unconsumed.
-    for _ in range(4):
+    for _ in range(6):
         httpx_mock.add_response(status_code=429, text="rate limited")
     with pytest.raises(httpx.HTTPStatusError):
         client.execute("SELECT 1")
-    assert len(httpx_mock.get_requests()) == 4
+    assert len(httpx_mock.get_requests()) == 6
 
 
 def test_execute_does_not_retry_on_400(

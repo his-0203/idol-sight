@@ -10,6 +10,7 @@ Both accept JSON bodies and return Cloudflare's standard envelope
 
 from __future__ import annotations
 
+import random
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -22,9 +23,16 @@ API = "https://api.cloudflare.com/client/v4"
 # Cloudflare-side rate limiting (collect-hourly's 9-group fan-out hits
 # this); 5xx covers brief D1 unavailability. Other 4xx (400/401/403/404)
 # are deterministic client errors and fail fast.
+#
+# Tuning history:
+#   v1 (4 attempts × 0.2s base, no jitter) — 8/9 matrix jobs passed but
+#   one persistently throttled job fell off the cliff at ~1.4s total
+#   wait. Bumped to 6 attempts × 0.5s base (worst case 15.5s total) plus
+#   ±25% multiplicative jitter so concurrent matrix jobs don't retry in
+#   lockstep and re-trigger the same rate-limit window together.
 _TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
-_MAX_ATTEMPTS = 4
-_BACKOFF_BASE = 0.2  # seconds; total worst-case sleep = 0.2+0.4+0.8 = 1.4s
+_MAX_ATTEMPTS = 6
+_BACKOFF_BASE = 0.5  # seconds; worst-case wait ~ 0.5+1+2+4+8 = 15.5s
 
 
 class D1Error(RuntimeError):
@@ -56,7 +64,9 @@ class D1Client:
             r = c.post(url, json=payload, headers=self._headers)
             last = r
             if r.status_code in _TRANSIENT_STATUSES and attempt < _MAX_ATTEMPTS - 1:
-                time.sleep(_BACKOFF_BASE * (2 ** attempt))
+                base = _BACKOFF_BASE * (2 ** attempt)
+                wait = base * (0.75 + 0.5 * random.random())
+                time.sleep(wait)
                 continue
             return r
         assert last is not None

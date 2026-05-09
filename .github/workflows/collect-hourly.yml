@@ -18,7 +18,11 @@ jobs:
   collect:
     strategy:
       fail-fast: false
-      max-parallel: 4
+      # max-parallel halved from 4 → 2: 9 simultaneous D1 callers were
+      # tripping rate-limit windows (1/9 jobs would still time out even
+      # with the d1.py retry+jitter armor). Total runtime grows from
+      # ~3 → ~5min, well inside the 10min timeout.
+      max-parallel: 2
       matrix:
         group:  [plave, isedol, stellive, skinz, myrakl, miiwan, owis, bdawn, wegosix]
         source: [naver]
