@@ -21,10 +21,27 @@ jobs:
       - run: pnpm i --frozen-lockfile
       - run: pnpm build
 
+      # wrangler auto-extracts the full commit message (subject + body)
+      # from git and forwards it to the Cloudflare Pages deployments API.
+      # Long multi-line bodies — even though valid UTF-8 — occasionally
+      # trip Cloudflare's `8000111: Invalid commit message` validator.
+      # Past push commits in this repo only had a one-line subject and
+      # always deployed; pinning --commit-message to the subject keeps
+      # us in that proven shape regardless of body content.
+      - name: Get commit subject (one line, ASCII-safe enough)
+        id: cmt
+        working-directory: .
+        run: echo "subject=$(git log -1 --pretty=%s)" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           workingDirectory: frontend
-          command: pages deploy dist --project-name=idol-sight --branch=main
+          command: >-
+            pages deploy dist
+            --project-name=idol-sight
+            --branch=main
+            --commit-message="${{ steps.cmt.outputs.subject }}"
+            --commit-hash=${{ github.sha }}
