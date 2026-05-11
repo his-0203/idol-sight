@@ -118,43 +118,54 @@ export function MarketOverview() {
   // (you cannot add log values), and a line per group reads more cleanly
   // on a small chart.
   useEffect(() => {
-    if (!share || !shareCanvas.current) return;
-    const ctx = shareCanvas.current;
-    const weeks = Array.from(new Set<string>(share.rows.map((r: any) => r.week_end))).sort();
-    const groupKeys = Array.from(new Set<string>(share.rows.map((r: any) => r.group_key)));
-    const filtered = excludePlave ? groupKeys.filter((k) => k !== "plave") : groupKeys;
-    const datasets = filtered.map((k) => ({
-      label: k,
-      data: weeks.map((w) => {
-        const row = share.rows.find((r: any) => r.week_end === w && r.group_key === k);
-        return row?.final ?? 0;
-      }),
-      borderColor: colorOf(k),
-      backgroundColor: fillOf(k, 0.15),
-      borderWidth: 2,
-      pointRadius: 0,
-      pointHoverRadius: 4,
-      tension: 0.25,
-      fill: false,
-    }));
-    shareChart.current?.destroy();
-    shareChart.current = new Chart(ctx, {
-      type: "line",
-      data: { labels: weeks, datasets },
-      options: {
-        scales: {
-          y: {
-            title: { display: true, text: "점유율 (%)" },
-            ticks: { callback: (v) => fmtScale(v as number) },
+    if (!share) return;
+    // Defer to next frame: on first load, the canvas div was just swapped
+    // into the same parent <div> previously holding the empty-state text
+    // (Preact reuses the DOM node, only updating class+children). Chart.js
+    // reads parent dimensions synchronously, and at useEffect-time the
+    // browser has not yet applied the new `h-48 md:h-72` height, so the
+    // chart renders at 0×0. Waiting one rAF lets layout settle.
+    let cancelled = false;
+    const rafId = requestAnimationFrame(() => {
+      if (cancelled || !shareCanvas.current) return;
+      const ctx = shareCanvas.current;
+      const weeks = Array.from(new Set<string>(share.rows.map((r: any) => r.week_end))).sort();
+      const groupKeys = Array.from(new Set<string>(share.rows.map((r: any) => r.group_key)));
+      const filtered = excludePlave ? groupKeys.filter((k) => k !== "plave") : groupKeys;
+      const datasets = filtered.map((k) => ({
+        label: k,
+        data: weeks.map((w) => {
+          const row = share.rows.find((r: any) => r.week_end === w && r.group_key === k);
+          return row?.final ?? 0;
+        }),
+        borderColor: colorOf(k),
+        backgroundColor: fillOf(k, 0.15),
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.25,
+        fill: false,
+      }));
+      shareChart.current?.destroy();
+      shareChart.current = new Chart(ctx, {
+        type: "line",
+        data: { labels: weeks, datasets },
+        options: {
+          scales: {
+            y: {
+              title: { display: true, text: "점유율 (%)" },
+              ticks: { callback: (v) => fmtScale(v as number) },
+            },
+            x: { title: { display: true, text: "주차" } },
           },
-          x: { title: { display: true, text: "주차" } },
+          plugins: {
+            legend: { position: "bottom" },
+            tooltip: { callbacks: { label: fmtTooltipCallback() } },
+          },
         },
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { callbacks: { label: fmtTooltipCallback() } },
-        },
-      },
+      });
     });
+    return () => { cancelled = true; cancelAnimationFrame(rafId); };
   }, [share, excludePlave]);
 
   const sharesByKey = useMemo(() => latestShareMap(share?.rows), [share]);
