@@ -12,7 +12,14 @@ jobs:
   collect:
     strategy:
       fail-fast: false
-      max-parallel: 4
+      # 4 → 2: collect-hourly와 동일 패턴 (37fa4de). 18 job 중 4개가
+      # cold-start 시 동시에 D1 _load_group 을 hit → 429 Too Many Requests
+      # 가 isedol+youtube 같은 fan-out 큰 job 에서 retry 6×0.5s+jitter 도
+      # 못 풀고 떨어졌다. 결과적으로 `youtube:isedol` last_success_at 이
+      # 24h+ 정체되어 health-check 가 false-positive 알람 발사
+      # (25630615918, 25602874657, 25560827930, 25504489107). 2로 낮추면
+      # 9 batch × ~60s = ~9min, 20min timeout 안에 여유 있음.
+      max-parallel: 2
       matrix:
         group:  [plave, isedol, stellive, skinz, myrakl, miiwan, owis, bdawn, wegosix]
         source: [channel-stats, youtube]
