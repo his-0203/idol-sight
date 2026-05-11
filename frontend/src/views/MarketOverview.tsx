@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
 import { api } from "../api";
 import { fmt } from "../format";
@@ -104,8 +104,16 @@ export function MarketOverview() {
   const [meta, setMeta] = useState<any>(null);
   const [excludePlave, setExcludePlave] = useState(false);
   const [activeCategory, setActiveCategory] = useState<"all" | Category>("all");
-  const shareCanvas = useRef<HTMLCanvasElement | null>(null);
-  const shareChart = useRef<Chart | null>(null);
+  // Callback ref + state so we know precisely when the canvas mounts.
+  // The previous useRef approach + useEffect [share, excludePlave] race-
+  // condition'd on first load: useEffect would fire before the canvas was
+  // visible-laid-out (Preact reuses the empty-state <div> when the
+  // conditional flips), so Chart.js measured 0×0 dimensions and drew
+  // nothing. Toggling the checkbox masked the bug because by then the
+  // canvas had been in DOM long enough to size correctly. Stashing the
+  // node in state makes the canvas dep explicit: the effect only runs in
+  // a render where the canvas is genuinely live in the DOM.
+  const [shareCanvasEl, setShareCanvasEl] = useState<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     api.market().then(setMarket);
@@ -118,55 +126,43 @@ export function MarketOverview() {
   // (you cannot add log values), and a line per group reads more cleanly
   // on a small chart.
   useEffect(() => {
-    if (!share) return;
-    // Defer to next frame: on first load, the canvas div was just swapped
-    // into the same parent <div> previously holding the empty-state text
-    // (Preact reuses the DOM node, only updating class+children). Chart.js
-    // reads parent dimensions synchronously, and at useEffect-time the
-    // browser has not yet applied the new `h-48 md:h-72` height, so the
-    // chart renders at 0×0. Waiting one rAF lets layout settle.
-    let cancelled = false;
-    const rafId = requestAnimationFrame(() => {
-      if (cancelled || !shareCanvas.current) return;
-      const ctx = shareCanvas.current;
-      const weeks = Array.from(new Set<string>(share.rows.map((r: any) => r.week_end))).sort();
-      const groupKeys = Array.from(new Set<string>(share.rows.map((r: any) => r.group_key)));
-      const filtered = excludePlave ? groupKeys.filter((k) => k !== "plave") : groupKeys;
-      const datasets = filtered.map((k) => ({
-        label: k,
-        data: weeks.map((w) => {
-          const row = share.rows.find((r: any) => r.week_end === w && r.group_key === k);
-          return row?.final ?? 0;
-        }),
-        borderColor: colorOf(k),
-        backgroundColor: fillOf(k, 0.15),
-        borderWidth: 2,
-        pointRadius: 0,
-        pointHoverRadius: 4,
-        tension: 0.25,
-        fill: false,
-      }));
-      shareChart.current?.destroy();
-      shareChart.current = new Chart(ctx, {
-        type: "line",
-        data: { labels: weeks, datasets },
-        options: {
-          scales: {
-            y: {
-              title: { display: true, text: "점유율 (%)" },
-              ticks: { callback: (v) => fmtScale(v as number) },
-            },
-            x: { title: { display: true, text: "주차" } },
+    if (!share || !shareCanvasEl) return;
+    const weeks = Array.from(new Set<string>(share.rows.map((r: any) => r.week_end))).sort();
+    const groupKeys = Array.from(new Set<string>(share.rows.map((r: any) => r.group_key)));
+    const filtered = excludePlave ? groupKeys.filter((k) => k !== "plave") : groupKeys;
+    const datasets = filtered.map((k) => ({
+      label: k,
+      data: weeks.map((w) => {
+        const row = share.rows.find((r: any) => r.week_end === w && r.group_key === k);
+        return row?.final ?? 0;
+      }),
+      borderColor: colorOf(k),
+      backgroundColor: fillOf(k, 0.15),
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0.25,
+      fill: false,
+    }));
+    const chart = new Chart(shareCanvasEl, {
+      type: "line",
+      data: { labels: weeks, datasets },
+      options: {
+        scales: {
+          y: {
+            title: { display: true, text: "점유율 (%)" },
+            ticks: { callback: (v) => fmtScale(v as number) },
           },
-          plugins: {
-            legend: { position: "bottom" },
-            tooltip: { callbacks: { label: fmtTooltipCallback() } },
-          },
+          x: { title: { display: true, text: "주차" } },
         },
-      });
+        plugins: {
+          legend: { position: "bottom" },
+          tooltip: { callbacks: { label: fmtTooltipCallback() } },
+        },
+      },
     });
-    return () => { cancelled = true; cancelAnimationFrame(rafId); };
-  }, [share, excludePlave]);
+    return () => { chart.destroy(); };
+  }, [share, excludePlave, shareCanvasEl]);
 
   const sharesByKey = useMemo(() => latestShareMap(share?.rows), [share]);
   const deltas = useMemo(() => shareDeltaByKey(share?.rows), [share]);
@@ -331,12 +327,12 @@ export function MarketOverview() {
                   PLAVE 제외
                 </label>
               )}
-              <ExportMenu canvas={shareCanvas.current ?? undefined}
+              <ExportMenu canvas={shareCanvasEl ?? undefined}
                            rows={share?.rows ?? []}
                            filenameBase="share-of-voice" />
             </div>
             {hasTrend ? (
-              <div class="h-48 md:h-72"><canvas ref={shareCanvas}></canvas></div>
+              <div class="h-48 md:h-72"><canvas ref={setShareCanvasEl}></canvas></div>
             ) : share && share.rows.length > 0 ? (
               <>
                 <div class="mb-2 text-hint text-zinc-500">
