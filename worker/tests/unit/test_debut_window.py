@@ -1,5 +1,8 @@
 """Tests for debut window organicity analysis module."""
 
+import json
+from unittest.mock import MagicMock
+
 import pytest
 
 from idol_sight.analysis.debut_window import (
@@ -10,6 +13,7 @@ from idol_sight.analysis.debut_window import (
     _compute_velocity_coherence,
     _classify_verdict,
     compute_organic_score,
+    build_video_organicity,
 )
 
 
@@ -214,3 +218,63 @@ def test_insufficient_data_boundary(view_count, engagement_total, expect_insuffi
         # the contract here is just that we *do* score it.
         assert score is not None
         assert breakdown["verdict"] != "insufficient_data"
+
+
+def _client(rows_by_sql_substring):
+    """Test helper: MagicMock client whose .execute(sql) returns rows
+    based on first matching substring in rows_by_sql_substring."""
+    client = MagicMock()
+    def _execute(sql, params=None):
+        for sub, rows in rows_by_sql_substring.items():
+            if sub in sql:
+                return rows
+        return []
+    client.execute.side_effect = _execute
+    return client
+
+
+def test_build_video_organicity_filters_window_and_emits_upserts():
+    """Reads videos in ±60 day window, scores each, returns upsert statements."""
+    # Two miiwan videos: one inside D-30 window, one outside (D-166)
+    client = _client({
+        "FROM youtube_videos": [
+            {
+                "video_id": "vid_inside",
+                "group_key": "miiwan",
+                "is_short": 0,
+                "published_at": "2026-06-01T00:00:00Z",  # D-15 → D-30 bucket
+                "view_count": 500_000,
+                "like_count": 30_000,
+                "comment_count": 1_000,
+                "viral_velocity_ratio": None,
+                "debut_date": "2026-06-16",
+            },
+            {
+                "video_id": "vid_outside",
+                "group_key": "miiwan",
+                "is_short": 0,
+                "published_at": "2026-01-01T00:00:00Z",  # ~D-166
+                "view_count": 100_000,
+                "like_count": 5_000,
+                "comment_count": 100,
+                "viral_velocity_ratio": None,
+                "debut_date": "2026-06-16",
+            },
+        ],
+    })
+    result = build_video_organicity(client)
+
+    # Only the in-window video gets an upsert; out-of-window is skipped
+    sqls = [s[0] for s in result.statements]
+    params_list = [s[1] for s in result.statements]
+    assert len(result.statements) == 1
+    assert "INSERT INTO debut_window_video_organicity" in sqls[0]
+    assert "ON CONFLICT(video_id) DO UPDATE" in sqls[0]
+    # video_id in first param position
+    assert params_list[0][0] == "vid_inside"
+    # window_bucket present (published 2026-06-01 vs debut 2026-06-16 = D-15 → D-30 bucket)
+    assert "D-30" in params_list[0]
+    # signal_breakdown is JSON
+    breakdown_json = next(p for p in params_list[0] if isinstance(p, str) and p.startswith("{"))
+    parsed = json.loads(breakdown_json)
+    assert "engagement_score" in parsed

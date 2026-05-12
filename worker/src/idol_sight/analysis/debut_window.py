@@ -7,10 +7,20 @@ the algorithm rationale, signal weights, and verdict thresholds.
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import Mapping
+from typing import Any, Mapping, Protocol
 
-__all__ = ["WINDOW_BUCKETS", "WEIGHTS", "bucket_for", "compute_organic_score"]
+from idol_sight.collectors.base import CollectionResult
+
+__all__ = [
+    "WINDOW_BUCKETS",
+    "WEIGHTS",
+    "bucket_for",
+    "compute_organic_score",
+    "build_video_organicity",
+]
 
 # (label, days_lo_inclusive, days_hi_inclusive). Ranges are non-overlapping
 # and contiguous from -60 (60 days before debut) to +60.
@@ -155,3 +165,110 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
         "verdict": verdict,
     }
     return composite, breakdown
+
+
+class _Executor(Protocol):
+    def execute(self, sql: str, params: list | None = ...) -> list[dict]: ...
+
+
+_FETCH_VIDEOS_SQL = """
+SELECT v.video_id, v.group_key, v.is_short, v.published_at,
+       v.viral_velocity_ratio,
+       g.debut_date,
+       s.view_count, s.like_count, s.comment_count
+FROM youtube_videos v
+JOIN groups g ON g.key = v.group_key
+LEFT JOIN youtube_video_stats s
+       ON s.video_id = v.video_id
+      AND s.snapshot_at = (
+            SELECT MAX(snapshot_at) FROM youtube_video_stats s2
+             WHERE s2.video_id = v.video_id
+          )
+WHERE g.debut_date IS NOT NULL
+  AND v.published_at IS NOT NULL
+  AND julianday(v.published_at)
+        BETWEEN julianday(g.debut_date) - 60
+            AND julianday(g.debut_date) + 60
+"""
+
+
+_UPSERT_VIDEO_SQL = """
+INSERT INTO debut_window_video_organicity
+  (video_id, group_key, is_short, published_at,
+   days_relative_to_debut, window_bucket,
+   view_count, like_count, comment_count,
+   engagement_rate, like_comment_ratio, velocity_ratio,
+   organic_score, verdict, signal_breakdown, computed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(video_id) DO UPDATE SET
+  group_key=excluded.group_key,
+  is_short=excluded.is_short,
+  published_at=excluded.published_at,
+  days_relative_to_debut=excluded.days_relative_to_debut,
+  window_bucket=excluded.window_bucket,
+  view_count=excluded.view_count,
+  like_count=excluded.like_count,
+  comment_count=excluded.comment_count,
+  engagement_rate=excluded.engagement_rate,
+  like_comment_ratio=excluded.like_comment_ratio,
+  velocity_ratio=excluded.velocity_ratio,
+  organic_score=excluded.organic_score,
+  verdict=excluded.verdict,
+  signal_breakdown=excluded.signal_breakdown,
+  computed_at=excluded.computed_at
+"""
+
+
+def _days_between(debut_date: str, published_at: str) -> int:
+    """Return days_relative_to_debut. published_at is ISO8601 timestamp,
+    debut_date is YYYY-MM-DD. Negative = before debut."""
+    d_debut = datetime.fromisoformat(debut_date).date()
+    d_pub = datetime.fromisoformat(published_at.replace("Z", "+00:00")).date()
+    return (d_pub - d_debut).days
+
+
+def build_video_organicity(client: _Executor) -> CollectionResult:
+    """Score every video in each group's ±60d debut window, return upsert
+    statements. Idempotent on video_id."""
+    rows = client.execute(_FETCH_VIDEOS_SQL)
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    statements: list[tuple[str, list[Any]]] = []
+
+    for r in rows:
+        days_rel = _days_between(r["debut_date"], r["published_at"])
+        bucket = bucket_for(days_rel)
+        if bucket is None:
+            continue  # outside window; defensive (SQL already filtered)
+
+        video = {
+            "is_short": r.get("is_short") or 0,
+            "view_count": r.get("view_count") or 0,
+            "like_count": r.get("like_count") or 0,
+            "comment_count": r.get("comment_count") or 0,
+            "viral_velocity_ratio": r.get("viral_velocity_ratio"),
+        }
+        score, breakdown = compute_organic_score(video)
+        verdict = breakdown["verdict"]
+        view_count = video["view_count"]
+        like_count = video["like_count"]
+        comment_count = video["comment_count"]
+        if score is None:
+            engagement_rate = None
+            like_comment_ratio = None
+        else:
+            engagement_rate = breakdown["engagement_rate"]
+            like_comment_ratio = breakdown["like_comment_ratio"]
+
+        statements.append((_UPSERT_VIDEO_SQL, [
+            r["video_id"], r["group_key"], video["is_short"],
+            r["published_at"], days_rel, bucket,
+            view_count, like_count, comment_count,
+            engagement_rate, like_comment_ratio, video["viral_velocity_ratio"],
+            score, verdict, json.dumps(breakdown), now,
+        ]))
+
+    return CollectionResult(
+        rows_inserted=0,
+        rows_updated=len(statements),
+        statements=statements,
+    )
