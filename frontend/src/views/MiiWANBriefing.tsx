@@ -29,6 +29,7 @@ import { formatKST, formatKSTDate } from "../lib/datetime";
 import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
 import { extractGroupKeys } from "../lib/insightFormat";
+import { CompetitorOrganicityBar } from "../components/CompetitorOrganicityBar";
 
 type SummaryShape = {
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
@@ -587,6 +588,14 @@ export function MiiWANBriefing() {
             </>
           );
         })()}
+      </section>
+
+      {/* 5b) COMPETITIVE DEBUT WINDOW POSTURE — Organic-score 가로 막대
+          비교. 코호트 표 바로 옆에서 "어떤 그룹이 데뷔 윈도에서 가장
+          유기적 시그널이 강한가" 한 눈에 비교. bucket picker 로 D-60 ~
+          D+60 윈도 전환 가능. */}
+      <section class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+        <CompetitorOrganicityBar />
       </section>
 
       {/* 6) STRATEGIC INSIGHT — LLM weekly insights, MiiWAN-scoped first. */}

@@ -113,3 +113,44 @@ Visit the deployed URL.
 - **`wrangler d1 migrations apply` says "no such file"** — make sure you ran from `frontend/` and that `wrangler.toml` has `migrations_dir = "../migrations"`.
 - **Pages build fails with "REPLACE_WITH_REAL_ID"** — `setup.sh` failed to patch. Manually edit `frontend/wrangler.toml` and re-deploy.
 - **`/api/ping` returns 401** — middleware is protecting it. POST your password to `/__auth` first or send a valid signed cookie.
+
+## V2.20 Debut Window Organicity 백필 (1회성, PR 머지 후)
+
+새로 마이그레이션된 `debut_window_video_organicity` / `debut_window_organicity_summary`
+테이블을 처음 채우는 절차. 이미 데뷔한 그룹의 D-60~D+60 영상 메타데이터/통계가
+필요하므로 `backfill-yt-videos` 워크플로를 9개 그룹 각각 실행한 뒤, 일일
+aggregate를 한 번 돌려 신규 테이블을 채운다.
+
+**PR 머지 후 운영 단계에서 진행. PR 진행 중에는 실행하지 말 것.**
+
+1. 마이그레이션 원격 적용:
+   ```bash
+   cd frontend && wrangler d1 migrations apply idol-sight --remote
+   ```
+2. 9개 그룹 백필 — GitHub Actions UI에서 `backfill-yt-videos` workflow_dispatch
+   를 그룹마다 실행하거나, 다음 CLI를 9번 호출:
+   ```bash
+   for g in plave isedol stellive skinz myrakl miiwan owis bdawn wegosix; do
+     gh workflow run backfill-yt-videos.yml -f group=$g
+   done
+   ```
+3. 백필 완료 확인 후 (`gh run list --workflow=backfill-yt-videos.yml --limit 9`),
+   collect-daily 워크플로의 다음 자동 실행이 `aggregate` 안에서 신규 단계
+   (`debut_window_videos`, `debut_window_summary`)를 자동 실행한다.
+   즉시 채우려면:
+   ```bash
+   gh workflow run collect-daily.yml
+   ```
+4. 대시보드(idol-sight.pages.dev)에서 그룹 카드의 "Debut Window Organicity"
+   행이 N/A 가 아닌 점수로 채워졌는지 확인. GroupContent의 "Debut Window"
+   섹션과 MiiWAN Briefing의 "Competitive Debut Window Posture" 차트도 데이터
+   로딩 확인.
+5. D1 직접 확인:
+   ```bash
+   cd frontend && wrangler d1 execute idol-sight --remote \
+     --command="SELECT COUNT(*) FROM debut_window_video_organicity"
+   cd frontend && wrangler d1 execute idol-sight --remote \
+     --command="SELECT group_key, window_bucket, video_count, organic_score_mean
+                FROM debut_window_organicity_summary
+                ORDER BY group_key, window_bucket"
+   ```

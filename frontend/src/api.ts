@@ -27,6 +27,10 @@ export const api = {
   },
   search:      (q: string) => getJson<any>(`/api/search?q=${encodeURIComponent(q)}`),
   healthSpec:  () => getJson<any>("/api/health/spec"),
+  debutWindowSummary: (bucket?: string) =>
+    getJson<any>("/api/debut-window/summary" + (bucket ? `?bucket=${encodeURIComponent(bucket)}` : "")),
+  debutWindowVideos: (group: string, bucket: string, type: "all" | "long" | "short" = "all") =>
+    getJson<any>(`/api/debut-window/videos?group=${encodeURIComponent(group)}&bucket=${encodeURIComponent(bucket)}&type=${type}`),
   flagIrrelevant: async (payload: { url_hash?: string; url?: string; group_key: string; reason?: string }) => {
     const r = await fetch("/api/relevance-feedback", {
       method: "POST",
