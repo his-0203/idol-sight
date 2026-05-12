@@ -46,7 +46,9 @@ def audit_freshness(client: _Executor, *, now_iso: str | None = None) -> list[di
         "WHERE COALESCE(is_active, 1) = 1 "
         "  AND (last_backfilled_at IS NULL "
         "       OR julianday(?) - julianday(last_backfilled_at) > ?)",
-        [now.strftime("%Y-%m-%dT%H:%M:%SZ"), BACKFILL_ALERT_DAYS],
+        # now is always tz-aware (datetime.now(UTC) or fromisoformat with offset);
+        # normalize to UTC before stringifying with literal-Z suffix.
+        [now.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), BACKFILL_ALERT_DAYS],
     )
     for r in backfill_rows:
         last_bf = r.get("last_backfilled_at")

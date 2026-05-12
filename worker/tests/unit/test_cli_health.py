@@ -42,3 +42,17 @@ def test_audit_flags_backfill_stale_groups():
     assert by_job["backfill:stellive"]["age_h"] is not None
     assert by_job["backfill:stellive"]["age_h"] > 14 * 24
     assert by_job["backfill:bdawn"]["age_h"] is None
+
+
+def test_audit_handles_non_utc_now_iso():
+    """now_iso with non-UTC offset still produces correct stale list."""
+    # 2026-05-12T09:00:00+09:00 == 2026-05-12T00:00:00Z (same instant)
+    crawl_rows = []
+    backfill_rows = [
+        # 20d before 2026-05-12T00:00Z UTC → stale (> 14d)
+        {"key": "stellive", "last_backfilled_at": "2026-04-22T00:00:00Z"},
+    ]
+    client = MagicMock()
+    client.execute.side_effect = [crawl_rows, backfill_rows]
+    stale = audit_freshness(client, now_iso="2026-05-12T09:00:00+09:00")
+    assert any(s["job"] == "backfill:stellive" for s in stale)

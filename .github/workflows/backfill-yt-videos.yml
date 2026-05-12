@@ -15,25 +15,35 @@ on:
         default: false
 
 jobs:
-  # workflow_dispatch 의 group 입력을 받아서 matrix 에 넘길 JSON 배열을
-  # 생성. 'all' / 공백 이면 9개 전체, 특정 그룹이면 1개 배열. 이렇게
-  # 분리하지 않으면 job-level `if:` 안에서 `matrix.group` 컨텍스트가
-  # 보이지 않아 422 parse 에러가 난다 (matrix 컨텍스트는 step-level 만 가용).
+  # workflow_dispatch 의 group 입력과 force 토글을 받아 D1 의
+  # last_backfilled_at 을 조회하여 stale 그룹만 JSON 배열로 emit.
+  # 'all' / 공백 + force=false → 7d 이내 backfill된 그룹은 skip.
+  # 'all' + force=true → 9개 전체. 특정 그룹 → 해당 1개만 (freshness 무시).
   setup:
     runs-on: ubuntu-latest
     outputs:
       groups: ${{ steps.matrix.outputs.groups }}
     steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+        working-directory: worker
       - id: matrix
+        working-directory: worker
+        env:
+          CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:     ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:    ${{ secrets.CF_API_TOKEN }}
         run: |
-          if [ "${{ inputs.group }}" = "all" ] || [ -z "${{ inputs.group }}" ]; then
-            echo 'groups=["bdawn","isedol","miiwan","myrakl","owis","plave","skinz","stellive","wegosix"]' >> "$GITHUB_OUTPUT"
-          else
-            echo 'groups=["${{ inputs.group }}"]' >> "$GITHUB_OUTPUT"
-          fi
+          groups=$(uv run python -m idol_sight backfill-targets \
+            --group '${{ inputs.group }}' \
+            ${{ inputs.force == true && '--force' || '' }})
+          echo "Selected groups: $groups"
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
 
   backfill:
     needs: setup
+    if: ${{ needs.setup.outputs.groups != '[]' }}
     strategy:
       fail-fast: false
       # collect-hourly/daily와 동일 패턴. D1 _load_group 의 cold-start
@@ -41,9 +51,11 @@ jobs:
       max-parallel: 3
       matrix:
         group: ${{ fromJSON(needs.setup.outputs.groups) }}
-    # 그룹당 30분. stellive 의 멤버 솔로 채널 합산 worst case 도 ~15분 →
-    # 2배 여유. 단일 그룹 timeout 이 다른 8개 job 에 영향 안 함.
-    timeout-minutes: 30
+    # 그룹당 60분. stellive 의 멤버 솔로 채널 합산 worst case 도 ~27분 →
+    # 2배 여유. max-parallel=3 동시 실행 시 네트워크 경합으로 시간이
+    # 늘어나는 경우까지 흡수. 단일 그룹 timeout 이 다른 8개 job 에
+    # 영향 안 함.
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

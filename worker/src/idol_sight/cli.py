@@ -553,6 +553,37 @@ def backfill_yt_videos_cmd(
 
 
 @app.command(
+    "backfill-targets",
+    help="Print the list of group keys that need backfilling, as a JSON "
+         "array. Used by the matrix workflow's setup job to compute "
+         "stale-only matrix slots. Respects the same --group / --force "
+         "/ --fresh-days semantics as backfill-yt-videos itself.",
+)
+def backfill_targets_cmd(
+    group: str | None = typer.Option(
+        None, "--group",
+        help="Single group key — emits ['<group>']. Empty/None or 'all' "
+             "emits the filtered set of KNOWN_GROUPS.",
+    ),
+    force: bool = typer.Option(False, "--force"),
+    fresh_days: int = typer.Option(7, "--fresh-days"),
+) -> None:
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    # Normalize 'all' / '' as None for the helper's contract.
+    g = None if (not group or group == "all") else group
+    if g is not None and g not in KNOWN_GROUPS:
+        typer.echo(f"unknown group: {g}", err=True)
+        raise typer.Exit(code=2)
+    targets = _resolve_backfill_targets(
+        client, group=g, force=force, fresh_days=fresh_days,
+    )
+    # Emit JSON array, single line, suitable for shell capture into
+    # GITHUB_OUTPUT. Use json.dumps to ensure correct quoting.
+    typer.echo(json.dumps(targets))
+
+
+@app.command(
     "backfill-yt-history",
     help="Synthesize historical agg_summary rows from youtube_videos for "
          "every active group. Idempotent — real collector snapshots always "
