@@ -63,9 +63,15 @@ jobs:
     # instead of lagging by a day. The pinned snapshot_at keeps both
     # aggregate runs targeting the same agg_summary row, so the second
     # one ON CONFLICTs and COALESCE preserves the melon UPDATE before
-    # health scores recompute. 5min was for one aggregate; 10min covers
-    # both plus the melon fetch (~3s).
-    timeout-minutes: 10
+    # health scores recompute.
+    #
+    # 10 → 25 min (2026-05-12): aggregate 단일 실행이 velocity 단계
+    # (303 row × 직렬 D1 round-trip) 만으로 4–5분 소요 → sandwich 패턴
+    # 전체는 9~11분에 도달. 10분 budget 안에서 run #5,#6,#7,#8 모두
+    # 2nd aggregate가 cancelled. melon-chart.yml 워크플로(동일 sandwich
+    # 패턴)는 같은 이유로 이미 25min 사용 중이므로 동일 budget으로
+    # 정렬. 후속 최적화(2nd aggregate --skip-derived)는 별도 PR로.
+    timeout-minutes: 25
     defaults: { run: { working-directory: worker } }
     env:
       CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
@@ -90,4 +96,7 @@ jobs:
         run: uv run python -m idol_sight melon-chart
 
       - name: Aggregate again (COALESCE preserves melon, recomputes health scores)
-        run: uv run python -m idol_sight aggregate --snapshot-at ${{ steps.snap.outputs.snap }}
+        # --skip-derived: stages 2~4 (combined/velocity/reactivity) don't
+        # read melon fields, so re-running them after melon-chart only
+        # burns the job budget. velocity alone is ~4min/run on the runner.
+        run: uv run python -m idol_sight aggregate --snapshot-at ${{ steps.snap.outputs.snap }} --skip-derived

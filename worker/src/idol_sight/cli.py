@@ -270,12 +270,40 @@ def aggregate(
             "recomputes health scores."
         ),
     ),
+    skip_derived: bool = typer.Option(
+        False,
+        "--skip-derived",
+        help=(
+            "Skip agg_group_combined / compute_velocity / compute_reactivity. "
+            "Use on the 2nd aggregate in the melon-chart sandwich: only "
+            "agg_summary (ON CONFLICT COALESCE preserves melon) and "
+            "agg_health_scores need to rerun after the melon UPDATE. "
+            "Saves ~5min by skipping the velocity step that processes "
+            "every recent video sequentially against D1."
+        ),
+    ),
 ) -> None:
-    from idol_sight.analysis.agg_summary import build_agg_summary
-    from idol_sight.analysis.group_combined import build_agg_group_combined
     settings = load_settings()
     client = _make_d1_client(settings)
     snap = snapshot_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
+    _run_aggregate(client, snap=snap, skip_derived=skip_derived)
+
+
+def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
+    """Run the daily aggregate pipeline against ``snap``.
+
+    Stages in order:
+      1. agg_summary           (always)
+      2. agg_group_combined    (skipped when ``skip_derived``)
+      3. video_velocity        (skipped when ``skip_derived``)
+      4. platform_reactivity   (skipped when ``skip_derived``)
+      5. agg_health_scores     (always)
+
+    The 2nd aggregate in the collect-daily/melon-chart sandwich passes
+    ``skip_derived=True`` because stages 2–4 don't read melon fields, so
+    re-running them only burns the 10-min job budget.
+    """
+    from idol_sight.analysis.agg_summary import build_agg_summary
     result = build_agg_summary(client, snapshot_at=snap)
     if result.statements:
         bs = client.batch(result.statements)
@@ -285,43 +313,47 @@ def aggregate(
             raise typer.Exit(code=1)
     typer.echo(f"agg_summary upserted {len(result.statements)} groups at {snap}")
 
-    # V2.5: build the dual-entity group/member combined views alongside.
-    # Three rows per group (group_only / sum / weighted) so the UI can
-    # toggle between "company-led media" and "members + group total"
-    # views without re-querying.
-    combined = build_agg_group_combined(client, snapshot_at=snap)
-    if combined.statements:
-        bs2 = client.batch(combined.statements)
-        if bs2.statements_executed != bs2.statements_sent:
-            typer.echo(f"partial agg_group_combined write: "
-                       f"{bs2.statements_executed}/{bs2.statements_sent}", err=True)
-            raise typer.Exit(code=1)
-    n_groups = (len(combined.statements) // 3) if combined.statements else 0
-    typer.echo(f"agg_group_combined: wrote {len(combined.statements)} rows "
-               f"(3 methods × ~{n_groups} groups)")
+    if not skip_derived:
+        # V2.5: build the dual-entity group/member combined views alongside.
+        # Three rows per group (group_only / sum / weighted) so the UI can
+        # toggle between "company-led media" and "members + group total"
+        # views without re-querying.
+        from idol_sight.analysis.group_combined import build_agg_group_combined
+        combined = build_agg_group_combined(client, snapshot_at=snap)
+        if combined.statements:
+            bs2 = client.batch(combined.statements)
+            if bs2.statements_executed != bs2.statements_sent:
+                typer.echo(f"partial agg_group_combined write: "
+                           f"{bs2.statements_executed}/{bs2.statements_sent}", err=True)
+                raise typer.Exit(code=1)
+        n_groups = (len(combined.statements) // 3) if combined.statements else 0
+        typer.echo(f"agg_group_combined: wrote {len(combined.statements)} rows "
+                   f"(3 methods × ~{n_groups} groups)")
 
-    # V2.5: 24h velocity ratio per video. Reads youtube_video_stats
-    # for any video published in the last 30 days that hasn't had its
-    # first-24h count snapshotted yet, then recomputes the per-channel
-    # leave-one-out mean and writes viral_velocity_ratio. Idempotent —
-    # repeated runs keep the latest interpolation.
-    from idol_sight.analysis.video_velocity import compute_velocity
-    velocity = compute_velocity(client)
-    if velocity.statements:
-        client.batch(velocity.statements)
-    typer.echo(f"velocity: updated {len(velocity.statements)} rows")
+        # V2.5: 24h velocity ratio per video. Reads youtube_video_stats
+        # for any video published in the last 30 days that hasn't had its
+        # first-24h count snapshotted yet, then recomputes the per-channel
+        # leave-one-out mean and writes viral_velocity_ratio. Idempotent —
+        # repeated runs keep the latest interpolation.
+        from idol_sight.analysis.video_velocity import compute_velocity
+        velocity = compute_velocity(client)
+        if velocity.statements:
+            client.batch(velocity.statements)
+        typer.echo(f"velocity: updated {len(velocity.statements)} rows")
 
-    # V2.5: cross-platform reactivity. Depends on viral_velocity_ratio
-    # being populated, so it runs AFTER compute_velocity. For each
-    # group's viral video, counts community/naver activity in the 24h
-    # window before vs after publication; the per-platform mean ratio
-    # tells us which platform is "reactive" (driven by comebacks) vs
-    # "independent" (year-round chatter).
-    from idol_sight.analysis.platform_reactivity import compute_reactivity
-    reactivity_stmts = compute_reactivity(client, snapshot_at=snap)
-    if reactivity_stmts:
-        client.batch(reactivity_stmts)
-    typer.echo(f"platform_reactivity: updated {len(reactivity_stmts)} groups")
+        # V2.5: cross-platform reactivity. Depends on viral_velocity_ratio
+        # being populated, so it runs AFTER compute_velocity. For each
+        # group's viral video, counts community/naver activity in the 24h
+        # window before vs after publication; the per-platform mean ratio
+        # tells us which platform is "reactive" (driven by comebacks) vs
+        # "independent" (year-round chatter).
+        from idol_sight.analysis.platform_reactivity import compute_reactivity
+        reactivity_stmts = compute_reactivity(client, snapshot_at=snap)
+        if reactivity_stmts:
+            client.batch(reactivity_stmts)
+        typer.echo(f"platform_reactivity: updated {len(reactivity_stmts)} groups")
+    else:
+        typer.echo("skip-derived: agg_group_combined / velocity / reactivity skipped")
 
     # V2.19.2: refresh agg_health_scores at the same daily cadence as
     # agg_summary so melon-chart UPDATEs (and any other agg_summary

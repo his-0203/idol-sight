@@ -49,7 +49,10 @@ jobs:
         run: uv run python -m idol_sight melon-chart
 
       - name: Aggregate again (conflict + COALESCE preserves melon, recomputes health scores)
-        run: uv run python -m idol_sight aggregate --snapshot-at ${{ steps.snap.outputs.snap }}
+        # --skip-derived: stages 2~4 (combined/velocity/reactivity) don't
+        # read melon fields, so re-running them after melon-chart only
+        # burns the job budget. velocity alone is ~4min/run on the runner.
+        run: uv run python -m idol_sight aggregate --snapshot-at ${{ steps.snap.outputs.snap }} --skip-derived
 
       - if: failure()
         run: uv run python -m idol_sight notify-fail --job 'melon-chart'
