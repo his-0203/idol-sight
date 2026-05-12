@@ -352,6 +352,23 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
         if reactivity_stmts:
             client.batch(reactivity_stmts)
         typer.echo(f"platform_reactivity: updated {len(reactivity_stmts)} groups")
+
+        # V2.20: debut window organicity. Reads ±60d videos per group, scores
+        # organic vs paid-viral via 3-signal composite. Independent of melon,
+        # so lives inside the skip_derived branch — 2nd aggregate skips this.
+        from idol_sight.analysis.debut_window import (
+            build_video_organicity,
+            build_summary as build_dw_summary,
+        )
+        dw_video = build_video_organicity(client)
+        if dw_video.statements:
+            client.batch(dw_video.statements)
+        typer.echo(f"debut_window_videos: wrote {len(dw_video.statements)} rows")
+
+        dw_summary = build_dw_summary(client)
+        if dw_summary.statements:
+            client.batch(dw_summary.statements)
+        typer.echo(f"debut_window_summary: wrote {len(dw_summary.statements)} rows")
     else:
         typer.echo("skip-derived: agg_group_combined / velocity / reactivity skipped")
 

@@ -72,3 +72,48 @@ def test_default_runs_all_stages(
     mock_velocity.assert_called_once()
     mock_reactivity.assert_called_once()
     mock_health.assert_called_once_with(client, "2026-05-12T00:00:00Z")
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.debut_window.build_summary")
+@patch("idol_sight.analysis.debut_window.build_video_organicity")
+@patch("idol_sight.analysis.platform_reactivity.compute_reactivity")
+@patch("idol_sight.analysis.video_velocity.compute_velocity")
+@patch("idol_sight.analysis.group_combined.build_agg_group_combined")
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+def test_default_runs_debut_window_stages(
+    mock_summary, mock_combined, mock_velocity, mock_reactivity,
+    mock_dw_video, mock_dw_summary, mock_health,
+):
+    mock_summary.return_value = _stub_build_result()
+    mock_combined.return_value = _stub_build_result()
+    mock_velocity.return_value = _stub_build_result()
+    mock_reactivity.return_value = []
+    mock_dw_video.return_value = _stub_build_result()
+    mock_dw_summary.return_value = _stub_build_result()
+    client = _make_client()
+
+    _run_aggregate(client, snap="2026-05-12T00:00:00Z")
+
+    mock_dw_video.assert_called_once_with(client)
+    mock_dw_summary.assert_called_once_with(client)
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.debut_window.build_summary")
+@patch("idol_sight.analysis.debut_window.build_video_organicity")
+@patch("idol_sight.analysis.platform_reactivity.compute_reactivity")
+@patch("idol_sight.analysis.video_velocity.compute_velocity")
+@patch("idol_sight.analysis.group_combined.build_agg_group_combined")
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+def test_skip_derived_skips_debut_window_stages(
+    mock_summary, mock_combined, mock_velocity, mock_reactivity,
+    mock_dw_video, mock_dw_summary, mock_health,
+):
+    mock_summary.return_value = _stub_build_result()
+    client = _make_client()
+
+    _run_aggregate(client, snap="2026-05-12T00:00:00Z", skip_derived=True)
+
+    mock_dw_video.assert_not_called()
+    mock_dw_summary.assert_not_called()
