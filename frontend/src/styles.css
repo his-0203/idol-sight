@@ -85,23 +85,316 @@
 .kpi-debutwin-note { font-size: 0.7em; color: #6b7280; margin-top: 2px; }
 .kpi-debutwin.loading { opacity: 0.5; }
 
-/* ---------- DebutWindowVideoTable + SignalPanel ---------- */
-.dw-bucket-tabs { display: flex; gap: 4px; margin: 12px 0 8px; }
-.dw-bucket-tabs button { padding: 6px 12px; border: 1px solid #d1d5db; background: #f9fafb; cursor: pointer; }
-.dw-bucket-tabs button.active { background: #1f2937; color: #fff; border-color: #1f2937; }
-.dw-type-filter { font-size: 0.85em; display: flex; gap: 12px; margin-bottom: 8px; }
-.dw-type-filter label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
-.dw-table-wrap { overflow-x: auto; }
-.dw-video-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
-.dw-video-table th, .dw-video-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-.dw-row-clickable { cursor: pointer; }
-.dw-row-clickable:hover { background: #f3f4f6; }
-.dw-signal-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 360px; background: #fff; border-left: 1px solid #d1d5db; padding: 16px; overflow-y: auto; z-index: 100; box-shadow: -4px 0 12px rgba(0,0,0,0.1); }
-.dw-signal-panel header { display: flex; justify-content: space-between; align-items: center; }
-.dw-signal-panel dl { margin: 12px 0; }
-.dw-signal-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dotted #e5e7eb; }
-.dw-signal-row dt { font-weight: 600; }
-.dw-signal-disclaimer { font-size: 0.75em; color: #9ca3af; font-style: italic; margin-top: 16px; }
+/* ---------- DebutWindowVideoTable + SignalPanel (dark zinc theme) ----------
+   The whole section lives inside `rounded-lg border border-zinc-800 p-3` so
+   these styles mirror MiiWANBriefing/CompetitorOrganicityBar visual tokens.
+   Signal panel sits in a CSS grid cell (not fixed-overlay) so the table
+   never gets covered. Narrow viewports stack the panel below the table. */
+.dw-video-section { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.dw-video-section.with-panel { grid-template-columns: minmax(0, 1fr) 380px; }
+@media (max-width: 1024px) {
+  .dw-video-section.with-panel { grid-template-columns: 1fr; }
+}
+
+.dw-video-main { min-width: 0; }
+
+.dw-bucket-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; }
+.dw-bucket-tabs button {
+  padding: 4px 10px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  color: #d4d4d8;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8em;
+  transition: background 0.15s ease;
+}
+.dw-bucket-tabs button:hover { background: #27272a; }
+.dw-bucket-tabs button.active {
+  background: #e4e4e7;
+  color: #18181b;
+  border-color: #e4e4e7;
+  font-weight: 600;
+}
+
+.dw-type-filter {
+  font-size: 0.8em;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+  color: #a1a1aa;
+  align-items: center;
+}
+.dw-type-filter .dw-type-filter-label { margin-right: 4px; color: #71717a; }
+.dw-type-filter button {
+  padding: 3px 9px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  color: #a1a1aa;
+  border-radius: 9999px;
+  cursor: pointer;
+  font-size: 0.95em;
+  transition: background 0.15s ease;
+}
+.dw-type-filter button:hover { background: #27272a; color: #d4d4d8; }
+.dw-type-filter button.active {
+  background: #27272a;
+  border-color: #52525b;
+  color: #f4f4f5;
+}
+
+.dw-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  background: rgba(24, 24, 27, 0.4);
+}
+.dw-video-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  color: #d4d4d8;
+}
+.dw-video-table thead {
+  background: #18181b;
+}
+.dw-video-table thead th {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #27272a;
+  color: #a1a1aa;
+  font-weight: 600;
+  font-size: 0.78em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.dw-video-table tbody td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #27272a;
+  vertical-align: middle;
+}
+.dw-video-table tbody tr:last-child td { border-bottom: none; }
+
+.dw-video-table .dw-num,
+.dw-video-table th.dw-num {
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dw-video-table .dw-title-cell {
+  max-width: 480px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e4e4e7;
+}
+
+.dw-row-clickable { cursor: pointer; transition: background 0.12s ease; }
+.dw-row-clickable:hover { background: rgba(63, 63, 70, 0.35); }
+.dw-row-clickable.selected {
+  background: rgba(82, 82, 91, 0.4);
+  box-shadow: inset 2px 0 0 #a1a1aa;
+}
+
+.dw-empty-cell {
+  padding: 18px 10px !important;
+  color: #71717a;
+  font-style: italic;
+  text-align: center !important;
+}
+
+.dw-verdict-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  font-size: 0.72em;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* ---------- Help icon button (next to section title) ---------- */
+.dw-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  color: #a1a1aa;
+  font-size: 0.75em;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}
+.dw-help-icon:hover { background: #27272a; color: #e4e4e7; border-color: #52525b; }
+
+/* ---------- Signal Panel (in-grid, not fixed) ---------- */
+.dw-signal-panel {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  padding: 14px;
+  color: #d4d4d8;
+  font-size: 0.85em;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+.dw-signal-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.dw-signal-panel header h4 {
+  margin: 0;
+  font-size: 0.95em;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+.dw-signal-panel .dw-close-btn {
+  background: transparent;
+  border: none;
+  color: #71717a;
+  font-size: 1.1em;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.dw-signal-panel .dw-close-btn:hover { color: #e4e4e7; }
+
+.dw-signal-title {
+  font-size: 0.9em;
+  color: #e4e4e7;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.dw-signal-yt-link {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-size: 0.78em;
+  color: #a1a1aa;
+  text-decoration: none;
+}
+.dw-signal-yt-link:hover { color: #f4f4f5; text-decoration: underline; }
+
+.dw-signal-section-label {
+  font-size: 0.7em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #71717a;
+  margin: 12px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #27272a;
+}
+
+.dw-signal-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 0.85em;
+}
+.dw-signal-metric .dw-metric-label { color: #a1a1aa; }
+.dw-signal-metric .dw-metric-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  color: #e4e4e7;
+}
+
+.dw-signal-bar-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+.dw-signal-bar-row .dw-metric-label { font-size: 0.8em; color: #a1a1aa; }
+.dw-signal-bar-row .dw-metric-score {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78em;
+  color: #d4d4d8;
+}
+.dw-signal-bar-track {
+  grid-column: 1 / -1;
+  height: 6px;
+  background: #27272a;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid #3f3f46;
+}
+.dw-signal-bar-fill {
+  height: 100%;
+  transition: width 0.25s ease;
+}
+
+.dw-signal-weights {
+  margin-top: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(39, 39, 42, 0.5);
+  font-size: 0.72em;
+  color: #71717a;
+  line-height: 1.5;
+}
+
+.dw-signal-final {
+  margin-top: 4px;
+  display: grid;
+  gap: 6px;
+}
+.dw-signal-composite-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.dw-signal-composite-row .dw-metric-label {
+  color: #a1a1aa;
+  font-size: 0.85em;
+}
+.dw-signal-composite-score {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.5em;
+  font-weight: 700;
+  color: #f4f4f5;
+}
+
+.dw-signal-insufficient {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 6px;
+  background: rgba(39, 39, 42, 0.5);
+  border: 1px dashed #3f3f46;
+  color: #a1a1aa;
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.dw-signal-disclaimer {
+  font-size: 0.72em;
+  color: #71717a;
+  font-style: italic;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #27272a;
+}
 
 /* ---------- CompetitorOrganicityBar (MiiWANBriefing competitive posture) ----
    Harmonizes with the dark zinc theme used across MiiWANBriefing. Hosted
