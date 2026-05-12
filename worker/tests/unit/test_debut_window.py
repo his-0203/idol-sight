@@ -14,6 +14,7 @@ from idol_sight.analysis.debut_window import (
     _classify_verdict,
     compute_organic_score,
     build_video_organicity,
+    build_summary,
 )
 
 
@@ -278,3 +279,50 @@ def test_build_video_organicity_filters_window_and_emits_upserts():
     breakdown_json = next(p for p in params_list[0] if isinstance(p, str) and p.startswith("{"))
     parsed = json.loads(breakdown_json)
     assert "engagement_score" in parsed
+
+
+def test_build_summary_groups_by_bucket_with_view_weighted_mean():
+    """Aggregates per (group_key, window_bucket). Excludes insufficient_data
+    from ratio denominator. Score mean is view-weighted."""
+    client = _client({
+        "FROM debut_window_video_organicity": [
+            # plave D-30: 3 videos, 2 organic + 1 likely_paid
+            {"group_key": "plave", "window_bucket": "D-30", "is_short": 0,
+             "view_count": 1_000_000, "organic_score": 80, "verdict": "organic",
+             "like_count": 50_000, "comment_count": 1_500},
+            {"group_key": "plave", "window_bucket": "D-30", "is_short": 0,
+             "view_count": 500_000, "organic_score": 85, "verdict": "organic",
+             "like_count": 30_000, "comment_count": 1_000},
+            {"group_key": "plave", "window_bucket": "D-30", "is_short": 1,
+             "view_count": 2_000_000, "organic_score": 25, "verdict": "likely_paid",
+             "like_count": 10_000, "comment_count": 100},
+            # plave D-30: 1 insufficient_data — excluded from ratios but
+            # counted in video_count
+            {"group_key": "plave", "window_bucket": "D-30", "is_short": 0,
+             "view_count": 50, "organic_score": None, "verdict": "insufficient_data",
+             "like_count": 1, "comment_count": 0},
+        ],
+    })
+    result = build_summary(client)
+    sqls = [s[0] for s in result.statements]
+    params_list = [s[1] for s in result.statements]
+    assert len(result.statements) == 1
+    assert "INSERT INTO debut_window_organicity_summary" in sqls[0]
+    # Params: group_key, bucket, video_count, long_count, short_count,
+    #         mean, organic_ratio, suspect_ratio, likely_ratio,
+    #         total_views, total_engagement, computed_at
+    p = params_list[0]
+    assert p[0] == "plave"
+    assert p[1] == "D-30"
+    assert p[2] == 4               # total video_count
+    assert p[3] == 3               # long_form_count (3 long, of which 1 insufficient)
+    assert p[4] == 1               # short_form_count
+    # View-weighted mean over scored videos (exclude None):
+    #   (80*1M + 85*0.5M + 25*2M) / (1M + 0.5M + 2M) = 172.5M / 3.5M = 49.29
+    assert abs(p[5] - 49.29) < 0.5
+    # Ratios over scored videos (3, excluding insufficient_data)
+    assert abs(p[6] - 2/3) < 0.01  # organic_ratio
+    assert abs(p[7] - 0.0) < 0.01  # suspect_ratio
+    assert abs(p[8] - 1/3) < 0.01  # likely_paid_ratio
+    assert p[9] == 1_000_000 + 500_000 + 2_000_000 + 50  # total_views
+    assert p[10] == 50_000 + 1_500 + 30_000 + 1_000 + 10_000 + 100 + 1 + 0  # total_engagement

@@ -8,6 +8,7 @@ the algorithm rationale, signal weights, and verdict thresholds.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any, Mapping, Protocol
@@ -20,6 +21,7 @@ __all__ = [
     "bucket_for",
     "compute_organic_score",
     "build_video_organicity",
+    "build_summary",
 ]
 
 # (label, days_lo_inclusive, days_hi_inclusive). Ranges are non-overlapping
@@ -265,6 +267,89 @@ def build_video_organicity(client: _Executor) -> CollectionResult:
             view_count, like_count, comment_count,
             engagement_rate, like_comment_ratio, video["viral_velocity_ratio"],
             score, verdict, json.dumps(breakdown), now,
+        ]))
+
+    return CollectionResult(
+        rows_inserted=0,
+        rows_updated=len(statements),
+        statements=statements,
+    )
+
+
+_FETCH_VIDEO_ORG_SQL = """
+SELECT group_key, window_bucket, is_short,
+       view_count, like_count, comment_count,
+       organic_score, verdict
+FROM debut_window_video_organicity
+"""
+
+
+_UPSERT_SUMMARY_SQL = """
+INSERT INTO debut_window_organicity_summary
+  (group_key, window_bucket, video_count, long_form_count, short_form_count,
+   organic_score_mean, organic_ratio, suspect_ratio, likely_paid_ratio,
+   total_views, total_engagement, computed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(group_key, window_bucket) DO UPDATE SET
+  video_count=excluded.video_count,
+  long_form_count=excluded.long_form_count,
+  short_form_count=excluded.short_form_count,
+  organic_score_mean=excluded.organic_score_mean,
+  organic_ratio=excluded.organic_ratio,
+  suspect_ratio=excluded.suspect_ratio,
+  likely_paid_ratio=excluded.likely_paid_ratio,
+  total_views=excluded.total_views,
+  total_engagement=excluded.total_engagement,
+  computed_at=excluded.computed_at
+"""
+
+
+def build_summary(client: _Executor) -> CollectionResult:
+    """Aggregate the per-video organicity table into per-(group, bucket)
+    summary rows. ``insufficient_data`` videos still count toward
+    video_count and total_views/engagement, but are excluded from
+    score_mean and ratio denominators so noise doesn't skew judgment."""
+    rows = client.execute(_FETCH_VIDEO_ORG_SQL)
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for r in rows:
+        grouped[(r["group_key"], r["window_bucket"])].append(r)
+
+    statements: list[tuple[str, list[Any]]] = []
+    for (group_key, bucket), bucket_rows in grouped.items():
+        scored = [r for r in bucket_rows if r.get("verdict") != "insufficient_data"]
+        long_count = sum(1 for r in bucket_rows if not (r.get("is_short") or 0))
+        short_count = sum(1 for r in bucket_rows if (r.get("is_short") or 0))
+
+        if scored:
+            weight_sum = sum(r.get("view_count") or 0 for r in scored)
+            if weight_sum > 0:
+                score_mean = sum(
+                    (r["organic_score"] or 0) * (r.get("view_count") or 0)
+                    for r in scored
+                ) / weight_sum
+            else:
+                score_mean = sum(r["organic_score"] or 0 for r in scored) / len(scored)
+            n = len(scored)
+            organic_ratio = sum(1 for r in scored if r["verdict"] == "organic") / n
+            suspect_ratio = sum(1 for r in scored if r["verdict"] == "suspect") / n
+            likely_ratio = sum(1 for r in scored if r["verdict"] == "likely_paid") / n
+        else:
+            score_mean = None
+            organic_ratio = None
+            suspect_ratio = None
+            likely_ratio = None
+
+        total_views = sum((r.get("view_count") or 0) for r in bucket_rows)
+        total_engagement = sum(
+            (r.get("like_count") or 0) + (r.get("comment_count") or 0)
+            for r in bucket_rows
+        )
+
+        statements.append((_UPSERT_SUMMARY_SQL, [
+            group_key, bucket, len(bucket_rows), long_count, short_count,
+            score_mean, organic_ratio, suspect_ratio, likely_ratio,
+            total_views, total_engagement, now,
         ]))
 
     return CollectionResult(
