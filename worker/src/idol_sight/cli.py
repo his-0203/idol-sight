@@ -357,8 +357,10 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
         # organic vs paid-viral via 3-signal composite. Independent of melon,
         # so lives inside the skip_derived branch — 2nd aggregate skips this.
         from idol_sight.analysis.debut_window import (
-            build_video_organicity,
             build_summary as build_dw_summary,
+        )
+        from idol_sight.analysis.debut_window import (
+            build_video_organicity,
         )
         dw_video = build_video_organicity(client)
         if dw_video.statements:

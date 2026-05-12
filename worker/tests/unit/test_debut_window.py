@@ -7,14 +7,14 @@ import pytest
 
 from idol_sight.analysis.debut_window import (
     WINDOW_BUCKETS,
-    bucket_for,
-    _compute_engagement_score,
-    _compute_balance_score,
-    _compute_velocity_coherence,
     _classify_verdict,
-    compute_organic_score,
-    build_video_organicity,
+    _compute_balance_score,
+    _compute_engagement_score,
+    _compute_velocity_coherence,
+    bucket_for,
     build_summary,
+    build_video_organicity,
+    compute_organic_score,
 )
 
 
