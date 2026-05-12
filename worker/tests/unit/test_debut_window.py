@@ -59,3 +59,27 @@ from idol_sight.analysis.debut_window import compute_engagement_score
 ])
 def test_compute_engagement_score(er, is_short, expected):
     assert compute_engagement_score(er, is_short) == expected
+
+
+from idol_sight.analysis.debut_window import compute_balance_score
+
+
+@pytest.mark.parametrize("ratio,expected", [
+    # Normal zone: 15-80 returns 100
+    (15.0, 100),
+    (40.0, 100),
+    (80.0, 100),
+    # Below 15: penalize comment-farm (slope -8 per unit)
+    (14.0, 92),    # 100 - (15-14)*8 = 92
+    (10.0, 60),    # 100 - (15-10)*8 = 60
+    (5.0, 20),
+    (0.0, 0),      # clamp floor
+    # Above 80: penalize like-farm (slope -0.2 per unit)
+    (81.0, 100),   # 100 - 1/5 = 99.8 → rounds to 100
+    (100.0, 96),   # 100 - 20/5 = 96
+    (200.0, 76),
+    (500.0, 16),
+    (1000.0, 0),   # clamp floor
+])
+def test_compute_balance_score(ratio, expected):
+    assert compute_balance_score(ratio) == expected

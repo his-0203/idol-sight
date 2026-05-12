@@ -38,3 +38,14 @@ def compute_engagement_score(engagement_rate: float, is_short: bool) -> int:
     span = ceil - floor
     raw = (engagement_rate - floor) / span * 100.0
     return max(0, min(100, round(raw)))
+
+
+def compute_balance_score(like_comment_ratio: float) -> int:
+    """0-100 score. Normal K-pop ratio is 15-80; outside penalizes farms."""
+    r = like_comment_ratio
+    if 15.0 <= r <= 80.0:
+        return 100
+    if r < 15.0:
+        return max(0, round(100 - (15.0 - r) * 8))
+    # r > 80
+    return max(0, round(100 - (r - 80.0) / 5.0))
