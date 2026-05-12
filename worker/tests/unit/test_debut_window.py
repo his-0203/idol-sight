@@ -2,7 +2,15 @@
 
 import pytest
 
-from idol_sight.analysis.debut_window import WINDOW_BUCKETS, bucket_for
+from idol_sight.analysis.debut_window import (
+    WINDOW_BUCKETS,
+    bucket_for,
+    _compute_engagement_score,
+    _compute_balance_score,
+    _compute_velocity_coherence,
+    _classify_verdict,
+    compute_organic_score,
+)
 
 
 def test_window_buckets_are_5_non_overlapping_ranges():
@@ -40,9 +48,6 @@ def test_bucket_for_returns_none_outside_window(days):
     assert bucket_for(days) is None
 
 
-from idol_sight.analysis.debut_window import compute_engagement_score
-
-
 @pytest.mark.parametrize("er,is_short,expected", [
     # Long-form: 0pt at 0.5%, 100pt at 5.5%
     (0.000, False, 0),     # below floor
@@ -58,10 +63,7 @@ from idol_sight.analysis.debut_window import compute_engagement_score
     (0.100, True, 100),
 ])
 def test_compute_engagement_score(er, is_short, expected):
-    assert compute_engagement_score(er, is_short) == expected
-
-
-from idol_sight.analysis.debut_window import compute_balance_score
+    assert _compute_engagement_score(er, is_short) == expected
 
 
 @pytest.mark.parametrize("ratio,expected", [
@@ -82,10 +84,7 @@ from idol_sight.analysis.debut_window import compute_balance_score
     (1000.0, 0),   # clamp floor
 ])
 def test_compute_balance_score(ratio, expected):
-    assert compute_balance_score(ratio) == expected
-
-
-from idol_sight.analysis.debut_window import compute_velocity_coherence
+    assert _compute_balance_score(ratio) == expected
 
 
 @pytest.mark.parametrize("velocity,er,expected", [
@@ -104,28 +103,22 @@ from idol_sight.analysis.debut_window import compute_velocity_coherence
     (10.0, 0.001, 20),
 ])
 def test_compute_velocity_coherence(velocity, er, expected):
-    assert compute_velocity_coherence(velocity, er) == expected
-
-
-from idol_sight.analysis.debut_window import (
-    compute_organic_score,
-    classify_verdict,
-)
+    assert _compute_velocity_coherence(velocity, er) == expected
 
 
 def test_classify_verdict_thresholds():
-    assert classify_verdict(70) == "organic"
-    assert classify_verdict(85) == "organic"
-    assert classify_verdict(69) == "suspect"
-    assert classify_verdict(40) == "suspect"
-    assert classify_verdict(39) == "likely_paid"
-    assert classify_verdict(0) == "likely_paid"
+    assert _classify_verdict(70) == "organic"
+    assert _classify_verdict(85) == "organic"
+    assert _classify_verdict(69) == "suspect"
+    assert _classify_verdict(40) == "suspect"
+    assert _classify_verdict(39) == "likely_paid"
+    assert _classify_verdict(0) == "likely_paid"
 
 
 def test_compute_organic_score_insufficient_data_low_views():
     """View count < 1000 AND engagement < 10 → insufficient_data, score None."""
     video = {
-        "is_short": 0,
+        "is_short": False,
         "view_count": 500,
         "like_count": 3,
         "comment_count": 2,
@@ -139,7 +132,7 @@ def test_compute_organic_score_insufficient_data_low_views():
 def test_compute_organic_score_long_form_clearly_organic():
     """High engagement, balanced ratio, no velocity signal → score ≥ 70."""
     video = {
-        "is_short": 0,
+        "is_short": False,
         "view_count": 1_000_000,
         "like_count": 60_000,    # 6% engagement (likes+comments)/views
         "comment_count": 2_000,  # like:comment = 30 (normal zone)
@@ -152,7 +145,7 @@ def test_compute_organic_score_long_form_clearly_organic():
     # composite = 0.5*100 + 0.3*100 + 0.2*50 = 90
     assert score == 90
     assert breakdown["verdict"] == "organic"
-    assert breakdown["weights"] == {
+    assert dict(breakdown["weights"]) == {
         "engagement": 0.5, "balance": 0.3, "velocity": 0.2,
     }
 
@@ -160,7 +153,7 @@ def test_compute_organic_score_long_form_clearly_organic():
 def test_compute_organic_score_paid_burst_pattern():
     """High views, dead engagement, velocity spike → score < 40."""
     video = {
-        "is_short": 0,
+        "is_short": False,
         "view_count": 3_000_000,
         "like_count": 18_000,    # 0.6% engagement → engagement_score=0 (≤0.5%)
         "comment_count": 200,    # like:comment = 90 → balance_score≈98
@@ -178,7 +171,7 @@ def test_compute_organic_score_paid_burst_pattern():
 def test_compute_organic_score_handles_zero_view_safely():
     """Zero views shouldn't crash; falls to insufficient_data."""
     video = {
-        "is_short": 0,
+        "is_short": False,
         "view_count": 0,
         "like_count": 0,
         "comment_count": 0,
@@ -187,3 +180,37 @@ def test_compute_organic_score_handles_zero_view_safely():
     score, breakdown = compute_organic_score(video)
     assert score is None
     assert breakdown["verdict"] == "insufficient_data"
+
+
+@pytest.mark.parametrize("view_count,engagement_total,expect_insufficient", [
+    # Both gates failing → insufficient
+    (999, 9, True),
+    # View gate met (>=1000) → sufficient (engagement_total alone irrelevant)
+    (1000, 9, False),
+    (1000, 0, False),
+    # Engagement gate met (>=10) → sufficient (low views alone irrelevant)
+    (999, 10, False),
+    (0, 10, False),
+    # Clearly above both → sufficient
+    (10_000, 100, False),
+])
+def test_insufficient_data_boundary(view_count, engagement_total, expect_insufficient):
+    # Distribute engagement_total between likes/comments arbitrarily (3:1)
+    like_count = (engagement_total * 3) // 4
+    comment_count = engagement_total - like_count
+    video = {
+        "is_short": False,
+        "view_count": view_count,
+        "like_count": like_count,
+        "comment_count": comment_count,
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    if expect_insufficient:
+        assert score is None
+        assert breakdown["verdict"] == "insufficient_data"
+    else:
+        # May be any of organic/suspect/likely_paid depending on signal mix;
+        # the contract here is just that we *do* score it.
+        assert score is not None
+        assert breakdown["verdict"] != "insufficient_data"

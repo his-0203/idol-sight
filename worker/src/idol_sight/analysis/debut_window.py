@@ -7,6 +7,11 @@ the algorithm rationale, signal weights, and verdict thresholds.
 
 from __future__ import annotations
 
+from types import MappingProxyType
+from typing import Mapping
+
+__all__ = ["WINDOW_BUCKETS", "WEIGHTS", "bucket_for", "compute_organic_score"]
+
 # (label, days_lo_inclusive, days_hi_inclusive). Ranges are non-overlapping
 # and contiguous from -60 (60 days before debut) to +60.
 WINDOW_BUCKETS: list[tuple[str, int, int]] = [
@@ -16,6 +21,25 @@ WINDOW_BUCKETS: list[tuple[str, int, int]] = [
     ("D+30",   2,  30),
     ("D+60",  31,  60),
 ]
+
+# Engagement-rate boundaries (per-bucket scoring). Below floor = 0pt,
+# above ceiling = 100pt, linear interpolation between.
+LONG_ER_FLOOR, LONG_ER_CEIL = 0.005, 0.055
+SHORT_ER_FLOOR, SHORT_ER_CEIL = 0.003, 0.033
+
+# Like:comment ratio normal zone for K-pop videos. Outside zone penalizes
+# asymmetric bot activity (comment-farm below, like-farm above).
+BALANCE_NORMAL_LO, BALANCE_NORMAL_HI = 15.0, 80.0
+BALANCE_LOW_PENALTY_PER_UNIT = 8.0       # ratio<15 → comment-farm slope
+BALANCE_HIGH_PENALTY_DIVISOR = 5.0       # ratio>80 → like-farm (0.2/unit)
+
+# Velocity-engagement coherence cross-check.
+VIRAL_VELOCITY_THRESHOLD = 1.5           # below = neutral (50pt)
+VIRAL_ER_REAL = 0.03                     # ER above this with viral velocity = real
+VIRAL_ER_WEAK = 0.015                    # ER above this = weak suspicion
+
+_WEIGHTS_RAW = {"engagement": 0.5, "balance": 0.3, "velocity": 0.2}
+WEIGHTS: Mapping[str, float] = MappingProxyType(_WEIGHTS_RAW)
 
 
 def bucket_for(days_relative: int) -> str | None:
@@ -29,29 +53,29 @@ def bucket_for(days_relative: int) -> str | None:
     return None
 
 
-def compute_engagement_score(engagement_rate: float, is_short: bool) -> int:
+def _compute_engagement_score(engagement_rate: float, is_short: bool) -> int:
     """0-100 score from engagement_rate. Shorts baseline lower than long-form."""
     if is_short:
-        floor, ceil = 0.003, 0.033
+        floor, ceil = SHORT_ER_FLOOR, SHORT_ER_CEIL
     else:
-        floor, ceil = 0.005, 0.055
+        floor, ceil = LONG_ER_FLOOR, LONG_ER_CEIL
     span = ceil - floor
     raw = (engagement_rate - floor) / span * 100.0
     return max(0, min(100, round(raw)))
 
 
-def compute_balance_score(like_comment_ratio: float) -> int:
+def _compute_balance_score(like_comment_ratio: float) -> int:
     """0-100 score. Normal K-pop ratio is 15-80; outside penalizes farms."""
     r = like_comment_ratio
-    if 15.0 <= r <= 80.0:
+    if BALANCE_NORMAL_LO <= r <= BALANCE_NORMAL_HI:
         return 100
-    if r < 15.0:
-        return max(0, round(100 - (15.0 - r) * 8))
-    # r > 80
-    return max(0, round(100 - (r - 80.0) / 5.0))
+    if r < BALANCE_NORMAL_LO:
+        return max(0, round(100 - (BALANCE_NORMAL_LO - r) * BALANCE_LOW_PENALTY_PER_UNIT))
+    # r > BALANCE_NORMAL_HI
+    return max(0, round(100 - (r - BALANCE_NORMAL_HI) / BALANCE_HIGH_PENALTY_DIVISOR))
 
 
-def compute_velocity_coherence(
+def _compute_velocity_coherence(
     velocity_ratio: float | None,
     engagement_rate: float,
 ) -> int:
@@ -62,19 +86,16 @@ def compute_velocity_coherence(
     velocity_ratio ≥ 1.5 + ER ≥ 1.5% → 60 (weak suspicion).
     velocity_ratio ≥ 1.5 + ER < 1.5% → 20 (paid burst).
     """
-    if velocity_ratio is None or velocity_ratio < 1.5:
+    if velocity_ratio is None or velocity_ratio < VIRAL_VELOCITY_THRESHOLD:
         return 50
-    if engagement_rate >= 0.03:
+    if engagement_rate >= VIRAL_ER_REAL:
         return 100
-    if engagement_rate >= 0.015:
+    if engagement_rate >= VIRAL_ER_WEAK:
         return 60
     return 20
 
 
-WEIGHTS = {"engagement": 0.5, "balance": 0.3, "velocity": 0.2}
-
-
-def classify_verdict(score: int) -> str:
+def _classify_verdict(score: int) -> str:
     if score >= 70:
         return "organic"
     if score >= 40:
@@ -86,7 +107,12 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
     """Compute composite 0-100 score + signal breakdown for one video.
 
     Returns (None, breakdown_with_verdict='insufficient_data') when sample
-    is too small to trust (view_count < 1000 AND engagement total < 10).
+    is too small to trust (view_count < 1000 AND engagement_total < 10).
+
+    Edge case — 0 comments: like_comment_ratio is computed as likes/1, which
+    produces a high ratio (large like_count, denom=1). This treats like-only
+    engagement as a like-farm signal (intentional — videos with zero
+    discussion but heavy likes match the like-farm pattern we want to flag).
     """
     view_count = video.get("view_count") or 0
     like_count = video.get("like_count") or 0
@@ -107,16 +133,16 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
     engagement_rate = engagement_total / safe_views
     like_comment_ratio = like_count / safe_comments
 
-    e_score = compute_engagement_score(engagement_rate, is_short)
-    b_score = compute_balance_score(like_comment_ratio)
-    v_score = compute_velocity_coherence(velocity_ratio, engagement_rate)
+    e_score = _compute_engagement_score(engagement_rate, is_short)
+    b_score = _compute_balance_score(like_comment_ratio)
+    v_score = _compute_velocity_coherence(velocity_ratio, engagement_rate)
 
     composite = round(
         WEIGHTS["engagement"] * e_score
         + WEIGHTS["balance"]    * b_score
         + WEIGHTS["velocity"]   * v_score
     )
-    verdict = classify_verdict(composite)
+    verdict = _classify_verdict(composite)
 
     breakdown = {
         "engagement_rate": round(engagement_rate, 4),
@@ -125,7 +151,7 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
         "balance_score": b_score,
         "velocity_ratio": velocity_ratio,
         "velocity_coherence_score": v_score,
-        "weights": WEIGHTS,
+        "weights": dict(WEIGHTS),
         "verdict": verdict,
     }
     return composite, breakdown
