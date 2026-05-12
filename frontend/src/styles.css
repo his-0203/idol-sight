@@ -102,3 +102,28 @@
 .dw-signal-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dotted #e5e7eb; }
 .dw-signal-row dt { font-weight: 600; }
 .dw-signal-disclaimer { font-size: 0.75em; color: #9ca3af; font-style: italic; margin-top: 16px; }
+
+/* ---------- CompetitorOrganicityBar (MiiWANBriefing competitive posture) ----
+   Harmonizes with the dark zinc theme used across MiiWANBriefing. Hosted
+   inside a `rounded-lg border border-zinc-800 p-3` wrapper, so this stylesheet
+   keeps its own borders minimal and relies on zinc background tones. */
+.cob-section { margin: 0; padding: 4px 2px; color: #e4e4e7; }
+.cob-section h3 { font-size: 0.95em; font-weight: 600; color: #f4f4f5; margin: 0 0 8px; }
+.cob-bucket-picker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 16px; font-size: 0.8em; color: #a1a1aa; }
+.cob-bucket-picker button { padding: 4px 10px; border: 1px solid #3f3f46; background: #18181b; color: #d4d4d8; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+.cob-bucket-picker button:hover { background: #27272a; }
+.cob-bucket-picker button.active { background: #e4e4e7; color: #18181b; border-color: #e4e4e7; }
+.cob-bars { display: flex; flex-direction: column; gap: 6px; }
+.cob-row { display: grid; grid-template-columns: 100px 1fr 48px 70px; gap: 8px; align-items: center; font-size: 0.85em; color: #d4d4d8; }
+.cob-row.ours { font-weight: 700; color: #f4f4f5; }
+.cob-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8em; letter-spacing: 0.02em; }
+.cob-bar-track { height: 18px; background: #27272a; border-radius: 3px; overflow: hidden; border: 1px solid #3f3f46; }
+.cob-bar-fill { height: 100%; transition: width 0.2s ease; }
+.cob-score { text-align: right; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.cob-tag { font-size: 0.7em; color: #fbbf24; }
+.cob-footer { font-size: 0.72em; color: #71717a; margin-top: 12px; }
+
+@media (max-width: 720px) {
+  .cob-row { grid-template-columns: 80px 1fr 40px; }
+  .cob-tag { display: none; }
+}
