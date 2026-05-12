@@ -74,3 +74,13 @@
     @apply text-base font-semibold text-zinc-100;
   }
 }
+
+/* ---------- DebutWindowKPI (Debut Window Organicity per group card) ---------- */
+.kpi-debutwin { font-size: 0.85em; margin-top: 8px; }
+.kpi-debutwin-label { font-weight: 600; margin-bottom: 4px; }
+.kpi-debutwin-row { display: flex; gap: 8px; }
+.kpi-debutwin-cell { text-align: center; flex: 1; }
+.kpi-debutwin-bucket { font-size: 0.75em; color: #9ca3af; }
+.kpi-debutwin-score { font-weight: 700; font-size: 1.1em; }
+.kpi-debutwin-note { font-size: 0.7em; color: #6b7280; margin-top: 2px; }
+.kpi-debutwin.loading { opacity: 0.5; }
