@@ -7,7 +7,11 @@ a fresh-set query result and returns the filtered list.
 
 from unittest.mock import MagicMock
 
-from idol_sight.cli import _filter_fresh_groups, _resolve_backfill_targets
+from idol_sight.cli import (
+    _filter_fresh_groups,
+    _resolve_backfill_targets,
+    backfill_targets_cmd,
+)
 
 
 def test_filter_fresh_groups_drops_groups_within_window():
@@ -79,3 +83,56 @@ def test_resolve_backfill_targets_fresh_days_zero_means_walk_all():
     )
     assert len(result) == 9
     client.execute.assert_not_called()
+
+
+def test_backfill_targets_cmd_single_group_emits_single_element_array(capsys, monkeypatch):
+    """--group=isedol → ["isedol"] regardless of freshness."""
+    client = MagicMock()
+    monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
+    monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
+    backfill_targets_cmd(group="isedol", force=False, fresh_days=7)
+    out = capsys.readouterr().out.strip()
+    assert out == '["isedol"]'
+
+
+def test_backfill_targets_cmd_all_filters_fresh(capsys, monkeypatch):
+    """group='all' applies freshness filter — fresh groups dropped from JSON."""
+    client = MagicMock()
+    client.execute.return_value = [{"key": "miiwan"}, {"key": "owis"}]
+    monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
+    monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
+    backfill_targets_cmd(group="all", force=False, fresh_days=7)
+    import json as _json
+    out = _json.loads(capsys.readouterr().out.strip())
+    assert "miiwan" not in out
+    assert "owis" not in out
+    assert "plave" in out
+    assert len(out) == 7   # 9 KNOWN_GROUPS − 2 fresh
+
+
+def test_backfill_targets_cmd_force_returns_all(capsys, monkeypatch):
+    """--force bypasses freshness regardless of D1 state."""
+    client = MagicMock()
+    monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
+    monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
+    backfill_targets_cmd(group="all", force=True, fresh_days=7)
+    import json as _json
+    out = _json.loads(capsys.readouterr().out.strip())
+    assert len(out) == 9
+    client.execute.assert_not_called()
+
+
+def test_backfill_targets_force_all_matches_known_groups_exactly(capsys, monkeypatch):
+    """Regression guard: backfill-targets --group=all --force must return
+    every KNOWN_GROUPS member. If someone adds a new group key in
+    cli.py KNOWN_GROUPS without updating the workflow, this would still
+    pass (matrix is dynamic now), but if someone narrows the CLI's
+    candidate set, this catches it."""
+    from idol_sight.cli import KNOWN_GROUPS
+    client = MagicMock()
+    monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
+    monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
+    backfill_targets_cmd(group="all", force=True, fresh_days=7)
+    import json as _json
+    out = set(_json.loads(capsys.readouterr().out.strip()))
+    assert out == KNOWN_GROUPS
