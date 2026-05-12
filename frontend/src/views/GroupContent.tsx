@@ -7,6 +7,7 @@ import { HealthSpec } from "../components/HealthSpec";
 import { EmptyState } from "../components/EmptyState";
 import { GroupTabs } from "../components/GroupTabs";
 import { Sparkline } from "../components/Sparkline";
+import { DebutWindowVideoTable } from "../components/DebutWindowVideoTable";
 import { formatKST, formatKSTDate, todayKST, daysBetweenKST } from "../lib/datetime";
 
 // WoW delta helper — null-safe so a missing prev_summary (group has
@@ -236,6 +237,16 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
           <GroupEventTimeline groupKey={groupKey!} />
 
           <AlbumLifecycle albums={data.albums ?? []} />
+
+          <section class="rounded-lg border border-zinc-800 p-3">
+            <div class="mb-2 flex flex-wrap items-center gap-2">
+              <h3 class="section-title">Debut Window Activity</h3>
+              <span class="text-hint text-zinc-500">
+                D-60 ~ D+60 윈도우 영상별 organic_score · 판정 (v1 heuristic). 행 클릭 시 signal breakdown.
+              </span>
+            </div>
+            <DebutWindowVideoTable groupKey={groupKey!} />
+          </section>
 
 
           <section class="rounded-lg border border-zinc-800 p-3">

@@ -84,3 +84,21 @@
 .kpi-debutwin-score { font-weight: 700; font-size: 1.1em; }
 .kpi-debutwin-note { font-size: 0.7em; color: #6b7280; margin-top: 2px; }
 .kpi-debutwin.loading { opacity: 0.5; }
+
+/* ---------- DebutWindowVideoTable + SignalPanel ---------- */
+.dw-bucket-tabs { display: flex; gap: 4px; margin: 12px 0 8px; }
+.dw-bucket-tabs button { padding: 6px 12px; border: 1px solid #d1d5db; background: #f9fafb; cursor: pointer; }
+.dw-bucket-tabs button.active { background: #1f2937; color: #fff; border-color: #1f2937; }
+.dw-type-filter { font-size: 0.85em; display: flex; gap: 12px; margin-bottom: 8px; }
+.dw-type-filter label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.dw-table-wrap { overflow-x: auto; }
+.dw-video-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+.dw-video-table th, .dw-video-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+.dw-row-clickable { cursor: pointer; }
+.dw-row-clickable:hover { background: #f3f4f6; }
+.dw-signal-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 360px; background: #fff; border-left: 1px solid #d1d5db; padding: 16px; overflow-y: auto; z-index: 100; box-shadow: -4px 0 12px rgba(0,0,0,0.1); }
+.dw-signal-panel header { display: flex; justify-content: space-between; align-items: center; }
+.dw-signal-panel dl { margin: 12px 0; }
+.dw-signal-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dotted #e5e7eb; }
+.dw-signal-row dt { font-weight: 600; }
+.dw-signal-disclaimer { font-size: 0.75em; color: #9ca3af; font-style: italic; margin-top: 16px; }
