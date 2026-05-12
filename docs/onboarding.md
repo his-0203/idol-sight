@@ -154,3 +154,40 @@ aggregate를 한 번 돌려 신규 테이블을 채운다.
                 FROM debut_window_organicity_summary
                 ORDER BY group_key, window_bucket"
    ```
+
+## V2.21 Backfill Resilience 운영 가이드
+
+`backfill-yt-videos` 워크플로가 matrix per-group 구조(2026-05-12 V2.21)로
+재작성되어 다음 운영 패턴을 지원한다.
+
+### 일상 운영
+
+- **전체 그룹 백필 (default)**: GitHub UI → Actions → backfill-yt-videos →
+  Run workflow → `group=all`, `force=false` → 9개 matrix job 병렬 실행
+  (max-parallel 3). 최근 7일 안에 backfill된 그룹은 자동으로 skip.
+- **단일 그룹 백필**: `group=<key>` 입력 → 해당 그룹만 실행 (나머지는
+  matrix `if` 조건으로 즉시 skipped). 단일 그룹 모드는 freshness 필터를
+  무시 (운영자가 명시적으로 재실행을 요청한 것으로 간주).
+
+### 강제 재백필 (seed correction 후 등)
+
+- `group=all`, `force=true` → 9개 그룹 모두 freshness 무시하고 walk.
+  CLI 측에서 `--force` 플래그 전달.
+
+### 부분 실패 자동 복원
+
+- 한 그룹이 30분 timeout으로 cancelled → 다른 8개는 영향 없음. 다음
+  스케줄 또는 수동 dispatch에서 자동으로 그 그룹만 다시 walk
+  (last_backfilled_at이 갱신되지 않았으므로 freshness 필터에 안 걸림).
+
+### 가시화 / 알림
+
+- `health-check` 워크플로가 14일+ 백필 stale 그룹을 감지하면 Discord에
+  `backfill:<group>: last_success_at=... (age=...h)` 형식으로 알림.
+- D1 직접 확인:
+  ```bash
+  cd frontend && wrangler d1 execute idol-sight --remote \
+    --command="SELECT key, last_backfilled_at,
+               CAST(julianday('now') - julianday(last_backfilled_at) AS INTEGER) AS days_ago
+               FROM groups ORDER BY last_backfilled_at NULLS FIRST"
+  ```

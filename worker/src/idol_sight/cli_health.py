@@ -36,4 +36,33 @@ def audit_freshness(client: _Executor, *, now_iso: str | None = None) -> list[di
         age_h = (now - last_dt).total_seconds() / 3600
         if age_h > interval_h * 4:
             stale.append({**r, "age_h": age_h})
+
+    # V2.21: backfill staleness — groups whose last_backfilled_at is
+    # NULL or older than BACKFILL_ALERT_DAYS surface as 'backfill:<group>'
+    # entries so the operator gets the same Discord ping channel.
+    BACKFILL_ALERT_DAYS = 14
+    backfill_rows = client.execute(
+        "SELECT key, last_backfilled_at FROM groups "
+        "WHERE COALESCE(is_active, 1) = 1 "
+        "  AND (last_backfilled_at IS NULL "
+        "       OR julianday(?) - julianday(last_backfilled_at) > ?)",
+        [now.strftime("%Y-%m-%dT%H:%M:%SZ"), BACKFILL_ALERT_DAYS],
+    )
+    for r in backfill_rows:
+        last_bf = r.get("last_backfilled_at")
+        if not last_bf:
+            age_h_val: float | None = None
+        else:
+            try:
+                last_dt = datetime.fromisoformat(str(last_bf).replace("Z", "+00:00"))
+                age_h_val = (now - last_dt).total_seconds() / 3600
+            except ValueError:
+                age_h_val = None
+        stale.append({
+            "job": f"backfill:{r['key']}",
+            "last_success_at": last_bf,
+            "expected_interval_h": BACKFILL_ALERT_DAYS * 24,
+            "age_h": age_h_val,
+        })
+
     return stale

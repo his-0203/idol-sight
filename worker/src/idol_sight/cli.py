@@ -417,6 +417,43 @@ def health_check() -> None:
     raise typer.Exit(code=1)
 
 
+def _filter_fresh_groups(
+    candidates: list[str], fresh_keys: set[str],
+) -> list[str]:
+    """Return candidates with any group in fresh_keys removed.
+
+    Preserves input order. Used by ``backfill-yt-videos`` to skip groups
+    whose ``last_backfilled_at`` is within the freshness window.
+    """
+    return [g for g in candidates if g not in fresh_keys]
+
+
+def _resolve_backfill_targets(
+    client, *, group: str | None, force: bool, fresh_days: int,
+) -> list[str]:
+    """Decide which group keys this backfill run should walk.
+
+    - ``group`` explicit → just that group (freshness ignored — explicit intent)
+    - ``group=None`` + ``force=True`` → every KNOWN_GROUPS
+    - ``group=None`` + ``fresh_days <= 0`` → every KNOWN_GROUPS
+    - ``group=None`` + ``fresh_days > 0`` → KNOWN_GROUPS minus rows whose
+      ``groups.last_backfilled_at`` is within the freshness window
+    """
+    if group:
+        return [group]
+    candidates = sorted(KNOWN_GROUPS)
+    if force or fresh_days <= 0:
+        return candidates
+    fresh_rows = client.execute(
+        "SELECT key FROM groups "
+        "WHERE last_backfilled_at IS NOT NULL "
+        "  AND julianday('now') - julianday(last_backfilled_at) < ?",
+        [fresh_days],
+    )
+    fresh_keys = {r["key"] for r in fresh_rows}
+    return _filter_fresh_groups(candidates, fresh_keys)
+
+
 @app.command(
     "backfill-yt-videos",
     help="One-shot full-history walk of every active group's YouTube "
@@ -424,15 +461,27 @@ def health_check() -> None:
          "channel's uploads playlist (1 quota unit per page) to reach "
          "every video the channel ever posted, not just the latest 50. "
          "Run once per major group set or after schema changes; "
-         "subsequent daily collect runs only top up new uploads.",
+         "subsequent daily collect runs only top up new uploads. "
+         "Default skips groups backfilled within --fresh-days (7); use "
+         "--force or an explicit --group to bypass.",
 )
 def backfill_yt_videos_cmd(
     group: str | None = typer.Option(
         None, "--group",
-        help="Single group key (e.g. 'isedol'). Omit to walk every "
-             "group in KNOWN_GROUPS — but the all-groups path can run "
-             "30+ min and may hit workflow timeouts; prefer scoped "
-             "runs after channel_id seed corrections.",
+        help="Single group key (e.g. 'isedol'). Bypasses freshness "
+             "filter — explicit intent wins. Omit to walk every "
+             "group in KNOWN_GROUPS filtered by --fresh-days.",
+    ),
+    force: bool = typer.Option(
+        False, "--force",
+        help="Skip the freshness check — walk all targets regardless "
+             "of last_backfilled_at. Use when seed corrections require "
+             "full re-walk.",
+    ),
+    fresh_days: int = typer.Option(
+        7, "--fresh-days",
+        help="Skip groups whose last_backfilled_at is within this "
+             "many days. Default 7. Use 0 to walk everything (same as --force).",
     ),
 ) -> None:
     from idol_sight.collectors.youtube import YouTubeCollector
@@ -453,13 +502,18 @@ def backfill_yt_videos_cmd(
         )
         return [{"yt_channel_id": r["yt_channel_id"]} for r in rows]
 
-    if group:
-        if group not in KNOWN_GROUPS:
-            typer.echo(f"unknown group: {group}", err=True)
-            raise typer.Exit(code=2)
-        targets: list[str] = [group]
-    else:
-        targets = sorted(KNOWN_GROUPS)
+    if group and group not in KNOWN_GROUPS:
+        typer.echo(f"unknown group: {group}", err=True)
+        raise typer.Exit(code=2)
+
+    targets = _resolve_backfill_targets(
+        client, group=group, force=force, fresh_days=fresh_days,
+    )
+    if not targets:
+        typer.echo(f"all groups fresh (< {fresh_days}d); nothing to backfill")
+        return
+
+    typer.echo(f"backfill targets: {', '.join(targets)}")
 
     coll = YouTubeCollector(api_key, members_loader=_members)
     total_videos = 0
@@ -477,6 +531,12 @@ def backfill_yt_videos_cmd(
             continue
         if result.statements:
             client.batch(result.statements)
+        # Mark this group as backfilled (idempotent — re-runs just
+        # advance the timestamp).
+        client.execute(
+            "UPDATE groups SET last_backfilled_at=? WHERE key=?",
+            [datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), group_key],
+        )
         total_videos += result.rows_inserted
         total_groups += 1
         typer.echo(

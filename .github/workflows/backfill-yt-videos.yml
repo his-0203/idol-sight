@@ -1,9 +1,7 @@
 name: backfill-yt-videos
-# One-shot full-history walk of every active group's main + member YouTube
-# channels. Use after schema/seed corrections (e.g. channel_id 정정) or
-# whenever a new member channel is added. Daily cron (collect-daily)
-# only tops up the latest 50 per channel; this dispatcher pages through
-# every video the channel ever posted via playlistItems.list.
+# One-shot full-history walk per group. Matrix per-group so a single
+# group's timeout doesn't block the others. Default freshness filter in
+# the CLI skips groups backfilled within 7 days; --force/checkbox bypasses.
 on:
   workflow_dispatch:
     inputs:
@@ -11,23 +9,37 @@ on:
         description: 'Single group key (e.g. isedol) — or "all" for every group'
         default: 'all'
         required: false
+      force:
+        description: 'Skip freshness filter (walk all targets)'
+        type: boolean
+        default: false
 
 jobs:
   backfill:
+    strategy:
+      fail-fast: false
+      # collect-hourly/daily와 동일 패턴. D1 _load_group 의 cold-start
+      # 429 (Too Many Requests) 를 회피하려면 동시 3개 이하가 안전.
+      max-parallel: 3
+      matrix:
+        group: [bdawn, isedol, miiwan, myrakl, owis, plave, skinz, stellive, wegosix]
+    # 그룹당 30분. stellive 의 멤버 솔로 채널 합산 worst case 도 ~15분 →
+    # 2배 여유. 단일 그룹 timeout 이 다른 8개 job 에 영향 안 함.
+    timeout-minutes: 30
+    # workflow_dispatch 의 group 입력이 'all'/공백 이면 모든 matrix 그룹
+    # 실행, 특정 그룹이면 해당 matrix 슬롯만 실행 (나머지는 if 로 skipped).
+    if: ${{ inputs.group == 'all' || inputs.group == '' || matrix.group == inputs.group }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --frozen
         working-directory: worker
-      - name: Run backfill (scoped or all)
+      - name: Backfill ${{ matrix.group }}
         run: |
-          if [ "${{ inputs.group }}" = "all" ] || [ -z "${{ inputs.group }}" ]; then
-            uv run python -m idol_sight backfill-yt-videos
-          else
-            uv run python -m idol_sight backfill-yt-videos --group ${{ inputs.group }}
-          fi
+          uv run python -m idol_sight backfill-yt-videos \
+            --group ${{ matrix.group }} \
+            ${{ inputs.force == true && '--force' || '' }}
         working-directory: worker
         env:
           CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
@@ -38,6 +50,6 @@ jobs:
       - if: failure()
         working-directory: worker
         run: |
-          uv run python -m idol_sight notify-fail --job 'backfill-yt-videos'
+          uv run python -m idol_sight notify-fail --job 'backfill:${{ matrix.group }}'
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
