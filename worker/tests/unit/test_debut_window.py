@@ -105,3 +105,85 @@ from idol_sight.analysis.debut_window import compute_velocity_coherence
 ])
 def test_compute_velocity_coherence(velocity, er, expected):
     assert compute_velocity_coherence(velocity, er) == expected
+
+
+from idol_sight.analysis.debut_window import (
+    compute_organic_score,
+    classify_verdict,
+)
+
+
+def test_classify_verdict_thresholds():
+    assert classify_verdict(70) == "organic"
+    assert classify_verdict(85) == "organic"
+    assert classify_verdict(69) == "suspect"
+    assert classify_verdict(40) == "suspect"
+    assert classify_verdict(39) == "likely_paid"
+    assert classify_verdict(0) == "likely_paid"
+
+
+def test_compute_organic_score_insufficient_data_low_views():
+    """View count < 1000 AND engagement < 10 → insufficient_data, score None."""
+    video = {
+        "is_short": 0,
+        "view_count": 500,
+        "like_count": 3,
+        "comment_count": 2,
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    assert score is None
+    assert breakdown["verdict"] == "insufficient_data"
+
+
+def test_compute_organic_score_long_form_clearly_organic():
+    """High engagement, balanced ratio, no velocity signal → score ≥ 70."""
+    video = {
+        "is_short": 0,
+        "view_count": 1_000_000,
+        "like_count": 60_000,    # 6% engagement (likes+comments)/views
+        "comment_count": 2_000,  # like:comment = 30 (normal zone)
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    # engagement_rate = 62000/1000000 = 0.062 → engagement_score=100
+    # balance_score (30) = 100
+    # velocity_coherence (None) = 50
+    # composite = 0.5*100 + 0.3*100 + 0.2*50 = 90
+    assert score == 90
+    assert breakdown["verdict"] == "organic"
+    assert breakdown["weights"] == {
+        "engagement": 0.5, "balance": 0.3, "velocity": 0.2,
+    }
+
+
+def test_compute_organic_score_paid_burst_pattern():
+    """High views, dead engagement, velocity spike → score < 40."""
+    video = {
+        "is_short": 0,
+        "view_count": 3_000_000,
+        "like_count": 18_000,    # 0.6% engagement → engagement_score=0 (≤0.5%)
+        "comment_count": 200,    # like:comment = 90 → balance_score≈98
+        "viral_velocity_ratio": 5.0,  # velocity spike, low ER → coherence=20
+    }
+    score, breakdown = compute_organic_score(video)
+    # er = 18200/3_000_000 = 0.00607 → engagement_score = round((0.00607-0.005)/0.05*100) = 2
+    # balance: ratio=90 → 100 - (90-80)/5 = 98
+    # velocity: ratio=5.0, er<0.015 → 20
+    # composite = 0.5*2 + 0.3*98 + 0.2*20 = 1 + 29.4 + 4 = 34.4 → 34
+    assert score == 34
+    assert breakdown["verdict"] == "likely_paid"
+
+
+def test_compute_organic_score_handles_zero_view_safely():
+    """Zero views shouldn't crash; falls to insufficient_data."""
+    video = {
+        "is_short": 0,
+        "view_count": 0,
+        "like_count": 0,
+        "comment_count": 0,
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    assert score is None
+    assert breakdown["verdict"] == "insufficient_data"

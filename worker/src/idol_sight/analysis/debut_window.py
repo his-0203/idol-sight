@@ -69,3 +69,63 @@ def compute_velocity_coherence(
     if engagement_rate >= 0.015:
         return 60
     return 20
+
+
+WEIGHTS = {"engagement": 0.5, "balance": 0.3, "velocity": 0.2}
+
+
+def classify_verdict(score: int) -> str:
+    if score >= 70:
+        return "organic"
+    if score >= 40:
+        return "suspect"
+    return "likely_paid"
+
+
+def compute_organic_score(video: dict) -> tuple[int | None, dict]:
+    """Compute composite 0-100 score + signal breakdown for one video.
+
+    Returns (None, breakdown_with_verdict='insufficient_data') when sample
+    is too small to trust (view_count < 1000 AND engagement total < 10).
+    """
+    view_count = video.get("view_count") or 0
+    like_count = video.get("like_count") or 0
+    comment_count = video.get("comment_count") or 0
+    is_short = bool(video.get("is_short"))
+    velocity_ratio = video.get("viral_velocity_ratio")
+
+    engagement_total = like_count + comment_count
+    if view_count < 1000 and engagement_total < 10:
+        return None, {
+            "view_count": view_count,
+            "engagement_total": engagement_total,
+            "verdict": "insufficient_data",
+        }
+
+    safe_views = max(view_count, 1)
+    safe_comments = max(comment_count, 1)
+    engagement_rate = engagement_total / safe_views
+    like_comment_ratio = like_count / safe_comments
+
+    e_score = compute_engagement_score(engagement_rate, is_short)
+    b_score = compute_balance_score(like_comment_ratio)
+    v_score = compute_velocity_coherence(velocity_ratio, engagement_rate)
+
+    composite = round(
+        WEIGHTS["engagement"] * e_score
+        + WEIGHTS["balance"]    * b_score
+        + WEIGHTS["velocity"]   * v_score
+    )
+    verdict = classify_verdict(composite)
+
+    breakdown = {
+        "engagement_rate": round(engagement_rate, 4),
+        "engagement_score": e_score,
+        "like_comment_ratio": round(like_comment_ratio, 2),
+        "balance_score": b_score,
+        "velocity_ratio": velocity_ratio,
+        "velocity_coherence_score": v_score,
+        "weights": WEIGHTS,
+        "verdict": verdict,
+    }
+    return composite, breakdown
