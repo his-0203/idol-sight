@@ -36,11 +36,5 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   }
   sql += ` ORDER BY group_key ASC, window_bucket ASC`;
   const rows = await d1Query<SummaryRow>(env.DB, sql, params);
-  return new Response(JSON.stringify({ rows }), {
-    status: 200,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=600",
-    },
-  });
+  return jsonResponse({ rows }, 200);
 };

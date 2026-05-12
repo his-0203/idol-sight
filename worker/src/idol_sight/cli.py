@@ -362,12 +362,20 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
         )
         dw_video = build_video_organicity(client)
         if dw_video.statements:
-            client.batch(dw_video.statements)
+            bs = client.batch(dw_video.statements)
+            if bs.statements_executed != bs.statements_sent:
+                typer.echo(f"partial debut_window_video write: "
+                           f"{bs.statements_executed}/{bs.statements_sent}", err=True)
+                raise typer.Exit(code=1)
         typer.echo(f"debut_window_videos: wrote {len(dw_video.statements)} rows")
 
         dw_summary = build_dw_summary(client)
         if dw_summary.statements:
-            client.batch(dw_summary.statements)
+            bs = client.batch(dw_summary.statements)
+            if bs.statements_executed != bs.statements_sent:
+                typer.echo(f"partial debut_window_summary write: "
+                           f"{bs.statements_executed}/{bs.statements_sent}", err=True)
+                raise typer.Exit(code=1)
         typer.echo(f"debut_window_summary: wrote {len(dw_summary.statements)} rows")
     else:
         typer.echo("skip-derived: agg_group_combined / velocity / reactivity skipped")

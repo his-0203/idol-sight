@@ -281,6 +281,28 @@ def test_build_video_organicity_filters_window_and_emits_upserts():
     assert "engagement_score" in parsed
 
 
+def test_fetch_sql_uses_real_youtube_video_stats_columns():
+    """The fetch SQL must alias the real youtube_video_stats column names
+    (views/likes/comments) to view_count/like_count/comment_count so the
+    rest of the code receives the keys it expects.
+
+    Regression guard: if someone changes _FETCH_VIDEOS_SQL to read
+    `s.view_count`/etc directly (the wrong column names — they don't
+    exist in youtube_video_stats), production will silently return all
+    NULL stats and classify every video as insufficient_data.
+    """
+    from idol_sight.analysis.debut_window import _FETCH_VIDEOS_SQL
+    # Real column names from migrations/0001_init.sql must appear
+    assert "s.views" in _FETCH_VIDEOS_SQL
+    assert "s.likes" in _FETCH_VIDEOS_SQL
+    assert "s.comments" in _FETCH_VIDEOS_SQL
+    # And must be aliased (otherwise downstream code with .get("view_count")
+    # gets None even when stats exist)
+    assert "AS view_count" in _FETCH_VIDEOS_SQL
+    assert "AS like_count" in _FETCH_VIDEOS_SQL
+    assert "AS comment_count" in _FETCH_VIDEOS_SQL
+
+
 def test_build_summary_groups_by_bucket_with_view_weighted_mean():
     """Aggregates per (group_key, window_bucket). Excludes insufficient_data
     from ratio denominator. Score mean is view-weighted."""

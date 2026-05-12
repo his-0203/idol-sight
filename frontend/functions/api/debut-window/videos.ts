@@ -59,11 +59,5 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   sql += ` ORDER BY o.days_relative_to_debut ASC, o.published_at ASC`;
 
   const rows = await d1Query<VideoRow>(env.DB, sql, params);
-  return new Response(JSON.stringify({ group, bucket, type, rows }), {
-    status: 200,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=600",
-    },
-  });
+  return jsonResponse({ group, bucket, type, rows }, 200);
 };

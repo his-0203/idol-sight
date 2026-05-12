@@ -177,7 +177,9 @@ _FETCH_VIDEOS_SQL = """
 SELECT v.video_id, v.group_key, v.is_short, v.published_at,
        v.viral_velocity_ratio,
        g.debut_date,
-       s.view_count, s.like_count, s.comment_count
+       s.views    AS view_count,
+       s.likes    AS like_count,
+       s.comments AS comment_count
 FROM youtube_videos v
 JOIN groups g ON g.key = v.group_key
 LEFT JOIN youtube_video_stats s
