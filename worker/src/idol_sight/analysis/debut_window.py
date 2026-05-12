@@ -27,3 +27,14 @@ def bucket_for(days_relative: int) -> str | None:
         if lo <= days_relative <= hi:
             return label
     return None
+
+
+def compute_engagement_score(engagement_rate: float, is_short: bool) -> int:
+    """0-100 score from engagement_rate. Shorts baseline lower than long-form."""
+    if is_short:
+        floor, ceil = 0.003, 0.033
+    else:
+        floor, ceil = 0.005, 0.055
+    span = ceil - floor
+    raw = (engagement_rate - floor) / span * 100.0
+    return max(0, min(100, round(raw)))

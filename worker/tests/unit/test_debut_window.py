@@ -38,3 +38,24 @@ def test_bucket_for_returns_correct_bucket(days, expected):
 @pytest.mark.parametrize("days", [-61, -100, 61, 100])
 def test_bucket_for_returns_none_outside_window(days):
     assert bucket_for(days) is None
+
+
+from idol_sight.analysis.debut_window import compute_engagement_score
+
+
+@pytest.mark.parametrize("er,is_short,expected", [
+    # Long-form: 0pt at 0.5%, 100pt at 5.5%
+    (0.000, False, 0),     # below floor
+    (0.005, False, 0),     # exact floor
+    (0.030, False, 50),    # midpoint
+    (0.055, False, 100),   # exact ceiling
+    (0.100, False, 100),   # above ceiling clamps
+    # Shorts: 0pt at 0.3%, 100pt at 3.3%
+    (0.000, True, 0),
+    (0.003, True, 0),
+    (0.018, True, 50),
+    (0.033, True, 100),
+    (0.100, True, 100),
+])
+def test_compute_engagement_score(er, is_short, expected):
+    assert compute_engagement_score(er, is_short) == expected
