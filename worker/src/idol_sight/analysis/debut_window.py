@@ -49,3 +49,23 @@ def compute_balance_score(like_comment_ratio: float) -> int:
         return max(0, round(100 - (15.0 - r) * 8))
     # r > 80
     return max(0, round(100 - (r - 80.0) / 5.0))
+
+
+def compute_velocity_coherence(
+    velocity_ratio: float | None,
+    engagement_rate: float,
+) -> int:
+    """Cross-check: high velocity should bring proportional engagement.
+
+    velocity_ratio < 1.5 → neutral 50 (no virality to assess).
+    velocity_ratio ≥ 1.5 + ER ≥ 3% → 100 (real viral).
+    velocity_ratio ≥ 1.5 + ER ≥ 1.5% → 60 (weak suspicion).
+    velocity_ratio ≥ 1.5 + ER < 1.5% → 20 (paid burst).
+    """
+    if velocity_ratio is None or velocity_ratio < 1.5:
+        return 50
+    if engagement_rate >= 0.03:
+        return 100
+    if engagement_rate >= 0.015:
+        return 60
+    return 20

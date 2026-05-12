@@ -83,3 +83,25 @@ from idol_sight.analysis.debut_window import compute_balance_score
 ])
 def test_compute_balance_score(ratio, expected):
     assert compute_balance_score(ratio) == expected
+
+
+from idol_sight.analysis.debut_window import compute_velocity_coherence
+
+
+@pytest.mark.parametrize("velocity,er,expected", [
+    # Low/None velocity = neutral (50)
+    (None, 0.02, 50),
+    (0.5, 0.02, 50),
+    (1.4, 0.02, 50),
+    # Viral velocity (≥1.5) + good engagement = real viral
+    (1.5, 0.04, 100),
+    (5.0, 0.05, 100),
+    # Viral velocity + moderate engagement = weak suspicion
+    (3.0, 0.020, 60),
+    (3.0, 0.015, 60),
+    # Viral velocity + dead engagement = paid burst
+    (3.0, 0.010, 20),
+    (10.0, 0.001, 20),
+])
+def test_compute_velocity_coherence(velocity, er, expected):
+    assert compute_velocity_coherence(velocity, er) == expected
