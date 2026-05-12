@@ -417,6 +417,17 @@ def health_check() -> None:
     raise typer.Exit(code=1)
 
 
+def _filter_fresh_groups(
+    candidates: list[str], fresh_keys: set[str],
+) -> list[str]:
+    """Return candidates with any group in fresh_keys removed.
+
+    Preserves input order. Used by ``backfill-yt-videos`` to skip groups
+    whose ``last_backfilled_at`` is within the freshness window.
+    """
+    return [g for g in candidates if g not in fresh_keys]
+
+
 @app.command(
     "backfill-yt-videos",
     help="One-shot full-history walk of every active group's YouTube "
