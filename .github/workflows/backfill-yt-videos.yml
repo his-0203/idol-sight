@@ -15,20 +15,35 @@ on:
         default: false
 
 jobs:
+  # workflow_dispatch 의 group 입력을 받아서 matrix 에 넘길 JSON 배열을
+  # 생성. 'all' / 공백 이면 9개 전체, 특정 그룹이면 1개 배열. 이렇게
+  # 분리하지 않으면 job-level `if:` 안에서 `matrix.group` 컨텍스트가
+  # 보이지 않아 422 parse 에러가 난다 (matrix 컨텍스트는 step-level 만 가용).
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      groups: ${{ steps.matrix.outputs.groups }}
+    steps:
+      - id: matrix
+        run: |
+          if [ "${{ inputs.group }}" = "all" ] || [ -z "${{ inputs.group }}" ]; then
+            echo 'groups=["bdawn","isedol","miiwan","myrakl","owis","plave","skinz","stellive","wegosix"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'groups=["${{ inputs.group }}"]' >> "$GITHUB_OUTPUT"
+          fi
+
   backfill:
+    needs: setup
     strategy:
       fail-fast: false
       # collect-hourly/daily와 동일 패턴. D1 _load_group 의 cold-start
       # 429 (Too Many Requests) 를 회피하려면 동시 3개 이하가 안전.
       max-parallel: 3
       matrix:
-        group: [bdawn, isedol, miiwan, myrakl, owis, plave, skinz, stellive, wegosix]
+        group: ${{ fromJSON(needs.setup.outputs.groups) }}
     # 그룹당 30분. stellive 의 멤버 솔로 채널 합산 worst case 도 ~15분 →
     # 2배 여유. 단일 그룹 timeout 이 다른 8개 job 에 영향 안 함.
     timeout-minutes: 30
-    # workflow_dispatch 의 group 입력이 'all'/공백 이면 모든 matrix 그룹
-    # 실행, 특정 그룹이면 해당 matrix 슬롯만 실행 (나머지는 if 로 skipped).
-    if: ${{ inputs.group == 'all' || inputs.group == '' || matrix.group == inputs.group }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
