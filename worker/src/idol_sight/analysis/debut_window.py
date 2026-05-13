@@ -35,24 +35,38 @@ WINDOW_BUCKETS: list[tuple[str, int, int]] = [
     ("D+60",  31,  60),
 ]
 
-# Engagement-rate boundaries (per-bucket scoring). Below floor = 0pt,
-# above ceiling = 100pt, linear interpolation between.
-LONG_ER_FLOOR, LONG_ER_CEIL = 0.005, 0.055
-SHORT_ER_FLOOR, SHORT_ER_CEIL = 0.003, 0.033
+# Engagement-rate boundaries (V2 calibrated 2026-05-13 from 1125-video remote
+# D1 distribution: long p10=1.57% p90=6.69%, shorts p10≈2.0% p90=8.19%).
+# Below floor = 0pt, above ceiling = 100pt, linear interpolation between.
+LONG_ER_FLOOR, LONG_ER_CEIL = 0.010, 0.060
+SHORT_ER_FLOOR, SHORT_ER_CEIL = 0.015, 0.080
 
-# Like:comment ratio normal zone for K-pop videos. Outside zone penalizes
-# asymmetric bot activity (comment-farm below, like-farm above).
-BALANCE_NORMAL_LO, BALANCE_NORMAL_HI = 15.0, 80.0
-BALANCE_LOW_PENALTY_PER_UNIT = 8.0       # ratio<15 → comment-farm slope
-BALANCE_HIGH_PENALTY_DIVISOR = 5.0       # ratio>80 → like-farm (0.2/unit)
+# Like:comment ratio normal zone — type-split (V2). Long-form K-pop ratios
+# distribute much lower than shorts (long p90=27 vs shorts p90=94.2).
+# Outside zone penalizes asymmetric bot activity (comment-farm below,
+# like-farm above).
+BALANCE_NORMAL_LONG_LO, BALANCE_NORMAL_LONG_HI = 10.0, 50.0
+BALANCE_NORMAL_SHORT_LO, BALANCE_NORMAL_SHORT_HI = 20.0, 150.0
+BALANCE_LONG_LOW_PENALTY_PER_UNIT = 8.0   # long ratio<10 → comment-farm slope
+BALANCE_LONG_HIGH_PENALTY_PER_UNIT = 0.5  # long ratio>50 → like-farm slope
+BALANCE_SHORT_LOW_PENALTY_PER_UNIT = 4.0  # short ratio<20 → comment-farm slope
+BALANCE_SHORT_HIGH_PENALTY_PER_UNIT = 0.1 # short ratio>150 → like-farm slope
 
-# Velocity-engagement coherence cross-check.
+# Velocity-engagement coherence cross-check. NULL velocity is treated as a
+# missing signal (weight redistributed) — V2 calibration discovered ~91%
+# of videos have NULL viral_velocity_ratio so the V1 fixed-50 mid-point was
+# masking real signal weight.
 VIRAL_VELOCITY_THRESHOLD = 1.5           # below = neutral (50pt)
 VIRAL_ER_REAL = 0.03                     # ER above this with viral velocity = real
 VIRAL_ER_WEAK = 0.015                    # ER above this = weak suspicion
 
+# When velocity is present, weights are 0.5/0.3/0.2. When velocity is NULL,
+# the 0.2 share redistributes proportionally between engagement and balance
+# (0.5/0.8 = 0.625, 0.3/0.8 = 0.375).
 _WEIGHTS_RAW = {"engagement": 0.5, "balance": 0.3, "velocity": 0.2}
+_WEIGHTS_NO_VELOCITY_RAW = {"engagement": 0.625, "balance": 0.375}
 WEIGHTS: Mapping[str, float] = MappingProxyType(_WEIGHTS_RAW)
+WEIGHTS_NO_VELOCITY: Mapping[str, float] = MappingProxyType(_WEIGHTS_NO_VELOCITY_RAW)
 
 
 def bucket_for(days_relative: int) -> str | None:
@@ -77,29 +91,40 @@ def _compute_engagement_score(engagement_rate: float, is_short: bool) -> int:
     return max(0, min(100, round(raw)))
 
 
-def _compute_balance_score(like_comment_ratio: float) -> int:
-    """0-100 score. Normal K-pop ratio is 15-80; outside penalizes farms."""
+def _compute_balance_score(like_comment_ratio: float, is_short: bool) -> int:
+    """0-100 score. Type-split normal zones (V2 calibration):
+    long-form 10-50, shorts 20-150. Outside zone penalizes farms."""
     r = like_comment_ratio
-    if BALANCE_NORMAL_LO <= r <= BALANCE_NORMAL_HI:
+    if is_short:
+        lo, hi = BALANCE_NORMAL_SHORT_LO, BALANCE_NORMAL_SHORT_HI
+        low_slope = BALANCE_SHORT_LOW_PENALTY_PER_UNIT
+        high_slope = BALANCE_SHORT_HIGH_PENALTY_PER_UNIT
+    else:
+        lo, hi = BALANCE_NORMAL_LONG_LO, BALANCE_NORMAL_LONG_HI
+        low_slope = BALANCE_LONG_LOW_PENALTY_PER_UNIT
+        high_slope = BALANCE_LONG_HIGH_PENALTY_PER_UNIT
+    if lo <= r <= hi:
         return 100
-    if r < BALANCE_NORMAL_LO:
-        return max(0, round(100 - (BALANCE_NORMAL_LO - r) * BALANCE_LOW_PENALTY_PER_UNIT))
-    # r > BALANCE_NORMAL_HI
-    return max(0, round(100 - (r - BALANCE_NORMAL_HI) / BALANCE_HIGH_PENALTY_DIVISOR))
+    if r < lo:
+        return max(0, round(100 - (lo - r) * low_slope))
+    return max(0, round(100 - (r - hi) * high_slope))
 
 
 def _compute_velocity_coherence(
     velocity_ratio: float | None,
     engagement_rate: float,
-) -> int:
+) -> int | None:
     """Cross-check: high velocity should bring proportional engagement.
 
+    velocity_ratio is None → None (signal absent; weight redistributes).
     velocity_ratio < 1.5 → neutral 50 (no virality to assess).
     velocity_ratio ≥ 1.5 + ER ≥ 3% → 100 (real viral).
     velocity_ratio ≥ 1.5 + ER ≥ 1.5% → 60 (weak suspicion).
     velocity_ratio ≥ 1.5 + ER < 1.5% → 20 (paid burst).
     """
-    if velocity_ratio is None or velocity_ratio < VIRAL_VELOCITY_THRESHOLD:
+    if velocity_ratio is None:
+        return None
+    if velocity_ratio < VIRAL_VELOCITY_THRESHOLD:
         return 50
     if engagement_rate >= VIRAL_ER_REAL:
         return 100
@@ -147,14 +172,22 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
     like_comment_ratio = like_count / safe_comments
 
     e_score = _compute_engagement_score(engagement_rate, is_short)
-    b_score = _compute_balance_score(like_comment_ratio)
+    b_score = _compute_balance_score(like_comment_ratio, is_short)
     v_score = _compute_velocity_coherence(velocity_ratio, engagement_rate)
 
-    composite = round(
-        WEIGHTS["engagement"] * e_score
-        + WEIGHTS["balance"]    * b_score
-        + WEIGHTS["velocity"]   * v_score
-    )
+    if v_score is None:
+        composite = round(
+            WEIGHTS_NO_VELOCITY["engagement"] * e_score
+            + WEIGHTS_NO_VELOCITY["balance"]   * b_score
+        )
+        weights_used = dict(WEIGHTS_NO_VELOCITY)
+    else:
+        composite = round(
+            WEIGHTS["engagement"] * e_score
+            + WEIGHTS["balance"]    * b_score
+            + WEIGHTS["velocity"]   * v_score
+        )
+        weights_used = dict(WEIGHTS)
     verdict = _classify_verdict(composite)
 
     breakdown = {
@@ -164,7 +197,7 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
         "balance_score": b_score,
         "velocity_ratio": velocity_ratio,
         "velocity_coherence_score": v_score,
-        "weights": dict(WEIGHTS),
+        "weights": weights_used,
         "verdict": verdict,
     }
     return composite, breakdown
@@ -290,14 +323,19 @@ FROM debut_window_video_organicity
 _UPSERT_SUMMARY_SQL = """
 INSERT INTO debut_window_organicity_summary
   (group_key, window_bucket, video_count, long_form_count, short_form_count,
-   organic_score_mean, organic_ratio, suspect_ratio, likely_paid_ratio,
+   organic_score_mean, organic_score_mean_long, organic_score_mean_short,
+   organic_score_mean_simple,
+   organic_ratio, suspect_ratio, likely_paid_ratio,
    total_views, total_engagement, computed_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, window_bucket) DO UPDATE SET
   video_count=excluded.video_count,
   long_form_count=excluded.long_form_count,
   short_form_count=excluded.short_form_count,
   organic_score_mean=excluded.organic_score_mean,
+  organic_score_mean_long=excluded.organic_score_mean_long,
+  organic_score_mean_short=excluded.organic_score_mean_short,
+  organic_score_mean_simple=excluded.organic_score_mean_simple,
   organic_ratio=excluded.organic_ratio,
   suspect_ratio=excluded.suspect_ratio,
   likely_paid_ratio=excluded.likely_paid_ratio,
@@ -305,6 +343,23 @@ ON CONFLICT(group_key, window_bucket) DO UPDATE SET
   total_engagement=excluded.total_engagement,
   computed_at=excluded.computed_at
 """
+
+
+def _weighted_or_simple_mean(rows: list[dict]) -> tuple[float | None, float | None]:
+    """Return (view_weighted_mean, simple_mean) over scored rows.
+    None when rows is empty."""
+    if not rows:
+        return None, None
+    weight_sum = sum(r.get("view_count") or 0 for r in rows)
+    if weight_sum > 0:
+        view_weighted = sum(
+            (r["organic_score"] or 0) * (r.get("view_count") or 0)
+            for r in rows
+        ) / weight_sum
+    else:
+        view_weighted = sum(r["organic_score"] or 0 for r in rows) / len(rows)
+    simple = sum(r["organic_score"] or 0 for r in rows) / len(rows)
+    return view_weighted, simple
 
 
 def build_summary(client: _Executor) -> CollectionResult:
@@ -321,24 +376,21 @@ def build_summary(client: _Executor) -> CollectionResult:
     statements: list[tuple[str, list[Any]]] = []
     for (group_key, bucket), bucket_rows in grouped.items():
         scored = [r for r in bucket_rows if r.get("verdict") != "insufficient_data"]
+        scored_long = [r for r in scored if not (r.get("is_short") or 0)]
+        scored_short = [r for r in scored if (r.get("is_short") or 0)]
         long_count = sum(1 for r in bucket_rows if not (r.get("is_short") or 0))
         short_count = sum(1 for r in bucket_rows if (r.get("is_short") or 0))
 
+        score_mean, score_mean_simple = _weighted_or_simple_mean(scored)
+        score_mean_long, _ = _weighted_or_simple_mean(scored_long)
+        score_mean_short, _ = _weighted_or_simple_mean(scored_short)
+
         if scored:
-            weight_sum = sum(r.get("view_count") or 0 for r in scored)
-            if weight_sum > 0:
-                score_mean = sum(
-                    (r["organic_score"] or 0) * (r.get("view_count") or 0)
-                    for r in scored
-                ) / weight_sum
-            else:
-                score_mean = sum(r["organic_score"] or 0 for r in scored) / len(scored)
             n = len(scored)
             organic_ratio = sum(1 for r in scored if r["verdict"] == "organic") / n
             suspect_ratio = sum(1 for r in scored if r["verdict"] == "suspect") / n
             likely_ratio = sum(1 for r in scored if r["verdict"] == "likely_paid") / n
         else:
-            score_mean = None
             organic_ratio = None
             suspect_ratio = None
             likely_ratio = None
@@ -351,7 +403,8 @@ def build_summary(client: _Executor) -> CollectionResult:
 
         statements.append((_UPSERT_SUMMARY_SQL, [
             group_key, bucket, len(bucket_rows), long_count, short_count,
-            score_mean, organic_ratio, suspect_ratio, likely_ratio,
+            score_mean, score_mean_long, score_mean_short, score_mean_simple,
+            organic_ratio, suspect_ratio, likely_ratio,
             total_views, total_engagement, now,
         ]))
 

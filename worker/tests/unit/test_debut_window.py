@@ -54,47 +54,57 @@ def test_bucket_for_returns_none_outside_window(days):
 
 
 @pytest.mark.parametrize("er,is_short,expected", [
-    # Long-form: 0pt at 0.5%, 100pt at 5.5%
+    # V2 long-form: 0pt at 1.0%, 100pt at 6.0%
     (0.000, False, 0),     # below floor
-    (0.005, False, 0),     # exact floor
-    (0.030, False, 50),    # midpoint
-    (0.055, False, 100),   # exact ceiling
+    (0.010, False, 0),     # exact floor
+    (0.035, False, 50),    # midpoint (1.0+6.0)/2 = 3.5%
+    (0.060, False, 100),   # exact ceiling
     (0.100, False, 100),   # above ceiling clamps
-    # Shorts: 0pt at 0.3%, 100pt at 3.3%
+    # V2 shorts: 0pt at 1.5%, 100pt at 8.0%
     (0.000, True, 0),
-    (0.003, True, 0),
-    (0.018, True, 50),
-    (0.033, True, 100),
-    (0.100, True, 100),
+    (0.015, True, 0),
+    (0.0475, True, 50),    # midpoint (1.5+8.0)/2 = 4.75%
+    (0.080, True, 100),
+    (0.150, True, 100),
 ])
 def test_compute_engagement_score(er, is_short, expected):
     assert _compute_engagement_score(er, is_short) == expected
 
 
-@pytest.mark.parametrize("ratio,expected", [
-    # Normal zone: 15-80 returns 100
-    (15.0, 100),
-    (40.0, 100),
-    (80.0, 100),
-    # Below 15: penalize comment-farm (slope -8 per unit)
-    (14.0, 92),    # 100 - (15-14)*8 = 92
-    (10.0, 60),    # 100 - (15-10)*8 = 60
-    (5.0, 20),
-    (0.0, 0),      # clamp floor
-    # Above 80: penalize like-farm (slope -0.2 per unit)
-    (81.0, 100),   # 100 - 1/5 = 99.8 → rounds to 100
-    (100.0, 96),   # 100 - 20/5 = 96
-    (200.0, 76),
-    (500.0, 16),
-    (1000.0, 0),   # clamp floor
+@pytest.mark.parametrize("ratio,is_short,expected", [
+    # V2 long-form normal zone: 10-50 returns 100
+    (10.0, False, 100),
+    (30.0, False, 100),
+    (50.0, False, 100),
+    # Long below 10: -8/unit (comment-farm)
+    (9.0,  False, 92),    # 100 - (10-9)*8 = 92
+    (5.0,  False, 60),    # 100 - (10-5)*8 = 60
+    (0.0,  False, 20),    # 100 - 10*8 = 20
+    # Long above 50: -0.5/unit (like-farm)
+    (60.0, False, 95),    # 100 - 10*0.5 = 95
+    (100.0, False, 75),   # 100 - 50*0.5 = 75
+    (300.0, False, 0),    # 100 - 250*0.5 clamps to 0
+    # V2 shorts normal zone: 20-150 returns 100
+    (20.0,  True, 100),
+    (80.0,  True, 100),
+    (150.0, True, 100),
+    # Shorts below 20: -4/unit
+    (15.0, True, 80),     # 100 - (20-15)*4 = 80
+    (10.0, True, 60),
+    (0.0,  True, 20),     # 100 - 20*4 = 20
+    # Shorts above 150: -0.1/unit
+    (200.0, True, 95),    # 100 - 50*0.1 = 95
+    (500.0, True, 65),
+    (1500.0, True, 0),    # clamps to 0
 ])
-def test_compute_balance_score(ratio, expected):
-    assert _compute_balance_score(ratio) == expected
+def test_compute_balance_score(ratio, is_short, expected):
+    assert _compute_balance_score(ratio, is_short) == expected
 
 
 @pytest.mark.parametrize("velocity,er,expected", [
-    # Low/None velocity = neutral (50)
-    (None, 0.02, 50),
+    # V2: None velocity = signal absent (None, not 50)
+    (None, 0.02, None),
+    # Low velocity (<1.5) = neutral 50 (signal alive)
     (0.5, 0.02, 50),
     (1.4, 0.02, 50),
     # Viral velocity (≥1.5) + good engagement = real viral
@@ -135,42 +145,43 @@ def test_compute_organic_score_insufficient_data_low_views():
 
 
 def test_compute_organic_score_long_form_clearly_organic():
-    """High engagement, balanced ratio, no velocity signal → score ≥ 70."""
+    """High engagement, balanced ratio, no velocity signal → score ≥ 70.
+    V2: NULL velocity redistributes weights → engagement 0.625 + balance 0.375."""
     video = {
         "is_short": False,
         "view_count": 1_000_000,
-        "like_count": 60_000,    # 6% engagement (likes+comments)/views
-        "comment_count": 2_000,  # like:comment = 30 (normal zone)
+        "like_count": 60_000,    # ~6% engagement (likes+comments)/views
+        "comment_count": 2_000,  # like:comment = 30 (long normal zone 10-50)
         "viral_velocity_ratio": None,
     }
     score, breakdown = compute_organic_score(video)
-    # engagement_rate = 62000/1000000 = 0.062 → engagement_score=100
-    # balance_score (30) = 100
-    # velocity_coherence (None) = 50
-    # composite = 0.5*100 + 0.3*100 + 0.2*50 = 90
-    assert score == 90
+    # engagement_rate = 62000/1000000 = 0.062 → at long ceil 6.0% → engagement_score=100
+    # balance (ratio=30, long) = 100
+    # velocity = None → weights redistribute
+    # composite = 0.625*100 + 0.375*100 = 100
+    assert score == 100
     assert breakdown["verdict"] == "organic"
-    assert dict(breakdown["weights"]) == {
-        "engagement": 0.5, "balance": 0.3, "velocity": 0.2,
-    }
+    assert dict(breakdown["weights"]) == {"engagement": 0.625, "balance": 0.375}
+    assert breakdown["velocity_coherence_score"] is None
 
 
 def test_compute_organic_score_paid_burst_pattern():
-    """High views, dead engagement, velocity spike → score < 40."""
+    """High views, dead engagement, velocity spike → score < 40 (V2 calibrated)."""
     video = {
         "is_short": False,
         "view_count": 3_000_000,
-        "like_count": 18_000,    # 0.6% engagement → engagement_score=0 (≤0.5%)
-        "comment_count": 200,    # like:comment = 90 → balance_score≈98
-        "viral_velocity_ratio": 5.0,  # velocity spike, low ER → coherence=20
+        "like_count": 18_000,    # 0.6% engagement
+        "comment_count": 200,    # like:comment = 90
+        "viral_velocity_ratio": 5.0,  # velocity spike, low ER
     }
     score, breakdown = compute_organic_score(video)
-    # er = 18200/3_000_000 = 0.00607 → engagement_score = round((0.00607-0.005)/0.05*100) = 2
-    # balance: ratio=90 → 100 - (90-80)/5 = 98
-    # velocity: ratio=5.0, er<0.015 → 20
-    # composite = 0.5*2 + 0.3*98 + 0.2*20 = 1 + 29.4 + 4 = 34.4 → 34
-    assert score == 34
+    # er = 18200/3_000_000 = 0.00607 → V2 long floor 1.0% → engagement_score = 0
+    # balance: ratio=90, long → above 50 normal zone → 100 - (90-50)*0.5 = 80
+    # velocity: ratio=5.0, er<1.5% → 20
+    # composite = 0.5*0 + 0.3*80 + 0.2*20 = 0 + 24 + 4 = 28
+    assert score == 28
     assert breakdown["verdict"] == "likely_paid"
+    assert dict(breakdown["weights"]) == {"engagement": 0.5, "balance": 0.3, "velocity": 0.2}
 
 
 def test_compute_organic_score_handles_zero_view_safely():
@@ -330,8 +341,9 @@ def test_build_summary_groups_by_bucket_with_view_weighted_mean():
     params_list = [s[1] for s in result.statements]
     assert len(result.statements) == 1
     assert "INSERT INTO debut_window_organicity_summary" in sqls[0]
-    # Params: group_key, bucket, video_count, long_count, short_count,
-    #         mean, organic_ratio, suspect_ratio, likely_ratio,
+    # V2 params (15 cols): group_key, bucket, video_count, long_count, short_count,
+    #         score_mean, score_mean_long, score_mean_short, score_mean_simple,
+    #         organic_ratio, suspect_ratio, likely_ratio,
     #         total_views, total_engagement, computed_at
     p = params_list[0]
     assert p[0] == "plave"
@@ -342,9 +354,16 @@ def test_build_summary_groups_by_bucket_with_view_weighted_mean():
     # View-weighted mean over scored videos (exclude None):
     #   (80*1M + 85*0.5M + 25*2M) / (1M + 0.5M + 2M) = 172.5M / 3.5M = 49.29
     assert abs(p[5] - 49.29) < 0.5
+    # score_mean_long over scored long (vid1, vid2 — vid4 is insufficient):
+    #   (80*1M + 85*0.5M) / 1.5M = 122.5M / 1.5M = 81.67
+    assert abs(p[6] - 81.67) < 0.5
+    # score_mean_short over scored short (vid3 only): 25
+    assert abs(p[7] - 25.0) < 0.5
+    # score_mean_simple (unweighted) over scored: (80+85+25)/3 = 63.33
+    assert abs(p[8] - 63.33) < 0.5
     # Ratios over scored videos (3, excluding insufficient_data)
-    assert abs(p[6] - 2/3) < 0.01  # organic_ratio
-    assert abs(p[7] - 0.0) < 0.01  # suspect_ratio
-    assert abs(p[8] - 1/3) < 0.01  # likely_paid_ratio
-    assert p[9] == 1_000_000 + 500_000 + 2_000_000 + 50  # total_views
-    assert p[10] == 50_000 + 1_500 + 30_000 + 1_000 + 10_000 + 100 + 1 + 0  # total_engagement
+    assert abs(p[9] - 2/3) < 0.01  # organic_ratio
+    assert abs(p[10] - 0.0) < 0.01  # suspect_ratio
+    assert abs(p[11] - 1/3) < 0.01  # likely_paid_ratio
+    assert p[12] == 1_000_000 + 500_000 + 2_000_000 + 50  # total_views
+    assert p[13] == 50_000 + 1_500 + 30_000 + 1_000 + 10_000 + 100 + 1 + 0  # total_engagement
