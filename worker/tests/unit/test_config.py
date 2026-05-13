@@ -36,6 +36,19 @@ def test_optional_env_falls_back(monkeypatch):
     assert s.yt_api_key is None
 
 
+def test_discord_webhook_is_optional(monkeypatch):
+    """DISCORD_WEBHOOK 미설정 → load_settings 성공, discord_webhook=None.
+
+    backfill-targets 같이 D1 만 쓰는 read-only CLI 가 webhook 없이도
+    동작할 수 있어야 workflow setup job 의 secret 노출 최소화.
+    """
+    for k in ("CF_ACCOUNT_ID", "CF_D1_DB_ID", "CF_API_TOKEN"):
+        monkeypatch.setenv(k, "x")
+    monkeypatch.delenv("DISCORD_WEBHOOK", raising=False)
+    s = load_settings()
+    assert s.discord_webhook is None
+
+
 def test_groupconfig_parses_json_lists():
     g = GroupConfig(
         key="plave", name="PLAVE", name_kr="플레이브", debut_date="2023-03-12",

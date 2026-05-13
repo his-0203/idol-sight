@@ -28,7 +28,11 @@ class Settings:
     cf_account_id: str
     cf_d1_db_id: str
     cf_api_token: str
-    discord_webhook: str
+    # DISCORD_WEBHOOK 은 옵셔널 (2026-05-13~). backfill-targets 같이
+    # D1 만 쓰고 알림 안 보내는 read-only CLI 가 webhook 없이도 동작해야
+    # workflow setup job 에 불필요한 secret 노출 안 됨. notify_failure 가
+    # None 이면 no-op 으로 fallback.
+    discord_webhook: str | None
     yt_api_key: str | None
     gemini_api_key: str | None
 
@@ -38,7 +42,7 @@ def load_settings() -> Settings:
         cf_account_id=_required("CF_ACCOUNT_ID"),
         cf_d1_db_id=_required("CF_D1_DB_ID"),
         cf_api_token=_required("CF_API_TOKEN"),
-        discord_webhook=_required("DISCORD_WEBHOOK"),
+        discord_webhook=_optional("DISCORD_WEBHOOK"),
         yt_api_key=_optional("YT_API_KEY"),
         gemini_api_key=_optional("GEMINI_API_KEY"),
     )

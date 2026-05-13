@@ -56,7 +56,11 @@ def _post(webhook_url: str, body: dict) -> None:
         r.raise_for_status()                     # any other non-2xx → raise but won't retry
 
 
-def notify_failure(*, webhook_url: str, job: str, error: str) -> None:
+def notify_failure(*, webhook_url: str | None, job: str, error: str) -> None:
+    if not webhook_url:
+        # Settings.discord_webhook 이 옵셔널 — DISCORD_WEBHOOK env 가 없을 때
+        # (read-only CLI/setup job) 호출되면 no-op. 콘솔 출력은 호출 측 책임.
+        return
     body = {
         "content": f":rotating_light: **{job}** failed\n```\n{error[:1500]}\n```",
     }
@@ -68,7 +72,7 @@ def notify_failure(*, webhook_url: str, job: str, error: str) -> None:
 
 def notify_alert(
     *,
-    webhook_url: str,
+    webhook_url: str | None,
     title: str,
     body: str,
     severity: str = "info",
@@ -76,7 +80,10 @@ def notify_alert(
     """Push a structured alert to Discord. Distinct from notify_failure
     so the on-call channel can filter "BI-driven alert" vs "job died".
     Severity drives the icon: info / warn / critical.
+    No-op when ``webhook_url`` is None/empty (read-only CLI contexts).
     """
+    if not webhook_url:
+        return
     icon = {"critical": ":fire:", "warn": ":warning:", "info": ":bell:"}.get(
         severity, ":bell:",
     )
