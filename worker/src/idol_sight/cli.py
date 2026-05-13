@@ -48,8 +48,20 @@ _COLLECTORS = {
     "twitter": TwitterCollector,
 }
 
+# 각 source의 expected_interval_h. crawl_meta에 기록되어 health-check이
+# audit_freshness(threshold = interval_h * 4)로 stale 여부 판정.
+# 실제 cron 주기와 정렬되어 있어야 false-positive 알림 없음.
+#
+# naver: 12h — `collect-hourly.yml` cron이 실제로는 '5 0,12 * * *' (하루 2회)
+#   라서 12h. 파일 이름 historical, 변경하면 cron 분석 도구가 깨질 수 있어
+#   유지 중. 1h → 12h 변경(2026-05-13): health-check 매번 9개 false STALE
+#   naver:* 알림 → Discord 스팸 → 정렬.
+# twitter: 12h — 아직 워크플로 없음. 추후 cron 추가 시 동기화 필요.
+# youtube: 6h — collect-daily가 매일 12:30 UTC 1회 + collect-6h가 6h 주기.
+# channel-stats: 24h — collect-daily 1회만 수집.
+# hanteo: 168h — 주간 수동/추후 cron.
 _INTERVALS_H = {
-    "naver": 1, "twitter": 1,
+    "naver": 12, "twitter": 12,
     "dc": 6, "theqoo": 6, "instiz": 6, "youtube": 6, "channel-stats": 24,
     "hanteo": 168,
 }
