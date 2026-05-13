@@ -19,6 +19,7 @@ from idol_sight.collectors.base import CollectionResult
 __all__ = [
     "WINDOW_BUCKETS",
     "WEIGHTS",
+    "VERDICT_TIERS",
     "bucket_for",
     "compute_organic_score",
     "build_video_organicity",
@@ -134,11 +135,59 @@ def _compute_velocity_coherence(
 
 
 def _classify_verdict(score: int) -> str:
+    """V2.21 5-tier verdict (was 3-tier 70/40 in V2.20)."""
+    if score >= 85:
+        return "organic_strong"
     if score >= 70:
         return "organic"
+    if score >= 55:
+        return "borderline"
     if score >= 40:
         return "suspect"
     return "likely_paid"
+
+
+# V2.21 verdict tiers — order matters for any iteration that needs
+# "from organic to paid". Keep in sync with _classify_verdict.
+VERDICT_TIERS: tuple[str, ...] = (
+    "organic_strong",
+    "organic",
+    "borderline",
+    "suspect",
+    "likely_paid",
+)
+
+
+def _compute_causes(
+    e_score: int,
+    b_score: int,
+    v_score: int | None,
+    like_comment_ratio: float,
+    is_short: bool,
+    verdict: str,
+) -> list[str]:
+    """Auto-tag signal-level causes for a video. viral_real is attached
+    regardless of verdict (organic videos benefit from it too). Suspicion
+    causes only attach when verdict is below organic — for organic_strong/
+    organic, listing 'engagement_weak' would be self-contradictory."""
+    causes: list[str] = []
+    if v_score == 100:
+        causes.append("viral_real")
+    if verdict in ("borderline", "suspect", "likely_paid"):
+        if e_score < 40:
+            causes.append("engagement_weak")
+        if b_score < 60:
+            if is_short:
+                lo, hi = BALANCE_NORMAL_SHORT_LO, BALANCE_NORMAL_SHORT_HI
+            else:
+                lo, hi = BALANCE_NORMAL_LONG_LO, BALANCE_NORMAL_LONG_HI
+            if like_comment_ratio < lo:
+                causes.append("comment_farm")
+            elif like_comment_ratio > hi:
+                causes.append("like_farm")
+        if v_score is not None and v_score <= 20:
+            causes.append("paid_burst")
+    return causes
 
 
 def compute_organic_score(video: dict) -> tuple[int | None, dict]:
@@ -189,6 +238,9 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
         )
         weights_used = dict(WEIGHTS)
     verdict = _classify_verdict(composite)
+    causes = _compute_causes(
+        e_score, b_score, v_score, like_comment_ratio, is_short, verdict,
+    )
 
     breakdown = {
         "engagement_rate": round(engagement_rate, 4),
@@ -199,6 +251,7 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
         "velocity_coherence_score": v_score,
         "weights": weights_used,
         "verdict": verdict,
+        "causes": causes,
     }
     return composite, breakdown
 
@@ -236,8 +289,8 @@ INSERT INTO debut_window_video_organicity
    days_relative_to_debut, window_bucket,
    view_count, like_count, comment_count,
    engagement_rate, like_comment_ratio, velocity_ratio,
-   organic_score, verdict, signal_breakdown, computed_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   organic_score, verdict, causes, signal_breakdown, computed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(video_id) DO UPDATE SET
   group_key=excluded.group_key,
   is_short=excluded.is_short,
@@ -252,6 +305,7 @@ ON CONFLICT(video_id) DO UPDATE SET
   velocity_ratio=excluded.velocity_ratio,
   organic_score=excluded.organic_score,
   verdict=excluded.verdict,
+  causes=excluded.causes,
   signal_breakdown=excluded.signal_breakdown,
   computed_at=excluded.computed_at
 """
@@ -297,12 +351,13 @@ def build_video_organicity(client: _Executor) -> CollectionResult:
             engagement_rate = breakdown["engagement_rate"]
             like_comment_ratio = breakdown["like_comment_ratio"]
 
+        causes_json = json.dumps(breakdown.get("causes", []))
         statements.append((_UPSERT_VIDEO_SQL, [
             r["video_id"], r["group_key"], video["is_short"],
             r["published_at"], days_rel, bucket,
             view_count, like_count, comment_count,
             engagement_rate, like_comment_ratio, video["viral_velocity_ratio"],
-            score, verdict, json.dumps(breakdown), now,
+            score, verdict, causes_json, json.dumps(breakdown), now,
         ]))
 
     return CollectionResult(
@@ -325,9 +380,10 @@ INSERT INTO debut_window_organicity_summary
   (group_key, window_bucket, video_count, long_form_count, short_form_count,
    organic_score_mean, organic_score_mean_long, organic_score_mean_short,
    organic_score_mean_simple,
-   organic_ratio, suspect_ratio, likely_paid_ratio,
+   organic_strong_ratio, organic_ratio, borderline_ratio,
+   suspect_ratio, likely_paid_ratio,
    total_views, total_engagement, computed_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, window_bucket) DO UPDATE SET
   video_count=excluded.video_count,
   long_form_count=excluded.long_form_count,
@@ -336,7 +392,9 @@ ON CONFLICT(group_key, window_bucket) DO UPDATE SET
   organic_score_mean_long=excluded.organic_score_mean_long,
   organic_score_mean_short=excluded.organic_score_mean_short,
   organic_score_mean_simple=excluded.organic_score_mean_simple,
+  organic_strong_ratio=excluded.organic_strong_ratio,
   organic_ratio=excluded.organic_ratio,
+  borderline_ratio=excluded.borderline_ratio,
   suspect_ratio=excluded.suspect_ratio,
   likely_paid_ratio=excluded.likely_paid_ratio,
   total_views=excluded.total_views,
@@ -387,11 +445,15 @@ def build_summary(client: _Executor) -> CollectionResult:
 
         if scored:
             n = len(scored)
+            strong_ratio = sum(1 for r in scored if r["verdict"] == "organic_strong") / n
             organic_ratio = sum(1 for r in scored if r["verdict"] == "organic") / n
+            borderline_ratio = sum(1 for r in scored if r["verdict"] == "borderline") / n
             suspect_ratio = sum(1 for r in scored if r["verdict"] == "suspect") / n
             likely_ratio = sum(1 for r in scored if r["verdict"] == "likely_paid") / n
         else:
+            strong_ratio = None
             organic_ratio = None
+            borderline_ratio = None
             suspect_ratio = None
             likely_ratio = None
 
@@ -404,7 +466,8 @@ def build_summary(client: _Executor) -> CollectionResult:
         statements.append((_UPSERT_SUMMARY_SQL, [
             group_key, bucket, len(bucket_rows), long_count, short_count,
             score_mean, score_mean_long, score_mean_short, score_mean_simple,
-            organic_ratio, suspect_ratio, likely_ratio,
+            strong_ratio, organic_ratio, borderline_ratio,
+            suspect_ratio, likely_ratio,
             total_views, total_engagement, now,
         ]))
 
