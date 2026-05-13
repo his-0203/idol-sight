@@ -77,6 +77,11 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
         const hs = data.health_score;
         const hasHealth = hs != null && hs.total != null;
         const fallback = data.summary?.yt_subscribers ?? data.summary?.yt_total_views ?? null;
+        // V2.21: 서브컬처(ISEDOL segmentary / STELLIVE confederation)는 데뷔 개념이
+        // 모호 (멤버별 데뷔 시점이 흩어져 있고 confederation 우산형은 단일 debut_date
+        // 자체가 placeholder). Debut Window 카드/섹션을 K-POP(corporate)에만 노출.
+        const groupModel = hs?.breakdown?._group_model ?? "corporate";
+        const isSubculture = groupModel === "segmentary" || groupModel === "confederation";
         const healthHistory: Array<{ snapshot_at: string; total: number | null }> =
           data.health_history ?? [];
         const healthSeries = healthHistory.map((r) => Number(r.total ?? 0)).filter((n) => Number.isFinite(n));
@@ -238,15 +243,17 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
 
           <AlbumLifecycle albums={data.albums ?? []} />
 
-          <section class="rounded-lg border border-zinc-800 p-3">
-            <div class="mb-2 flex flex-wrap items-center gap-2">
-              <h3 class="section-title">Debut Window Video Organicity</h3>
-              <span class="text-hint text-zinc-500">
-                D-60 ~ D+60 윈도우 영상별 organic_score · 판정 (v1 heuristic). 행 클릭 시 signal breakdown.
-              </span>
-            </div>
-            <DebutWindowVideoTable groupKey={groupKey!} />
-          </section>
+          {!isSubculture && (
+            <section class="rounded-lg border border-zinc-800 p-3">
+              <div class="mb-2 flex flex-wrap items-center gap-2">
+                <h3 class="section-title">Debut Window Video Organicity</h3>
+                <span class="text-hint text-zinc-500">
+                  D-60 ~ D+60 윈도우 영상별 organic_score · 판정 (v2.21). 행 클릭 시 signal breakdown.
+                </span>
+              </div>
+              <DebutWindowVideoTable groupKey={groupKey!} />
+            </section>
+          )}
 
 
           <section class="rounded-lg border border-zinc-800 p-3">

@@ -291,7 +291,9 @@ export function MarketOverview() {
                           : "집계 대기"}
                       </span>
                     </div>
-                    <DebutWindowKPI groupKey={key} />
+                    {categoryOf(g.group_model) === "kpop" && (
+                      <DebutWindowKPI groupKey={key} />
+                    )}
                   </button>
                 );
               })}
