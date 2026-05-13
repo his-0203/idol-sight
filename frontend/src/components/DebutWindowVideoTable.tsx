@@ -211,20 +211,20 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
                   <td class="px-2 py-1.5">engagement_score</td>
                   <td class="px-2 py-1.5">(likes+comments)/views</td>
                   <td class="px-2 py-1.5 text-right">0.5</td>
-                  <td class="px-2 py-1.5">≥5.5% (Long) / 3.3% (Shorts)</td>
-                  <td class="px-2 py-1.5">≤0.5% / 0.3%</td>
+                  <td class="px-2 py-1.5">≥6.0% (Long) / 8.0% (Shorts)</td>
+                  <td class="px-2 py-1.5">≤1.0% / 1.5%</td>
                 </tr>
                 <tr class="border-t border-zinc-800/60">
                   <td class="px-2 py-1.5">balance_score</td>
                   <td class="px-2 py-1.5">likes/comments 비율</td>
                   <td class="px-2 py-1.5 text-right">0.3</td>
-                  <td class="px-2 py-1.5">15 ~ 80 (정상대역)</td>
-                  <td class="px-2 py-1.5">&lt;15 댓글농장 / &gt;80 좋아요농장</td>
+                  <td class="px-2 py-1.5">Long 10~50 / Shorts 20~150</td>
+                  <td class="px-2 py-1.5">미만 댓글농장 / 초과 좋아요농장</td>
                 </tr>
                 <tr class="border-t border-zinc-800/60">
                   <td class="px-2 py-1.5">velocity_coherence</td>
                   <td class="px-2 py-1.5">viral_velocity × ER</td>
-                  <td class="px-2 py-1.5 text-right">0.2</td>
+                  <td class="px-2 py-1.5 text-right">0.2 *</td>
                   <td class="px-2 py-1.5">폭발 + 정상 engagement</td>
                   <td class="px-2 py-1.5">폭발인데 engagement 죽음</td>
                 </tr>
@@ -249,8 +249,14 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
             Engagement Rate = (좋아요 + 댓글) / 조회수 (좋아요 단독 수치 아님)
           </div>
 
+          <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-400 text-[11px]">
+            <span class="font-semibold text-zinc-200">* velocity_coherence</span>{" "}
+            데이터(viral_velocity_ratio)는 현재 약 91%의 영상에서 NULL.
+            NULL인 경우 weight 0.2가 engagement(0.625)/balance(0.375)로 재분배됨.
+          </div>
+
           <p class="text-zinc-500 italic text-[11px]">
-            v1 heuristic — verify manually before external use.
+            v2 calibration (2026-05-13, 9그룹 1125영상 분포 기반). verify manually before external use.
           </p>
         </div>
       </div>
