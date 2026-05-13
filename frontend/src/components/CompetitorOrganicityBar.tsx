@@ -51,10 +51,13 @@ function sampleCountFor(row: SummaryRow, mode: Mode): number {
   return row.video_count;
 }
 
+// V2.21 5-tier color scale (matches verdictColor in DebutWindowVideoTable).
 function colorForScore(score: number | null): string {
   if (score === null) return "#6b7280";
+  if (score >= 85) return "#16a34a";
   if (score >= 70) return "#22c55e";
-  if (score >= 40) return "#eab308";
+  if (score >= 55) return "#eab308";
+  if (score >= 40) return "#f97316";
   return "#ef4444";
 }
 

@@ -17,11 +17,14 @@ interface Props {
   groupKey: string;
 }
 
+// V2.21 5-tier color scale (matches verdictColor in DebutWindowVideoTable).
 function colorForScore(score: number | null): string {
-  if (score === null) return "#6b7280";   // gray
-  if (score >= 70) return "#22c55e";       // organic green
-  if (score >= 40) return "#eab308";       // suspect yellow
-  return "#ef4444";                        // likely_paid red
+  if (score === null) return "#6b7280";    // gray (no data)
+  if (score >= 85) return "#16a34a";        // organic_strong
+  if (score >= 70) return "#22c55e";        // organic
+  if (score >= 55) return "#eab308";        // borderline
+  if (score >= 40) return "#f97316";        // suspect
+  return "#ef4444";                          // likely_paid
 }
 
 export function DebutWindowKPI({ groupKey }: Props) {

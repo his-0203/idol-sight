@@ -218,6 +218,26 @@
   white-space: nowrap;
 }
 
+/* V2.21 cause chips — small subdued tags next to verdict pill. */
+.dw-cause-chip {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.65em;
+  font-weight: 500;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  color: #a1a1aa;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.dw-cause-viral_real      { color: #4ade80; border-color: #166534; }
+.dw-cause-engagement_weak { color: #fbbf24; border-color: #78350f; }
+.dw-cause-comment_farm    { color: #fb923c; border-color: #7c2d12; }
+.dw-cause-like_farm       { color: #fb923c; border-color: #7c2d12; }
+.dw-cause-paid_burst      { color: #f87171; border-color: #7f1d1d; }
+
 /* ---------- Help icon button (next to section title) ---------- */
 .dw-help-icon {
   display: inline-flex;

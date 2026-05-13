@@ -21,6 +21,7 @@ interface VideoRow {
   velocity_ratio: number | null;
   organic_score: number | null;
   verdict: string;
+  causes: string | null;
   signal_breakdown: string;
 }
 
@@ -45,7 +46,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
            o.days_relative_to_debut,
            o.view_count, o.like_count, o.comment_count,
            o.engagement_rate, o.like_comment_ratio, o.velocity_ratio,
-           o.organic_score, o.verdict, o.signal_breakdown
+           o.organic_score, o.verdict, o.causes, o.signal_breakdown
     FROM debut_window_video_organicity o
     LEFT JOIN youtube_videos v ON v.video_id = o.video_id
     WHERE o.group_key = ? AND o.window_bucket = ?

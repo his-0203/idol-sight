@@ -17,6 +17,7 @@ interface VideoRow {
   engagement_rate: number | null;
   organic_score: number | null;
   verdict: string;
+  causes: string | null;
   signal_breakdown: string;
 }
 
@@ -24,19 +25,42 @@ interface Props {
   groupKey: string;
 }
 
+// V2.21 5-tier color scale.
 function verdictColor(v: string): string {
+  if (v === "organic_strong") return "#16a34a";
   if (v === "organic")        return "#22c55e";
-  if (v === "suspect")        return "#eab308";
+  if (v === "borderline")     return "#eab308";
+  if (v === "suspect")        return "#f97316";
   if (v === "likely_paid")    return "#ef4444";
   return "#6b7280";  // insufficient_data
 }
 
 function verdictLabelShort(v: string): string {
-  if (v === "organic") return "Organic";
-  if (v === "suspect") return "Suspect";
-  if (v === "likely_paid") return "Likely Paid";
+  if (v === "organic_strong") return "Strong";
+  if (v === "organic")        return "Organic";
+  if (v === "borderline")     return "Border";
+  if (v === "suspect")        return "Suspect";
+  if (v === "likely_paid")    return "Paid";
   if (v === "insufficient_data") return "Insufficient";
   return v;
+}
+
+const CAUSE_LABEL: Record<string, string> = {
+  viral_real:      "viral",
+  engagement_weak: "engagement↓",
+  comment_farm:    "comment-farm",
+  like_farm:       "like-farm",
+  paid_burst:      "paid-burst",
+};
+
+function parseCauses(causes: string | null): string[] {
+  if (!causes) return [];
+  try {
+    const parsed = JSON.parse(causes);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function fmtViews(n: number | null): string {
@@ -144,6 +168,11 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
                               style={{ background: verdictColor(r.verdict) }}>
                           {verdictLabelShort(r.verdict)}
                         </span>
+                        {parseCauses(r.causes).map((c) => (
+                          <span class={"dw-cause-chip dw-cause-" + c} key={c} title={c}>
+                            {CAUSE_LABEL[c] ?? c}
+                          </span>
+                        ))}
                       </td>
                     </tr>
                   );
@@ -233,15 +262,31 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2">
-            <div class="mb-1 font-semibold text-zinc-200">Verdict 임계값</div>
+            <div class="mb-1 font-semibold text-zinc-200">Verdict 임계값 (V2.21 5-tier)</div>
             <ul class="ml-3 list-disc space-y-0.5 text-zinc-400">
-              <li><span style={{ color: "#22c55e" }}>≥70</span> organic 🟢</li>
-              <li><span style={{ color: "#eab308" }}>40–69</span> suspect 🟡</li>
-              <li><span style={{ color: "#ef4444" }}>&lt;40</span> likely_paid 🔴</li>
-              <li><span class="text-zinc-500">insufficient_data</span> ⚪
+              <li><span style={{ color: "#16a34a" }}>≥85</span> organic_strong (확신, viral 케이스 자주 동반)</li>
+              <li><span style={{ color: "#22c55e" }}>70–84</span> organic (자연 호응)</li>
+              <li><span style={{ color: "#eab308" }}>55–69</span> borderline (검토 필요)</li>
+              <li><span style={{ color: "#f97316" }}>40–54</span> suspect (의심)</li>
+              <li><span style={{ color: "#ef4444" }}>&lt;40</span> likely_paid (강한 의심)</li>
+              <li><span class="text-zinc-500">insufficient_data</span>
                 (view &lt; 1000 AND likes+comments &lt; 10)
               </li>
             </ul>
+          </div>
+
+          <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2">
+            <div class="mb-1 font-semibold text-zinc-200">Cause tags (자동 부착)</div>
+            <ul class="ml-3 list-disc space-y-0.5 text-zinc-400">
+              <li><strong>viral</strong> — velocity ≥1.5 + ER ≥3% (진짜 viral, organic에도 부착)</li>
+              <li><strong>engagement↓</strong> — engagement_score &lt; 40 (ER 자체 낮음)</li>
+              <li><strong>comment-farm</strong> — balance &lt; 60 + ratio &lt; normal_lo</li>
+              <li><strong>like-farm</strong> — balance &lt; 60 + ratio &gt; normal_hi</li>
+              <li><strong>paid-burst</strong> — velocity coherence ≤ 20 (view 폭발 vs engagement 빈약)</li>
+            </ul>
+            <p class="mt-1 text-[10px] text-zinc-500">
+              의심 cause는 borderline 이하 verdict 에만 부착. viral 은 verdict 무관.
+            </p>
           </div>
 
           <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-400">
