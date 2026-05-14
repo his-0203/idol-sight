@@ -55,10 +55,14 @@ const TARGET = "miiwan";
 // per group). MiiWAN current baseline = 1.06K subs / 412K views / 81 vid.
 //
 //                   D-30 subs    D-30 views   data_source
-//   1. MY:RAKL      ~1-3K est    n/a          (backfill sparse; earliest
-//                                              filled snapshot 2026-02-04
-//                                              = D+9 with 4.87K subs, so
-//                                              D-30 is lower than that)
+//   1. MY:RAKL      n/a (—)      n/a          (SB archive backfill confirmed
+//                                              channel did not exist before
+//                                              2026-02-04 = D+9. Migration
+//                                              0056 added 100 daily rows
+//                                              2026-02-04~2026-05-14 but
+//                                              D-30 (2025-12-27) is pre-
+//                                              channel — '—' is the correct
+//                                              cell value, not 0)
 //   2. B:DAWN        3,290         593K       backfill_estimate
 //   3. OWIS          4,120         603K       backfill_estimate
 //   4. WEGO-6       11,800          27K       backfill_estimate
