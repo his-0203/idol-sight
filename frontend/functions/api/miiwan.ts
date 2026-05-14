@@ -184,18 +184,30 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     [TARGET, TARGET, TARGET, TARGET, TARGET],
   );
 
-  // 5) Cohort benchmarks anchored at three points in the debut timeline:
-  //    D-30 (approach), D-DAY (debut), D+30 (early growth). Each tab in
-  //    the briefing shows the same comparison groups but anchored at
-  //    that point in their own debut window — gives the strategy team a
-  //    target trajectory ("MiiWAN 현재 vs PLAVE 데뷔 직전 / 데뷔 당일 /
-  //    데뷔 +30").
+  // 5) Cohort benchmarks anchored at seven points in the debut timeline:
+  //    D-30 / D-20 / D-10 (approach), D-DAY (debut), D+10 / D+20 / D+30
+  //    (early growth). Each tab in the briefing shows the same comparison
+  //    groups but anchored at that point in their own debut window — gives
+  //    the strategy team a target trajectory ("MiiWAN 현재 vs PLAVE D-20 /
+  //    D-Day / D+10").
+  //
+  //    V2.22 (2026-05-14): split the prior 3-anchor layout (D-30/D-DAY/D+30)
+  //    into 7 anchors aligned with the Posture bar buckets. Each non-D-DAY
+  //    anchor still uses a monotone pre/post window, so under sparse
+  //    backfill the same snapshot row can resolve into multiple adjacent
+  //    anchor tabs — that's expected (the picker shows "the closest row to
+  //    this anchor on the correct side of debut", not a strict bucket).
   //
   //    Pre-debut peers (debut_date NULL, e.g. WEGOSIX) ignore the anchor
   //    and always show their latest agg_summary — there is no D-DAY for
   //    a group without a debut date.
-  type AnchorKey = "d-30" | "d-day" | "d+30";
-  const ANCHORS: AnchorKey[] = ["d-30", "d-day", "d+30"];
+  type AnchorKey =
+    | "d-30" | "d-20" | "d-10"
+    | "d-day"
+    | "d+10" | "d+20" | "d+30";
+  const ANCHORS: AnchorKey[] = [
+    "d-30", "d-20", "d-10", "d-day", "d+10", "d+20", "d+30",
+  ];
   type BenchmarkRow = {
     group_key: string; name: string; debut_date: string | null;
     snapshot_at: string | null;
@@ -203,32 +215,32 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     summary: Omit<SummaryRow, "group_key" | "snapshot_at"> | null;
   };
   const benchmarksByAnchor: Record<AnchorKey, BenchmarkRow[]> = {
-    "d-30": [], "d-day": [], "d+30": [],
+    "d-30": [], "d-20": [], "d-10": [],
+    "d-day": [],
+    "d+10": [], "d+20": [], "d+30": [],
   };
 
-  // Per-anchor SQL window + target offset. Window restricts us to the
-  // semantically correct side of debut (pre vs post); target offset
-  // picks the closest row inside the window. fill-rate tiebreak from
-  // the original D-30 query is preserved across all anchors.
+  // Per-anchor SQL window + target offset. Pre-debut anchors clamp to
+  // date(snapshot_at) <= debut_date; post-debut clamp the other way; D-DAY
+  // uses a symmetric ±14d window so a sparse week around debut doesn't
+  // accidentally pull in a far-side row that the column header would
+  // mislabel. Target offset picks the closest row inside the window. The
+  // fill-rate tiebreak from the original D-30 query is preserved across
+  // all anchors.
   function anchorQuery(anchor: AnchorKey): { where: string; targetOffset: string } {
-    if (anchor === "d-30") {
-      return {
-        where: "date(snapshot_at) <= date(?)",
-        targetOffset: "-30 days",
-      };
-    }
     if (anchor === "d-day") {
-      // ±14d window so a sparse week of missing snapshots around debut
-      // doesn't accidentally pull in a D-60 or D+60 row that the column
-      // header would mislabel.
       return {
         where: "date(snapshot_at) BETWEEN date(?, '-14 days') AND date(?, '+14 days')",
         targetOffset: "+0 days",
       };
     }
+    const isPre = anchor.startsWith("d-");
+    const offsetDays = parseInt(anchor.slice(2), 10);  // 30 / 20 / 10
     return {
-      where: "date(snapshot_at) >= date(?)",
-      targetOffset: "+30 days",
+      where: isPre
+        ? "date(snapshot_at) <= date(?)"
+        : "date(snapshot_at) >= date(?)",
+      targetOffset: `${isPre ? "-" : "+"}${offsetDays} days`,
     };
   }
 

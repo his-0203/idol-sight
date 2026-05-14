@@ -27,13 +27,20 @@ __all__ = [
 ]
 
 # (label, days_lo_inclusive, days_hi_inclusive). Ranges are non-overlapping
-# and contiguous from -60 (60 days before debut) to +60.
+# and contiguous across the ±30 day debut window. V2.22 (2026-05-14) split
+# the prior 5-bucket (~30d each) scheme into 7 ~10d buckets so the briefing
+# table and Competitive Debut Window Posture can resolve to D-30/D-20/D-10/
+# D-Day/D+10/D+20/D+30. Videos outside ±30d are now skipped (legacy D-60 /
+# D+60 rows remain in the table for historical reference but no new ones
+# are written; the frontend hides them from the picker).
 WINDOW_BUCKETS: list[tuple[str, int, int]] = [
-    ("D-60",  -60, -31),
-    ("D-30",  -30,  -2),
-    ("D-Day",  -1,   1),
-    ("D+30",   2,  30),
-    ("D+60",  31,  60),
+    ("D-30", -30, -21),
+    ("D-20", -20, -11),
+    ("D-10", -10,  -2),
+    ("D-Day", -1,   1),
+    ("D+10",   2,  10),
+    ("D+20",  11,  20),
+    ("D+30",  21,  30),
 ]
 
 # Engagement-rate boundaries (V2 calibrated 2026-05-13 from 1125-video remote

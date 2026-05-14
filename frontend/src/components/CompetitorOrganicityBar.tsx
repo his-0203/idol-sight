@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 
-const BUCKETS = ["D-60", "D-30", "D-Day", "D+30", "D+60"] as const;
+// V2.22 (2026-05-14): split prior 5-bucket layout (D-60/D-30/D-Day/D+30/D+60,
+// each ~30d) into 7 ~10d buckets so the picker resolves to D-30/D-20/D-10/
+// D-Day/D+10/D+20/D+30. Legacy D-60/D+60 rows from earlier cron cycles may
+// still exist in `debut_window_organicity_summary` but are filtered out here.
+const BUCKETS = ["D-30", "D-20", "D-10", "D-Day", "D+10", "D+20", "D+30"] as const;
 type Bucket = typeof BUCKETS[number];
 
 // Score mode = which mean column to render. V2 (migration 0054) adds

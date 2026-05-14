@@ -44,14 +44,30 @@ type Benchmark = {
   summary: SummaryShape | null;
 };
 
-type AnchorKey = "d-30" | "d-day" | "d+30";
+// V2.22 (2026-05-14): split prior 3-anchor (D-30 / D-DAY / D+30) layout into
+// 7 anchors so the briefing surfaces the same 10-day grid as the Posture bar
+// below it. Each anchor reads its own offset from the comparison group's
+// debut_date and the API resolves to the closest snapshot in that direction
+// (±14d window for D-DAY, monotone pre/post window for the rest).
+type AnchorKey =
+  | "d-30" | "d-20" | "d-10"
+  | "d-day"
+  | "d+10" | "d+20" | "d+30";
 const ANCHOR_TABS: Array<{ key: AnchorKey; label: string; description: string }> = [
   { key: "d-30",  label: "D-30",
-    description: "비교 그룹의 데뷔 30일 전 시점 vs MiiWAN 현재. 가장 큰 갭이 다음 콘텐츠 슬롯의 근거." },
+    description: "비교 그룹의 데뷔 30일 전 vs MiiWAN 현재. 베이스라인 누적 단계." },
+  { key: "d-20",  label: "D-20",
+    description: "비교 그룹의 데뷔 20일 전 vs MiiWAN 현재. 가속 진입 구간." },
+  { key: "d-10",  label: "D-10",
+    description: "비교 그룹의 데뷔 10일 전 vs MiiWAN 현재. PR 푸시·콘텐츠 큐 가시화 시점." },
   { key: "d-day", label: "D-DAY",
     description: "비교 그룹의 데뷔 당일 ±14일 vs MiiWAN 현재. MiiWAN이 D-Day까지 도달해야 할 타겟선." },
-  { key: "d+30", label: "D+30",
-    description: "비교 그룹의 데뷔 30일 후 vs MiiWAN 현재. 1개월 트라젝토리 — MiiWAN의 중기 목표 라인." },
+  { key: "d+10",  label: "D+10",
+    description: "비교 그룹의 데뷔 10일 후 vs MiiWAN 현재. 데뷔 후 첫 반응 윈도우." },
+  { key: "d+20",  label: "D+20",
+    description: "비교 그룹의 데뷔 20일 후 vs MiiWAN 현재. 활동 1차 정점/소강 분기점." },
+  { key: "d+30",  label: "D+30",
+    description: "비교 그룹의 데뷔 30일 후 vs MiiWAN 현재. 1개월 트라젝토리 — 중기 목표 라인." },
 ];
 
 type Insight = {

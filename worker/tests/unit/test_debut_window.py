@@ -18,38 +18,48 @@ from idol_sight.analysis.debut_window import (
 )
 
 
-def test_window_buckets_are_5_non_overlapping_ranges():
-    """5 buckets, contiguous from -60 to +60, no overlap."""
-    assert len(WINDOW_BUCKETS) == 5
+def test_window_buckets_are_7_non_overlapping_ranges():
+    """V2.22: 7 buckets, contiguous from -30 to +30, each ~10d wide.
+    Replaces the prior 5-bucket (~30d each) D-60/D-30/D-Day/D+30/D+60 layout
+    so the briefing surfaces finer-grained debut-window posture
+    (D-30/D-20/D-10/D-Day/D+10/D+20/D+30)."""
+    assert len(WINDOW_BUCKETS) == 7
     labels = [b[0] for b in WINDOW_BUCKETS]
-    assert labels == ["D-60", "D-30", "D-Day", "D+30", "D+60"]
-    # Ranges contiguous
-    flat = []
-    for _, lo, hi in WINDOW_BUCKETS:
-        flat.append((lo, hi))
-    assert flat == [(-60, -31), (-30, -2), (-1, 1), (2, 30), (31, 60)]
+    assert labels == ["D-30", "D-20", "D-10", "D-Day", "D+10", "D+20", "D+30"]
+    flat = [(lo, hi) for _, lo, hi in WINDOW_BUCKETS]
+    assert flat == [
+        (-30, -21), (-20, -11), (-10, -2), (-1, 1),
+        (2, 10), (11, 20), (21, 30),
+    ]
 
 
 @pytest.mark.parametrize("days,expected", [
-    (-60, "D-60"),
-    (-45, "D-60"),
-    (-31, "D-60"),
     (-30, "D-30"),
-    (-2, "D-30"),
-    (-1, "D-Day"),
-    (0, "D-Day"),
-    (1, "D-Day"),
-    (2, "D+30"),
-    (30, "D+30"),
-    (31, "D+60"),
-    (60, "D+60"),
+    (-21, "D-30"),
+    (-20, "D-20"),
+    (-15, "D-20"),
+    (-11, "D-20"),
+    (-10, "D-10"),
+    (-2,  "D-10"),
+    (-1,  "D-Day"),
+    (0,   "D-Day"),
+    (1,   "D-Day"),
+    (2,   "D+10"),
+    (10,  "D+10"),
+    (11,  "D+20"),
+    (20,  "D+20"),
+    (21,  "D+30"),
+    (30,  "D+30"),
 ])
 def test_bucket_for_returns_correct_bucket(days, expected):
     assert bucket_for(days) == expected
 
 
-@pytest.mark.parametrize("days", [-61, -100, 61, 100])
+@pytest.mark.parametrize("days", [-31, -60, -100, 31, 60, 100])
 def test_bucket_for_returns_none_outside_window(days):
+    """V2.22: outside ±30d returns None. The fetch SQL still pulls ±60d so
+    legacy D-60/D+60 video_organicity rows remain readable, but new cron
+    cycles skip them at upsert time."""
     assert bucket_for(days) is None
 
 
@@ -259,14 +269,15 @@ def _client(rows_by_sql_substring):
 
 def test_build_video_organicity_filters_window_and_emits_upserts():
     """Reads videos in ±60 day window, scores each, returns upsert statements."""
-    # Two miiwan videos: one inside D-30 window, one outside (D-166)
+    # Two miiwan videos: one inside debut window, one outside (D-166).
+    # V2.22: D-15 lands in D-20 (-20..-11) under the 7-bucket scheme.
     client = _client({
         "FROM youtube_videos": [
             {
                 "video_id": "vid_inside",
                 "group_key": "miiwan",
                 "is_short": 0,
-                "published_at": "2026-06-01T00:00:00Z",  # D-15 → D-30 bucket
+                "published_at": "2026-06-01T00:00:00Z",  # D-15 → D-20 bucket
                 "view_count": 500_000,
                 "like_count": 30_000,
                 "comment_count": 1_000,
@@ -296,8 +307,8 @@ def test_build_video_organicity_filters_window_and_emits_upserts():
     assert "ON CONFLICT(video_id) DO UPDATE" in sqls[0]
     # video_id in first param position
     assert params_list[0][0] == "vid_inside"
-    # window_bucket present (published 2026-06-01 vs debut 2026-06-16 = D-15 → D-30 bucket)
-    assert "D-30" in params_list[0]
+    # window_bucket present (published 2026-06-01 vs debut 2026-06-16 = D-15 → D-20 bucket)
+    assert "D-20" in params_list[0]
     # signal_breakdown is JSON
     breakdown_json = next(p for p in params_list[0] if isinstance(p, str) and p.startswith("{"))
     parsed = json.loads(breakdown_json)
