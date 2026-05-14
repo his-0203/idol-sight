@@ -43,17 +43,40 @@ const TARGET = "miiwan";
 //
 // V2.22.1 (2026-05-14): order rewritten from arbitrary insertion order
 // (plave/skinz/myrakl/owis/bdawn/wegosix) to a 도장깨기 / "next wall to
-// break" sequence — left-to-right is monotone-ascending in estimated
-// D-30 yt_subscribers, so the briefing reads as a ladder MiiWAN climbs.
-// Estimates pulled from memory baselines (V2.11 backfill / V2.16 health /
-// V2.17 calibration). Verify with prod D1 after deploy; reorder if a
-// group's actual D-30 snapshot puts it out of sequence.
-//   1. MY:RAKL  ~1-5K  (smallest, 신생 + sparse backfill)
-//   2. B:DAWN   ~3-10K (corporate K-POP, 백필 44행, D-43~D-day)
-//   3. OWIS     ~5-15K (corporate K-POP, 백필 112 anchor)
-//   4. WEGO-6   ~12.6K (pre-debut latest; MiiWAN 12.6K 와 거의 동일 거울)
-//   5. SKINZ    ~10-30K (1년+ 운영 corporate)
-//   6. PLAVE    ~28K   (시장 1군, 도장깨기 최종 벽)
+// break" sequence — left-to-right is monotone-ascending in MiiWAN's
+// effective gap to each comparison group, so the briefing reads as a
+// ladder MiiWAN climbs through.
+//
+// Distance metric: yt_subscribers is the primary signal, yt_total_views
+// is the tiebreaker (captures "tier-1 K-pop" weight that subs alone miss
+// when a 1군 group has heavy view accumulation per subscriber).
+//
+// Prod D1 verified 2026-05-14 (snapshot at the closest non-NULL D-30 row
+// per group). MiiWAN current baseline = 1.06K subs / 412K views / 81 vid.
+//
+//                   D-30 subs    D-30 views   data_source
+//   1. MY:RAKL      ~1-3K est    n/a          (backfill sparse; earliest
+//                                              filled snapshot 2026-02-04
+//                                              = D+9 with 4.87K subs, so
+//                                              D-30 is lower than that)
+//   2. B:DAWN        3,290         593K       backfill_estimate
+//   3. OWIS          4,120         603K       backfill_estimate
+//   4. WEGO-6       11,800          27K       backfill_estimate
+//   5. SKINZ        27,100         965K       backfill_estimate
+//   6. PLAVE        10,000        21.2M       backfill_estimate
+//
+// PLAVE / SKINZ swap rationale: by subs alone PLAVE (10K) < SKINZ (27K),
+// but PLAVE's D-30 views (21.2M) is 22× SKINZ's (965K) — the 1군 K-pop
+// signal is in cumulative views, not subs. Keeping PLAVE in the rightmost
+// (final wall) slot matches operator intuition. Note the PLAVE D-30 row
+// is Wayback-anchored (sparse) while SKINZ is SB Premium (dense) — the
+// raw subs comparison may be partly an artifact of backfill source
+// asymmetry, not a true ranking inversion.
+//
+// WEGO-6 is a pre-debut peer (debut_date NULL in 0034 seed). It joins
+// the ladder at slot 4 because its latest snapshot's subs (~11.8K) sits
+// between OWIS and SKINZ on the subs axis; the picker shows latest for
+// every anchor tab regardless of D-30 / D-DAY / D+30 selection.
 const BENCHMARK_GROUPS = [
   "myrakl", "bdawn", "owis", "wegosix", "skinz", "plave",
 ] as const;

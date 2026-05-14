@@ -6,6 +6,75 @@
 
 ---
 
+## Change Log
+
+### V2.22 (2026-05-14) — 5-bucket → 7-bucket re-tiering
+
+이 문서의 §2 / §3 / §4 본문은 V2.20 의 5-bucket 정의 (D-60 / D-30 / D-Day /
+D+30 / D+60, 각 ~30일 폭) 기준으로 작성되었으나, V2.22 부터 다음과 같이
+교체되었다. 본문은 historical reference 로 남겨두고 아래 정의가 현재
+canonical 정의다.
+
+**현재 (V2.22) 버킷 정의** — 7개, 각 ~10일 폭, 총 61일 (±30일):
+
+| Bucket  | `days_relative_to_debut` 범위 | 의미                                |
+|---------|------------------------------|-------------------------------------|
+| `D-30`  | `-30 ~ -21`                  | 베이스라인 누적 (티저 사전)         |
+| `D-20`  | `-20 ~ -11`                  | 가속 진입 (멤버 공개 / 콘셉트)      |
+| `D-10`  | `-10 ~ -2`                   | 최종 PR 푸시 (M/V 티저)             |
+| `D-Day` | `-1 ~ +1`                    | 데뷔일 전후 ±1일 (M/V 본편)         |
+| `D+10`  | `+2 ~ +10`                   | 데뷔 후 첫 반응 윈도우              |
+| `D+20`  | `+11 ~ +20`                  | 활동 1차 정점 / 소강 분기점         |
+| `D+30`  | `+21 ~ +30`                  | 1개월 트라젝토리 안정화             |
+
+**변경 영향**:
+- `WINDOW_BUCKETS` (`worker/src/idol_sight/analysis/debut_window.py`) —
+  7-tuple list. ±31~60 영상은 `bucket_for()` None 반환 → 새 cron 부터
+  `debut_window_video_organicity` upsert 제외.
+- `_FETCH_VIDEOS_SQL` 의 ±60일 범위는 유지 (legacy 행 호환).
+- 기존 D-60 / D+60 라벨 행은 `debut_window_organicity_summary` 에 보존,
+  Frontend `BUCKETS` 필터에서만 비노출.
+- `frontend/src/components/CompetitorOrganicityBar.tsx` `BUCKETS` 배열
+  7개로 동기화.
+- `frontend/src/views/MiiWANBriefing.tsx` `ANCHOR_TABS` 3개 → 7개로
+  확장 (코호트 비교 표).
+- `frontend/functions/api/miiwan.ts` `ANCHORS` 7개 + `anchorQuery` 를
+  `isPre + offsetDays` 기반 일반화.
+
+**산식 임계값**: 5-tier verdict (organic_strong ≥85 / organic 70 /
+borderline 55 / suspect 40 / likely_paid <40) + cause tags (V2.21
+calibration) 는 V2.22 에서도 그대로 사용. Bucket 폭이 1/3 로 줄어
+sample size 감소 → 일부 그룹은 N/A 빈도 일시적 ↑. 1주 모니터링 후
+임계값 재조정 가능.
+
+### V2.22.1 (2026-05-14) — 코호트 비교 표 도장깨기 정렬
+
+`BENCHMARK_GROUPS` (`frontend/functions/api/miiwan.ts`) 의 임의 삽입
+순서 (plave/skinz/myrakl/owis/bdawn/wegosix) 를 도장깨기 ladder 로 재배치:
+
+**`myrakl → bdawn → owis → wegosix → skinz → plave`**
+
+좌→우 가 MiiWAN 에서 멀어지는 순서. 1차 신호는 D-30 시점
+`yt_subscribers`, 1군 K-pop 시그널은 `yt_total_views` 누적 (tiebreaker).
+Prod D1 검증 (2026-05-14):
+
+| 그룹    | D-30 subs | D-30 views | data_source        |
+|---------|-----------|------------|--------------------|
+| MY:RAKL | ~1-3K est | n/a        | sparse backfill    |
+| B:DAWN  | 3,290     | 593K       | backfill_estimate  |
+| OWIS    | 4,120     | 603K       | backfill_estimate  |
+| WEGO-6  | 11,800    | 27K        | backfill_estimate  |
+| SKINZ   | 27,100    | 965K       | backfill_estimate  |
+| PLAVE   | 10,000    | 21.2M      | backfill_estimate  |
+
+PLAVE subs 가 SKINZ 보다 작지만 views 가 22× — Wayback 9 anchor 만으로
+백필된 PLAVE 데이터의 sparsity 영향 + 1군 K-pop 시그널은 views 누적 쪽
+이라 PLAVE 가 ladder 최종 슬롯. MY:RAKL 은 D-30 시점 백필 미존재 (가장
+이른 subs-filled snapshot = 2026-02-04 D+9 / 4.87K) — D-30 추정값은
+3K 이하로 단조 ladder 1번 슬롯 유지.
+
+---
+
 ## §1 Problem & Scope
 
 ### 해결하려는 문제
