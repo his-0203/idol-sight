@@ -40,7 +40,23 @@ const TARGET = "miiwan";
 // strategy team a parallel "right-now" reading. Handled separately
 // below: when debut_date is null we pick the latest agg_summary
 // instead of an anchored window.
-const BENCHMARK_GROUPS = ["plave", "skinz", "myrakl", "owis", "bdawn", "wegosix"] as const;
+//
+// V2.22.1 (2026-05-14): order rewritten from arbitrary insertion order
+// (plave/skinz/myrakl/owis/bdawn/wegosix) to a 도장깨기 / "next wall to
+// break" sequence — left-to-right is monotone-ascending in estimated
+// D-30 yt_subscribers, so the briefing reads as a ladder MiiWAN climbs.
+// Estimates pulled from memory baselines (V2.11 backfill / V2.16 health /
+// V2.17 calibration). Verify with prod D1 after deploy; reorder if a
+// group's actual D-30 snapshot puts it out of sequence.
+//   1. MY:RAKL  ~1-5K  (smallest, 신생 + sparse backfill)
+//   2. B:DAWN   ~3-10K (corporate K-POP, 백필 44행, D-43~D-day)
+//   3. OWIS     ~5-15K (corporate K-POP, 백필 112 anchor)
+//   4. WEGO-6   ~12.6K (pre-debut latest; MiiWAN 12.6K 와 거의 동일 거울)
+//   5. SKINZ    ~10-30K (1년+ 운영 corporate)
+//   6. PLAVE    ~28K   (시장 1군, 도장깨기 최종 벽)
+const BENCHMARK_GROUPS = [
+  "myrakl", "bdawn", "owis", "wegosix", "skinz", "plave",
+] as const;
 
 interface GroupRow {
   key: string; name: string; name_kr: string;
