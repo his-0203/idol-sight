@@ -440,12 +440,20 @@
   opacity: 0.55;
   background-image: repeating-linear-gradient(45deg, transparent 0 4px, rgba(0,0,0,0.28) 4px 8px);
 }
+.cob-bar-fill.legacy {
+  opacity: 0.4;
+  background-image: repeating-linear-gradient(135deg, transparent 0 3px, rgba(255,255,255,0.18) 3px 6px);
+  border: 1px dashed rgba(244,244,245,0.35);
+  box-sizing: border-box;
+}
 .cob-score { display: flex; flex-direction: column; align-items: flex-end; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .cob-score-value { font-size: 1em; }
 .cob-current-tag { font-size: 0.65em; color: #a1a1aa; margin-top: 2px; letter-spacing: 0.02em; }
+.cob-current-tag.legacy { color: #fbbf24; font-style: italic; }
 .cob-tag { font-size: 0.7em; color: #fbbf24; }
 .cob-footer { font-size: 0.72em; color: #71717a; margin-top: 12px; }
 .cob-fallback-note { color: #a1a1aa; }
+.cob-fallback-note.legacy { color: #fbbf24; }
 
 @media (max-width: 720px) {
   .cob-row { grid-template-columns: 80px 1fr 60px; }
