@@ -45,8 +45,10 @@ jobs:
       - name: Aggregate (creates today's snapshot, melon NULL on first pass)
         run: uv run python -m idol_sight aggregate --snapshot-at ${{ steps.snap.outputs.snap }}
 
-      - name: Run melon-chart (UPDATE today's snapshot with peak/depth)
-        run: uv run python -m idol_sight melon-chart
+      - name: Run melon-chart (UPDATE today's snapshot with peak/depth + INSERT entries)
+        # V2.23: pass the pinned snap so per-song melon_chart_entries rows
+        # share snapshot_at with the agg_summary row this run targets.
+        run: uv run python -m idol_sight melon-chart --snapshot-at ${{ steps.snap.outputs.snap }}
 
       - name: Aggregate again (conflict + COALESCE preserves melon, recomputes health scores)
         # --skip-derived: stages 2~4 (combined/velocity/reactivity) don't
