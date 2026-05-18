@@ -1,4 +1,5 @@
-"""Melon TOP 100 chart collector (V2.19 — realtime + daily union).
+"""Melon TOP 100 chart collector (V2.19 — realtime + daily union;
+V2.23 — per-song entries).
 
 Fetches both the realtime chart (/chart/index.htm) and the daily chart
 (/chart/day/index.htm), parses each into rows of
@@ -10,6 +11,13 @@ seeded groups, then per group:
 
 Both signals are UPDATEd onto the latest agg_summary row in a single
 statement per group.
+
+V2.23: additionally emits per-song INSERT statements into
+``melon_chart_entries`` (migration 0058) so the frontend can render
+곡 단위 trajectory charts. Each (snapshot_at, group_key, song_id) is a
+single row; the per-song ``source`` field records whether the song
+appeared in realtime / daily / both charts that day. UPSERT on conflict
+so re-runs within the same snapshot_at are idempotent.
 
 Why two charts (V2.19, replaces V2.18 daily-only):
 - Daily alone systematically underrepresents fan-driven multi-song
@@ -39,6 +47,7 @@ import logging
 import re
 from collections import defaultdict
 from collections.abc import Callable
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
@@ -145,11 +154,22 @@ class MelonChartCollector:
         # Per-group fan-out is a no-op — one HTTP fetch covers everything.
         return CollectionResult(0, 0)
 
-    def collect_global(self) -> CollectionResult:
+    def collect_global(self, snapshot_at: str | None = None) -> CollectionResult:
+        """Fetch melon charts + emit batch statements.
+
+        ``snapshot_at`` is the UTC timestamp used for ``melon_chart_entries``
+        rows. When omitted, defaults to the current UTC hour (matches the
+        format ``aggregate`` uses). The workflow pins this to the same
+        value as the aggregate sandwich so entries and agg_summary line up.
+        The agg_summary UPDATE statements continue to target the latest
+        snapshot via subquery — unchanged from V2.19.
+        """
         started = perf_counter()
         seeded = self._groups_loader()
         if not seeded:
             return CollectionResult(0, 0, errors=["no_groups_seeded"])
+
+        snap = snapshot_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
 
         # Fetch both charts independently — partial failure tolerated.
         realtime_rows = parse_chart_html(self._fetch_html(REALTIME_URL) or "")
@@ -159,26 +179,37 @@ class MelonChartCollector:
             return CollectionResult(0, 0, errors=["chart_unreachable"])
 
         # Per group, dedup by song_id and keep the best (lowest) rank
-        # observed across both charts. After accumulation:
+        # observed across both charts. Track which charts the song
+        # appeared in for the per-song ``source`` field. After accumulation:
         #   peak  = min(rank)         per group
         #   depth = len(songs_dict)   per group
-        per_group_songs: dict[str, dict[str, int]] = defaultdict(dict)
-        for row in (*realtime_rows, *daily_rows):
-            sid = row["song_id"]
-            rank = row["rank"]
-            for g in seeded:
-                if not _row_matches_group(row, g):
-                    continue
-                key = g["key"]
-                cur = per_group_songs[key].get(sid)
-                if cur is None or rank < cur:
-                    per_group_songs[key][sid] = rank
+        # song record: {"rank": int, "title": str, "sources": set[str]}
+        per_group_songs: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+        for source_name, rows in (("realtime", realtime_rows), ("daily", daily_rows)):
+            for row in rows:
+                sid = row["song_id"]
+                rank = row["rank"]
+                title = row["song_title"]
+                for g in seeded:
+                    if not _row_matches_group(row, g):
+                        continue
+                    key = g["key"]
+                    cur = per_group_songs[key].get(sid)
+                    if cur is None:
+                        per_group_songs[key][sid] = {
+                            "rank": rank, "title": title,
+                            "sources": {source_name},
+                        }
+                    else:
+                        if rank < cur["rank"]:
+                            cur["rank"] = rank
+                        cur["sources"].add(source_name)
 
         statements: list[tuple[str, list[Any]]] = []
         for key, songs in per_group_songs.items():
             if not songs:
                 continue
-            peak = min(songs.values())
+            peak = min(s["rank"] for s in songs.values())
             depth = len(songs)
             # Update the latest agg_summary row. agg_summary is daily,
             # built by build-agg-summary; we attach both signals to the
@@ -192,10 +223,30 @@ class MelonChartCollector:
                 "  WHERE group_key = ?)",
                 [peak, depth, key, key],
             ))
+            # V2.23: per-song entries. UPSERT so re-runs at the same
+            # snapshot_at (rare — workflow rerun) are idempotent. ``source``
+            # collapses to 'both' when the song appeared in realtime+daily.
+            for sid, song in songs.items():
+                srcs = song["sources"]
+                source_tag = "both" if len(srcs) == 2 else next(iter(srcs))
+                statements.append((
+                    "INSERT INTO melon_chart_entries "
+                    "  (snapshot_at, group_key, song_id, song_title, rank, source) "
+                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(snapshot_at, group_key, song_id) DO UPDATE SET "
+                    "  rank = excluded.rank, "
+                    "  source = excluded.source, "
+                    "  song_title = excluded.song_title",
+                    [snap, key, sid, song["title"], song["rank"], source_tag],
+                ))
 
+        # ``rows_inserted`` historically meant "groups matched". Preserve
+        # that semantic for the existing health/notify wiring: count
+        # distinct groups, not total statements.
+        groups_matched = sum(1 for songs in per_group_songs.values() if songs)
         runtime_ms = int((perf_counter() - started) * 1000)
         return CollectionResult(
-            rows_inserted=len(statements),
+            rows_inserted=groups_matched,
             rows_updated=0,
             statements=statements,
             runtime_ms=runtime_ms,

@@ -401,7 +401,10 @@ def test_build_summary_groups_by_bucket_with_view_weighted_mean():
     assert abs(p[12] - 1/5) < 0.01  # suspect_ratio
     assert abs(p[13] - 1/5) < 0.01  # likely_paid_ratio
     assert p[14] == 1_000_000 + 500_000 + 400_000 + 800_000 + 2_000_000 + 50
-    assert p[15] == 60_000 + 2_000 + 30_000 + 1_000 + 12_000 + 600 + 4_000 + 50 + 10_000 + 100 + 1 + 0
+    assert p[15] == (
+        60_000 + 2_000 + 30_000 + 1_000 + 12_000 + 600
+        + 4_000 + 50 + 10_000 + 100 + 1 + 0
+    )
 
 
 def test_compute_causes_attaches_viral_real_on_organic_strong():

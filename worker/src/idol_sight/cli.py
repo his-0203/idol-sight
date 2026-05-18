@@ -625,16 +625,28 @@ def backfill_yt_history_cmd() -> None:
     "melon-chart",
     help=(
         "Fetch Melon TOP 100 (realtime + daily) and update "
-        "agg_summary.melon_top100_peak / melon_top100_depth."
+        "agg_summary.melon_top100_peak / melon_top100_depth, plus "
+        "INSERT per-song rows into melon_chart_entries."
     ),
 )
-def melon_chart_run() -> None:
+def melon_chart_run(
+    snapshot_at: str | None = typer.Option(
+        None,
+        "--snapshot-at",
+        help=(
+            "UTC timestamp like 2026-05-18T21:00:00Z for the per-song "
+            "melon_chart_entries rows. Defaults to current UTC hour. "
+            "Pin to the aggregate sandwich's snap so entries align with "
+            "the agg_summary row being updated."
+        ),
+    ),
+) -> None:
     settings = load_settings()
     client = _make_d1_client(settings)
     collector = MelonChartCollector(
         groups_loader=lambda: _load_active_groups(client),
     )
-    result = collector.collect_global()
+    result = collector.collect_global(snapshot_at=snapshot_at)
     if result.errors:
         for e in result.errors:
             typer.echo(f"WARN: {e}", err=True)

@@ -8,6 +8,7 @@ import { EmptyState } from "../components/EmptyState";
 import { GroupTabs } from "../components/GroupTabs";
 import { Sparkline } from "../components/Sparkline";
 import { DebutWindowVideoTable } from "../components/DebutWindowVideoTable";
+import { MelonChartHistory } from "../components/MelonChartHistory";
 import { formatKST, formatKSTDate, todayKST, daysBetweenKST } from "../lib/datetime";
 
 // WoW delta helper — null-safe so a missing prev_summary (group has
@@ -242,6 +243,16 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
           <GroupEventTimeline groupKey={groupKey!} />
 
           <AlbumLifecycle albums={data.albums ?? []} />
+
+          <section class="rounded-lg border border-zinc-800 p-3">
+            <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2">
+              <h3 class="section-title">멜론 TOP 100 진입 추이</h3>
+              <span class="text-hint text-zinc-500">
+                곡 단위 daily 순위. Y축 역축(위=상위). 진입 시점은 일 1회(06:00 KST) 갱신.
+              </span>
+            </div>
+            <MelonChartHistory groupKey={groupKey!} />
+          </section>
 
           {!isSubculture && (
             <section class="rounded-lg border border-zinc-800 p-3">
