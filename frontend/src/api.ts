@@ -11,6 +11,8 @@ export const api = {
   marketShare: (weeks = 13) => getJson<any>(`/api/market-share?weeks=${weeks}`),
   group:       (k: string) => getJson<any>(`/api/group/${encodeURIComponent(k)}`),
   members:     (k: string) => getJson<any>(`/api/members/${encodeURIComponent(k)}`),
+  melonHistory: (k: string, days = 30) =>
+    getJson<any>(`/api/melon/${encodeURIComponent(k)}?days=${days}`),
   weekly:      () => getJson<any>("/api/weekly"),
   insights:    (week?: string) =>
     getJson<any>("/api/insights" + (week ? `?week=${encodeURIComponent(week)}` : "")),
