@@ -1,30 +1,28 @@
-"""Melon daily chart collector (V2.24 — daily-only, chart_date 명시).
+"""Melon chart collector (V2.25 — daily + TOP100, chart_type 분기).
 
-V2.24 변경 요약 (vs V2.19/V2.23):
-- realtime(/chart/index.htm) fetch 제거. daily(/chart/day/index.htm)만 사용.
-- ``chart_date`` 명시 (YYYY-MM-DD, KST). snapshot_at(UTC fetch time)은
-  audit/debug용으로만 유지.
-- ``melon_chart_entries.source`` 는 새 row에서 항상 'daily'.
+V2.25 변경 (vs V2.24):
+- TOP100 차트(/chart/index.htm) 적재 복원. 단 V2.19처럼 union 하지 않고
+  ``chart_type`` 컬럼으로 분기 적재 — 일간/탑100 trajectory를 독립 추적.
+- 두 모드 모두 chart_type 인자로 선택. 'daily' 기본.
 
-Why daily-only:
-- 멜론 TOP 100(realtime)은 "직전 1시간 50% + 24시간 누적 50%" 가중치라
-  fetch 시점 노이즈가 큼. 01~07시 KST는 24시간 100%로 전환되어 화력
-  희석. 단일 시점 스냅샷으로 "trajectory"를 재구성하기엔 부적합.
-- 일간차트는 D의 KST 00:00~23:59 24시간 풀집계 — 시점 가중치 없는
-  완성형 데이터. 산업 보고 단위와도 일치 ("○월○일 멜론 일간 ○위").
-- per-song trajectory 분석(V2.23이 도입한 핵심 기능)은 "발매 N일차" 축이
-  자연스러움. 시간별 스냅샷보다 일간 step function 이 노이즈 적음.
+Why 두 모드 (사용자 요청, 2026-05-19):
+- 일간차트(daily, 06 KST): D-1 KST의 24h 풀집계. 시점 가중치 없는 산업
+  표준 단위. "○월○일 ○위" 형식 보고와 일치.
+- TOP100 차트(top100, 22 KST): "직전 1h 50% + 24h 50%" 가중치 차트.
+  22 KST는 저녁 화력의 결산 시점 — 그날 팬덤이 도달시킨 최고 위치를
+  캡처. 일간이 놓치는 화력 정점(realtime depth recovery)을 별도 축으로
+  보존.
+- 같은 곡이 두 차트에 다른 rank로 나타날 수 있고, 두 trajectory를
+  대시보드 탭으로 비교하는 게 인사이트 풀.
 
-Trade-off (수용):
-- realtime depth recovery 손실 (V2.19 PLAVE 사례: daily 1곡 vs realtime 6곡).
-  group-level depth가 한시적으로 낮게 측정됨. 깊은 팬덤 활동의 양 신호는
-  daily 진입곡 수로 한정. 다른 KPI(SOV, engagement)가 이를 보완.
+Schema:
+- chart_type = 'daily' | 'top100' (migration 0060).
+- PK (snapshot_at, group_key, song_id) 그대로. snapshot_at 시각이 21 UTC
+  (daily) vs 13 UTC (top100)라 충돌 없음.
+- source 필드 (V2.23 historical: 'realtime'|'daily'|'both')는 chart_type
+  도입으로 의미가 중복. 새 row는 항상 source='daily' (legacy 유지).
 
-Failure model:
-- 단일 fetch 실패 시 ``chart_unreachable`` 보고. partial fallback 없음
-  (실시간 차트가 사라졌으므로).
-
-Match strategy (unchanged from V2.18~V2.23):
+Match strategy (unchanged from V2.18~V2.24):
 - group의 name / name_kr / aliases 와 row의 artist anchor를 case-folded
   substring match. 솔로/멤버 단독은 매치하지 않음 (그룹 단위 신호).
 """
@@ -47,6 +45,9 @@ from idol_sight.config import GroupConfig
 log = logging.getLogger(__name__)
 
 DAILY_URL = "https://www.melon.com/chart/day/index.htm"
+TOP100_URL = "https://www.melon.com/chart/index.htm"
+
+CHART_TYPE_URLS = {"daily": DAILY_URL, "top100": TOP100_URL}
 
 # KST는 UTC+9 고정 (DST 없음).
 _KST = timezone(timedelta(hours=9))
@@ -128,14 +129,24 @@ def _row_matches_group(row: dict[str, Any], group: dict[str, Any]) -> bool:
     return any(c.casefold() in haystack for c in candidates)
 
 
-def default_chart_date_kst(now_utc: datetime | None = None) -> str:
-    """Cron 기본값: 현재 KST 기준 "어제" 의 일간차트.
+def default_chart_date_kst(
+    now_utc: datetime | None = None,
+    *,
+    chart_type: str = "daily",
+) -> str:
+    """차트 fetch 시점에 의미적으로 맞는 KST 날짜.
 
-    21:00 UTC 실행 시 → KST 06:00 익일 → 어제 KST = UTC 같은 날.
-    임의 시점 실행도 안전하도록 KST로 변환 후 -1일.
+    - daily: 21:00 UTC = KST 06:00 익일 → "어제 KST"의 24h 풀집계가 fetch
+      대상. KST에서 1일 빼기.
+    - top100: 13:00 UTC = KST 22:00 → "오늘 KST"의 22시 시점 가중치 차트.
+      KST 그 날짜.
+
+    임의 시점 실행도 형식적으론 동작하지만 cron이 위 두 시각에 고정.
     """
     now = now_utc or datetime.now(UTC)
     kst = now.astimezone(_KST)
+    if chart_type == "top100":
+        return kst.strftime("%Y-%m-%d")
     return (kst - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
@@ -146,11 +157,11 @@ class MelonChartCollector:
         self,
         fetcher: Any | None = None,
         groups_loader: Callable[[], list[dict]] | None = None,
-        url: str = DAILY_URL,
+        url: str | None = None,
     ):
         self._fetcher = fetcher or Fetcher
         self._groups_loader = groups_loader or (lambda: [])
-        self._url = url
+        self._url_override = url  # 명시 url 지정 시 chart_type 무시.
 
     def collect(self, group: GroupConfig, since: str | None = None) -> CollectionResult:
         # Per-group fan-out is a no-op — one HTTP fetch covers everything.
@@ -160,24 +171,34 @@ class MelonChartCollector:
         self,
         snapshot_at: str | None = None,
         chart_date: str | None = None,
+        chart_type: str = "daily",
     ) -> CollectionResult:
-        """일간차트 fetch → agg_summary UPDATE + per-song INSERT statements.
+        """차트 fetch → agg_summary UPDATE + per-song INSERT statements.
 
         Args:
             snapshot_at: audit/debug 용 UTC fetch 시각 ('YYYY-MM-DDTHH:00:00Z').
                 기본값 = 현재 UTC hour. agg_summary sandwich와 정렬용.
-            chart_date: 이 row가 표현하는 KST 일간차트 날짜 ('YYYY-MM-DD').
-                기본값 = ``default_chart_date_kst()``.
+            chart_date: 이 row가 표현하는 KST 차트 날짜 ('YYYY-MM-DD').
+                기본값 = ``default_chart_date_kst(chart_type=...)``.
+            chart_type: 'daily' (06 KST cron, /chart/day) 또는 'top100'
+                (22 KST cron, /chart/index). melon_chart_entries.chart_type
+                컬럼에 그대로 기록 — 대시보드 탭이 이 값으로 필터.
         """
+        if chart_type not in CHART_TYPE_URLS:
+            raise ValueError(
+                f"chart_type must be one of {sorted(CHART_TYPE_URLS)}, "
+                f"got {chart_type!r}"
+            )
         started = perf_counter()
         seeded = self._groups_loader()
         if not seeded:
             return CollectionResult(0, 0, errors=["no_groups_seeded"])
 
         snap = snapshot_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
-        cdate = chart_date or default_chart_date_kst()
+        cdate = chart_date or default_chart_date_kst(chart_type=chart_type)
+        url = self._url_override or CHART_TYPE_URLS[chart_type]
 
-        rows = parse_chart_html(self._fetch_html(self._url) or "")
+        rows = parse_chart_html(self._fetch_html(url) or "")
         if not rows:
             return CollectionResult(0, 0, errors=["chart_unreachable"])
 
@@ -205,32 +226,36 @@ class MelonChartCollector:
                 continue
             peak = min(s["rank"] for s in songs.values())
             depth = len(songs)
-            # Update the latest agg_summary row. agg_summary is daily,
-            # built by build-agg-summary; we attach both signals to the
-            # most recent snapshot.
-            statements.append((
-                "UPDATE agg_summary SET melon_top100_peak = ?, "
-                "melon_top100_depth = ? "
-                "WHERE group_key = ? AND snapshot_at = ("
-                "  SELECT MAX(snapshot_at) FROM agg_summary "
-                "  WHERE group_key = ?)",
-                [peak, depth, key, key],
-            ))
-            # V2.24: per-song entries. source='daily' 고정.
-            # PK (snapshot_at, group_key, song_id) — 같은 snap 내 idempotent.
-            # chart_date는 별도 컬럼 (migration 0059).
+            # agg_summary.melon_top100_peak/depth는 일간차트 기준으로만 갱신.
+            # TOP100 22 KST run은 이 UPDATE를 건너뛴다 — V2.18→V2.19 시절의
+            # union으로 다시 회귀하지 않기 위함. group-level KPI는 daily
+            # 표준 단위로 유지하고 TOP100 trajectory는 별도 탭으로만 보여줌.
+            if chart_type == "daily":
+                statements.append((
+                    "UPDATE agg_summary SET melon_top100_peak = ?, "
+                    "melon_top100_depth = ? "
+                    "WHERE group_key = ? AND snapshot_at = ("
+                    "  SELECT MAX(snapshot_at) FROM agg_summary "
+                    "  WHERE group_key = ?)",
+                    [peak, depth, key, key],
+                ))
+            # V2.25: per-song entries — chart_type 컬럼 명시.
+            # PK (snapshot_at, group_key, song_id) — daily(21 UTC) vs
+            # top100(13 UTC) 시각 다르므로 같은 그룹/곡 두 row 공존.
             for sid, song in songs.items():
                 statements.append((
                     "INSERT INTO melon_chart_entries "
                     "  (snapshot_at, group_key, song_id, song_title, rank, "
-                    "   source, chart_date) "
-                    "VALUES (?, ?, ?, ?, ?, 'daily', ?) "
+                    "   source, chart_date, chart_type) "
+                    "VALUES (?, ?, ?, ?, ?, 'daily', ?, ?) "
                     "ON CONFLICT(snapshot_at, group_key, song_id) DO UPDATE SET "
                     "  rank = excluded.rank, "
                     "  source = excluded.source, "
                     "  song_title = excluded.song_title, "
-                    "  chart_date = excluded.chart_date",
-                    [snap, key, sid, song["title"], song["rank"], cdate],
+                    "  chart_date = excluded.chart_date, "
+                    "  chart_type = excluded.chart_type",
+                    [snap, key, sid, song["title"], song["rank"],
+                     cdate, chart_type],
                 ))
 
         groups_matched = sum(1 for songs in per_group_songs.values() if songs)

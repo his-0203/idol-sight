@@ -246,8 +246,9 @@ def test_entries_emit_one_insert_per_distinct_song():
 
 
 def test_entries_source_is_always_daily():
-    """V2.24 source 필드는 항상 'daily' (realtime/both 사라짐).
-    SQL literal에 'daily' 가 있고, params 에는 source 인덱스 없음."""
+    """source 필드는 항상 'daily' SQL literal (V2.24~). chart_type 컬럼이
+    별도로 'daily'|'top100' 분기 표시 (V2.25).
+    params layout (V2.25): [snap, key, sid, title, rank, chart_date, chart_type]."""
     fetcher = _fetcher_with(_DAILY_HTML)
     c = MelonChartCollector(fetcher=fetcher, groups_loader=lambda: [_PLAVE])
     res = c.collect_global(
@@ -256,9 +257,9 @@ def test_entries_source_is_always_daily():
     entries = _entry_stmts(res.statements)
     assert entries
     for sql, params in entries:
-        assert "'daily'" in sql
-        # params layout (V2.24): [snap, key, sid, title, rank, chart_date]
-        assert len(params) == 6
+        assert "'daily'" in sql  # source literal
+        assert "chart_type" in sql
+        assert len(params) == 7
 
 
 def test_entries_chart_date_is_propagated():
@@ -330,3 +331,63 @@ def test_entries_upsert_on_conflict_includes_chart_date():
     assert "ON CONFLICT" in sql
     assert "rank = excluded.rank" in sql
     assert "chart_date = excluded.chart_date" in sql
+    assert "chart_type = excluded.chart_type" in sql
+
+
+# ─── V2.25 chart_type ='top100' 모드 ────────────────────────────────────
+
+
+def test_top100_mode_fetches_realtime_url():
+    """chart_type='top100' → /chart/index.htm fetch."""
+    fetcher = _fetcher_with(_DAILY_HTML)  # 동일 fixture 재사용
+    c = MelonChartCollector(fetcher=fetcher, groups_loader=lambda: [_PLAVE])
+    c.collect_global(chart_date="2026-05-15", chart_type="top100")
+    urls = [call.args[0] for call in fetcher.get.call_args_list]
+    assert urls and "/chart/index.htm" in urls[0]
+    assert all("/chart/day/" not in u for u in urls)
+
+
+def test_top100_mode_skips_agg_summary_update():
+    """top100 run은 agg_summary peak/depth UPDATE를 emit하지 않는다 —
+    group-level KPI는 daily 표준 단위로만 유지."""
+    fetcher = _fetcher_with(_DAILY_HTML)
+    c = MelonChartCollector(fetcher=fetcher, groups_loader=lambda: [_PLAVE])
+    res = c.collect_global(
+        snapshot_at="2026-05-15T13:00:00Z",
+        chart_date="2026-05-15",
+        chart_type="top100",
+    )
+    assert _update_stmts(res.statements) == []
+    # 그러나 entry INSERT는 정상.
+    assert _entry_stmts(res.statements)
+
+
+def test_top100_entries_carry_chart_type_top100():
+    fetcher = _fetcher_with(_DAILY_HTML)
+    c = MelonChartCollector(fetcher=fetcher, groups_loader=lambda: [_PLAVE])
+    res = c.collect_global(
+        snapshot_at="2026-05-15T13:00:00Z",
+        chart_date="2026-05-15",
+        chart_type="top100",
+    )
+    entries = _entry_stmts(res.statements)
+    assert entries
+    # params layout: [snap, key, sid, title, rank, chart_date, chart_type]
+    chart_types = {p[6] for _, p in entries}
+    assert chart_types == {"top100"}
+
+
+def test_invalid_chart_type_raises():
+    import pytest
+    fetcher = _fetcher_with(_DAILY_HTML)
+    c = MelonChartCollector(fetcher=fetcher, groups_loader=lambda: [_PLAVE])
+    with pytest.raises(ValueError):
+        c.collect_global(chart_type="bogus")
+
+
+def test_default_chart_date_top100_is_today_kst():
+    """top100 default chart_date = 오늘 KST (어제 아님)."""
+    from datetime import UTC, datetime
+    now_utc = datetime(2026, 5, 19, 13, 0, tzinfo=UTC)  # KST 22:00
+    assert default_chart_date_kst(now_utc, chart_type="top100") == "2026-05-19"
+    assert default_chart_date_kst(now_utc, chart_type="daily")  == "2026-05-18"

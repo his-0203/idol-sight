@@ -624,9 +624,9 @@ def backfill_yt_history_cmd() -> None:
 @app.command(
     "melon-chart",
     help=(
-        "Fetch Melon 일간차트 (V2.24 daily-only) and update "
-        "agg_summary.melon_top100_peak / melon_top100_depth, plus "
-        "INSERT per-song rows into melon_chart_entries (with chart_date)."
+        "Fetch Melon 차트 (V2.25 — daily 또는 top100). chart_type=daily 시 "
+        "agg_summary.melon_top100_peak/depth UPDATE; top100 시 UPDATE 생략. "
+        "두 모드 모두 melon_chart_entries에 per-song INSERT (chart_type 명시)."
     ),
 )
 def melon_chart_run(
@@ -644,10 +644,14 @@ def melon_chart_run(
         None,
         "--chart-date",
         help=(
-            "KST 일간차트 날짜 'YYYY-MM-DD'. 기본값 = 현재 KST 기준 어제 "
-            "(default_chart_date_kst). 21:00 UTC cron 실행 시 fetch되는 "
-            "차트는 어제 KST = UTC 같은 날의 일간차트."
+            "KST 차트 날짜 'YYYY-MM-DD'. 기본값 = chart_type에 맞춰 "
+            "default_chart_date_kst. daily는 어제 KST, top100은 오늘 KST."
         ),
+    ),
+    chart_type: str = typer.Option(
+        "daily",
+        "--type",
+        help="'daily' (06 KST, /chart/day) 또는 'top100' (22 KST, /chart).",
     ),
 ) -> None:
     settings = load_settings()
@@ -656,7 +660,9 @@ def melon_chart_run(
         groups_loader=lambda: _load_active_groups(client),
     )
     result = collector.collect_global(
-        snapshot_at=snapshot_at, chart_date=chart_date,
+        snapshot_at=snapshot_at,
+        chart_date=chart_date,
+        chart_type=chart_type,
     )
     if result.errors:
         for e in result.errors:
@@ -664,8 +670,8 @@ def melon_chart_run(
     if result.statements:
         client.batch(result.statements)
     typer.echo(
-        f"melon-chart: matched {result.rows_inserted} groups in "
-        f"{result.runtime_ms}ms"
+        f"melon-chart({chart_type}): matched {result.rows_inserted} groups "
+        f"in {result.runtime_ms}ms"
     )
     raise typer.Exit(code=0 if result.statements or not result.errors else 1)
 
