@@ -138,12 +138,13 @@ def build_backfill_statements(
             stmts.append((
                 "INSERT INTO melon_chart_entries "
                 "  (snapshot_at, group_key, song_id, song_title, rank, "
-                "   source, chart_date) "
-                "VALUES (?, ?, ?, ?, ?, 'daily', ?) "
+                "   source, chart_date, chart_type) "
+                "VALUES (?, ?, ?, ?, ?, 'daily', ?, 'daily') "
                 "ON CONFLICT(snapshot_at, group_key, song_id) DO UPDATE SET "
                 "  rank = excluded.rank, "
                 "  song_title = excluded.song_title, "
-                "  chart_date = excluded.chart_date",
+                "  chart_date = excluded.chart_date, "
+                "  chart_type = excluded.chart_type",
                 [snap, key, sid, song["title"], song["rank"], chart_date],
             ))
     return stmts

@@ -83,6 +83,7 @@ cd frontend && wrangler pages deploy dist
 - Sentiment 양극성 분류, 음원 dive curve, MiiWAN D-30 카운트다운, Discord 알림 임계값
 - group_events 테이블 + ~85개 historical event seed (migration 0017)
 - **V2.24 (2026-05-19)**: 멜론 일간차트 전환. realtime 폐기, `melon-chart` workflow가 일간차트만 fetch. `melon_chart_entries.chart_date` 컬럼 신설 (migration 0059) — fetch 시각(snapshot_at, UTC)과 차트 본 날짜(KST)를 분리. 1회성 백필은 `cli.py melon-chart-backfill` (guyso.me 아카이브 기반). source 필드는 신규 row 항상 'daily'.
+- **V2.25 (2026-05-19)**: TOP100 차트 22 KST 1회 적재 복원 — 일간(06 KST)과 별도 trajectory. `chart_type` 컬럼 추가 (migration 0060, 'daily'|'top100'). `melon-chart --type top100` CLI + `melon-top100.yml` workflow (cron `0 13 * * *`). API `/api/melon/:key?type=daily|top100`. 프런트엔드 GroupContent에 탭 UI. agg_summary.melon_top100_peak/depth는 daily만 갱신 (V2.18→V2.19 union 회귀 방지).
 
 **다음 단계 (우선순위)**: S급 5개 (RBAC + Cloudflare Access, 감사 로그, 본체 마스킹, 라이브 CCV/슈퍼챗 collector, 티켓 매진속도 collector). 자세한 우선순위는 대화 컨텍스트 또는 v2-roadmap.md 참고.
 

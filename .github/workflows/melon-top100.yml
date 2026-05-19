@@ -1,0 +1,53 @@
+name: melon-top100
+# V2.25 매일 22:00 KST 시점의 TOP100 차트 1회 스냅샷.
+# 일간차트(melon-chart.yml, 06 KST)와 별개 trajectory로 적재.
+# Why 22 KST: "직전 1h 50% + 24h 50%" 가중치 차트에서 저녁 화력의 결산
+# 시점. 19~21시 퇴근 후 화력 정점이 직전 1h 가중에 반영되어 그날 팬덤이
+# 도달시킨 최고 위치를 캡처.
+on:
+  schedule:
+    # 13:00 UTC = 22:00 KST 매일.
+    # melon-chart.yml(21 UTC)과 충분히 떨어져 있어 aggregate sandwich 충돌
+    # 없음. 또 collect-daily(12:30 UTC)와도 30분 갭이라 안전.
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    # melon-chart.yml은 25분(aggregate sandwich 3단계). top100은 melon
+    # fetch만 하면 되어 5분이면 충분하지만 마진 포함 10분.
+    timeout-minutes: 10
+    defaults: { run: { working-directory: worker } }
+    env:
+      CF_ACCOUNT_ID:    ${{ secrets.CF_ACCOUNT_ID }}
+      CF_D1_DB_ID:      ${{ secrets.CF_D1_DB_ID }}
+      CF_API_TOKEN:     ${{ secrets.CF_API_TOKEN }}
+      DISCORD_WEBHOOK:  ${{ secrets.DISCORD_WEBHOOK }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+      - run: uv run scrapling install
+
+      - name: Pin snapshot_at + chart_date for this run
+        id: snap
+        working-directory: .
+        # snap = 현재 UTC hour (13:00:00Z 예상).
+        # chart_date = 오늘 KST (TZ 변환). top100은 fetch 시점 차트라 "오늘"
+        # 이 의미적으로 맞다.
+        run: |
+          echo "snap=$(date -u +%Y-%m-%dT%H:00:00Z)" >> "$GITHUB_OUTPUT"
+          echo "chart_date=$(TZ=Asia/Seoul date +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Run melon-chart --type top100
+        # agg_summary UPDATE 안 함 (collector가 chart_type='daily'만 UPDATE).
+        # aggregate sandwich 불필요 — 순수 melon_chart_entries INSERT.
+        run: |
+          uv run python -m idol_sight melon-chart \
+            --type top100 \
+            --snapshot-at ${{ steps.snap.outputs.snap }} \
+            --chart-date ${{ steps.snap.outputs.chart_date }}
+
+      - if: failure()
+        run: uv run python -m idol_sight notify-fail --job 'melon-top100'
