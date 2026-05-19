@@ -1,0 +1,50 @@
+name: backfill-melon-chart
+# V2.24 일간차트 1회성 백필. 멜론 공식이 dayTime을 무시해 직접 백필 불가
+# 해서 guyso.me 아카이브 사이트를 데이터 소스로 사용. gap-fill 전용 —
+# 이미 chart_date에 데이터가 있는 날은 skip되므로 재실행해도 안전.
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "시작 chart_date (YYYY-MM-DD, inclusive)"
+        required: true
+        type: string
+      end:
+        description: "종료 chart_date (YYYY-MM-DD, inclusive)"
+        required: true
+        type: string
+      top_n:
+        description: "rank 상위 N (forward collector 정합 위해 100 권장)"
+        default: "100"
+        required: false
+        type: string
+      dry_run:
+        description: "true = D1 쓰기 없이 매칭 결과만 출력"
+        default: "false"
+        required: false
+        type: choice
+        options: ["false", "true"]
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    # 90일치 ≈ 3~5분 (guyso.me fetch + 매칭). margin 포함 30분.
+    timeout-minutes: 30
+    defaults: { run: { working-directory: worker } }
+    env:
+      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+      CF_D1_DB_ID:   ${{ secrets.CF_D1_DB_ID }}
+      CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+      - run: uv run scrapling install
+
+      - name: Run melon-chart-backfill
+        run: |
+          ARGS="--start ${{ inputs.start }} --end ${{ inputs.end }} --top ${{ inputs.top_n }}"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          uv run python -m idol_sight melon-chart-backfill $ARGS

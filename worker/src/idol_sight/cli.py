@@ -624,9 +624,9 @@ def backfill_yt_history_cmd() -> None:
 @app.command(
     "melon-chart",
     help=(
-        "Fetch Melon TOP 100 (realtime + daily) and update "
+        "Fetch Melon 일간차트 (V2.24 daily-only) and update "
         "agg_summary.melon_top100_peak / melon_top100_depth, plus "
-        "INSERT per-song rows into melon_chart_entries."
+        "INSERT per-song rows into melon_chart_entries (with chart_date)."
     ),
 )
 def melon_chart_run(
@@ -640,13 +640,24 @@ def melon_chart_run(
             "the agg_summary row being updated."
         ),
     ),
+    chart_date: str | None = typer.Option(
+        None,
+        "--chart-date",
+        help=(
+            "KST 일간차트 날짜 'YYYY-MM-DD'. 기본값 = 현재 KST 기준 어제 "
+            "(default_chart_date_kst). 21:00 UTC cron 실행 시 fetch되는 "
+            "차트는 어제 KST = UTC 같은 날의 일간차트."
+        ),
+    ),
 ) -> None:
     settings = load_settings()
     client = _make_d1_client(settings)
     collector = MelonChartCollector(
         groups_loader=lambda: _load_active_groups(client),
     )
-    result = collector.collect_global(snapshot_at=snapshot_at)
+    result = collector.collect_global(
+        snapshot_at=snapshot_at, chart_date=chart_date,
+    )
     if result.errors:
         for e in result.errors:
             typer.echo(f"WARN: {e}", err=True)
@@ -657,6 +668,80 @@ def melon_chart_run(
         f"{result.runtime_ms}ms"
     )
     raise typer.Exit(code=0 if result.statements or not result.errors else 1)
+
+
+@app.command(
+    "melon-chart-backfill",
+    help=(
+        "V2.24 1회성 일간차트 백필. guyso.me 아카이브에서 [start..end] 범위의 "
+        "일간차트를 가져와 비어있는 chart_date에만 INSERT. 멜론 공식이 dayTime "
+        "파라미터를 무시해 직접 백필 불가하므로 3rd-party 아카이브 사용."
+    ),
+)
+def melon_chart_backfill_cmd(
+    start: str = typer.Option(
+        ..., "--start",
+        help="시작 chart_date (YYYY-MM-DD, inclusive).",
+    ),
+    end: str = typer.Option(
+        ..., "--end",
+        help="종료 chart_date (YYYY-MM-DD, inclusive).",
+    ),
+    top_n: int = typer.Option(
+        100, "--top",
+        help="rank 상위 N까지만 적재. forward collector와 정합 위해 default 100.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="D1 쓰기 없이 매칭 결과만 출력.",
+    ),
+) -> None:
+    from idol_sight.collectors.melon_backfill import (
+        build_backfill_statements,
+        daterange,
+        existing_chart_dates,
+        fetch_guyso_daily,
+    )
+
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    seeded = _load_active_groups(client)
+    if not seeded:
+        typer.echo("no active groups seeded", err=True)
+        raise typer.Exit(code=1)
+
+    dates = daterange(start, end)
+    skip = existing_chart_dates(client, start, end)
+    targets = [d for d in dates if d not in skip]
+    typer.echo(
+        f"backfill window: {start}..{end} ({len(dates)}d), "
+        f"already filled: {len(skip)}, will fetch: {len(targets)}"
+    )
+
+    total_stmts = 0
+    failed_dates: list[str] = []
+    for d in targets:
+        rows = fetch_guyso_daily(d)
+        if rows is None:
+            failed_dates.append(d)
+            typer.echo(f"  {d}: FETCH FAILED", err=True)
+            continue
+        stmts = build_backfill_statements(d, rows, seeded, top_n=top_n)
+        total_stmts += len(stmts)
+        typer.echo(
+            f"  {d}: parsed {len(rows)} entries → {len(stmts)} insert stmts"
+        )
+        if stmts and not dry_run:
+            client.batch(stmts)
+
+    typer.echo(
+        f"melon-chart-backfill: {len(targets) - len(failed_dates)} dates "
+        f"processed, {total_stmts} statements"
+        + (" (DRY RUN, nothing written)" if dry_run else "")
+    )
+    if failed_dates:
+        typer.echo(f"failed dates: {', '.join(failed_dates)}", err=True)
+        raise typer.Exit(code=1)
 
 
 @app.command(

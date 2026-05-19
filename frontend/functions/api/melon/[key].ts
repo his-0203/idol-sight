@@ -2,10 +2,16 @@ import { d1Query, type D1Database } from "../../lib/d1";
 import { jsonResponse } from "../../lib/jsonResponse";
 
 // GET /api/melon/:key?days=30
-//   Returns per-song melon TOP 100 trajectories for the requested group
+//   Returns per-song melon 일간차트 trajectories for the requested group
 //   over the last `days` (default 30, clamped 7..120). The series carry
-//   one point per snapshot the song was charting; gaps = chart-out days
+//   one point per chart_date the song was charting; gaps = chart-out days
 //   (the frontend renders these as line breaks).
+//
+// V2.24: date axis uses chart_date (migration 0059) — 일간차트 본래
+// 날짜(KST). 이전엔 snapshot_at.slice(0,10)(UTC fetch date) 사용했는데
+// fetch 시각과 차트 본 날짜가 1일 어긋날 수 있어 trajectory가 미세하게
+// 비뚤어졌다. chart_date 우선, NULL fallback으로 snapshot_at 사용
+// (V2.23 이전 rows 대비, migration 0059이 백필했지만 안전망).
 //
 // Response shape (consumed by MelonChartHistory.tsx):
 // {
@@ -20,6 +26,7 @@ import { jsonResponse } from "../../lib/jsonResponse";
 // }
 
 type EntryRow = {
+  chart_date: string | null;
   snapshot_at: string;
   song_id: string;
   song_title: string;
@@ -27,7 +34,8 @@ type EntryRow = {
   source: "realtime" | "daily" | "both";
 };
 
-const dayOf = (iso: string) => iso.slice(0, 10);
+const dayOf = (r: EntryRow): string =>
+  r.chart_date ?? r.snapshot_at.slice(0, 10);
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
   env, params, request,
@@ -39,17 +47,22 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
     ? Math.min(120, Math.max(7, Math.trunc(daysParam)))
     : 30;
 
-  // Cutoff = days ago at 00:00 UTC. SQLite/D1 lexicographic compare on
-  // ISO-8601 is correct for this column.
+  // Cutoff date — days ago in UTC date form (YYYY-MM-DD). chart_date
+  // is YYYY-MM-DD, snapshot_at is full ISO. We compare against the
+  // larger column (snapshot_at) with the cutoff ISO timestamp; the
+  // ORDER BY uses COALESCE for stable chronological sort.
   const cutoffMs = Date.now() - days * 86400_000;
   const cutoff = new Date(cutoffMs).toISOString().slice(0, 13) + ":00:00Z";
+  const cutoffDate = cutoff.slice(0, 10);
 
   const rows = await d1Query<EntryRow>(env.DB,
-    `SELECT snapshot_at, song_id, song_title, rank, source
+    `SELECT chart_date, snapshot_at, song_id, song_title, rank, source
        FROM melon_chart_entries
-      WHERE group_key = ? AND snapshot_at >= ?
-      ORDER BY snapshot_at ASC, rank ASC`,
-    [key, cutoff]);
+      WHERE group_key = ?
+        AND COALESCE(chart_date, substr(snapshot_at, 1, 10)) >= ?
+      ORDER BY COALESCE(chart_date, substr(snapshot_at, 1, 10)) ASC,
+               rank ASC`,
+    [key, cutoffDate]);
 
   // Group by song_id → trajectory. song_title can drift across days
   // (rare retitle) — keep the latest title seen.
@@ -67,7 +80,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
       bySong.set(r.song_id, s);
     }
     s.song_title = r.song_title;
-    s.series.push({ date: dayOf(r.snapshot_at), rank: r.rank, source: r.source });
+    s.series.push({ date: dayOf(r), rank: r.rank, source: r.source });
     s.sources.add(r.source);
   }
 
@@ -96,18 +109,25 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
   });
 
   // Daily roll-up — useful for the KPI card (max depth, avg peak).
-  const byDay = new Map<string, { date: string; peak: number; depth: number }>();
+  // depth uses distinct song_id per chart_date — same song appearing
+  // twice on the same day (impossible w/ daily-only, but defensive)
+  // shouldn't inflate depth.
+  const byDay = new Map<string, {
+    date: string; peak: number; songs: Set<string>;
+  }>();
   for (const r of rows) {
-    const d = dayOf(r.snapshot_at);
+    const d = dayOf(r);
     let agg = byDay.get(d);
     if (!agg) {
-      agg = { date: d, peak: r.rank, depth: 0 };
+      agg = { date: d, peak: r.rank, songs: new Set() };
       byDay.set(d, agg);
     }
     if (r.rank < agg.peak) agg.peak = r.rank;
-    agg.depth += 1;
+    agg.songs.add(r.song_id);
   }
-  const daily_summary = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const daily_summary = [...byDay.values()]
+    .map(d => ({ date: d.date, peak: d.peak, depth: d.songs.size }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 
   const start = daily_summary[0]?.date ?? null;
   const end = daily_summary[daily_summary.length - 1]?.date ?? null;
