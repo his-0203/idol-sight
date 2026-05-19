@@ -250,6 +250,16 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
         />
       )}
 
+      {/* Canvas는 항상 DOM에 존재 — 데이터 도착 시 effect가 chart 생성.
+          조건부 마운트 시 ref attach와 useEffect[data] 실행 사이 race로
+          chart가 안 그려지던 V2.24 issue 회피 (DebutCurve.tsx와 동일 패턴). */}
+      <div
+        class="h-64 md:h-80"
+        style={{ display: !loading && data && vm ? "block" : "none" }}
+      >
+        <canvas ref={canvas}></canvas>
+      </div>
+
       {!loading && data && vm && (
         <>
           <div class="text-xs text-zinc-500">
@@ -286,8 +296,6 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
               <div class="text-xs text-zinc-500">진입 곡 총수 ({days}d)</div>
             </div>
           </div>
-
-          <div class="h-64 md:h-80"><canvas ref={canvas}></canvas></div>
 
           <div class="overflow-x-auto">
             <table class="w-full text-xs">
