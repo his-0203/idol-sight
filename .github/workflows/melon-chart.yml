@@ -37,18 +37,26 @@ jobs:
       - run: uv sync --frozen
       - run: uv run scrapling install
 
-      - name: Pin snapshot_at for this run
+      - name: Pin snapshot_at + chart_date for this run
         id: snap
         working-directory: .
-        run: echo "snap=$(date -u +%Y-%m-%dT%H:00:00Z)" >> "$GITHUB_OUTPUT"
+        # snap = 현재 UTC hour (audit/debug용).
+        # chart_date = "어제 KST" (멜론 일간차트가 표현하는 날짜).
+        #   21:00 UTC cron 실행 시 KST = 익일 06:00이라
+        #   "어제 KST" = UTC 같은 날짜와 일치 → date -u +%F.
+        #   다른 시각 실행 시에도 collector의 default_chart_date_kst() 가
+        #   알아서 처리하지만 idempotency를 위해 명시 전달.
+        run: |
+          echo "snap=$(date -u +%Y-%m-%dT%H:00:00Z)" >> "$GITHUB_OUTPUT"
+          echo "chart_date=$(TZ=Asia/Seoul date -d 'yesterday' +%F)" >> "$GITHUB_OUTPUT"
 
       - name: Aggregate (creates today's snapshot, melon NULL on first pass)
         run: uv run python -m idol_sight aggregate --snapshot-at ${{ steps.snap.outputs.snap }}
 
       - name: Run melon-chart (UPDATE today's snapshot with peak/depth + INSERT entries)
-        # V2.23: pass the pinned snap so per-song melon_chart_entries rows
-        # share snapshot_at with the agg_summary row this run targets.
-        run: uv run python -m idol_sight melon-chart --snapshot-at ${{ steps.snap.outputs.snap }}
+        # V2.24: --chart-date 명시. snap은 fetch 시각, chart_date는
+        # 일간차트 본래 날짜 (KST 어제).
+        run: uv run python -m idol_sight melon-chart --snapshot-at ${{ steps.snap.outputs.snap }} --chart-date ${{ steps.snap.outputs.chart_date }}
 
       - name: Aggregate again (conflict + COALESCE preserves melon, recomputes health scores)
         # --skip-derived: stages 2~4 (combined/velocity/reactivity) don't

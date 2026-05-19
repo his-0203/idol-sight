@@ -1,43 +1,32 @@
-"""Melon TOP 100 chart collector (V2.19 — realtime + daily union;
-V2.23 — per-song entries).
+"""Melon daily chart collector (V2.24 — daily-only, chart_date 명시).
 
-Fetches both the realtime chart (/chart/index.htm) and the daily chart
-(/chart/day/index.htm), parses each into rows of
-(rank, song_id, song_title, artist_names), matches each row against our
-seeded groups, then per group:
+V2.24 변경 요약 (vs V2.19/V2.23):
+- realtime(/chart/index.htm) fetch 제거. daily(/chart/day/index.htm)만 사용.
+- ``chart_date`` 명시 (YYYY-MM-DD, KST). snapshot_at(UTC fetch time)은
+  audit/debug용으로만 유지.
+- ``melon_chart_entries.source`` 는 새 row에서 항상 'daily'.
 
-  peak  = min(rank)                across the union
-  depth = count(distinct song_id)  across the union (dedup by song_id)
+Why daily-only:
+- 멜론 TOP 100(realtime)은 "직전 1시간 50% + 24시간 누적 50%" 가중치라
+  fetch 시점 노이즈가 큼. 01~07시 KST는 24시간 100%로 전환되어 화력
+  희석. 단일 시점 스냅샷으로 "trajectory"를 재구성하기엔 부적합.
+- 일간차트는 D의 KST 00:00~23:59 24시간 풀집계 — 시점 가중치 없는
+  완성형 데이터. 산업 보고 단위와도 일치 ("○월○일 멜론 일간 ○위").
+- per-song trajectory 분석(V2.23이 도입한 핵심 기능)은 "발매 N일차" 축이
+  자연스러움. 시간별 스냅샷보다 일간 step function 이 노이즈 적음.
 
-Both signals are UPDATEd onto the latest agg_summary row in a single
-statement per group.
-
-V2.23: additionally emits per-song INSERT statements into
-``melon_chart_entries`` (migration 0058) so the frontend can render
-곡 단위 trajectory charts. Each (snapshot_at, group_key, song_id) is a
-single row; the per-song ``source`` field records whether the song
-appeared in realtime / daily / both charts that day. UPSERT on conflict
-so re-runs within the same snapshot_at are idempotent.
-
-Why two charts (V2.19, replaces V2.18 daily-only):
-- Daily alone systematically underrepresents fan-driven multi-song
-  presence. PLAVE 2026-05-07: daily had 1 song @ rank 73; realtime had
-  6 songs, best @ rank 34. Day-only chart_peak missed both the better
-  rank and the depth signal entirely.
-- Realtime alone is volatile (per-minute updates) and time-of-day biased.
-- Union with song_id dedup recovers depth, and min(rank) across both
-  recovers the better peak — without inflating depth when a song appears
-  in both charts (the common case for stable hits).
+Trade-off (수용):
+- realtime depth recovery 손실 (V2.19 PLAVE 사례: daily 1곡 vs realtime 6곡).
+  group-level depth가 한시적으로 낮게 측정됨. 깊은 팬덤 활동의 양 신호는
+  daily 진입곡 수로 한정. 다른 KPI(SOV, engagement)가 이를 보완.
 
 Failure model:
-- If one chart fetch fails (empty/unreachable), the other still drives
-  the UPDATE.
-- Only when BOTH fail does the run report ``chart_unreachable``.
+- 단일 fetch 실패 시 ``chart_unreachable`` 보고. partial fallback 없음
+  (실시간 차트가 사라졌으므로).
 
-Match strategy (unchanged from V2.18):
-- group's `name`, `name_kr`, and `aliases` are checked against each row's
-  artist string with case-folded substring match. Solo / member-only
-  releases are not matched (group-level ritual signal).
+Match strategy (unchanged from V2.18~V2.23):
+- group의 name / name_kr / aliases 와 row의 artist anchor를 case-folded
+  substring match. 솔로/멤버 단독은 매치하지 않음 (그룹 단위 신호).
 """
 
 from __future__ import annotations
@@ -45,9 +34,8 @@ from __future__ import annotations
 import html as html_mod
 import logging
 import re
-from collections import defaultdict
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from time import perf_counter
 from typing import Any
 
@@ -58,18 +46,17 @@ from idol_sight.config import GroupConfig
 
 log = logging.getLogger(__name__)
 
-REALTIME_URL = "https://www.melon.com/chart/index.htm"
 DAILY_URL = "https://www.melon.com/chart/day/index.htm"
 
-# Per-row HTML structure (live as of 2026-05-07):
+# KST는 UTC+9 고정 (DST 없음).
+_KST = timezone(timedelta(hours=9))
+
+# Per-row HTML 구조 (2026-05 기준 — V2.23부터 변경 없음):
 #   <tr class="lst50|lst100" data-song-no="<song_id>">
-#     ...
 #     <span class="rank ">N</span>
-#     ...
-#     <div class="ellipsis rank01"><span><a ... title="<song_title> 재생">...</a></span></div>
+#     <div class="ellipsis rank01"><span><a title="<song_title> 재생">...</a></span></div>
 #     <div class="ellipsis rank02">
-#       <a href="/artist/detail.htm?..." title="<ARTIST> - 페이지 이동">...</a>
-#       (collab → multiple anchors)
+#       <a title="<ARTIST> - 페이지 이동">...</a> (collab → 여러 anchor)
 #     </div>
 #   </tr>
 _ROW_RE = re.compile(
@@ -82,7 +69,6 @@ _SONG_TITLE_RE = re.compile(
     r'<div class="ellipsis rank01">.*?title="(?P<title>[^"]+?)\s*재생"',
     re.DOTALL,
 )
-# Artist anchors live inside rank02. We collect every "X - 페이지 이동" title.
 _ARTIST_BLOCK_RE = re.compile(
     r'<div class="ellipsis rank02">(?P<block>.*?)</div>',
     re.DOTALL,
@@ -93,7 +79,6 @@ _ARTIST_TITLE_RE = re.compile(
 
 
 def _decode(s: str) -> str:
-    """HTML entity (&nbsp; 등) decode + 공백 압축."""
     s = html_mod.unescape(s)
     s = s.replace(" ", " ")          # nbsp
     return re.sub(r"\s+", " ", s).strip()
@@ -104,10 +89,13 @@ def parse_chart_html(html: str) -> list[dict[str, Any]]:
 
     Returns ``[]`` on empty / malformed input. Each entry:
         {"rank": int, "song_id": str, "song_title": str, "artists": [str, ...]}
+
+    멜론 일간차트 페이지는 동일 row를 두 영역(상단 hero 50 + 하단 51-100)
+    에 중복 렌더한다. 호출자는 song_id 단위로 dedup하면 됨.
     """
     if not html:
         return []
-    out: list[dict[str, Any]] = []
+    seen: dict[str, dict[str, Any]] = {}
     for m in _ROW_RE.finditer(html):
         body = m.group("body")
         rank_m = _RANK_RE.search(body)
@@ -115,17 +103,20 @@ def parse_chart_html(html: str) -> list[dict[str, Any]]:
         artist_block_m = _ARTIST_BLOCK_RE.search(body)
         if not (rank_m and title_m and artist_block_m):
             continue
+        sid = m.group("song_id")
+        if sid in seen:
+            continue
         artists = [
             _decode(am.group("artist"))
             for am in _ARTIST_TITLE_RE.finditer(artist_block_m.group("block"))
         ]
-        out.append({
+        seen[sid] = {
             "rank": int(rank_m.group(1)),
-            "song_id": m.group("song_id"),
+            "song_id": sid,
             "song_title": _decode(title_m.group("title")),
             "artists": artists,
-        })
-    return out
+        }
+    return list(seen.values())
 
 
 def _row_matches_group(row: dict[str, Any], group: dict[str, Any]) -> bool:
@@ -137,6 +128,17 @@ def _row_matches_group(row: dict[str, Any], group: dict[str, Any]) -> bool:
     return any(c.casefold() in haystack for c in candidates)
 
 
+def default_chart_date_kst(now_utc: datetime | None = None) -> str:
+    """Cron 기본값: 현재 KST 기준 "어제" 의 일간차트.
+
+    21:00 UTC 실행 시 → KST 06:00 익일 → 어제 KST = UTC 같은 날.
+    임의 시점 실행도 안전하도록 KST로 변환 후 -1일.
+    """
+    now = now_utc or datetime.now(UTC)
+    kst = now.astimezone(_KST)
+    return (kst - timedelta(days=1)).strftime("%Y-%m-%d")
+
+
 class MelonChartCollector:
     source = "melon"
 
@@ -144,25 +146,28 @@ class MelonChartCollector:
         self,
         fetcher: Any | None = None,
         groups_loader: Callable[[], list[dict]] | None = None,
+        url: str = DAILY_URL,
     ):
         self._fetcher = fetcher or Fetcher
-        # Returns [{"key": "plave", "name": "PLAVE", "name_kr": "플레이브",
-        #           "aliases": ["..."]}, ...].
         self._groups_loader = groups_loader or (lambda: [])
+        self._url = url
 
     def collect(self, group: GroupConfig, since: str | None = None) -> CollectionResult:
         # Per-group fan-out is a no-op — one HTTP fetch covers everything.
         return CollectionResult(0, 0)
 
-    def collect_global(self, snapshot_at: str | None = None) -> CollectionResult:
-        """Fetch melon charts + emit batch statements.
+    def collect_global(
+        self,
+        snapshot_at: str | None = None,
+        chart_date: str | None = None,
+    ) -> CollectionResult:
+        """일간차트 fetch → agg_summary UPDATE + per-song INSERT statements.
 
-        ``snapshot_at`` is the UTC timestamp used for ``melon_chart_entries``
-        rows. When omitted, defaults to the current UTC hour (matches the
-        format ``aggregate`` uses). The workflow pins this to the same
-        value as the aggregate sandwich so entries and agg_summary line up.
-        The agg_summary UPDATE statements continue to target the latest
-        snapshot via subquery — unchanged from V2.19.
+        Args:
+            snapshot_at: audit/debug 용 UTC fetch 시각 ('YYYY-MM-DDTHH:00:00Z').
+                기본값 = 현재 UTC hour. agg_summary sandwich와 정렬용.
+            chart_date: 이 row가 표현하는 KST 일간차트 날짜 ('YYYY-MM-DD').
+                기본값 = ``default_chart_date_kst()``.
         """
         started = perf_counter()
         seeded = self._groups_loader()
@@ -170,40 +175,29 @@ class MelonChartCollector:
             return CollectionResult(0, 0, errors=["no_groups_seeded"])
 
         snap = snapshot_at or datetime.now(UTC).strftime("%Y-%m-%dT%H:00:00Z")
+        cdate = chart_date or default_chart_date_kst()
 
-        # Fetch both charts independently — partial failure tolerated.
-        realtime_rows = parse_chart_html(self._fetch_html(REALTIME_URL) or "")
-        daily_rows = parse_chart_html(self._fetch_html(DAILY_URL) or "")
-
-        if not realtime_rows and not daily_rows:
+        rows = parse_chart_html(self._fetch_html(self._url) or "")
+        if not rows:
             return CollectionResult(0, 0, errors=["chart_unreachable"])
 
-        # Per group, dedup by song_id and keep the best (lowest) rank
-        # observed across both charts. Track which charts the song
-        # appeared in for the per-song ``source`` field. After accumulation:
-        #   peak  = min(rank)         per group
-        #   depth = len(songs_dict)   per group
-        # song record: {"rank": int, "title": str, "sources": set[str]}
-        per_group_songs: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
-        for source_name, rows in (("realtime", realtime_rows), ("daily", daily_rows)):
-            for row in rows:
-                sid = row["song_id"]
-                rank = row["rank"]
-                title = row["song_title"]
-                for g in seeded:
-                    if not _row_matches_group(row, g):
-                        continue
-                    key = g["key"]
-                    cur = per_group_songs[key].get(sid)
-                    if cur is None:
-                        per_group_songs[key][sid] = {
-                            "rank": rank, "title": title,
-                            "sources": {source_name},
-                        }
-                    else:
-                        if rank < cur["rank"]:
-                            cur["rank"] = rank
-                        cur["sources"].add(source_name)
+        # Per group: dedup by song_id, keep best rank (daily already unique
+        # by song_id, but parse_chart_html dedup made it explicit). Match
+        # group → emit per-song record.
+        per_group_songs: dict[str, dict[str, dict[str, Any]]] = {}
+        for row in rows:
+            for g in seeded:
+                if not _row_matches_group(row, g):
+                    continue
+                key = g["key"]
+                bucket = per_group_songs.setdefault(key, {})
+                # parse_chart_html dedup → 1 row/song_id 보장. 그래도 방어:
+                cur = bucket.get(row["song_id"])
+                if cur is None or row["rank"] < cur["rank"]:
+                    bucket[row["song_id"]] = {
+                        "rank": row["rank"],
+                        "title": row["song_title"],
+                    }
 
         statements: list[tuple[str, list[Any]]] = []
         for key, songs in per_group_songs.items():
@@ -213,8 +207,7 @@ class MelonChartCollector:
             depth = len(songs)
             # Update the latest agg_summary row. agg_summary is daily,
             # built by build-agg-summary; we attach both signals to the
-            # most recent snapshot. If there is no row yet (rare — only on
-            # first-ever boot), this UPDATE becomes a no-op which is fine.
+            # most recent snapshot.
             statements.append((
                 "UPDATE agg_summary SET melon_top100_peak = ?, "
                 "melon_top100_depth = ? "
@@ -223,26 +216,23 @@ class MelonChartCollector:
                 "  WHERE group_key = ?)",
                 [peak, depth, key, key],
             ))
-            # V2.23: per-song entries. UPSERT so re-runs at the same
-            # snapshot_at (rare — workflow rerun) are idempotent. ``source``
-            # collapses to 'both' when the song appeared in realtime+daily.
+            # V2.24: per-song entries. source='daily' 고정.
+            # PK (snapshot_at, group_key, song_id) — 같은 snap 내 idempotent.
+            # chart_date는 별도 컬럼 (migration 0059).
             for sid, song in songs.items():
-                srcs = song["sources"]
-                source_tag = "both" if len(srcs) == 2 else next(iter(srcs))
                 statements.append((
                     "INSERT INTO melon_chart_entries "
-                    "  (snapshot_at, group_key, song_id, song_title, rank, source) "
-                    "VALUES (?, ?, ?, ?, ?, ?) "
+                    "  (snapshot_at, group_key, song_id, song_title, rank, "
+                    "   source, chart_date) "
+                    "VALUES (?, ?, ?, ?, ?, 'daily', ?) "
                     "ON CONFLICT(snapshot_at, group_key, song_id) DO UPDATE SET "
                     "  rank = excluded.rank, "
                     "  source = excluded.source, "
-                    "  song_title = excluded.song_title",
-                    [snap, key, sid, song["title"], song["rank"], source_tag],
+                    "  song_title = excluded.song_title, "
+                    "  chart_date = excluded.chart_date",
+                    [snap, key, sid, song["title"], song["rank"], cdate],
                 ))
 
-        # ``rows_inserted`` historically meant "groups matched". Preserve
-        # that semantic for the existing health/notify wiring: count
-        # distinct groups, not total statements.
         groups_matched = sum(1 for songs in per_group_songs.values() if songs)
         runtime_ms = int((perf_counter() - started) * 1000)
         return CollectionResult(
