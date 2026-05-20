@@ -22,10 +22,28 @@
 // V2.27: 18곡 PLAVE 같은 다곡 그룹 가독성 개선 —
 //   - chart.js bottom legend 제거 (혼잡)
 //   - 우측 패널: 검색창 + 스크롤 가능한 음원 리스트. 클릭=visibility 토글
-//   - 음원명 hover 시 해당 라인 외 opacity 20%로 dim (chart 재생성 없이
-//     borderColor/backgroundColor mutate + update('none')).
+//   - 음원명 hover 시 해당 라인 외 opacity 20%로 dim.
 //   - 동일 hover 효과를 우측 패널과 하단 테이블 행 모두에 적용.
 //   - hiddenIds 상태가 chart 재생성에서도 살아남도록 effect에서 reapply.
+//
+// V2.27.1 bugfix — 점(point/dot)이 hover dim에 반응 안 하던 문제.
+//   Root cause: chart.js v4 LineController는 initialize() 단계에서
+//   `enableOptionSharing = true`를 켠다. 그 결과 PointElement 옵션들은
+//   첫 update에서 `controller._sharedOptions`에 lazily 캐시되어
+//   chart destroy 전까지 invalidate 되지 않는다. `chart.update('none')`은
+//   `_cachedDataOpts`만 비울 뿐 `_sharedOptions`는 손대지 않으므로,
+//   dataset.pointBackgroundColor / pointRadius / pointBorderColor를
+//   mutate해도 매 draw마다 동일한 캐시된 옵션 객체가 재사용되어 화면에
+//   반영되지 않는다. LineElement(보더/배경)는 `enableOptionSharing`이
+//   index=undefined 경로라서 sharedOptions를 안 타고 매번 새로 resolve
+//   되기 때문에 dim이 잘 동작했고, 그래서 "선만 dim, 점은 안 dim"이
+//   비대칭으로 나타났다.
+//   Fix: point 관련 옵션들을 scriptable(함수)로 정의한다. chart.js
+//   `resolveNamedOptions`는 옵션 중 하나라도 함수면 `$shared=false`로
+//   판정 → sharedOptions/캐시 경로를 우회하고 매 데이터 인덱스마다
+//   resolveDataElementOptions가 다시 호출되어 최신 함수 결과가 반영된다.
+//   hover state는 useRef로 미러해 closure의 stale 캡쳐를 피한다.
+//   borderColor/borderWidth도 동일 방식으로 통일해 향후 회귀 방지.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
@@ -112,9 +130,19 @@ interface ChartViewModel {
   };
 }
 
+// Live hover/visibility state read by the chart's scriptable options.
+// Must be a ref (not React state) so the scriptable closures always see
+// the latest values — chart.js evaluates them on every redraw and we
+// cannot rebind them without destroying the chart.
+interface HoverStateRef {
+  hoveredId: string | null;
+  hiddenIds: Set<string>;
+}
+
 function buildViewModel(
   data: MelonHistoryResp,
   windowSize: number,
+  hoverStateRef: { current: HoverStateRef },
 ): ChartViewModel | null {
   if (!data.songs.length) return null;
   const isReleaseAxis = data.anchor === "release";
@@ -168,25 +196,43 @@ function buildViewModel(
 
   const datasets = data.songs.map(s => {
     const color = colorOfSong(s.song_id);
+    // baseColor 형식 = `hsl(H 65% 60%)`. 끝의 `60%)`를 `60% / 0.18)`로
+    // 치환해 alpha 채널만 추가한 dim 색.
+    const dimColor = color.replace(/60%\)$/, "60% / 0.18)");
+    const songId = s.song_id;
+    // Helpers — read live hover state from the ref every time chart.js
+    // evaluates the scriptable option. Must not capture React state
+    // directly: chart.js calls these on every redraw and the chart is
+    // only recreated on data change.
+    const isHovered = () => hoverStateRef.current.hoveredId === songId;
+    const isDimmed = () => {
+      const h = hoverStateRef.current.hoveredId;
+      return h != null && h !== songId;
+    };
     return {
       label: s.song_title,
       data: valueAt(s),
-      borderColor: color,
-      backgroundColor: color,
-      // chart.js v4 line dataset에서 점(dot) 색은 borderColor/background
-      // Color에서 자동 상속되지 않음 — 명시 안 하면 디폴트 회색이거나 캐시
-      // 색이 hover dim에 반응 안 함. dim/restore 둘 다 정확히 따라가도록
-      // pointBackgroundColor/pointBorderColor를 같이 mutate.
-      pointBackgroundColor: color,
-      pointBorderColor: color,
-      borderWidth: 1.8,
-      pointRadius: 2.2,
-      pointHoverRadius: 5,
+      // Scriptable options bypass chart.js's enableOptionSharing cache
+      // (resolveNamedOptions marks the result as $shared=false when any
+      // option is a function) so every redraw re-evaluates these and
+      // picks up the latest hover state — even under update('none').
+      borderColor: () => (isDimmed() ? dimColor : color),
+      backgroundColor: () => (isDimmed() ? dimColor : color),
+      pointBackgroundColor: () => (isDimmed() ? dimColor : color),
+      pointBorderColor: () => (isDimmed() ? dimColor : color),
+      borderWidth: () => (isHovered() ? 2.8 : isDimmed() ? 1.0 : 1.8),
+      // Dimmed datasets collapse their points to radius 0 — both
+      // baseline and hover — so a stray cursor near a dimmed line can't
+      // momentarily reveal a bright dot. Hovered series gets a slight
+      // emphasis.
+      pointRadius: () => (isDimmed() ? 0 : isHovered() ? 3.2 : 2.2),
+      pointHoverRadius: () => (isDimmed() ? 0 : 5),
+      order: () => (isHovered() ? -1 : 0),
       spanGaps: false,
       tension: 0.25,
-      // Custom metadata — preserved across chart updates so the hover
-      // effect can map dataset → song_id and restore base color.
-      meta_song_id: s.song_id,
+      // Custom metadata — still used by the tooltip title callback to
+      // map dataset → song_id for release-axis absolute-date lookup.
+      meta_song_id: songId,
       meta_base_color: color,
     };
   });
@@ -210,43 +256,18 @@ function buildViewModel(
   };
 }
 
-// Apply hover dim + hidden-state to a live chart instance without
-// recreating it. Mutates dataset borderColor/backgroundColor/borderWidth
-// based on meta_song_id ↔ hoveredId and toggles visibility via
-// setDatasetVisibility. update('none') skips animation for snappy UX.
-//
-// 점(dot) 처리 노트: chart.js v4 line dataset의 PointElement는 옵션
-// 캐싱 때문에 pointBackgroundColor/pointBorderColor 색 mutation이
-// update('none')으로 항상 invalidate되지 않음. 가시성 확실히 dim하기
-// 위해 dimmed 데이터셋의 pointRadius를 0으로 설정해 점 자체를 숨김
-// (색 캐싱 이슈와 무관하게 의도된 시각 효과 보장).
+// Sync dataset visibility from hiddenIds and trigger a redraw. The
+// per-dataset hover dim is now expressed purely through scriptable
+// options on each dataset (see buildViewModel) reading hoverStateRef,
+// so updating that ref + calling chart.update('none') is enough to
+// repaint with fresh hover state — no dataset mutation here.
 function applyChartState(
   chart: Chart,
-  hoveredId: string | null,
   hiddenIds: Set<string>,
 ): void {
   const datasets: any[] = chart.data.datasets as any[];
   datasets.forEach((ds, i) => {
     const songId: string = ds.meta_song_id;
-    const baseColor: string = ds.meta_base_color;
-    // baseColor 형식 = `hsl(H 65% 60%)`. 끝의 `60%)`를 `60% / 0.18)`로
-    // 치환해 alpha 채널만 추가.
-    const dimColor = baseColor.replace(/60%\)$/, "60% / 0.18)");
-    const hovered = hoveredId === songId;
-    const anyHover = hoveredId != null;
-    const isDimmed = anyHover && !hovered;
-    const useColor = isDimmed ? dimColor : baseColor;
-    ds.borderColor = useColor;
-    ds.backgroundColor = useColor;
-    ds.pointBackgroundColor = useColor;
-    ds.pointBorderColor = useColor;
-    ds.borderWidth = hovered ? 2.8 : (isDimmed ? 1.0 : 1.8);
-    // dimmed → pointRadius 0 (보이지 않음). hovered → 3.2 (강조).
-    // 평소 → 2.2. hoverRadius도 dim 시 0으로 잠궈 마우스 근처에서
-    // 일시 활성화로 다시 보이는 일 방지.
-    ds.pointRadius = isDimmed ? 0 : (hovered ? 3.2 : 2.2);
-    ds.pointHoverRadius = isDimmed ? 0 : 5;
-    ds.order = hovered ? -1 : 0;  // hovered line drawn on top
     chart.setDatasetVisibility(i, !hiddenIds.has(songId));
   });
   chart.update("none");
@@ -264,6 +285,14 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   const [query, setQuery] = useState("");
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const chart  = useRef<Chart | null>(null);
+  // Live mirror of hover/visibility state for scriptable chart options
+  // (see buildViewModel). React state is rebound on every render but
+  // the scriptable closures are captured at chart-build time, so we
+  // route the live values through this ref instead of through state.
+  const hoverStateRef = useRef<HoverStateRef>({
+    hoveredId: null,
+    hiddenIds: new Set<string>(),
+  });
 
   // Fetch on (groupKey, days, type, anchor, windowSize) change.
   useEffect(() => {
@@ -287,8 +316,10 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
     setQuery("");
   }, [groupKey, type, anchor]);
 
-  // Build VM and (re)create chart whenever data changes.
-  const vm = data ? buildViewModel(data, windowSize) : null;
+  // Build VM and (re)create chart whenever data changes. The scriptable
+  // options inside vm.datasets read from hoverStateRef on every redraw,
+  // so passing the ref through keeps them in sync without rebuilding.
+  const vm = data ? buildViewModel(data, windowSize, hoverStateRef) : null;
 
   useEffect(() => {
     if (chart.current) {
@@ -296,6 +327,11 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
       chart.current = null;
     }
     if (!canvas.current || !vm) return;
+
+    // Sync ref before the first draw so scriptable options resolve
+    // against the current hover/hidden state (e.g. if the user already
+    // had something hovered/hidden when data finishes refetching).
+    hoverStateRef.current = { hoveredId, hiddenIds };
 
     chart.current = new Chart(canvas.current, {
       type: "line",
@@ -350,13 +386,19 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
         },
       },
     });
-    // Reapply hidden + hover state to the freshly created chart.
-    applyChartState(chart.current, hoveredId, hiddenIds);
+    // Reapply hidden state to the freshly created chart. (Hover dim is
+    // expressed via scriptable options reading hoverStateRef, so it
+    // doesn't need explicit reapplication after recreation.)
+    applyChartState(chart.current, hiddenIds);
   }, [data]);
 
-  // Mutate the chart imperatively on hover/hide changes — no recreation.
+  // Push the latest hover/visibility state into the ref that scriptable
+  // chart options read, then nudge chart.js to repaint. update('none')
+  // skips animation; the scriptable closures pick up the new ref values
+  // because $shared=false bypasses sharedOptions caching (chart.js v4).
   useEffect(() => {
-    if (chart.current) applyChartState(chart.current, hoveredId, hiddenIds);
+    hoverStateRef.current = { hoveredId, hiddenIds };
+    if (chart.current) applyChartState(chart.current, hiddenIds);
   }, [hoveredId, hiddenIds]);
 
   // Unmount-only cleanup. (Re-create handled above on every data swap.)
