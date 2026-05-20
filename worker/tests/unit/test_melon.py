@@ -173,7 +173,7 @@ def test_collect_global_fetches_only_daily():
     fetched_urls = [call.args[0] for call in fetcher.get.call_args_list]
     assert all("/chart/day/index.htm" in u for u in fetched_urls), \
         f"non-daily URL fetched: {fetched_urls}"
-    assert not any("/chart/index.htm" == u for u in fetched_urls), \
+    assert not any(u == "/chart/index.htm" for u in fetched_urls), \
         f"realtime URL still fetched: {fetched_urls}"
 
 

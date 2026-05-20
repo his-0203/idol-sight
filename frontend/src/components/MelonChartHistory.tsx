@@ -214,6 +214,12 @@ function buildViewModel(
 // recreating it. Mutates dataset borderColor/backgroundColor/borderWidth
 // based on meta_song_id ↔ hoveredId and toggles visibility via
 // setDatasetVisibility. update('none') skips animation for snappy UX.
+//
+// 점(dot) 처리 노트: chart.js v4 line dataset의 PointElement는 옵션
+// 캐싱 때문에 pointBackgroundColor/pointBorderColor 색 mutation이
+// update('none')으로 항상 invalidate되지 않음. 가시성 확실히 dim하기
+// 위해 dimmed 데이터셋의 pointRadius를 0으로 설정해 점 자체를 숨김
+// (색 캐싱 이슈와 무관하게 의도된 시각 효과 보장).
 function applyChartState(
   chart: Chart,
   hoveredId: string | null,
@@ -228,13 +234,18 @@ function applyChartState(
     const dimColor = baseColor.replace(/60%\)$/, "60% / 0.18)");
     const hovered = hoveredId === songId;
     const anyHover = hoveredId != null;
-    const useColor = !anyHover || hovered ? baseColor : dimColor;
+    const isDimmed = anyHover && !hovered;
+    const useColor = isDimmed ? dimColor : baseColor;
     ds.borderColor = useColor;
     ds.backgroundColor = useColor;
     ds.pointBackgroundColor = useColor;
     ds.pointBorderColor = useColor;
-    ds.borderWidth = hovered ? 2.8 : (anyHover ? 1.0 : 1.8);
-    ds.pointRadius = hovered ? 3.2 : (anyHover ? 1.4 : 2.2);
+    ds.borderWidth = hovered ? 2.8 : (isDimmed ? 1.0 : 1.8);
+    // dimmed → pointRadius 0 (보이지 않음). hovered → 3.2 (강조).
+    // 평소 → 2.2. hoverRadius도 dim 시 0으로 잠궈 마우스 근처에서
+    // 일시 활성화로 다시 보이는 일 방지.
+    ds.pointRadius = isDimmed ? 0 : (hovered ? 3.2 : 2.2);
+    ds.pointHoverRadius = isDimmed ? 0 : 5;
     ds.order = hovered ? -1 : 0;  // hovered line drawn on top
     chart.setDatasetVisibility(i, !hiddenIds.has(songId));
   });
