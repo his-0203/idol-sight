@@ -1,4 +1,4 @@
-// MelonChartHistory — V2.26 per-song melon trajectory.
+// MelonChartHistory — V2.27 per-song melon trajectory.
 // 탭: 일간/TOP100 (chart_type) × Lookback/Release-anchored (anchor).
 //
 // Data source: /api/melon/:key?type=daily|top100&anchor=lookback|release
@@ -18,6 +18,14 @@
 // effect로 페이지 이탈 시에만 dispose. Preact 환경에서 useMemo 결과 ref
 // 변화에 의한 재실행 잡음을 줄여 V2.24에서 일부 환경에서 캔버스 빈
 // 상태로 노출되던 issue 회피.
+//
+// V2.27: 18곡 PLAVE 같은 다곡 그룹 가독성 개선 —
+//   - chart.js bottom legend 제거 (혼잡)
+//   - 우측 패널: 검색창 + 스크롤 가능한 음원 리스트. 클릭=visibility 토글
+//   - 음원명 hover 시 해당 라인 외 opacity 20%로 dim (chart 재생성 없이
+//     borderColor/backgroundColor mutate + update('none')).
+//   - 동일 hover 효과를 우측 패널과 하단 테이블 행 모두에 적용.
+//   - hiddenIds 상태가 chart 재생성에서도 살아남도록 effect에서 reapply.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
@@ -79,11 +87,16 @@ const ANCHOR_TABS: { v: Anchor; label: string; hint: string }[] = [
     hint: "곡별 첫 차트인 날부터 N일. 발매 시점이 오래된 곡도 초반 trajectory를 동일 축에서 비교." },
 ];
 
-function colorOfSong(songId: string): string {
+function hueOfSong(songId: string): number {
   let h = 0;
   for (let i = 0; i < songId.length; i++) h = (h * 31 + songId.charCodeAt(i)) | 0;
-  const hue = ((h % 360) + 360) % 360;
-  return `hsl(${hue} 65% 60%)`;
+  return ((h % 360) + 360) % 360;
+}
+function colorOfSong(songId: string, alpha: number = 1): string {
+  const hue = hueOfSong(songId);
+  return alpha >= 1
+    ? `hsl(${hue} 65% 60%)`
+    : `hsl(${hue} 65% 60% / ${alpha})`;
 }
 
 interface ChartViewModel {
@@ -165,7 +178,10 @@ function buildViewModel(
       pointHoverRadius: 5,
       spanGaps: false,
       tension: 0.25,
+      // Custom metadata — preserved across chart updates so the hover
+      // effect can map dataset → song_id and restore base color.
       meta_song_id: s.song_id,
+      meta_base_color: color,
     };
   });
 
@@ -188,6 +204,34 @@ function buildViewModel(
   };
 }
 
+// Apply hover dim + hidden-state to a live chart instance without
+// recreating it. Mutates dataset borderColor/backgroundColor/borderWidth
+// based on meta_song_id ↔ hoveredId and toggles visibility via
+// setDatasetVisibility. update('none') skips animation for snappy UX.
+function applyChartState(
+  chart: Chart,
+  hoveredId: string | null,
+  hiddenIds: Set<string>,
+): void {
+  const datasets: any[] = chart.data.datasets as any[];
+  datasets.forEach((ds, i) => {
+    const songId: string = ds.meta_song_id;
+    const baseColor: string = ds.meta_base_color;
+    // baseColor 형식 = `hsl(H 65% 60%)`. 끝의 `60%)`를 `60% / 0.18)`로
+    // 치환해 alpha 채널만 추가.
+    const dimColor = baseColor.replace(/60%\)$/, "60% / 0.18)");
+    const hovered = hoveredId === songId;
+    const anyHover = hoveredId != null;
+    ds.borderColor = !anyHover || hovered ? baseColor : dimColor;
+    ds.backgroundColor = !anyHover || hovered ? baseColor : dimColor;
+    ds.borderWidth = hovered ? 2.8 : (anyHover ? 1.0 : 1.8);
+    ds.pointRadius = hovered ? 3.2 : (anyHover ? 1.4 : 2.2);
+    ds.order = hovered ? -1 : 0;  // hovered line drawn on top
+    chart.setDatasetVisibility(i, !hiddenIds.has(songId));
+  });
+  chart.update("none");
+}
+
 export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   const [type, setType]   = useState<ChartType>("daily");
   const [anchor, setAnchor] = useState<Anchor>("lookback");
@@ -195,6 +239,9 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   const [windowSize, setWindow] = useState(90);
   const [data, setData] = useState<MelonHistoryResp | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const chart  = useRef<Chart | null>(null);
 
@@ -209,6 +256,16 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [groupKey, days, type, anchor, windowSize]);
+
+  // Reset hover + hidden + search when the song set may change. (Hidden
+  // state is keyed by song_id which is stable across daily/top100, but
+  // the song list itself differs between groups/anchors so a wipe is
+  // friendlier than carrying stale entries.)
+  useEffect(() => {
+    setHoveredId(null);
+    setHiddenIds(new Set());
+    setQuery("");
+  }, [groupKey, type, anchor]);
 
   // Build VM and (re)create chart whenever data changes.
   const vm = data ? buildViewModel(data, windowSize) : null;
@@ -228,13 +285,8 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
         maintainAspectRatio: false,
         interaction: { mode: "nearest", intersect: false },
         plugins: {
-          legend: {
-            position: "bottom",
-            labels: {
-              color: "#a1a1aa", font: { size: 11 },
-              boxWidth: 12, boxHeight: 12, padding: 8,
-            },
-          },
+          // V2.27: bottom legend 제거. 우측 패널이 그 역할을 대신함.
+          legend: { display: false },
           tooltip: {
             callbacks: {
               title: (items) => {
@@ -278,7 +330,14 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
         },
       },
     });
+    // Reapply hidden + hover state to the freshly created chart.
+    applyChartState(chart.current, hoveredId, hiddenIds);
   }, [data]);
+
+  // Mutate the chart imperatively on hover/hide changes — no recreation.
+  useEffect(() => {
+    if (chart.current) applyChartState(chart.current, hoveredId, hiddenIds);
+  }, [hoveredId, hiddenIds]);
 
   // Unmount-only cleanup. (Re-create handled above on every data swap.)
   useEffect(() => () => {
@@ -290,6 +349,21 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
 
   const tab = TYPE_TABS.find(t => t.v === type) ?? TYPE_TABS[0]!;
   const aTab = ANCHOR_TABS.find(t => t.v === anchor) ?? ANCHOR_TABS[0]!;
+
+  const toggleHidden = (songId: string) => {
+    setHiddenIds(prev => {
+      const next = new Set(prev);
+      if (next.has(songId)) next.delete(songId);
+      else next.add(songId);
+      return next;
+    });
+  };
+
+  // 검색 필터 — 패널 노출에만 영향, chart는 그대로.
+  const songsFiltered = (data?.songs ?? []).filter(s => {
+    if (!query) return true;
+    return s.song_title.toLowerCase().includes(query.toLowerCase());
+  });
 
   return (
     <div class="space-y-3">
@@ -356,12 +430,79 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
 
       {/* Canvas는 항상 DOM에 존재 — 데이터 도착 시 effect가 chart 생성.
           조건부 마운트 시 ref attach와 useEffect[data] 실행 사이 race로
-          chart가 안 그려지던 V2.24 issue 회피 (DebutCurve.tsx와 동일 패턴). */}
+          chart가 안 그려지던 V2.24 issue 회피 (DebutCurve.tsx와 동일 패턴).
+
+          V2.27: 차트 + 우측 음원 패널 grid. lg(≥1024px) 이상에서 사이드
+          바, 모바일은 차트 아래로 wrap. 사이드 패널은 chart 영역과 동일
+          높이로 잡아 잘림 없이 스크롤. */}
       <div
-        class="h-64 md:h-80"
-        style={{ display: !loading && data && vm ? "block" : "none" }}
+        class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_240px] gap-3"
+        style={{ display: !loading && data && vm ? "grid" : "none" }}
       >
-        <canvas ref={canvas}></canvas>
+        <div class="h-64 md:h-80">
+          <canvas ref={canvas}></canvas>
+        </div>
+        {data && (
+          <div class="flex flex-col gap-2 h-64 md:h-80">
+            <input
+              type="text"
+              placeholder="음원 검색…"
+              value={query}
+              onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
+              class="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:border-violet-500 focus:outline-none"
+            />
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-zinc-500">
+              <span>음원 {songsFiltered.length}/{data.songs.length}</span>
+              {hiddenIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setHiddenIds(new Set())}
+                  class="text-violet-400 hover:text-violet-300"
+                >전체 표시</button>
+              )}
+            </div>
+            <div class="flex-1 overflow-y-auto pr-1 space-y-0.5">
+              {songsFiltered.map(s => {
+                const hidden = hiddenIds.has(s.song_id);
+                const dim = hoveredId != null && hoveredId !== s.song_id;
+                return (
+                  <button
+                    key={s.song_id}
+                    type="button"
+                    onMouseEnter={() => setHoveredId(s.song_id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    onClick={() => toggleHidden(s.song_id)}
+                    class={"w-full flex items-center gap-2 rounded px-1.5 py-1 text-xs text-left transition-colors " +
+                           (hidden
+                             ? "text-zinc-600 hover:bg-zinc-800/60"
+                             : dim
+                               ? "text-zinc-500 hover:bg-zinc-800/60"
+                               : "text-zinc-200 hover:bg-zinc-800/60")}
+                    title={hidden ? "클릭해서 표시" : "클릭해서 숨김"}
+                  >
+                    <span
+                      class="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                      style={{
+                        background: hidden ? "transparent" : colorOfSong(s.song_id),
+                        border: hidden ? "1px solid " + colorOfSong(s.song_id, 0.5) : "none",
+                        opacity: dim ? 0.4 : 1,
+                      }}
+                    />
+                    <span class={"flex-1 truncate " + (hidden ? "line-through" : "")}>
+                      {s.song_title}
+                    </span>
+                    <span class="tabular-nums text-[10px] text-zinc-500">
+                      {s.peak != null ? `#${s.peak}` : "—"}
+                    </span>
+                  </button>
+                );
+              })}
+              {songsFiltered.length === 0 && (
+                <div class="text-zinc-500 text-xs py-2 px-1.5">검색 결과 없음</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {!loading && data && vm && (
@@ -416,14 +557,25 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
                 <th>소스</th>
               </tr></thead>
               <tbody>
-                {data.songs.map(s => (
-                  <tr key={s.song_id} class="border-b border-zinc-800/40">
+                {data.songs.map(s => {
+                  const dim = hoveredId != null && hoveredId !== s.song_id;
+                  const hidden = hiddenIds.has(s.song_id);
+                  return (
+                  <tr
+                    key={s.song_id}
+                    onMouseEnter={() => setHoveredId(s.song_id)}
+                    onMouseLeave={() => setHoveredId(null)}
+                    onClick={() => toggleHidden(s.song_id)}
+                    class={"border-b border-zinc-800/40 cursor-pointer transition-opacity " +
+                           (hidden ? "opacity-40 " : "") +
+                           (dim ? "opacity-50" : "")}
+                  >
                     <td class="py-1.5 max-w-xs truncate">
                       <span
                         class="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle"
                         style={{ background: colorOfSong(s.song_id) }}
                       />
-                      {s.song_title}
+                      <span class={hidden ? "line-through" : ""}>{s.song_title}</span>
                     </td>
                     <td class="text-right tabular-nums">{s.peak != null ? `#${s.peak}` : "—"}</td>
                     <td class="text-right tabular-nums">{s.avg ?? "—"}</td>
@@ -441,7 +593,8 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
                       </span>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
