@@ -220,12 +220,13 @@ function buildViewModel(
       backgroundColor: () => (isDimmed() ? dimColor : color),
       pointBackgroundColor: () => (isDimmed() ? dimColor : color),
       pointBorderColor: () => (isDimmed() ? dimColor : color),
-      borderWidth: () => (isHovered() ? 2.8 : isDimmed() ? 1.0 : 1.8),
+      // 호버된 곡은 평소와 동일 두께/크기 유지 (사용자 요청). 강조는
+      // 색 대비(다른 곡 dim)와 z-order(앞으로 끌어옴)로만 표현.
+      borderWidth: () => (isDimmed() ? 1.0 : 1.8),
       // Dimmed datasets collapse their points to radius 0 — both
       // baseline and hover — so a stray cursor near a dimmed line can't
-      // momentarily reveal a bright dot. Hovered series gets a slight
-      // emphasis.
-      pointRadius: () => (isDimmed() ? 0 : isHovered() ? 3.2 : 2.2),
+      // momentarily reveal a bright dot.
+      pointRadius: () => (isDimmed() ? 0 : 2.2),
       pointHoverRadius: () => (isDimmed() ? 0 : 5),
       order: () => (isHovered() ? -1 : 0),
       spanGaps: false,
