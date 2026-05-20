@@ -173,6 +173,12 @@ function buildViewModel(
       data: valueAt(s),
       borderColor: color,
       backgroundColor: color,
+      // chart.js v4 line dataset에서 점(dot) 색은 borderColor/background
+      // Color에서 자동 상속되지 않음 — 명시 안 하면 디폴트 회색이거나 캐시
+      // 색이 hover dim에 반응 안 함. dim/restore 둘 다 정확히 따라가도록
+      // pointBackgroundColor/pointBorderColor를 같이 mutate.
+      pointBackgroundColor: color,
+      pointBorderColor: color,
       borderWidth: 1.8,
       pointRadius: 2.2,
       pointHoverRadius: 5,
@@ -222,8 +228,11 @@ function applyChartState(
     const dimColor = baseColor.replace(/60%\)$/, "60% / 0.18)");
     const hovered = hoveredId === songId;
     const anyHover = hoveredId != null;
-    ds.borderColor = !anyHover || hovered ? baseColor : dimColor;
-    ds.backgroundColor = !anyHover || hovered ? baseColor : dimColor;
+    const useColor = !anyHover || hovered ? baseColor : dimColor;
+    ds.borderColor = useColor;
+    ds.backgroundColor = useColor;
+    ds.pointBackgroundColor = useColor;
+    ds.pointBorderColor = useColor;
     ds.borderWidth = hovered ? 2.8 : (anyHover ? 1.0 : 1.8);
     ds.pointRadius = hovered ? 3.2 : (anyHover ? 1.4 : 2.2);
     ds.order = hovered ? -1 : 0;  // hovered line drawn on top
