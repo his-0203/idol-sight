@@ -1,9 +1,15 @@
 import { d1Query, type D1Database } from "../../lib/d1";
 import { jsonResponse } from "../../lib/jsonResponse";
 
-// GET /api/melon/:key?days=30&type=daily
-//   Returns per-song melon trajectories for the requested group over the
-//   last `days` (default 30, clamped 7..120). One point per chart_date.
+// GET /api/melon/:key?anchor=...&type=daily|top100[&days=N|&window=N]
+//
+// Two anchor modes:
+//   anchor=lookback (default) — last `days` (7..120, default 30) ending today.
+//     Backward-compatible with V2.25 — `?days=` keeps working.
+//   anchor=release            — per-song window of `window` days (30..180,
+//     default 90) starting from each song's first chart_date. Lets us see
+//     "발매 후 90일 trajectory" even when the song first charted years ago,
+//     which the lookback mode cuts off.
 //
 // V2.25: type query 추가. 'daily'(기본) = 일간차트(06 KST), 'top100' =
 // 22 KST TOP100 차트. melon_chart_entries.chart_type 컬럼(migration 0060)
@@ -15,14 +21,21 @@ import { jsonResponse } from "../../lib/jsonResponse";
 //
 // Response shape (consumed by MelonChartHistory.tsx):
 // {
-//   group_key, days, type,
+//   group_key, anchor, days|window, type,
 //   start, end,
 //   songs: [{ song_id, song_title, peak, avg, days_charted, last_rank,
-//             sources, series: [{ date, rank, source }, ...] }],
-//   daily_summary: [{ date, peak, depth }, ...]
+//             release_date, sources,
+//             series: [{ date, day_offset, rank, source }, ...] }],
+//   daily_summary: [{ date, peak, depth }, ...]   // lookback only
 // }
+//
+// `release_date` = MIN(chart_date) for that song under the current type
+// filter. `day_offset` = days since release_date (always present, 0 for
+// release day). For anchor=lookback `day_offset` is still computed so the
+// frontend can switch view without re-fetching if needed.
 
 type ChartType = "daily" | "top100";
+type Anchor = "lookback" | "release";
 
 type EntryRow = {
   chart_date: string | null;
@@ -39,20 +52,38 @@ const dayOf = (r: EntryRow): string =>
 const parseType = (raw: string | null): ChartType =>
   raw === "top100" ? "top100" : "daily";
 
+const parseAnchor = (raw: string | null): Anchor =>
+  raw === "release" ? "release" : "lookback";
+
+// UTC date diff in whole days. Both inputs YYYY-MM-DD.
+function daysBetween(from: string, to: string): number {
+  const a = Date.parse(from + "T00:00:00Z");
+  const b = Date.parse(to + "T00:00:00Z");
+  return Math.round((b - a) / 86400_000);
+}
+
+// Add `days` days to a YYYY-MM-DD date (UTC).
+function addDays(date: string, days: number): string {
+  const t = Date.parse(date + "T00:00:00Z") + days * 86400_000;
+  return new Date(t).toISOString().slice(0, 10);
+}
+
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
   env, params, request,
 }) => {
   const key = String(params.key);
   const url = new URL(request.url);
+  const type = parseType(url.searchParams.get("type"));
+  const anchor = parseAnchor(url.searchParams.get("anchor"));
+
   const daysParam = Number(url.searchParams.get("days") ?? "30");
   const days = Number.isFinite(daysParam)
     ? Math.min(120, Math.max(7, Math.trunc(daysParam)))
     : 30;
-  const type = parseType(url.searchParams.get("type"));
-
-  // Cutoff date — days ago in UTC date form (YYYY-MM-DD).
-  const cutoffMs = Date.now() - days * 86400_000;
-  const cutoffDate = new Date(cutoffMs).toISOString().slice(0, 10);
+  const windowParam = Number(url.searchParams.get("window") ?? "90");
+  const window = Number.isFinite(windowParam)
+    ? Math.min(180, Math.max(30, Math.trunc(windowParam)))
+    : 90;
 
   // chart_type 필터: 'daily' 탭은 NULL chart_type도 포함 (legacy 호환).
   // 'top100' 탭은 명시적으로 chart_type='top100' 만.
@@ -60,15 +91,41 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
     ? "chart_type = 'top100'"
     : "(chart_type IS NULL OR chart_type = 'daily')";
 
-  const rows = await d1Query<EntryRow>(env.DB,
-    `SELECT chart_date, snapshot_at, song_id, song_title, rank, source
-       FROM melon_chart_entries
-      WHERE group_key = ?
-        AND ${typeClause}
-        AND COALESCE(chart_date, substr(snapshot_at, 1, 10)) >= ?
-      ORDER BY COALESCE(chart_date, substr(snapshot_at, 1, 10)) ASC,
-               rank ASC`,
-    [key, cutoffDate]);
+  let rows: EntryRow[];
+  if (anchor === "lookback") {
+    const cutoffDate = new Date(Date.now() - days * 86400_000)
+      .toISOString().slice(0, 10);
+    rows = await d1Query<EntryRow>(env.DB,
+      `SELECT chart_date, snapshot_at, song_id, song_title, rank, source
+         FROM melon_chart_entries
+        WHERE group_key = ?
+          AND ${typeClause}
+          AND COALESCE(chart_date, substr(snapshot_at, 1, 10)) >= ?
+        ORDER BY COALESCE(chart_date, substr(snapshot_at, 1, 10)) ASC,
+                 rank ASC`,
+      [key, cutoffDate]);
+  } else {
+    // anchor === "release": for each song, fetch rows where day-of-chart
+    // <= release_date + window. SQLite date('+N days') works on YYYY-MM-DD
+    // strings. We compute the COALESCE day inline because chart_date can
+    // be NULL on the oldest forward-collected V2.23 rows.
+    rows = await d1Query<EntryRow>(env.DB,
+      `WITH day_e AS (
+         SELECT chart_date, snapshot_at, song_id, song_title, rank, source,
+                COALESCE(chart_date, substr(snapshot_at, 1, 10)) AS d
+           FROM melon_chart_entries
+          WHERE group_key = ? AND ${typeClause}
+       ),
+       releases AS (
+         SELECT song_id, MIN(d) AS release_date FROM day_e GROUP BY song_id
+       )
+       SELECT e.chart_date, e.snapshot_at, e.song_id, e.song_title,
+              e.rank, e.source
+         FROM day_e e JOIN releases r USING (song_id)
+        WHERE e.d <= date(r.release_date, '+' || ? || ' days')
+        ORDER BY e.song_id ASC, e.d ASC, e.rank ASC`,
+      [key, window]);
+  }
 
   // Group by song_id → trajectory. Same (song_id, chart_date) may appear
   // multiple times if V2.23 적재 시 같은 날 두 번 cron 돈 흔적이 있는데
@@ -98,9 +155,17 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
   // Per-song summary stats. Sort songs by peak ascending (best first),
   // tie-break by days_charted descending.
   const songs = [...bySong.values()].map(s => {
-    const series = [...s.perDay.entries()]
-      .map(([date, v]) => ({ date, rank: v.rank, source: v.source }))
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const dates = [...s.perDay.keys()].sort();
+    const releaseDate = dates[0] ?? null;
+    const series = dates.map(date => {
+      const v = s.perDay.get(date)!;
+      return {
+        date,
+        day_offset: releaseDate ? daysBetween(releaseDate, date) : 0,
+        rank: v.rank,
+        source: v.source,
+      };
+    });
     const ranks = series.map(p => p.rank);
     const peak = ranks.length ? Math.min(...ranks) : null;
     const avg  = ranks.length
@@ -114,6 +179,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
       avg,
       days_charted: series.length,
       last_rank: last?.rank ?? null,
+      release_date: releaseDate,
       sources: [...s.sources],
       series,
     };
@@ -125,6 +191,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
   });
 
   // Daily roll-up — peak per chart_date, depth = distinct songs that day.
+  // Meaningful for lookback (shared timeline); for release anchor each
+  // song lives on its own offset so we still emit absolute dates for
+  // legacy consumers but it represents the union of all per-song windows.
   const byDay = new Map<string, {
     date: string; peak: number; songs: Set<string>;
   }>();
@@ -149,7 +218,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({
   return jsonResponse({
     group_key: key,
     type,
-    days,
+    anchor,
+    days: anchor === "lookback" ? days : null,
+    window: anchor === "release" ? window : null,
     start, end,
     songs,
     daily_summary,

@@ -11,8 +11,21 @@ export const api = {
   marketShare: (weeks = 13) => getJson<any>(`/api/market-share?weeks=${weeks}`),
   group:       (k: string) => getJson<any>(`/api/group/${encodeURIComponent(k)}`),
   members:     (k: string) => getJson<any>(`/api/members/${encodeURIComponent(k)}`),
-  melonHistory: (k: string, days = 30, type: "daily" | "top100" = "daily") =>
-    getJson<any>(`/api/melon/${encodeURIComponent(k)}?days=${days}&type=${type}`),
+  melonHistory: (
+    k: string,
+    opts: { days?: number; type?: "daily" | "top100";
+            anchor?: "lookback" | "release"; window?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    qs.set("type", opts.type ?? "daily");
+    qs.set("anchor", opts.anchor ?? "lookback");
+    if ((opts.anchor ?? "lookback") === "release") {
+      qs.set("window", String(opts.window ?? 90));
+    } else {
+      qs.set("days", String(opts.days ?? 30));
+    }
+    return getJson<any>(`/api/melon/${encodeURIComponent(k)}?${qs}`);
+  },
   weekly:      () => getJson<any>("/api/weekly"),
   insights:    (week?: string) =>
     getJson<any>("/api/insights" + (week ? `?week=${encodeURIComponent(week)}` : "")),

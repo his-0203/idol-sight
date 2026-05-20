@@ -1,12 +1,17 @@
-// MelonChartHistory — V2.25 per-song melon trajectory with 일간/TOP100 탭.
+// MelonChartHistory — V2.26 per-song melon trajectory.
+// 탭: 일간/TOP100 (chart_type) × Lookback/Release-anchored (anchor).
 //
-// Data source: /api/melon/:key?type=daily|top100
+// Data source: /api/melon/:key?type=daily|top100&anchor=lookback|release
 //   daily : 멜론 일간차트(06 KST cron, /chart/day). 어제 KST의 24h 풀집계.
 //   top100: 멜론 TOP100 차트(22 KST cron, /chart). 저녁 화력 결산 시점.
+//   lookback: 최근 N일 (오늘 기준 backward window).
+//   release : 곡별 첫 차트인 날(release_date) + N일 — 발매 후 trajectory
+//             가 90일 lookback에 잘리지 않도록.
 //
 // Y-axis는 melon rank로 reverse 되어 rank 1이 위(상위). 차트인 안 한 날은
-// 라인이 끊기도록 spanGaps:false. labels는 곡 series의 chart_date union을
-// 정렬한 것.
+// 라인이 끊기도록 spanGaps:false. labels:
+//   lookback : 곡 series의 chart_date union (정렬)
+//   release  : "D+0".."D+window-1" (모든 곡 공통 발매 후 일수 축)
 //
 // V2.25 chart 렌더 로직 단순화: useMemo+다중 effect 의존성을 제거하고
 // data state 하나만 보고 chart를 destroy/recreate. 별도 unmount cleanup
@@ -26,14 +31,18 @@ interface SongSeries {
   avg: number | null;
   days_charted: number;
   last_rank: number | null;
+  release_date: string | null;
   sources: string[];
-  series: { date: string; rank: number; source: string }[];
+  series: { date: string; day_offset: number;
+            rank: number; source: string }[];
 }
 
 interface MelonHistoryResp {
   group_key: string;
   type: "daily" | "top100";
-  days: number;
+  anchor: "lookback" | "release";
+  days: number | null;
+  window: number | null;
   start: string | null;
   end: string | null;
   songs: SongSeries[];
@@ -41,6 +50,7 @@ interface MelonHistoryResp {
 }
 
 type ChartType = "daily" | "top100";
+type Anchor = "lookback" | "release";
 
 const DAY_OPTIONS = [
   { v: 7,  label: "7d" },
@@ -48,11 +58,25 @@ const DAY_OPTIONS = [
   { v: 90, label: "90d" },
 ];
 
+const WINDOW_OPTIONS = [
+  { v: 30,  label: "30d" },
+  { v: 60,  label: "60d" },
+  { v: 90,  label: "90d" },
+  { v: 180, label: "180d" },
+];
+
 const TYPE_TABS: { v: ChartType; label: string; hint: string }[] = [
   { v: "daily",  label: "일간차트",
     hint: "06:00 KST · 24h 풀집계 · 산업 표준 단위" },
   { v: "top100", label: "TOP100 차트",
     hint: "22:00 KST · 직전 1h + 24h 가중 · 저녁 화력 정점" },
+];
+
+const ANCHOR_TABS: { v: Anchor; label: string; hint: string }[] = [
+  { v: "lookback", label: "최근",
+    hint: "오늘 기준 backward window. 신곡 발매 직후 trajectory에 적합." },
+  { v: "release",  label: "발매 후",
+    hint: "곡별 첫 차트인 날부터 N일. 발매 시점이 오래된 곡도 초반 trajectory를 동일 축에서 비교." },
 ];
 
 function colorOfSong(songId: string): string {
@@ -65,6 +89,7 @@ function colorOfSong(songId: string): string {
 interface ChartViewModel {
   labels: string[];
   datasets: any[];
+  isReleaseAxis: boolean;
   kpis: {
     bestPeak: number | null;
     bestPeakSong: string | null;
@@ -74,24 +99,65 @@ interface ChartViewModel {
   };
 }
 
-function buildViewModel(data: MelonHistoryResp): ChartViewModel | null {
+function buildViewModel(
+  data: MelonHistoryResp,
+  windowSize: number,
+): ChartViewModel | null {
   if (!data.songs.length) return null;
-  const allDates = new Set<string>();
-  for (const s of data.songs) for (const p of s.series) allDates.add(p.date);
-  const labels = [...allDates].sort();
-  if (!labels.length) return null;
-  const dateIdx = new Map(labels.map((d, i) => [d, i]));
+  const isReleaseAxis = data.anchor === "release";
+
+  let labels: string[];
+  let valueAt: (s: SongSeries) => (number | null)[];
+  // For release axis we also track date-per-(song, offset) so tooltip can
+  // show the absolute date alongside D+N.
+  let absDateAt: Map<string, Map<number, string>> | null = null;
+
+  if (isReleaseAxis) {
+    const max = Math.min(
+      windowSize - 1,
+      data.songs.reduce(
+        (m, s) => Math.max(m, ...s.series.map(p => p.day_offset)),
+        0,
+      ),
+    );
+    labels = Array.from({ length: max + 1 }, (_, i) => `D+${i}`);
+    absDateAt = new Map();
+    valueAt = (s) => {
+      const points: (number | null)[] = labels.map(() => null);
+      const dateMap = new Map<number, string>();
+      for (const p of s.series) {
+        if (p.day_offset >= 0 && p.day_offset <= max) {
+          const cur = points[p.day_offset];
+          if (cur == null || p.rank < cur) {
+            points[p.day_offset] = p.rank;
+            dateMap.set(p.day_offset, p.date);
+          }
+        }
+      }
+      absDateAt!.set(s.song_id, dateMap);
+      return points;
+    };
+  } else {
+    const allDates = new Set<string>();
+    for (const s of data.songs) for (const p of s.series) allDates.add(p.date);
+    labels = [...allDates].sort();
+    if (!labels.length) return null;
+    const dateIdx = new Map(labels.map((d, i) => [d, i]));
+    valueAt = (s) => {
+      const points: (number | null)[] = labels.map(() => null);
+      for (const p of s.series) {
+        const i = dateIdx.get(p.date);
+        if (i != null) points[i] = p.rank;
+      }
+      return points;
+    };
+  }
 
   const datasets = data.songs.map(s => {
-    const points: (number | null)[] = labels.map(() => null);
-    for (const p of s.series) {
-      const i = dateIdx.get(p.date);
-      if (i != null) points[i] = p.rank;
-    }
     const color = colorOfSong(s.song_id);
     return {
       label: s.song_title,
-      data: points,
+      data: valueAt(s),
       borderColor: color,
       backgroundColor: color,
       borderWidth: 1.8,
@@ -99,6 +165,7 @@ function buildViewModel(data: MelonHistoryResp): ChartViewModel | null {
       pointHoverRadius: 5,
       spanGaps: false,
       tension: 0.25,
+      meta_song_id: s.song_id,
     };
   });
 
@@ -115,34 +182,36 @@ function buildViewModel(data: MelonHistoryResp): ChartViewModel | null {
     ? Math.max(...data.daily_summary.map(d => d.depth))
     : null;
   return {
-    labels, datasets,
+    labels, datasets, isReleaseAxis,
     kpis: { bestPeak, bestPeakSong, avgPeak, maxDepth,
             chartedDays: data.daily_summary.length },
   };
 }
 
 export function MelonChartHistory({ groupKey }: { groupKey: string }) {
-  const [type, setType] = useState<ChartType>("daily");
-  const [days, setDays] = useState(30);
+  const [type, setType]   = useState<ChartType>("daily");
+  const [anchor, setAnchor] = useState<Anchor>("lookback");
+  const [days, setDays]   = useState(30);
+  const [windowSize, setWindow] = useState(90);
   const [data, setData] = useState<MelonHistoryResp | null>(null);
   const [loading, setLoading] = useState(true);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const chart  = useRef<Chart | null>(null);
 
-  // Fetch on (groupKey, days, type) change.
+  // Fetch on (groupKey, days, type, anchor, windowSize) change.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setData(null);
-    api.melonHistory(groupKey, days, type)
+    api.melonHistory(groupKey, { days, type, anchor, window: windowSize })
       .then((d: MelonHistoryResp) => { if (!cancelled) setData(d); })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [groupKey, days, type]);
+  }, [groupKey, days, type, anchor, windowSize]);
 
   // Build VM and (re)create chart whenever data changes.
-  const vm = data ? buildViewModel(data) : null;
+  const vm = data ? buildViewModel(data, windowSize) : null;
 
   useEffect(() => {
     if (chart.current) {
@@ -168,6 +237,19 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
           },
           tooltip: {
             callbacks: {
+              title: (items) => {
+                if (!items.length) return "";
+                const it = items[0]!;
+                if (vm.isReleaseAxis) {
+                  // Pull absolute date from dataset.meta hooks via parsed point.
+                  const songId = (it.dataset as any).meta_song_id;
+                  const song = data?.songs.find(s => s.song_id === songId);
+                  const offset = it.dataIndex;
+                  const abs = song?.series.find(p => p.day_offset === offset)?.date;
+                  return abs ? `D+${offset} · ${abs}` : `D+${offset}`;
+                }
+                return String(it.label ?? "");
+              },
               label: (ctx) => `${ctx.dataset.label} · #${ctx.parsed.y}`,
             },
           },
@@ -176,6 +258,10 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
           x: {
             ticks: { color: "#71717a", font: { size: 11 }, maxRotation: 0 },
             grid:  { color: "rgba(39,39,42,0.4)" },
+            title: vm.isReleaseAxis ? {
+              display: true, text: "발매 후 일수 (Days since chart entry)",
+              color: "#a1a1aa", font: { size: 11 },
+            } : { display: false, text: "" },
           },
           y: {
             reverse: true, min: 1, max: 100,
@@ -203,6 +289,7 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   }, []);
 
   const tab = TYPE_TABS.find(t => t.v === type) ?? TYPE_TABS[0]!;
+  const aTab = ANCHOR_TABS.find(t => t.v === anchor) ?? ANCHOR_TABS[0]!;
 
   return (
     <div class="space-y-3">
@@ -220,21 +307,36 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
             >{t.label}</button>
           ))}
         </div>
+        <div class="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-0.5">
+          {ANCHOR_TABS.map(t => (
+            <button
+              key={t.v}
+              type="button"
+              onClick={() => setAnchor(t.v)}
+              class={"rounded-md px-3 py-1 text-xs font-medium transition-colors " +
+                     (anchor === t.v
+                       ? "bg-sky-500/20 text-sky-200"
+                       : "text-zinc-400 hover:text-zinc-200")}
+            >{t.label}</button>
+          ))}
+        </div>
         <div class="flex gap-1">
-          {DAY_OPTIONS.map(o => (
+          {(anchor === "release" ? WINDOW_OPTIONS : DAY_OPTIONS).map(o => (
             <button
               key={o.v}
               type="button"
-              onClick={() => setDays(o.v)}
+              onClick={() => anchor === "release" ? setWindow(o.v) : setDays(o.v)}
               class={"rounded-md border px-2 py-0.5 text-xs transition-colors " +
-                     (days === o.v
+                     ((anchor === "release" ? windowSize === o.v : days === o.v)
                        ? "border-violet-500 bg-violet-500/10 text-violet-300"
                        : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
             >{o.label}</button>
           ))}
         </div>
       </div>
-      <div class="text-xs text-zinc-500">{tab.hint}</div>
+      <div class="text-xs text-zinc-500">
+        {tab.hint} · <span class="text-zinc-400">{aTab.hint}</span>
+      </div>
 
       {loading && (
         <div class="text-zinc-500 text-sm py-4">Loading…</div>
@@ -245,7 +347,9 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
           title={type === "top100"
             ? "멜론 TOP100 진입 이력 없음"
             : "멜론 일간차트 진입 이력 없음"}
-          hint={`최근 ${days}일 기준. ${tab.hint}.`}
+          hint={anchor === "release"
+            ? `발매 후 ${windowSize}일 기준. ${tab.hint}.`
+            : `최근 ${days}일 기준. ${tab.hint}.`}
           icon="🎵"
         />
       )}
@@ -263,7 +367,9 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
       {!loading && data && vm && (
         <>
           <div class="text-xs text-zinc-500">
-            {data.start} → {data.end} · {vm.kpis.chartedDays}일 진입
+            {anchor === "release"
+              ? `곡별 발매 후 0~${windowSize}일 · ${data.songs.length}곡`
+              : `${data.start} → ${data.end} · ${vm.kpis.chartedDays}일 진입`}
           </div>
 
           <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -293,7 +399,9 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
             <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
               <div class="text-xs uppercase tracking-wider text-zinc-500">곡 수</div>
               <div class="mt-0.5 text-xl font-bold tabular-nums">{data.songs.length}</div>
-              <div class="text-xs text-zinc-500">진입 곡 총수 ({days}d)</div>
+              <div class="text-xs text-zinc-500">
+                {anchor === "release" ? `진입 곡 총수` : `진입 곡 총수 (${days}d)`}
+              </div>
             </div>
           </div>
 
@@ -304,7 +412,7 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
                 <th class="text-right">Peak</th>
                 <th class="text-right">Avg</th>
                 <th class="text-right">차트인</th>
-                <th class="text-right">최근</th>
+                <th class="text-right">{anchor === "release" ? "발매일" : "최근"}</th>
                 <th>소스</th>
               </tr></thead>
               <tbody>
@@ -321,9 +429,11 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
                     <td class="text-right tabular-nums">{s.avg ?? "—"}</td>
                     <td class="text-right tabular-nums">{s.days_charted}d</td>
                     <td class="text-right tabular-nums">
-                      {s.last_rank != null
-                        ? `#${s.last_rank}`
-                        : <span class="text-zinc-500">— out</span>}
+                      {anchor === "release"
+                        ? (s.release_date ?? "—")
+                        : (s.last_rank != null
+                            ? `#${s.last_rank}`
+                            : <span class="text-zinc-500">— out</span>)}
                     </td>
                     <td>
                       <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
