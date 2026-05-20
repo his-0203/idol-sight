@@ -50,6 +50,40 @@ import Chart from "chart.js/auto";
 import { api } from "../api";
 import { EmptyState } from "./EmptyState";
 
+// V2.28: 솔로(단일 곡 focus) + 숨김(다중) 분리 아이콘. 평소 zinc-600, 행
+// hover zinc-300, 활성 violet-400, 솔로 모드 중 다른 곡의 hide 아이콘은
+// disabled(zinc-700, cursor-not-allowed) — 솔로 컨텍스트를 보호하기 위해.
+function TargetIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class={className}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+function EyeOffIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class={className}>
+      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+      <line x1="2" y1="2" x2="22" y2="22" />
+    </svg>
+  );
+}
+function EyeIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" class={className}>
+      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 interface SongSeries {
   song_id: string;
   song_title: string;
@@ -257,19 +291,20 @@ function buildViewModel(
   };
 }
 
-// Sync dataset visibility from hiddenIds and trigger a redraw. The
-// per-dataset hover dim is now expressed purely through scriptable
-// options on each dataset (see buildViewModel) reading hoverStateRef,
-// so updating that ref + calling chart.update('none') is enough to
-// repaint with fresh hover state — no dataset mutation here.
+// Sync dataset visibility from the single isVisible predicate (encodes
+// both solo and hidden state — V2.28). The per-dataset hover dim is
+// still expressed purely through scriptable options on each dataset
+// (see buildViewModel) reading hoverStateRef, so updating that ref +
+// calling chart.update('none') is enough to repaint with fresh hover
+// state — no dataset mutation here.
 function applyChartState(
   chart: Chart,
-  hiddenIds: Set<string>,
+  isVisible: (songId: string) => boolean,
 ): void {
   const datasets: any[] = chart.data.datasets as any[];
   datasets.forEach((ds, i) => {
     const songId: string = ds.meta_song_id;
-    chart.setDatasetVisibility(i, !hiddenIds.has(songId));
+    chart.setDatasetVisibility(i, isVisible(songId));
   });
   chart.update("none");
 }
@@ -282,6 +317,13 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   const [data, setData] = useState<MelonHistoryResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  // V2.28: 가시성 모델은 (soloId, hiddenIds) 두 직교 상태로 표현.
+  //   soloId != null  → 그 곡만 visible (hiddenIds는 보존되지만 무시됨)
+  //   soloId == null  → hiddenIds 안에 없는 곡들이 visible
+  // mutual exclusive 솔로 + multi 숨김을 한 isVisible 함수로 통일해 두
+  // 상태가 꼬이지 않게 한다. 솔로 모드 중 다른 곡의 hide 동작은 명시적
+  // disabled — 솔로 컨텍스트를 깨는 암묵적 동작 차단.
+  const [soloId, setSoloId] = useState<string | null>(null);
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const canvas = useRef<HTMLCanvasElement | null>(null);
@@ -307,12 +349,13 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
     return () => { cancelled = true; };
   }, [groupKey, days, type, anchor, windowSize]);
 
-  // Reset hover + hidden + search when the song set may change. (Hidden
-  // state is keyed by song_id which is stable across daily/top100, but
+  // Reset hover + solo + hidden + search when the song set may change.
+  // (State is keyed by song_id which is stable across daily/top100, but
   // the song list itself differs between groups/anchors so a wipe is
   // friendlier than carrying stale entries.)
   useEffect(() => {
     setHoveredId(null);
+    setSoloId(null);
     setHiddenIds(new Set());
     setQuery("");
   }, [groupKey, type, anchor]);
@@ -321,6 +364,12 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   // options inside vm.datasets read from hoverStateRef on every redraw,
   // so passing the ref through keeps them in sync without rebuilding.
   const vm = data ? buildViewModel(data, windowSize, hoverStateRef) : null;
+
+  // 단일 진실 가시성 함수 — 사이드 패널, 큰 테이블, chart visibility 모두
+  // 이 함수만 본다. 솔로가 활성이면 그 곡 외엔 false (hiddenIds 무시),
+  // 아니면 hiddenIds 기준. closures가 매 render마다 새로 생기지만 가벼움.
+  const isVisible = (songId: string): boolean =>
+    soloId == null ? !hiddenIds.has(songId) : soloId === songId;
 
   useEffect(() => {
     if (chart.current) {
@@ -387,10 +436,10 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
         },
       },
     });
-    // Reapply hidden state to the freshly created chart. (Hover dim is
-    // expressed via scriptable options reading hoverStateRef, so it
-    // doesn't need explicit reapplication after recreation.)
-    applyChartState(chart.current, hiddenIds);
+    // Reapply visibility (solo + hidden) to the freshly created chart.
+    // (Hover dim is expressed via scriptable options reading hoverStateRef,
+    // so it doesn't need explicit reapplication after recreation.)
+    applyChartState(chart.current, isVisible);
   }, [data]);
 
   // Push the latest hover/visibility state into the ref that scriptable
@@ -399,8 +448,8 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   // because $shared=false bypasses sharedOptions caching (chart.js v4).
   useEffect(() => {
     hoverStateRef.current = { hoveredId, hiddenIds };
-    if (chart.current) applyChartState(chart.current, hiddenIds);
-  }, [hoveredId, hiddenIds]);
+    if (chart.current) applyChartState(chart.current, isVisible);
+  }, [hoveredId, hiddenIds, soloId]);
 
   // Unmount-only cleanup. (Re-create handled above on every data swap.)
   useEffect(() => () => {
@@ -413,13 +462,30 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   const tab = TYPE_TABS.find(t => t.v === type) ?? TYPE_TABS[0]!;
   const aTab = ANCHOR_TABS.find(t => t.v === anchor) ?? ANCHOR_TABS[0]!;
 
+  // Solo: mutual exclusive. 다른 곡을 솔로하면 이전 솔로는 자동 해제.
+  // 같은 곡을 다시 누르면 해제. hiddenIds는 건드리지 않고 보존 — 솔로
+  // 해제 시 이전 숨김 상태로 복귀하도록.
+  const toggleSolo = (songId: string) => {
+    setSoloId(prev => (prev === songId ? null : songId));
+  };
+
+  // Hide: 솔로 모드 중에는 가드. 솔로 컨텍스트를 깨지 않게 한다.
+  // 솔로 외 상황에서는 다중 토글.
   const toggleHidden = (songId: string) => {
+    if (soloId != null) return;
     setHiddenIds(prev => {
       const next = new Set(prev);
       if (next.has(songId)) next.delete(songId);
       else next.add(songId);
       return next;
     });
+  };
+
+  // 일괄 리셋. 솔로 상태도 함께 클리어해서 두 상태가 어긋나지 않게 한다.
+  const showAll = () => { setSoloId(null); setHiddenIds(new Set()); };
+  const hideAll = () => {
+    setSoloId(null);
+    setHiddenIds(new Set((data?.songs ?? []).map(s => s.song_id)));
   };
 
   // 검색 필터 — 패널 노출에만 영향, chart는 그대로.
@@ -505,7 +571,16 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
         <div class="h-64 md:h-80">
           <canvas ref={canvas}></canvas>
         </div>
-        {data && (
+        {data && (() => {
+          // V2.28: 행 자체는 passive (클릭 액션 없음). 솔로/숨김은 우측
+          // 두 아이콘 버튼으로만 조작. mouseEnter는 솔로 모드 중 무시 —
+          // 1곡만 visible 인 상태에서 다른 곡 hover dim은 솔로 곡을
+          // dim 처리해버려 의도와 충돌하므로.
+          const visibleCount = data.songs.filter(s => isVisible(s.song_id)).length;
+          const totalCount = data.songs.length;
+          const canShowAll = visibleCount < totalCount || soloId != null;
+          const canHideAll = visibleCount > 0;
+          return (
           <div class="flex flex-col gap-2 h-64 md:h-80">
             <input
               type="text"
@@ -515,49 +590,100 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
               class="w-full rounded-md border border-zinc-800 bg-zinc-900/60 px-2 py-1 text-xs text-zinc-200 placeholder-zinc-500 focus:border-violet-500 focus:outline-none"
             />
             <div class="flex items-center justify-between text-[10px] uppercase tracking-wider text-zinc-500">
-              <span>음원 {songsFiltered.length}/{data.songs.length}</span>
-              {hiddenIds.size > 0 && (
+              <span>음원 {visibleCount}/{totalCount}</span>
+              <span class="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setHiddenIds(new Set())}
-                  class="text-violet-400 hover:text-violet-300"
+                  onClick={showAll}
+                  disabled={!canShowAll}
+                  class={canShowAll
+                    ? "text-violet-400 hover:text-violet-300"
+                    : "text-zinc-700 cursor-not-allowed"}
                 >전체 표시</button>
-              )}
+                <span class="text-zinc-700">·</span>
+                <button
+                  type="button"
+                  onClick={hideAll}
+                  disabled={!canHideAll}
+                  class={canHideAll
+                    ? "text-zinc-400 hover:text-zinc-200"
+                    : "text-zinc-700 cursor-not-allowed"}
+                >전체 숨김</button>
+              </span>
             </div>
             <div class="flex-1 overflow-y-auto pr-1 space-y-0.5">
               {songsFiltered.map(s => {
-                const hidden = hiddenIds.has(s.song_id);
-                const dim = hoveredId != null && hoveredId !== s.song_id;
+                const visible = isVisible(s.song_id);
+                const isSolo = soloId === s.song_id;
+                const isHidden = hiddenIds.has(s.song_id);
+                const hideDisabled = soloId != null;
+                // hover dim: 솔로 모드 중에는 의미 없음 → 가드.
+                const dim = hoveredId != null
+                  && hoveredId !== s.song_id
+                  && soloId == null;
+
+                const nameClass = !visible
+                  ? "text-zinc-600"
+                  : (dim ? "text-zinc-500" : "text-zinc-200");
+                const strike = !visible && !isSolo ? " line-through" : "";
+
+                const soloIconClass = isSolo
+                  ? "text-violet-400"
+                  : "text-zinc-600 group-hover:text-zinc-300 hover:!text-zinc-100";
+                const hideIconClass = hideDisabled
+                  ? "text-zinc-700 cursor-not-allowed"
+                  : isHidden
+                    ? "text-violet-400 hover:text-violet-300"
+                    : "text-zinc-600 group-hover:text-zinc-300 hover:!text-zinc-100";
+
                 return (
-                  <button
+                  <div
                     key={s.song_id}
-                    type="button"
-                    onMouseEnter={() => setHoveredId(s.song_id)}
-                    onMouseLeave={() => setHoveredId(null)}
-                    onClick={() => toggleHidden(s.song_id)}
-                    class={"w-full flex items-center gap-2 rounded px-1.5 py-1 text-xs text-left transition-colors " +
-                           (hidden
-                             ? "text-zinc-600 hover:bg-zinc-800/60"
-                             : dim
-                               ? "text-zinc-500 hover:bg-zinc-800/60"
-                               : "text-zinc-200 hover:bg-zinc-800/60")}
-                    title={hidden ? "클릭해서 표시" : "클릭해서 숨김"}
+                    onMouseEnter={() => { if (soloId == null) setHoveredId(s.song_id); }}
+                    onMouseLeave={() => setHoveredId(prev => prev === s.song_id ? null : prev)}
+                    class={"group flex items-center gap-1 rounded px-1.5 py-1 text-xs transition-colors hover:bg-zinc-800/40 " +
+                           (isSolo ? "bg-violet-500/5" : "")}
                   >
                     <span
                       class="inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0"
                       style={{
-                        background: hidden ? "transparent" : colorOfSong(s.song_id),
-                        border: hidden ? "1px solid " + colorOfSong(s.song_id, 0.5) : "none",
+                        background: visible ? colorOfSong(s.song_id) : "transparent",
+                        border: visible ? "none" : "1px solid " + colorOfSong(s.song_id, 0.5),
                         opacity: dim ? 0.4 : 1,
                       }}
                     />
-                    <span class={"flex-1 truncate " + (hidden ? "line-through" : "")}>
+                    <span class={"flex-1 truncate " + nameClass + strike}>
                       {s.song_title}
                     </span>
-                    <span class="tabular-nums text-[10px] text-zinc-500">
+                    <span class="tabular-nums text-[10px] text-zinc-500 w-7 text-right">
                       {s.peak != null ? `#${s.peak}` : "—"}
                     </span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleSolo(s.song_id)}
+                      title={isSolo ? "솔로 해제" : "이 곡만 보기"}
+                      aria-label={`${s.song_title} 솔로`}
+                      aria-pressed={isSolo}
+                      class={"p-0.5 rounded transition-colors hover:bg-zinc-700/60 " + soloIconClass}
+                    >
+                      <TargetIcon />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleHidden(s.song_id)}
+                      disabled={hideDisabled}
+                      title={hideDisabled
+                        ? "솔로 모드에서는 사용 불가"
+                        : isHidden ? "표시" : "숨김"}
+                      aria-label={`${s.song_title} 숨김`}
+                      aria-pressed={isHidden}
+                      class={"p-0.5 rounded transition-colors " +
+                             (hideDisabled ? "" : "hover:bg-zinc-700/60 ") +
+                             hideIconClass}
+                    >
+                      {isHidden ? <EyeIcon /> : <EyeOffIcon />}
+                    </button>
+                  </div>
                 );
               })}
               {songsFiltered.length === 0 && (
@@ -565,7 +691,8 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {!loading && data && vm && (
@@ -618,27 +745,43 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
                 <th class="text-right">차트인</th>
                 <th class="text-right">{anchor === "release" ? "발매일" : "최근"}</th>
                 <th>소스</th>
+                <th class="text-right pr-1">표시</th>
               </tr></thead>
               <tbody>
                 {data.songs.map(s => {
-                  const dim = hoveredId != null && hoveredId !== s.song_id;
-                  const hidden = hiddenIds.has(s.song_id);
+                  const visible = isVisible(s.song_id);
+                  const isSolo = soloId === s.song_id;
+                  const isHidden = hiddenIds.has(s.song_id);
+                  const hideDisabled = soloId != null;
+                  const dim = hoveredId != null
+                    && hoveredId !== s.song_id
+                    && soloId == null;
+
+                  const soloColor = isSolo
+                    ? "text-violet-400"
+                    : "text-zinc-500 hover:text-zinc-300";
+                  const hideColor = hideDisabled
+                    ? "text-zinc-700 cursor-not-allowed"
+                    : isHidden
+                      ? "text-violet-400 hover:text-violet-300"
+                      : "text-zinc-500 hover:text-zinc-300";
+
                   return (
                   <tr
                     key={s.song_id}
-                    onMouseEnter={() => setHoveredId(s.song_id)}
-                    onMouseLeave={() => setHoveredId(null)}
-                    onClick={() => toggleHidden(s.song_id)}
-                    class={"border-b border-zinc-800/40 cursor-pointer transition-opacity " +
-                           (hidden ? "opacity-40 " : "") +
-                           (dim ? "opacity-50" : "")}
+                    onMouseEnter={() => { if (soloId == null) setHoveredId(s.song_id); }}
+                    onMouseLeave={() => setHoveredId(prev => prev === s.song_id ? null : prev)}
+                    class={"border-b border-zinc-800/40 transition-opacity " +
+                           (!visible ? "opacity-40 " : "") +
+                           (dim ? "opacity-50 " : "") +
+                           (isSolo ? "bg-violet-500/5" : "")}
                   >
                     <td class="py-1.5 max-w-xs truncate">
                       <span
                         class="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-middle"
                         style={{ background: colorOfSong(s.song_id) }}
                       />
-                      <span class={hidden ? "line-through" : ""}>{s.song_title}</span>
+                      <span class={!visible && !isSolo ? "line-through" : ""}>{s.song_title}</span>
                     </td>
                     <td class="text-right tabular-nums">{s.peak != null ? `#${s.peak}` : "—"}</td>
                     <td class="text-right tabular-nums">{s.avg ?? "—"}</td>
@@ -654,6 +797,35 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
                       <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">
                         {s.sources.length > 1 ? "union" : s.sources[0] ?? "—"}
                       </span>
+                    </td>
+                    <td class="text-right pr-1">
+                      <div class="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => toggleSolo(s.song_id)}
+                          title={isSolo ? "솔로 해제" : "이 곡만 보기"}
+                          aria-label={`${s.song_title} 솔로`}
+                          aria-pressed={isSolo}
+                          class={"p-0.5 rounded hover:bg-zinc-700/60 transition-colors " + soloColor}
+                        >
+                          <TargetIcon />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleHidden(s.song_id)}
+                          disabled={hideDisabled}
+                          title={hideDisabled
+                            ? "솔로 모드에서는 사용 불가"
+                            : isHidden ? "표시" : "숨김"}
+                          aria-label={`${s.song_title} 숨김`}
+                          aria-pressed={isHidden}
+                          class={"p-0.5 rounded transition-colors " +
+                                 (hideDisabled ? "" : "hover:bg-zinc-700/60 ") +
+                                 hideColor}
+                        >
+                          {isHidden ? <EyeIcon /> : <EyeOffIcon />}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   );
