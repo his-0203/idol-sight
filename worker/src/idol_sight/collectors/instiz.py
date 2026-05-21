@@ -17,6 +17,12 @@ Tier 1 uses the regular ``Fetcher`` with chrome impersonation; if that
 returns no rows (instiz occasionally serves an empty error page or a
 Cloudflare challenge), we fall back to ``StealthyFetcher`` which spins up
 a real browser.
+
+V2.28 (2026-05-21): primary `/pt` 외에 ``group.instiz_supplemental_boards``
+의 게시판들도 fetch. supplemental fetch 만 ``is_relevant(...,
+strict_generic_blocklist=True)`` 를 적용 — primary 는 종전과 같이
+strict=False. (검증 배경은 ``docs/superpowers/specs/2026-05-21-
+community-search-collectors-design.md`` §0 참고.)
 """
 
 from __future__ import annotations
@@ -36,7 +42,8 @@ from idol_sight.utils.url_hash import url_hash
 
 log = logging.getLogger(__name__)
 
-LIST_URL = "https://www.instiz.net/pt"
+LIST_URL_TPL = "https://www.instiz.net/{path}"
+PRIMARY_PATH = "pt"
 
 
 class InstizCollector:
@@ -46,24 +53,59 @@ class InstizCollector:
         self._fetcher = fetcher or Fetcher
         self._stealthy = stealthy or StealthyFetcher
 
+    def _fetch_board(self, path: str) -> Any:
+        """Tier-1 Fetcher with chrome impersonation, fallback to
+        StealthyFetcher if the first attempt yields no parseable rows
+        (Cloudflare interstitial / empty error page)."""
+        url = LIST_URL_TPL.format(path=path)
+        page = self._fetcher.get(url, impersonate="chrome131", stealthy_headers=True)
+        if not self._parse(page):
+            log.info("instiz tier-1 returned 0 rows for %r; falling back to stealthy", path)
+            page = self._stealthy.fetch(url, headless=True, network_idle=True)
+        return page
+
     def collect(self, group: GroupConfig, since: str | None = None) -> CollectionResult:
         started = perf_counter()
-        page = self._fetcher.get(LIST_URL, impersonate="chrome131", stealthy_headers=True)
-        rows = self._parse(page)
+        rows_all: list[dict[str, Any]] = []
+        errors: list[str] = []
 
-        if not rows:
-            # Tier-1 was blocked or returned empty; retry with full browser.
-            log.info("instiz tier-1 returned 0 rows; falling back to stealthy")
-            page = self._stealthy.fetch(LIST_URL, headless=True, network_idle=True)
-            rows = self._parse(page)
+        # Primary `/pt` board — legacy filter.
+        try:
+            primary_rows = [
+                r for r in self._parse(self._fetch_board(PRIMARY_PATH))
+                if is_relevant(r["title"], group)
+            ]
+            rows_all.extend(primary_rows)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{group.key}: instiz primary {PRIMARY_PATH!r}: {e}")
 
-        relevant = [r for r in rows if is_relevant(r["title"], group)]
+        # Supplemental boards — strict mode (cross-group hubs).
+        for path in group.instiz_supplemental_boards or []:
+            try:
+                sup_rows = [
+                    r for r in self._parse(self._fetch_board(path))
+                    if is_relevant(
+                        r["title"], group, strict_generic_blocklist=True,
+                    )
+                ]
+                rows_all.extend(sup_rows)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{group.key}: instiz supplemental {path!r}: {e}")
+
+        # Dedupe by url_hash.
+        seen: set[str] = set()
+        relevant: list[tuple[str, dict[str, Any]]] = []
+        for r in rows_all:
+            uh = url_hash(r["url"])
+            if uh in seen:
+                continue
+            seen.add(uh)
+            relevant.append((uh, r))
 
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         statements: list[tuple[str, list[Any]]] = []
 
-        for r in relevant:
-            uh = url_hash(r["url"])
+        for uh, r in relevant:
             posted = parse_safe(r.get("posted_at_raw", ""))
             posted_iso = posted.strftime("%Y-%m-%dT%H:%M:%SZ") if posted else None
             statements.append((
@@ -89,7 +131,7 @@ class InstizCollector:
         runtime_ms = int((perf_counter() - started) * 1000)
         return CollectionResult(
             rows_inserted=len(relevant), rows_updated=0,
-            statements=statements, runtime_ms=runtime_ms,
+            statements=statements, errors=errors, runtime_ms=runtime_ms,
         )
 
     @staticmethod

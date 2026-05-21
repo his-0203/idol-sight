@@ -66,6 +66,12 @@ class GroupConfig:
     # primary gallery posts are kept unfiltered, supplemental posts must
     # pass is_relevant. Empty list = no supplemental fetches (default).
     dc_supplemental_galleries: list[str] = field(default_factory=list)
+    # V2.28 — TheQoo / Instiz 의 supplemental boards. 사이트 검색이
+    # 자동화 차단되어 V2.27 dc supplemental 패턴을 그대로 옮긴 인프라.
+    # TheQoo 항목은 mid 값 (e.g. 'kpop'), Instiz 항목은 URL path
+    # (e.g. 'musicpd'). 빈 리스트 = 보조 fetch 없음 (default).
+    theqoo_supplemental_boards: list[str] = field(default_factory=list)
+    instiz_supplemental_boards: list[str] = field(default_factory=list)
 
     def is_pre_debut(self, now_iso: str | None = None) -> bool:
         if not self.debut_date:

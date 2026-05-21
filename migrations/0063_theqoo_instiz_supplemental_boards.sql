@@ -1,0 +1,35 @@
+-- migrations/0063_theqoo_instiz_supplemental_boards.sql — V2.28
+--
+-- TheQoo / Instiz 보조 게시판 인프라.
+--
+-- 배경
+--   V2.27 에서 디시쪽 누락은 dc_supplemental_galleries 컬럼 + DcCollector
+--   primary + supplemental loop 패턴으로 해결됐다. 더쿠 / 인스티즈는
+--   사이트 검색이 자동화 차단 (HTTP 403 / 빈 결과 / form JS-bind, 2026-05-21
+--   검증 — community-search-collectors-design.md §0) 되어 검색 보조
+--   collector 가 불가. 그래서 같은 V2.27 패턴 (supplemental boards) 을
+--   더쿠 / 인스티즈로 옮겨 hot-board 한 곳에 의존하던 구조적 누락을 메꾼다.
+--
+-- 본 마이그레이션
+--   인프라만 추가. 시드는 NULL — 어떤 통합 게시판이 적절한지는 운영자의
+--   도메인 지식이 필요(예: 더쿠 idol_talk / kpop, 인스티즈 musicpd / pt 등).
+--   운영자가 후속 마이그레이션 1 줄로 UPDATE 하면 즉시 효과.
+--
+-- 컬럼
+--   - theqoo_supplemental_boards TEXT (JSON 배열, 각 항목은 TheQoo mid 값)
+--   - instiz_supplemental_boards TEXT (JSON 배열, 각 항목은 Instiz URL path)
+--
+-- 영향
+--   - GroupConfig 두 필드 신설 (V2.28 코드 변경 동반)
+--   - TheQooCollector / InstizCollector 가 primary hot-board fetch 후
+--     supplemental boards loop + is_relevant(strict_generic_blocklist=True)
+--   - frontend api/groups.ts 는 명시 컬럼 SELECT 라 영향 없음
+--
+-- Rollback
+--   UPDATE groups
+--      SET theqoo_supplemental_boards = NULL,
+--          instiz_supplemental_boards = NULL;
+--   -- 컬럼 제거가 필요하면 별도 DROP COLUMN 마이그레이션 (SQLite 3.35+).
+
+ALTER TABLE groups ADD COLUMN theqoo_supplemental_boards TEXT;
+ALTER TABLE groups ADD COLUMN instiz_supplemental_boards TEXT;

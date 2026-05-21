@@ -1,9 +1,40 @@
-# 커뮤니티 검색 보조 collector (TheQoo / Instiz)
+# 커뮤니티 검색·보조 게시판 collector (TheQoo / Instiz)
 
-작성일: 2026-05-21
-범위: 단일 ~ 두 PR (TheQoo / Instiz 순차)
+작성일: 2026-05-21 (검증 결과로 2026-05-21 본문 일부 갱신, §0 참고)
+범위: 단일 PR (V2.28 — supplemental boards 인프라)
 선행: V2.27.1 (`fix(dc): V2.27.1 supplemental 매칭 strict mode`)
 선결 의존: 없음 (D1 스키마 / orchestrator 구조 그대로 재활용)
+
+## 0. 2026-05-21 검증 결과 — 방향 전환 기록
+
+spec §10 의 Rollout step 1 (fixture 캡처) 을 실제 진행한 결과, 두 사이트
+모두 **검색 자동화가 차단**되어 있음을 확인했다.
+
+| 사이트 | 시도 URL | 결과 | 분석 |
+|---|---|---|---|
+| TheQoo | `?mid=hot&search_target=title&search_keyword=미완소년` | HTTP 200 / 37KB / hot-board default | form `processBoardSearch()` JS-bind, query string 직접 호출은 검색 트리거 안 함 |
+| TheQoo | `?act=IS&...` (XE Item Search action) | **HTTP 403** | 서버가 외부 검색 액션 차단 |
+| Instiz | `/name?searchtype=title&stext=미완소년` | HTTP 200 / 115KB / `/name` default | form 진짜 action 은 `/bbs/list.php?k=…` |
+| Instiz | `/bbs/list.php?k=미완소년` | HTTP 200 / **8KB 빈 결과** | 로그인 / 추가 cookie 요구 추정 |
+
+→ spec §9 "Spec 가정 검증 실패 → 사이트별 대안 별도 spec 으로" 시나리오
+   적중. step 1 이 stop 시그널로 의도대로 작동.
+
+**방향 전환**: 검색 보조를 포기하고 **V2.27 디시 패턴 (supplemental
+galleries) 을 더쿠 / 인스티즈로 옮기는 supplemental boards 패턴**을 채택.
+즉:
+
+- `groups.theqoo_supplemental_boards TEXT` (JSON 배열, e.g. `["kpop"]`)
+- `groups.instiz_supplemental_boards TEXT` (JSON 배열, e.g. `["musicpd"]`)
+- 두 collector 가 primary hot-board fetch 후 supplemental 게시판 각각에
+  대해 fetch + `is_relevant(strict_generic_blocklist=True)` 필터링
+
+본 spec §3 ~ §6 의 "검색 URL / 새 collector 클래스" 부분은 폐기. §0
+의 supplemental boards 패턴이 정식이고, §10 Rollout 도 그에 맞춰
+재정의(아래 §10 갱신본 참고).
+
+캡처해둔 fixture (`theqoo_search.html`, `instiz_search.html`) 는 검증
+실패 자료로 의미가 줄어들었고 크기 합 ~150KB 이므로 본 작업으로 폐기.
 
 ## 1. 배경
 
@@ -226,15 +257,31 @@ matrix:
 | MiiWAN 외 그룹 확장 결정 | 본 spec 후속 데이터로 신호량 측정 후 재평가 |
 | Spec 가정 검증 실패 (예: TheQoo 검색이 ajax 라 StealthyFetcher 로도 빈 결과) | 본 spec 의 step 1 (fixture 캡처) 실패가 곧 stop 시그널. 그 경우 사이트별 대안 (sitemap / RSS / 외부 검색 API) 별도 spec 으로 |
 
-## 10. Rollout 순서 (제안)
+## 10. Rollout 순서 (2026-05-21 갱신본 — supplemental boards 패턴)
 
-1. fixture 캡처 (TheQoo → Instiz) — 두 사이트 검색 마크업이 실제로
-   StealthyFetcher 로 보이는지 결정타 검증
-2. TheQoo collector + 테스트 + CLI/orchestrator 등록 + workflow 1 step
-   추가 + 1회 dispatch + 신호/노이즈 측정 → 첫 PR
-3. Instiz collector + 동일 작업 → 두 번째 PR
-4. (선택) 신호/노이즈가 만족스러우면 다른 보이그룹 (`plave`, `bdawn`)
-   확장. 만족스럽지 못하면 strict mode / 키워드 추가 / 보류 결정
+§0 의 검증 결과에 따라 검색 URL 기반 Rollout 은 폐기. 다음이 정식.
+
+1. **인프라 마이그레이션 0063 + GroupConfig 확장 (V2.28)**
+   - `theqoo_supplemental_boards`, `instiz_supplemental_boards` 두
+     컬럼 신설. 시드는 모두 NULL. 컬럼만 존재하면 추후 운영자가 1줄
+     UPDATE 로 보조 게시판 추가 가능.
+2. **theqoo.py / instiz.py supplemental loop 추가**
+   - V2.27 dc.py 패턴 그대로 재활용. primary URL fetch 후
+     supplemental boards 각각에 대해 fetch + `is_relevant(...,
+     strict_generic_blocklist=True)` + url_hash dedupe.
+   - errors 격리 (per-board try/except).
+3. **테스트 보강** — 각 collector 의 supplemental 매칭 / primary-only /
+   strict 모드 동작.
+4. **D1 적용 + commit + push + dispatch + 회귀 검증**
+   - 시드 NULL 이라 dispatch 시 supplemental 행 0. primary hot-board
+     동작 회귀만 확인.
+5. **운영자 도메인 지식 기반 시드** (별도 PR)
+   - 더쿠 / 인스티즈에 미완소년 또는 다른 그룹이 자주 언급되는 통합
+     게시판 발견 시 1줄 UPDATE 마이그레이션. 발견될 때까지 컬럼은
+     NULL — 즉 V2.28 자체는 인프라만 깐다.
+6. **(선택) 신호량 측정** — 통합 게시판 시드 후 신호/노이즈 비율을
+   디시 vboyband (V2.27.1 100%) 와 비교, 부족 시 strict mode 보강 또는
+   해당 게시판 제외 결정.
 
 ## 11. 비목표 (재확인)
 

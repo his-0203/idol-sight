@@ -7,6 +7,15 @@ uses ``StealthyFetcher`` (a real headless browser) with
 ``solve_cloudflare=True``. There is no Tier-1 ``Fetcher`` fallback —
 plain HTTP gets a CF interstitial more often than a useful page.
 
+V2.28 (2026-05-21): primary hot board 외에 ``group.theqoo_supplemental_
+boards`` 의 게시판들도 fetch 한다. 통합 게시판은 모든 그룹의 글이 섞여
+있으므로 supplemental fetch 만 ``is_relevant(..., strict_generic_
+blocklist=True)`` 를 적용 — primary 는 종전과 같이 strict=False.
+(TheQoo / Instiz 검색이 자동화 차단된 검증 결과에 따라 디시 V2.27
+supplemental galleries 패턴을 그대로 옮겨 옴. 자세한 배경은
+``docs/superpowers/specs/2026-05-21-community-search-collectors-design.md``
+§0 참고.)
+
 Each matched post emits two rows:
 
 - ``community_posts`` — idempotent metadata keyed on ``url_hash``.
@@ -43,7 +52,8 @@ from idol_sight.utils.url_hash import url_hash
 
 log = logging.getLogger(__name__)
 
-LIST_URL = "https://theqoo.net/index.php?mid=hot"
+LIST_URL_TPL = "https://theqoo.net/index.php?mid={mid}"
+PRIMARY_MID = "hot"
 
 
 class TheQooCollector:
@@ -52,23 +62,57 @@ class TheQooCollector:
     def __init__(self, stealthy: Any | None = None):
         self._stealthy = stealthy or StealthyFetcher
 
-    def collect(self, group: GroupConfig, since: str | None = None) -> CollectionResult:
-        started = perf_counter()
-        page = self._stealthy.fetch(
-            LIST_URL,
+    def _fetch_board(self, mid: str) -> Any:
+        return self._stealthy.fetch(
+            LIST_URL_TPL.format(mid=mid),
             headless=True,
             network_idle=True,
             solve_cloudflare=True,
         )
-        rows = self._parse(page)
 
-        relevant = [r for r in rows if is_relevant(r["title"], group)]
+    def collect(self, group: GroupConfig, since: str | None = None) -> CollectionResult:
+        started = perf_counter()
+        rows_all: list[dict[str, Any]] = []
+        errors: list[str] = []
+
+        # Primary hot board — legacy filter (strict_generic_blocklist=False).
+        try:
+            primary_rows = [
+                r for r in self._parse(self._fetch_board(PRIMARY_MID))
+                if is_relevant(r["title"], group)
+            ]
+            rows_all.extend(primary_rows)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"{group.key}: theqoo primary board {PRIMARY_MID!r}: {e}")
+
+        # Supplemental boards — strict mode (cross-group hubs).
+        for mid in group.theqoo_supplemental_boards or []:
+            try:
+                sup_rows = [
+                    r for r in self._parse(self._fetch_board(mid))
+                    if is_relevant(
+                        r["title"], group, strict_generic_blocklist=True,
+                    )
+                ]
+                rows_all.extend(sup_rows)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{group.key}: theqoo supplemental board {mid!r}: {e}")
+
+        # Dedupe by url_hash — primary와 supplemental에 같은 글이
+        # 동시에 매칭되면 한 번만 INSERT.
+        seen: set[str] = set()
+        relevant: list[tuple[str, dict[str, Any]]] = []
+        for r in rows_all:
+            uh = url_hash(r["url"])
+            if uh in seen:
+                continue
+            seen.add(uh)
+            relevant.append((uh, r))
 
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         statements: list[tuple[str, list[Any]]] = []
 
-        for r in relevant:
-            uh = url_hash(r["url"])
+        for uh, r in relevant:
             posted = parse_safe(r.get("posted_at_raw", ""))
             posted_iso = posted.strftime("%Y-%m-%dT%H:%M:%SZ") if posted else None
             statements.append((
@@ -94,7 +138,7 @@ class TheQooCollector:
         runtime_ms = int((perf_counter() - started) * 1000)
         return CollectionResult(
             rows_inserted=len(relevant), rows_updated=0,
-            statements=statements, runtime_ms=runtime_ms,
+            statements=statements, errors=errors, runtime_ms=runtime_ms,
         )
 
     @staticmethod

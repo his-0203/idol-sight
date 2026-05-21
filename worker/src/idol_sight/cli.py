@@ -190,7 +190,8 @@ def _load_group(client: D1Client, key: str) -> GroupConfig:
     rows = client.execute(
         "SELECT key, name, name_kr, debut_date, yt_channel_id, dc_gallery_id, "
         "  naver_query, context_keywords, blacklist_phrases, twitter_handles, "
-        "  dc_supplemental_galleries "
+        "  dc_supplemental_galleries, "
+        "  theqoo_supplemental_boards, instiz_supplemental_boards "
         "FROM groups WHERE key=? AND is_active=1",
         [key],
     )
@@ -224,6 +225,12 @@ def _load_group(client: D1Client, key: str) -> GroupConfig:
         twitter_handles=json.loads(r.get("twitter_handles") or "[]"),
         dc_supplemental_galleries=json.loads(
             r.get("dc_supplemental_galleries") or "[]"
+        ),
+        theqoo_supplemental_boards=json.loads(
+            r.get("theqoo_supplemental_boards") or "[]"
+        ),
+        instiz_supplemental_boards=json.loads(
+            r.get("instiz_supplemental_boards") or "[]"
         ),
     )
 
