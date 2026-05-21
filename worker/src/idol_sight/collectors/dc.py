@@ -128,11 +128,20 @@ class DcCollector:
                 )
                 sup_rows = self._parse(page)
                 # Cross-group hub: only keep rows whose title is relevant
-                # to THIS group's context_keywords. is_relevant already
-                # rejects global spam internally.
+                # to THIS group's context_keywords. ``strict_generic_blocklist``
+                # demotes tokens like '버추얼' / 'IPX' / 'ABYSS' / 'VLAST' /
+                # 'Duri' to anchor-required, so generic 버튜버 일반 글 in the
+                # shared hub doesn't get tagged as MiiWAN content. The 2026-05-21
+                # vboyband dispatch caught this exact pattern (4/6 rows were
+                # generic '버추얼 아이돌' threads); strict mode addresses it
+                # without restricting other collectors. is_relevant rejects
+                # global spam internally.
                 sup_rows = [
                     r for r in sup_rows
-                    if is_relevant(r.get("title", ""), group)
+                    if is_relevant(
+                        r.get("title", ""), group,
+                        strict_generic_blocklist=True,
+                    )
                 ]
                 rows_all.extend(sup_rows)
             except Exception as e:  # noqa: BLE001

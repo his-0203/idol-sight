@@ -39,6 +39,15 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+# Canonical definition lives in analysis.relevance — re-exported here so
+# legacy callers ``from idol_sight.collectors._search_terms import
+# GENERIC_KEYWORD_BLOCKLIST`` continue working (and so the value can't
+# drift between the search-expansion path and the is_relevant strict
+# mode that DcCollector's supplemental fetch relies on).
+from idol_sight.analysis.relevance import (
+    GENERIC_KEYWORD_BLOCKLIST as _GENERIC_KEYWORD_BLOCKLIST,
+)
+
 # Per-name minimums. Hangul tokens of length 2 are kept (most idol names
 # are 2-3 syllables). English / romanized tokens require length ≥ 3 to
 # avoid "MV"/"BL"/"V" noise that collides with non-idol search results.
@@ -56,14 +65,9 @@ DEFAULT_MAX_TERMS = 6
 # in context_keywords. These usually leak into a group's keyword list to
 # tag the genre (버추얼) or agency (IPX, ABYSS, VLAST) — they would
 # return tens of thousands of unrelated articles if dispatched as their
-# own query. We still keep them in :func:`is_relevant` (substring
-# matching there is fine because it has access to a group anchor); we
-# just don't expand SEARCH on them.
-GENERIC_KEYWORD_BLOCKLIST: frozenset[str] = frozenset({
-    "버추얼", "virtual",
-    "IPX", "ABYSS", "VLAST", "Bridge", "Duri", "ACCORD",
-    "ama",
-})
+# own query. Re-exported from analysis.relevance so the search-expansion
+# layer and the is_relevant strict mode share one source of truth.
+GENERIC_KEYWORD_BLOCKLIST = _GENERIC_KEYWORD_BLOCKLIST
 
 
 @dataclass(frozen=True)

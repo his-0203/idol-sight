@@ -11,6 +11,7 @@ OWIS for unrelated content) is the main regression this guards.
 """
 
 from idol_sight.analysis.relevance import (
+    GENERIC_KEYWORD_BLOCKLIST,
     GLOBAL_NEGATIVE_KEYWORDS,
     is_global_spam,
     is_relevant,
@@ -95,3 +96,70 @@ def test_is_global_spam_phrases_present():
         assert phrase in "  ".join(GLOBAL_NEGATIVE_KEYWORDS)
     assert is_global_spam("응원봉 양도합니다") is True
     assert is_global_spam("일반 게시글") is False
+
+
+def _miiwan_generic() -> GroupConfig:
+    """Mirrors 0061's MiiWAN seed (post-V2.26): the generic '버추얼' and
+    'IPX' tokens live alongside group-specific tokens, which is exactly
+    the case that needs strict-mode protection in DC supplemental
+    galleries."""
+    return GroupConfig(
+        key="miiwan", name="MiiWAN", name_kr="미완소년",
+        debut_date="2026-06-01",
+        yt_channel_id=None, dc_gallery_id="miiwansonyeon",
+        naver_query="MiiWAN 미완소년",
+        context_keywords=[
+            "MiiWAN", "miiwan", "MIIWAN", "미완소년", "ㅁㅇㅅㄴ",
+            "나이선", "임온", "마하진", "버추얼", "IPX",
+        ],
+        blacklist_phrases=[], twitter_handles=[],
+    )
+
+
+def test_generic_blocklist_canonical_tokens_present():
+    """If anyone trims the blocklist, the strict-mode tests below would
+    silently start passing for wrong reasons — fail loudly instead."""
+    for t in ("버추얼", "IPX", "ABYSS", "VLAST", "Duri"):
+        assert t in GENERIC_KEYWORD_BLOCKLIST
+
+
+def test_strict_mode_demotes_generic_to_anchor_required():
+    """A title that matches ONLY a generic blocklisted keyword (with no
+    anchor) is accepted in legacy mode but rejected in strict mode —
+    this is the V2.27.1 fix for vboyband 일반 글 false positives."""
+    g = _miiwan_generic()
+    legacy = is_relevant("버추얼 아이돌이 성공하려면 꼭 필요한 3가지", g)
+    strict = is_relevant(
+        "버추얼 아이돌이 성공하려면 꼭 필요한 3가지", g,
+        strict_generic_blocklist=True,
+    )
+    assert legacy is True
+    assert strict is False
+
+
+def test_strict_mode_lets_generic_through_with_anchor():
+    """Strict mode demotes generic tokens to anchor-required, not
+    rejects-outright. '버추얼' alongside an anchor still matches."""
+    g = _miiwan_generic()
+    assert is_relevant(
+        "미완소년 버추얼 아이돌 데뷔 임박", g,
+        strict_generic_blocklist=True,
+    ) is True
+
+
+def test_strict_mode_does_not_affect_non_generic_keywords():
+    """Group-specific tokens (멤버명, 그룹명) still match via the long-
+    token fast path in strict mode — the gate only applies to entries in
+    GENERIC_KEYWORD_BLOCKLIST."""
+    g = _miiwan_generic()
+    assert is_relevant("나이선 첫 라이브", g, strict_generic_blocklist=True) is True
+    assert is_relevant("미완소년 화이팅", g, strict_generic_blocklist=True) is True
+    assert is_relevant("ㅁㅇㅅㄴ 갤러리 생겼네", g, strict_generic_blocklist=True) is True
+
+
+def test_strict_mode_default_off_preserves_legacy_callers():
+    """is_relevant(title, group) without the strict kwarg must behave
+    exactly like the legacy implementation — TheQoo / Instiz hot-board
+    collectors depend on that."""
+    g = _miiwan_generic()
+    assert is_relevant("버추얼 트렌드 분석", g) is True  # legacy: '버추얼' fires

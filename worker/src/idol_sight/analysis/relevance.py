@@ -40,6 +40,21 @@ from idol_sight.config import GroupConfig
 # tokens are still allowed — they just need anchor company.
 SHORT_TOKEN_THRESHOLD = 3
 
+# Generic / agency / genre tokens that are too broad to anchor a match
+# on their own even when length ≥ 3. '버추얼' matches every 버튜버 글,
+# 'IPX' / 'ABYSS' / 'VLAST' / 'Duri' / 'ACCORD' / 'Bridge' are agency
+# tokens shared across multiple groups, 'ama' is a 3-char fan slang that
+# leaks too easily. When ``is_relevant`` is invoked with
+# ``strict_generic_blocklist=True`` (DcCollector's supplemental fetch
+# does this), these tokens are demoted to anchor-required even at
+# ≥3-char length. The set is canonical here — _search_terms re-exports
+# it for backward compat with naver query expansion.
+GENERIC_KEYWORD_BLOCKLIST: frozenset[str] = frozenset({
+    "버추얼", "virtual",
+    "IPX", "ABYSS", "VLAST", "Bridge", "Duri", "ACCORD",
+    "ama",
+})
+
 # Phrases that mark a post as commercial/거래/광고/도배 noise. We match
 # substring (case-insensitive) — these phrases are unambiguous enough
 # that false-positives are rare. Adding "[광고]" as a single token
@@ -82,31 +97,55 @@ def _has_anchor(title: str, group: GroupConfig) -> bool:
     return bool(group.name_kr and group.name_kr in title)
 
 
-def is_relevant(title: str, group: GroupConfig) -> bool:
+def is_relevant(
+    title: str,
+    group: GroupConfig,
+    *,
+    strict_generic_blocklist: bool = False,
+) -> bool:
     """Decide whether a community-board title is about ``group``.
 
     Rules (in order):
       1. Reject if the title contains any GLOBAL_NEGATIVE_KEYWORDS phrase.
-      2. Accept if any context keyword of length ≥ 3 is a substring.
+      2. Accept if any context keyword of length ≥ 3 (and NOT in the
+         generic blocklist when ``strict_generic_blocklist`` is True) is
+         a substring.
       3. Accept if the title has the group anchor (name/name_kr) AND any
-         short context keyword (< 3 chars) is also present — this is
-         the disambiguation gate that protects against '유니폼' →
-         STELLIVE leaks.
+         short context keyword (< 3 chars OR in the generic blocklist
+         under strict mode) is also present.
       4. Otherwise reject.
 
     Empty titles never pass.
+
+    Parameters
+    ----------
+    strict_generic_blocklist
+        When True, keywords listed in ``GENERIC_KEYWORD_BLOCKLIST`` are
+        demoted to anchor-required regardless of length. DcCollector's
+        supplemental fetch (cross-group hub galleries like 'vboyband')
+        sets this so '버추얼' / 'IPX' alone don't drag in unrelated
+        버튜버 일반 글. Default False preserves legacy behaviour for
+        hot-board collectors (theqoo / instiz) where the post-frequency
+        and curated keyword lists are already tight enough.
     """
     if not title:
         return False
     if is_global_spam(title):
         return False
 
-    # Long-token fast path: any kw of length ≥ 3 → match.
+    blocked: frozenset[str] = (
+        GENERIC_KEYWORD_BLOCKLIST if strict_generic_blocklist else frozenset()
+    )
+
+    # Long-token fast path: any kw of length ≥ 3 → match — UNLESS the
+    # keyword is in the generic blocklist and we're in strict mode, in
+    # which case it falls through to the short-token (anchor-required)
+    # path so the disambiguation gate gets to evaluate it.
     short_tokens: list[str] = []
     for kw in group.context_keywords:
         if not kw:
             continue
-        if len(kw) >= SHORT_TOKEN_THRESHOLD:
+        if len(kw) >= SHORT_TOKEN_THRESHOLD and kw not in blocked:
             if kw in title:
                 return True
         else:
