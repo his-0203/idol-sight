@@ -103,6 +103,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
 
   const commTop = await d1Query<any>(env.DB,
     `SELECT cp.url_hash, cp.url, cp.title, cp.platform, cp.posted_at,
+            cp.collected_at,
             cp.sentiment,
             COALESCE(cps.views,0) AS views,
             COALESCE(cps.likes,0) AS likes,

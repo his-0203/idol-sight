@@ -12,7 +12,18 @@ import { formatKST, formatKSTDate } from "../lib/datetime";
 // default and let the user re-enable.
 const NOTICE_RE = /공지|가이드|호출벨|투표|원격|마플|notice|sticky/i;
 
-type SortKey = "views" | "engagement";
+type SortKey = "views" | "engagement" | "latest" | "oldest";
+
+// posted_at fallback to collected_at — instiz hot list doesn't expose a
+// per-post timestamp so posted_at is NULL; collected_at is then the only
+// reliable ordering signal. Returns null when both are missing so the
+// sort can push the row to the end deterministically.
+const tsOf = (p: any): number | null => {
+  const s = p?.posted_at ?? p?.collected_at;
+  if (!s) return null;
+  const t = Date.parse(s);
+  return Number.isFinite(t) ? t : null;
+};
 type Sentiment = "positive" | "negative" | "controversy" | "neutral" | null | undefined;
 
 const SENTIMENT_BADGE: Record<Exclude<Sentiment, null | undefined>, { label: string; cls: string }> = {
@@ -26,6 +37,10 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
   const [data, setData] = useState<any>(null);
   const [includeNotices, setIncludeNotices] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("views");
+  // null = 전체. 플랫폼 필터는 URL state 미사용 — 그룹 전환 시
+  // 자동 reset 되어야 자연스러워서(다른 그룹의 platform 분포가 다름)
+  // useState 만 사용한다. 같은 이유로 sortKey 도 URL state 가 아님.
+  const [platform, setPlatform] = useState<string | null>(null);
   // Tracks rows the operator has flagged in this session so they
   // disappear immediately without a refetch. The server persists the
   // flag, so a reload would also exclude them — this is purely a UX
@@ -36,8 +51,19 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
     if (!groupKey) return;
     setData(null);
     setFlagged({});
+    setPlatform(null);
     api.group(groupKey).then(setData);
   }, [groupKey]);
+
+  // 데이터에 실제로 존재하는 플랫폼만 필터 버튼으로 노출 — 그룹마다
+  // 분포가 다르고(예: 데뷔 전 MiiWAN 은 dc / naver 위주) 비활성
+  // 옵션을 보여줘 봐야 클릭하면 빈 목록.
+  const platformOptions = useMemo(() => {
+    const list = data?.community_top ?? [];
+    const set = new Set<string>();
+    for (const p of list) if (p?.platform) set.add(String(p.platform));
+    return Array.from(set).sort();
+  }, [data]);
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -48,6 +74,9 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
     if (!includeNotices) {
       r = r.filter((p: any) => !NOTICE_RE.test(p.title ?? ""));
     }
+    if (platform) {
+      r = r.filter((p: any) => p.platform === platform);
+    }
     r = r.filter((p: any) => flagged[p.url_hash] !== "done");
     if (sortKey === "engagement") {
       // engagement_rate = likes per 1000 views; views=0 → 0 to keep ordering stable.
@@ -57,11 +86,23 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
         return v > 0 ? (l / v) * 1000 : 0;
       };
       r = [...r].sort((a: any, b: any) => score(b) - score(a));
+    } else if (sortKey === "latest" || sortKey === "oldest") {
+      // NULL 타임스탬프는 항상 마지막으로 — 최신순/오래된순 어느 방향이든
+      // 비교 불가능한 row 가 결과 상단을 흐리지 않도록.
+      const dir = sortKey === "latest" ? -1 : 1;
+      r = [...r].sort((a: any, b: any) => {
+        const ta = tsOf(a);
+        const tb = tsOf(b);
+        if (ta === null && tb === null) return 0;
+        if (ta === null) return 1;
+        if (tb === null) return -1;
+        return dir * (ta - tb);
+      });
     } else {
       r = [...r].sort((a: any, b: any) => (Number(b.views ?? 0)) - (Number(a.views ?? 0)));
     }
     return r;
-  }, [data, period, includeNotices, sortKey, flagged]);
+  }, [data, period, includeNotices, sortKey, platform, flagged]);
 
   if (!groupKey) {
     return (
@@ -116,6 +157,8 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
 
         <span class="ml-2 text-zinc-500">정렬</span>
         {([
+          { key: "latest", label: "최신순" },
+          { key: "oldest", label: "오래된순" },
           { key: "views", label: "조회수" },
           { key: "engagement", label: "참여율" },
         ] as Array<{ key: SortKey; label: string }>).map((s) => (
@@ -129,6 +172,31 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
             onClick={() => setSortKey(s.key)}
           >{s.label}</button>
         ))}
+
+        {platformOptions.length > 1 && (
+          <>
+            <span class="ml-2 text-zinc-500">플랫폼</span>
+            <button
+              type="button"
+              class={"rounded-md border px-3 py-1.5 text-xs transition-colors " +
+                     (platform === null
+                       ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                       : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
+              onClick={() => setPlatform(null)}
+            >전체</button>
+            {platformOptions.map((pl) => (
+              <button
+                key={pl}
+                type="button"
+                class={"rounded-md border px-3 py-1.5 text-xs transition-colors " +
+                       (platform === pl
+                         ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                         : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
+                onClick={() => setPlatform(pl)}
+              >{pl}</button>
+            ))}
+          </>
+        )}
 
         <label class="ml-2 flex cursor-pointer items-center gap-1 text-xs text-zinc-400">
           <input
