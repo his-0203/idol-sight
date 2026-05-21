@@ -60,6 +60,12 @@ class GroupConfig:
     context_keywords: list[str] = field(default_factory=list)
     blacklist_phrases: list[str] = field(default_factory=list)
     twitter_handles: list[str] = field(default_factory=list)
+    # Cross-group DC hub galleries (e.g. 'vboyband' 버추얼 보이그룹 통합갤)
+    # where this group is mentioned alongside others. DcCollector fetches
+    # each in addition to dc_gallery_id and filters by context_keywords —
+    # primary gallery posts are kept unfiltered, supplemental posts must
+    # pass is_relevant. Empty list = no supplemental fetches (default).
+    dc_supplemental_galleries: list[str] = field(default_factory=list)
 
     def is_pre_debut(self, now_iso: str | None = None) -> bool:
         if not self.debut_date:

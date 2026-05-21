@@ -189,7 +189,8 @@ def _make_collector(source: str, *, d1: D1Client | None = None):
 def _load_group(client: D1Client, key: str) -> GroupConfig:
     rows = client.execute(
         "SELECT key, name, name_kr, debut_date, yt_channel_id, dc_gallery_id, "
-        "  naver_query, context_keywords, blacklist_phrases, twitter_handles "
+        "  naver_query, context_keywords, blacklist_phrases, twitter_handles, "
+        "  dc_supplemental_galleries "
         "FROM groups WHERE key=? AND is_active=1",
         [key],
     )
@@ -221,6 +222,9 @@ def _load_group(client: D1Client, key: str) -> GroupConfig:
         context_keywords=merged,
         blacklist_phrases=json.loads(r.get("blacklist_phrases") or "[]"),
         twitter_handles=json.loads(r.get("twitter_handles") or "[]"),
+        dc_supplemental_galleries=json.loads(
+            r.get("dc_supplemental_galleries") or "[]"
+        ),
     )
 
 

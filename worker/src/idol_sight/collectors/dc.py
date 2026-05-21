@@ -7,9 +7,18 @@ serves a JS redirect to the correct gallery type (board / mgallery /
 minor / person) — ``StealthyFetcher`` runs a real browser so it follows
 the JS redirect transparently. We use the canonical URL here.
 
-Because every post inside a group's gallery is by definition about that
-group, we do **not** filter by ``group.context_keywords`` — every parsed
-row is emitted as a community_posts + community_post_stats pair.
+Because every post inside a group's *primary* gallery is by definition
+about that group, we do **not** filter the primary fetch by
+``group.context_keywords`` — every parsed row is emitted as a
+community_posts + community_post_stats pair.
+
+Some groups (e.g. MiiWAN before its mgallery hit critical mass) also get
+mentioned in cross-group hub galleries like ``vboyband`` (버추얼 보이그룹
+통합갤). These are listed in ``group.dc_supplemental_galleries``; the
+collector fetches each in addition to the primary and applies
+``is_relevant`` so off-group posts (PLAVE, B:DAWN, etc.) don't pollute
+the BI feed. Primary + supplemental results are dedup'd by ``url_hash``
+before being persisted.
 
 DC blocks aggressive scraping (Cloudflare-style robot challenges, IP
 rate-limiting), so this collector is **Tier 2 from the start**: it only
@@ -50,7 +59,7 @@ from typing import Any
 
 from scrapling import StealthyFetcher
 
-from idol_sight.analysis.relevance import is_global_spam
+from idol_sight.analysis.relevance import is_global_spam, is_relevant
 from idol_sight.collectors.base import CollectionResult
 from idol_sight.config import GroupConfig
 from idol_sight.utils.dates import parse_safe
@@ -70,34 +79,82 @@ class DcCollector:
     def collect(
         self, group: GroupConfig, since: str | None = None
     ) -> CollectionResult:
-        if not group.dc_gallery_id:
+        # Primary gallery (group-scoped, no keyword filter) and any
+        # supplemental hub galleries (e.g. 'vboyband' 버추얼 보이그룹 통합갤)
+        # where this group is mentioned alongside others — supplemental
+        # posts MUST pass is_relevant or they would flood community_posts
+        # with off-group content (PLAVE, B:DAWN etc.).
+        primary = group.dc_gallery_id
+        supplemental = list(group.dc_supplemental_galleries or [])
+
+        if not primary and not supplemental:
             return CollectionResult(
                 rows_inserted=0,
                 rows_updated=0,
-                errors=[f"{group.key}: no dc_gallery_id"],
+                errors=[f"{group.key}: no dc_gallery_id and no supplemental"],
             )
 
         started = perf_counter()
-        url = LIST_URL_TPL.format(gallery_id=group.dc_gallery_id)
-        page = self._stealthy.fetch(
-            url,
-            headless=True,
-            network_idle=True,
-            solve_cloudflare=True,
-        )
-        rows = self._parse(page)
+        rows_all: list[dict[str, Any]] = []
+        errors: list[str] = []
+
+        if primary:
+            try:
+                page = self._stealthy.fetch(
+                    LIST_URL_TPL.format(gallery_id=primary),
+                    headless=True,
+                    network_idle=True,
+                    solve_cloudflare=True,
+                )
+                primary_rows = self._parse(page)
+                # Group-scoped: keep every us-post row except global spam
+                # (양도/팝니다/[광고]/도배 — noise even inside the group's
+                # own gallery).
+                primary_rows = [
+                    r for r in primary_rows
+                    if not is_global_spam(r.get("title", ""))
+                ]
+                rows_all.extend(primary_rows)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{group.key}: primary gallery {primary!r}: {e}")
+
+        for gid in supplemental:
+            try:
+                page = self._stealthy.fetch(
+                    LIST_URL_TPL.format(gallery_id=gid),
+                    headless=True,
+                    network_idle=True,
+                    solve_cloudflare=True,
+                )
+                sup_rows = self._parse(page)
+                # Cross-group hub: only keep rows whose title is relevant
+                # to THIS group's context_keywords. is_relevant already
+                # rejects global spam internally.
+                sup_rows = [
+                    r for r in sup_rows
+                    if is_relevant(r.get("title", ""), group)
+                ]
+                rows_all.extend(sup_rows)
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{group.key}: supplemental gallery {gid!r}: {e}")
+
+        # Dedupe by url_hash — a post that appears in both primary and a
+        # supplemental hub (rare but possible) should only INSERT once.
+        seen: set[str] = set()
+        rows: list[dict[str, Any]] = []
+        for r in rows_all:
+            uh = url_hash(r["url"])
+            if uh in seen:
+                continue
+            seen.add(uh)
+            r["_uh"] = uh
+            rows.append(r)
 
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         statements: list[tuple[str, list[Any]]] = []
 
-        # DC galleries are group-scoped, so we keep every us-post row by
-        # default. The one exception is global spam phrases (양도/팝니다/
-        # [광고]/도배): even inside a group's gallery these are noise,
-        # not signal, and the operator has no use for them in BI views.
-        rows = [r for r in rows if not is_global_spam(r.get("title", ""))]
-
         for r in rows:
-            uh = url_hash(r["url"])
+            uh = r["_uh"]
             posted = parse_safe(r.get("posted_at_raw", ""))
             posted_iso = (
                 posted.strftime("%Y-%m-%dT%H:%M:%SZ") if posted else None
@@ -135,6 +192,7 @@ class DcCollector:
             rows_inserted=len(rows),
             rows_updated=0,
             statements=statements,
+            errors=errors,
             runtime_ms=runtime_ms,
         )
 
