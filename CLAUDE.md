@@ -88,6 +88,9 @@ cd frontend && wrangler pages deploy dist
 - **V2.26 (2026-05-21)**: MiiWAN 디시 갤러리 등록 + 키워드 변형 보강 (migration 0061). `dc_gallery_id='miiwansonyeon'`, `context_keywords`에 `miiwan`/`MIIWAN`/`ㅁㅇㅅㄴ` 추가. 첫 dispatch에서 12행 적재 검증.
 - **V2.27 (2026-05-21)**: DC 보조 갤러리 수집 — `groups.dc_supplemental_galleries` JSON 컬럼 신설 (migration 0062). DcCollector가 primary 후 supplemental 통합갤(예: vboyband)도 fetch + `is_relevant` 필터. MiiWAN 시드값 `["vboyband"]`.
 - **V2.27.1 (2026-05-21)**: supplemental 매칭 strict mode — `analysis/relevance.py`로 `GENERIC_KEYWORD_BLOCKLIST` canonical 이동, `is_relevant(..., strict_generic_blocklist=True)` 옵션 추가. DcCollector supplemental 호출에만 적용 → '버추얼'/'IPX' 단독 매칭 차단. vboyband 신호/노이즈 33% → 100% 개선.
+- **V2.28 (2026-05-21)**: 더쿠/인스티즈 보조 게시판 인프라 — V2.27 supplemental galleries 패턴을 두 사이트로 확장 (migration 0063). `theqoo_supplemental_boards` / `instiz_supplemental_boards` JSON 컬럼 신설. TheQoo `act=IS` 검색 + Instiz `/bbs/list.php` 검색이 자동화 차단되어 search collector 대신 supplemental 패턴으로 우회. 시드값은 NULL — 적합한 통합 게시판은 운영자 도메인 지식으로 후속 설정.
+- **V2.29 (2026-05-21)**: 커뮤니티 글 정렬에 최신순/오래된순 + 플랫폼 필터 — 데뷔 전 그룹 운영(최근 1~2일 글 확인) 흐름 보완. `api/group/[key].ts` community_top SELECT에 `collected_at` 추가, Community.tsx `SortKey`에 latest/oldest 옵션 + posted_at NULL fallback. 플랫폼별 필터링도 추가.
+- **V2.30 (2026-05-25)**: 그룹별 context_keywords 표기 변형 보강 + wegosix DC 갤러리 등록 (migration 0064). 8개 그룹 모두에 영문 대소문자/Title case / 콜론·하이픈·공백 변형 / 한글 초성 약자 추가 (예: WeGoSix → `wegosix`/`WeGoSix`/`wego6`/`we go six`/`ㅇㄱㅅㅅ` 등 10개 변형). MY:RAKL `ㅁㄹㅋ` + B:DAWN `ㅂㄷ`(2자 short-token, anchor 동반 시에만 매치) 사용자 명시 추가. wegosix mgallery 개설 확인 후 `dc_gallery_id='wegosix'` + `dc_supplemental_galleries=['vboyband']`. `is_relevant`의 short-token gate 가 일반어 충돌 자동 차단.
 
 **다음 단계 (우선순위)**: S급 5개 (RBAC + Cloudflare Access, 감사 로그, 본체 마스킹, 라이브 CCV/슈퍼챗 collector, 티켓 매진속도 collector). 자세한 우선순위는 대화 컨텍스트 또는 v2-roadmap.md 참고.
 
