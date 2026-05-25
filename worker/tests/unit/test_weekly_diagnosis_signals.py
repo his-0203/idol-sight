@@ -397,3 +397,68 @@ def test_data_source_warning_mixed_backfill_and_manual_seed():
     ]
     # 2/3 ≈ 0.67 > 0.5 → True
     assert data_source_warning(rows) is True
+
+
+# ---------------------------------------------------------------------------
+# rev 3 — temporal_z / wow_pct / _category_of + 임계치 상수
+# ---------------------------------------------------------------------------
+
+from idol_sight.analysis.weekly_diagnosis_signals import (
+    temporal_z_score, wow_pct, _category_of,
+    SUBS_WOW_LIT, VIEWS_WOW_LIT, VIEWS_WOW_PAID,
+    SUBS_WOW_SUB_PURCHASE, NEWS_WOW_LIT, COMMUNITY_WOW_LIT,
+    TEMPORAL_HISTORY_WEEKS, CATEGORY_COHORT_MIN,
+)
+
+
+def test_temporal_z_score_basic():
+    """history 분포 대비 z. cohort_z_score 와 동일 계산, semantically 다름."""
+    history = [100, 110, 105, 115, 108, 112, 120, 95]
+    z = temporal_z_score(now_value=160, history=history)
+    assert z > 4.0    # 강한 spike
+
+
+def test_temporal_z_score_empty_history():
+    """history 부족 → 0."""
+    assert temporal_z_score(now_value=100, history=[]) == 0.0
+
+
+def test_wow_pct_basic():
+    assert math.isclose(wow_pct(now_value=110, prev_value=100), 0.10)
+
+
+def test_wow_pct_prev_zero_returns_none():
+    """prev=0/None 이면 dead signal — None."""
+    assert wow_pct(now_value=100, prev_value=0) is None
+    assert wow_pct(now_value=100, prev_value=None) is None
+    assert wow_pct(now_value=None, prev_value=100) is None
+
+
+def test_category_of_corporate_is_kpop():
+    assert _category_of("corporate") == "kpop"
+
+
+def test_category_of_segmentary_is_subculture():
+    assert _category_of("segmentary") == "subculture"
+
+
+def test_category_of_confederation_is_subculture():
+    assert _category_of("confederation") == "subculture"
+
+
+def test_category_of_unknown_defaults_kpop():
+    """알 수 없는 값 → kpop 으로 safe default."""
+    assert _category_of(None) == "kpop"
+    assert _category_of("") == "kpop"
+
+
+def test_thresholds_constants_present():
+    """rev 3 상수들이 모두 export 됐는지 sanity."""
+    assert SUBS_WOW_LIT == 0.05
+    assert VIEWS_WOW_LIT == 0.08
+    assert VIEWS_WOW_PAID == 0.20
+    assert SUBS_WOW_SUB_PURCHASE == 0.15
+    assert NEWS_WOW_LIT == 0.30
+    assert COMMUNITY_WOW_LIT == 0.30
+    assert TEMPORAL_HISTORY_WEEKS == 8
+    assert CATEGORY_COHORT_MIN == 3

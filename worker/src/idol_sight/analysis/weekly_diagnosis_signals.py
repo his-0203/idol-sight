@@ -330,6 +330,52 @@ def irrelevant_flag_ratio(posts: list[dict[str, Any]]) -> float:
     return flagged / len(posts)
 
 
+# ---------------------------------------------------------------------------
+# rev 3 — cohort 카테고리 분리 + temporal z + WoW% 임계
+# ---------------------------------------------------------------------------
+
+# 그룹 자기 history 의 직전 N주 표본 (cohort_z_score 의 분모로 사용).
+TEMPORAL_HISTORY_WEEKS = 8
+# subculture cohort (현재 2개) 가 이 값 미만이면 category z=0 fallback.
+CATEGORY_COHORT_MIN = 3
+
+
+def temporal_z_score(now_value: float, history: list[float]) -> float:
+    """동일 그룹의 historical 분포 대비 z-score.
+
+    내부적으로 cohort_z_score 와 동일 계산 (분포 평균/표준편차). semantically:
+    - cohort_z_score: cross-sectional ("이번 주 다른 그룹들 대비")
+    - temporal_z_score: temporal ("자기 그룹의 과거 N주 대비")
+
+    cohort 부족 (len < 2) 시 0 반환 — cohort_z_score 동작과 동일.
+    """
+    return cohort_z_score(value=now_value, cohort=history)
+
+
+def wow_pct(now_value: float | None, prev_value: float | None) -> float | None:
+    """직전 주 대비 % 변화. wow_ratio 와 동일 계산이지만 별도 alias 로
+    의도 명확화 (rev 3 시그널 dict 에서 '비율' 임계 비교 전용)."""
+    return wow_ratio(now=now_value, prev=prev_value)
+
+
+# rev 3 — WoW% 임계 (일반 lit vs paid_ads/sub_purchase 더 strict).
+SUBS_WOW_LIT = 0.05            # organic_growth 등
+VIEWS_WOW_LIT = 0.08           # organic_growth 등
+VIEWS_WOW_PAID = 0.20          # paid_youtube_ads (더 strict)
+SUBS_WOW_SUB_PURCHASE = 0.15   # subscriber_purchase (검증 어려움)
+NEWS_WOW_LIT = 0.30            # 뉴스 변동성 큼
+COMMUNITY_WOW_LIT = 0.30       # 커뮤 변동성 큼
+
+
+def _category_of(group_model: str | None) -> str:
+    """spec §13.2: K-POP (corporate) vs 서브컬쳐 (segmentary/confederation)."""
+    if group_model == "corporate":
+        return "kpop"
+    if group_model in ("segmentary", "confederation"):
+        return "subculture"
+    return "kpop"   # safe default
+
+
 def data_source_warning(rows: list[dict[str, Any]]) -> bool:
     """7d window 의 agg_summary 행 중 과반이 backfill_* 또는 manual_seed 면 True.
 
