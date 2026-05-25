@@ -18,22 +18,24 @@ from idol_sight.analysis.debut_window import (
 )
 
 
-def test_window_buckets_are_9_non_overlapping_ranges():
-    """V3 (2026-05-25): 9 buckets, D-60 ~ D+60. V2.22 의 ±30 10일 정밀도
-    (D-30/D-20/D-10/D+10/D+20/D+30) 유지 + D-60(-60,-31), D+60(31,60)
-    두 개 추가. ±30~60 영상도 organicity 데이터에 포함되도록.
+def test_window_buckets_are_11_non_overlapping_ranges():
+    """V3.1 (2026-05-25): organicity 전 영상 적용. Pre(-∞..-61) / Post(61..+∞)
+    두 bucket 추가 — 데뷔 ±60일 밖 영상도 organicity 분류. V3 의 9 bucket
+    (D-60 ~ D+60) 유지 + Pre/Post 가 ±60 밖 catch.
 
-    Frontend (DebutWindowVideoTable.tsx) 의 5 탭 UI 는 server-side 에서
-    이 9 bucket 을 union 매핑한다 — 자세한 매핑은 spec rev 의 §3.3 표.
+    CompetitorOrganicityBar 의 V2.22 7 bucket + 2 legacy (D-60/D+60) 패턴
+    은 Pre/Post 라벨을 ALL_BUCKETS 에 안 포함시켜 자동 ignore 한다.
+    DebutWindowVideoTable 의 5 탭 UI 도 마찬가지.
     """
-    assert len(WINDOW_BUCKETS) == 9
+    assert len(WINDOW_BUCKETS) == 11
     labels = [b[0] for b in WINDOW_BUCKETS]
     assert labels == [
-        "D-60", "D-30", "D-20", "D-10", "D-Day",
-        "D+10", "D+20", "D+30", "D+60",
+        "Pre", "D-60", "D-30", "D-20", "D-10", "D-Day",
+        "D+10", "D+20", "D+30", "D+60", "Post",
     ]
     flat = [(lo, hi) for _, lo, hi in WINDOW_BUCKETS]
     assert flat == [
+        (-999999, -61),
         (-60, -31),
         (-30, -21),
         (-20, -11),
@@ -43,6 +45,7 @@ def test_window_buckets_are_9_non_overlapping_ranges():
         ( 11,  20),
         ( 21,  30),
         ( 31,  60),
+        ( 61, 999999),
     ]
 
 
@@ -272,10 +275,12 @@ def _client(rows_by_sql_substring):
     return client
 
 
-def test_build_video_organicity_filters_window_and_emits_upserts():
-    """Reads videos in ±60 day window, scores each, returns upsert statements."""
-    # Two miiwan videos: one inside debut window, one outside (D-166).
+def test_build_video_organicity_scores_all_videos_emits_upserts():
+    """V3.1: Reads all videos with a debut_date, scores each (including ±60
+    outside via Pre/Post buckets), returns upsert statements."""
+    # Two miiwan videos: one inside debut window (D-15), one outside (D-166).
     # V2.22: D-15 lands in D-20 (-20..-11) under the 7-bucket scheme.
+    # V3.1: D-166 lands in Pre (-∞..-61) instead of being skipped.
     client = _client({
         "FROM youtube_videos": [
             {
@@ -293,7 +298,7 @@ def test_build_video_organicity_filters_window_and_emits_upserts():
                 "video_id": "vid_outside",
                 "group_key": "miiwan",
                 "is_short": 0,
-                "published_at": "2026-01-01T00:00:00Z",  # ~D-166
+                "published_at": "2026-01-01T00:00:00Z",  # ~D-166 → Pre bucket
                 "view_count": 100_000,
                 "like_count": 5_000,
                 "comment_count": 100,
@@ -304,20 +309,30 @@ def test_build_video_organicity_filters_window_and_emits_upserts():
     })
     result = build_video_organicity(client)
 
-    # Only the in-window video gets an upsert; out-of-window is skipped
+    # V3.1: both videos get upserts (Pre bucket catches outside video)
     sqls = [s[0] for s in result.statements]
     params_list = [s[1] for s in result.statements]
-    assert len(result.statements) == 1
-    assert "INSERT INTO debut_window_video_organicity" in sqls[0]
-    assert "ON CONFLICT(video_id) DO UPDATE" in sqls[0]
-    # video_id in first param position
-    assert params_list[0][0] == "vid_inside"
-    # window_bucket present (published 2026-06-01 vs debut 2026-06-16 = D-15 → D-20 bucket)
-    assert "D-20" in params_list[0]
-    # signal_breakdown is JSON
-    breakdown_json = next(p for p in params_list[0] if isinstance(p, str) and p.startswith("{"))
-    parsed = json.loads(breakdown_json)
-    assert "engagement_score" in parsed
+    assert len(result.statements) == 2
+    for sql in sqls:
+        assert "INSERT INTO debut_window_video_organicity" in sql
+        assert "ON CONFLICT(video_id) DO UPDATE" in sql
+
+    # Map video_id → params for unordered assertion
+    by_id = {p[0]: p for p in params_list}
+    assert set(by_id) == {"vid_inside", "vid_outside"}
+
+    # In-window video lands in D-20 bucket
+    assert "D-20" in by_id["vid_inside"]
+    # Out-of-window video lands in Pre bucket (V3.1)
+    assert "Pre" in by_id["vid_outside"]
+
+    # signal_breakdown is JSON on both
+    for params in params_list:
+        breakdown_json = next(
+            p for p in params if isinstance(p, str) and p.startswith("{")
+        )
+        parsed = json.loads(breakdown_json)
+        assert "engagement_score" in parsed
 
 
 def test_fetch_sql_uses_real_youtube_video_stats_columns():
@@ -492,9 +507,33 @@ def test_bucket_for_d_plus_30_d_plus_60_boundary():
     assert bucket_for(31) == "D+60"
 
 
-def test_bucket_for_outside_pm_60_returns_none():
-    """V3: ±60 밖은 None (즉 -61, +61 영상은 organicity 분류 안 됨)."""
-    assert bucket_for(-61) is None
-    assert bucket_for(61) is None
-    assert bucket_for(-100) is None
-    assert bucket_for(100) is None
+def test_bucket_for_outside_pm_60_maps_to_pre_post():
+    """V3.1: ±60 밖 영상은 Pre/Post bucket 로 매핑 (V3 의 None 반환 폐지)."""
+    assert bucket_for(-61) == "Pre"
+    assert bucket_for(-100) == "Pre"
+    assert bucket_for(-999999) == "Pre"
+    assert bucket_for(61) == "Post"
+    assert bucket_for(100) == "Post"
+    assert bucket_for(999999) == "Post"
+
+
+def test_bucket_for_pre_post_boundary():
+    """V3.1: Pre/Post 와 D-60/D+60 의 경계 정확."""
+    assert bucket_for(-61) == "Pre"
+    assert bucket_for(-60) == "D-60"
+    assert bucket_for(60) == "D+60"
+    assert bucket_for(61) == "Post"
+
+
+def test_bucket_for_extreme_values():
+    """V3.1: -999999, +999999 같은 극단값도 매핑."""
+    assert bucket_for(-999999) == "Pre"
+    assert bucket_for(999999) == "Post"
+
+
+def test_bucket_for_year_old_videos():
+    """V3.1: 데뷔 1년 후 영상 (예: ISEDOL 의 2026 영상, 데뷔 2021-12) 매핑."""
+    # 데뷔 후 365 + 365*4 = 1825 일 (대충 4년)
+    assert bucket_for(1825) == "Post"
+    # 데뷔 1년 이전 영상
+    assert bucket_for(-365) == "Pre"

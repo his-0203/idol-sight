@@ -1,8 +1,13 @@
 """Debut window organicity — organic vs paid-viral classifier for YouTube
-videos uploaded in the ±60 day window around each group's debut date.
+videos. V3.1 (2026-05-25): scoring applies to all videos for groups with a
+debut_date; Pre/Post buckets catch videos outside the ±60d window so the
+[전체 기간] view in DebutWindowVideoTable can render ER/Score/판정 for
+every video instead of 91% NULL.
 
 See docs/superpowers/specs/2026-05-12-debut-window-organicity-design.md for
-the algorithm rationale, signal weights, and verdict thresholds.
+the algorithm rationale, signal weights, and verdict thresholds, and
+docs/superpowers/specs/2026-05-25-organicity-all-videos-design.md for the
+V3.1 all-videos amendment.
 """
 
 from __future__ import annotations
@@ -26,22 +31,25 @@ __all__ = [
     "build_summary",
 ]
 
-# (label, days_lo_inclusive, days_hi_inclusive). Ranges are non-overlapping
-# and contiguous across the ±60 day debut window. V3 (2026-05-25): D-60/D+60
-# 두 개 추가해 ±30~60 영상도 분류 (V2.22 의 ±30 10일 정밀도 유지). frontend
-# 의 5 탭 UI (D-60/D-30/D-Day/D+30/D+60) 는 server-side 에서 이 9 bucket 을
-# union 으로 매핑한다 — 자세한 매핑은 frontend/functions/api/debut-window/
-# videos.ts 의 FRONTEND_BUCKET_MAP 참조.
+# (label, days_lo_inclusive, days_hi_inclusive). V3.1 (2026-05-25):
+# organicity 전 영상 적용. Pre(-∞..-61) / Post(61..+∞) 두 bucket 추가해
+# 데뷔 ±60 밖 영상도 분류. V3 의 9 bucket (D-60~D+60) 유지.
+#
+# Pre/Post 라벨은 frontend 의 5 탭 UI (FRONTEND_BUCKET_MAP) 와 V2.22 의
+# CompetitorOrganicityBar 7 bucket 매핑에 *포함되지 않음* — 자동 무시.
+# DebutWindowVideoTable 의 [전체 기간] view 만 모든 bucket 영상 표시.
 WINDOW_BUCKETS: list[tuple[str, int, int]] = [
-    ("D-60", -60, -31),
-    ("D-30", -30, -21),
-    ("D-20", -20, -11),
-    ("D-10", -10,  -2),
-    ("D-Day", -1,   1),
-    ("D+10",   2,  10),
-    ("D+20",  11,  20),
-    ("D+30",  21,  30),
-    ("D+60",  31,  60),
+    ("Pre",   -999999, -61),
+    ("D-60",     -60,  -31),
+    ("D-30",     -30,  -21),
+    ("D-20",     -20,  -11),
+    ("D-10",     -10,   -2),
+    ("D-Day",     -1,    1),
+    ("D+10",       2,   10),
+    ("D+20",      11,   20),
+    ("D+30",      21,   30),
+    ("D+60",      31,   60),
+    ("Post",      61, 999999),
 ]
 
 # Engagement-rate boundaries (V2 calibrated 2026-05-13 from 1125-video remote
@@ -285,9 +293,6 @@ LEFT JOIN youtube_video_stats s
           )
 WHERE g.debut_date IS NOT NULL
   AND v.published_at IS NOT NULL
-  AND julianday(v.published_at)
-        BETWEEN julianday(g.debut_date) - 60
-            AND julianday(g.debut_date) + 60
 """
 
 
@@ -328,8 +333,9 @@ def _days_between(debut_date: str, published_at: str) -> int:
 
 
 def build_video_organicity(client: _Executor) -> CollectionResult:
-    """Score every video in each group's ±60d debut window, return upsert
-    statements. Idempotent on video_id."""
+    """Score every video in each group with a debut_date, return upsert
+    statements. V3.1 (2026-05-25): all videos scored — Pre/Post buckets
+    catch ±60d outside videos. Idempotent on video_id."""
     rows = client.execute(_FETCH_VIDEOS_SQL)
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     statements: list[tuple[str, list[Any]]] = []
@@ -338,7 +344,7 @@ def build_video_organicity(client: _Executor) -> CollectionResult:
         days_rel = _days_between(r["debut_date"], r["published_at"])
         bucket = bucket_for(days_rel)
         if bucket is None:
-            continue  # outside window; defensive (SQL already filtered)
+            continue  # defensive — Pre/Post catch all post-V3.1, should not trip
 
         video = {
             "is_short": r.get("is_short") or 0,
