@@ -18,6 +18,10 @@ from idol_sight.analysis.weekly_diagnosis_signals import (
 from idol_sight.analysis.weekly_diagnosis_signals import (
     negative_keyword_z, twitter_controversy_z, NEGATIVE_KEYWORDS,
 )
+from idol_sight.analysis.weekly_diagnosis_signals import (
+    irrelevant_flag_ratio, data_source_warning,
+    IRRELEVANT_RATIO_THRESHOLD,
+)
 
 
 def test_cohort_z_score_basic():
@@ -324,3 +328,41 @@ def test_negative_keywords_list_includes_canonical():
     """spec 의 부정 키워드 카탈로그가 모두 포함되어 있는지 sanity check."""
     for kw in ("논란", "사과", "의혹", "해명"):
         assert kw in NEGATIVE_KEYWORDS
+
+
+def test_irrelevant_flag_ratio_lit():
+    """주간 community_posts 100개 중 18개 flagged → 0.18."""
+    posts = [{"user_flagged_irrelevant": 1}] * 18 + [{"user_flagged_irrelevant": 0}] * 82
+    assert math.isclose(irrelevant_flag_ratio(posts), 0.18)
+
+
+def test_irrelevant_flag_below_threshold():
+    """ratio < 0.15 → 경고 안 점등."""
+    posts = [{"user_flagged_irrelevant": 1}] * 10 + [{"user_flagged_irrelevant": 0}] * 90
+    assert irrelevant_flag_ratio(posts) < IRRELEVANT_RATIO_THRESHOLD
+
+
+def test_irrelevant_flag_empty():
+    assert irrelevant_flag_ratio([]) == 0.0
+
+
+def test_data_source_warning_majority_backfill():
+    """7d window 의 과반이 backfill_* → 경고."""
+    rows = [
+        {"data_source": "backfill_estimate"},
+        {"data_source": "backfill_exact"},
+        {"data_source": "live"},
+        {"data_source": "backfill_estimate"},
+    ]
+    # 3/4 = 0.75 > 0.5 → True
+    assert data_source_warning(rows) is True
+
+
+def test_data_source_warning_majority_live():
+    rows = [{"data_source": "live"}] * 7 + [{"data_source": "backfill_exact"}]
+    # 1/8 backfill → False
+    assert data_source_warning(rows) is False
+
+
+def test_data_source_warning_empty():
+    assert data_source_warning([]) is False

@@ -308,3 +308,32 @@ def twitter_controversy_z(now_count: int, cohort_counts: list[float]) -> float:
     controversy_spike 가설의 직접 시그널 (community_keywords 와 OR 결합).
     """
     return cohort_z_score(value=float(now_count), cohort=cohort_counts)
+
+
+IRRELEVANT_RATIO_THRESHOLD = 0.15
+DATA_SOURCE_BACKFILL_MAJORITY = 0.5
+
+
+def irrelevant_flag_ratio(posts: list[dict[str, Any]]) -> float:
+    """user_flagged_irrelevant 가 1 인 post 의 비중. 빈 입력은 0.0.
+
+    >= 0.15 시 data_credibility_warning 메타가드 점등 → 모든 가설 confidence 한 단계 감점.
+    """
+    if not posts:
+        return 0.0
+    flagged = sum(1 for p in posts if (p.get("user_flagged_irrelevant") or 0) == 1)
+    return flagged / len(posts)
+
+
+def data_source_warning(rows: list[dict[str, Any]]) -> bool:
+    """7d window 의 agg_summary 행 중 과반이 backfill_* 이면 True.
+
+    수동 시드/백필이 자동 수집보다 많으면 시그널 자체의 신뢰성이 떨어짐.
+    """
+    if not rows:
+        return False
+    backfill_count = sum(
+        1 for r in rows
+        if (r.get("data_source") or "live").startswith("backfill")
+    )
+    return (backfill_count / len(rows)) > DATA_SOURCE_BACKFILL_MAJORITY
