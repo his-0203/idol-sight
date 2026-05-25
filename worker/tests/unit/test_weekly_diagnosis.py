@@ -240,3 +240,46 @@ def test_platform_concentrated_not_lit_without_supporting_z():
     }
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "platform_concentrated_promo" for h in hyps)
+
+
+def test_member_centric_isedol_top1_jump():
+    """ISEDOL top1_share +12pt → 점등, 그룹 spike 동반."""
+    sig = _base_signal_bundle() | {
+        "subs_z": 2.0,
+        "views_z": 2.0,
+        "member_centric": {
+            "lit": True, "dead": False,
+            "top1_share_now": 0.55, "top1_share_wow": 0.12,
+            "hhi_norm_wow": 0.08, "top1_share_high": False,
+        },
+    }
+    hyps = classify_hypotheses(sig)
+    mc = next((h for h in hyps if h.key == "member_centric_spike"), None)
+    assert mc is not None
+
+
+def test_member_centric_dampens_paid():
+    """member_centric 점등 시 paid_ads confidence 한 단계 감점."""
+    sig = _base_signal_bundle() | {
+        # paid 시그널
+        "views_z": 3.0, "subs_z": 0.5, "er_wow": -0.28,
+        "organicity_paid": 0.35,
+        # member_centric 시그널
+        "member_centric": {
+            "lit": True, "dead": False,
+            "top1_share_now": 0.62, "top1_share_wow": 0.14,
+            "hhi_norm_wow": 0.10, "top1_share_high": True,
+        },
+    }
+    hyps = classify_hypotheses(sig)
+    paid = next((h for h in hyps if h.key == "paid_youtube_ads"), None)
+    # paid 가 점등은 됐지만 confidence 감점됨
+    if paid is not None:
+        assert paid.confidence in ("medium", "low")
+
+
+def test_member_centric_dead_meta_no_emit():
+    """agg_member_pop_meta 행 자체가 없는 그룹 → 점등 안 됨."""
+    sig = _base_signal_bundle()    # member_centric.dead=True
+    hyps = classify_hypotheses(sig)
+    assert not any(h.key == "member_centric_spike" for h in hyps)

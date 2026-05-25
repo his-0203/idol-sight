@@ -327,6 +327,48 @@ def _check_platform_concentrated(sig: dict) -> Hypothesis | None:
     return Hypothesis(key="platform_concentrated_promo", confidence=confidence, evidence=evidence)
 
 
+def _check_member_centric_spike(sig: dict) -> Hypothesis | None:
+    mc = sig["member_centric"]
+    if mc.get("dead") or not mc.get("lit"):
+        return None
+    evidence: list[Evidence] = []
+    if mc.get("top1_share_wow") is not None and mc["top1_share_wow"] >= 0.10:
+        evidence.append(Evidence(
+            "top1_share_wow", mc["top1_share_wow"],
+            f"멤버 1 인기 +{mc['top1_share_wow']*100:.0f}pt",
+        ))
+    if mc.get("hhi_norm_wow") is not None and mc["hhi_norm_wow"] >= 0.15:
+        evidence.append(Evidence(
+            "hhi_norm_wow", mc["hhi_norm_wow"],
+            f"인기 집중도 +{mc['hhi_norm_wow']:.2f}",
+        ))
+    # 그룹 차원 spike 가 동반돼야 의미 있는 가설
+    if sig["subs_z"] < Z_THRESHOLD_PRIMARY and sig["views_z"] < Z_THRESHOLD_PRIMARY:
+        return None
+    if not evidence:
+        return None
+    confidence = "high" if mc.get("top1_share_high") else "medium"
+    return Hypothesis(key="member_centric_spike", confidence=confidence, evidence=evidence)
+
+
+def _dampen_if_member_centric_active(hyps: list[Hypothesis]) -> list[Hypothesis]:
+    """member_centric_spike 점등 시 그룹-차원 paid/sub_purchase confidence 감점."""
+    mc_active = any(h.key == "member_centric_spike" and h.confidence in ("high", "medium")
+                    for h in hyps)
+    if not mc_active:
+        return hyps
+    out: list[Hypothesis] = []
+    for h in hyps:
+        if h.key in ("paid_youtube_ads", "subscriber_purchase"):
+            new_conf = _confidence_dampen(h.confidence)
+            if new_conf == "low":
+                continue
+            out.append(Hypothesis(key=h.key, confidence=new_conf, evidence=h.evidence))
+        else:
+            out.append(h)
+    return out
+
+
 def classify_hypotheses(sig: dict) -> list[Hypothesis]:
     """시그널 dict → 점등된 가설 리스트. 점등 안 된 가설은 omit.
 
@@ -341,6 +383,9 @@ def classify_hypotheses(sig: dict) -> list[Hypothesis]:
         _check_community_word_of_mouth(sig),
         _check_controversy_spike(sig),
         _check_platform_concentrated(sig),
+        _check_member_centric_spike(sig),
     ]
     lit = [c for c in candidates if c is not None]
-    return _dampen_if_comeback_active(lit)
+    lit = _dampen_if_comeback_active(lit)
+    lit = _dampen_if_member_centric_active(lit)
+    return lit
