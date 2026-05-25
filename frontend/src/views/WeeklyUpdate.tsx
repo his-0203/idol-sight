@@ -5,7 +5,7 @@ import { fmt } from "../format";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
-import { extractGroupKeys } from "../lib/insightFormat";
+import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
 import { colorOf } from "../design/groups";
 import { formatKST } from "../lib/datetime";
 
@@ -40,7 +40,9 @@ export function WeeklyUpdate() {
                 try { return JSON.parse(i.source_refs_json ?? "[]"); }
                 catch { return []; }
               })();
-              const aiComment: string | null = i.ai_comment ?? null;
+              const aiComment: string | null = i.ai_comment
+                ? humanizeInsightText(i.ai_comment)
+                : null;
               // 카드 좌측 accent bar 색은 본문에 등장한 첫 그룹의 컬러
               // (없으면 zinc fallback). 그룹별 카드 식별이 한 눈에.
               const bodyGroups = extractGroupKeys(i.body);
@@ -78,7 +80,7 @@ export function WeeklyUpdate() {
                   </div>
                   {/* 2) Title — 강한 weight, tracking-tight 로 위계 */}
                   <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">
-                    {i.title}
+                    {humanizeInsightText(i.title)}
                   </div>
                   {/* 3) Body — 그룹 뱃지/톤 강조 포함 */}
                   <InsightBody

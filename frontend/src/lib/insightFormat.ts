@@ -213,6 +213,115 @@ const POS_SORTED = [...POSITIVE_WORDS].sort((a, b) => b.length - a.length);
 const NEG_SORTED = [...NEGATIVE_WORDS].sort((a, b) => b.length - a.length);
 
 // ─────────────────────────────────────────────────────────────────────────
+// 운영자 친화 자연어 변환 (LLM prompt 보호망)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// prompts.py 의 _DIAGNOSIS_GUIDELINES 가 LLM 에게 통계 용어 (z, WoW, ER
+// WoW) 및 enum key (organic_growth 등) 를 카드 본문에 노출하지 말라고
+// 강제하지만, Gemini 가 가끔 prompt 무시하고 raw 표현 emit. 이 frontend
+// 변환은 safety net — 운영자가 dashboard 에서 전문 용어 노출 보지 않게.
+//
+// signals_json payload 의 hypothesis_primary 필드는 변환되지 않고 enum
+// 원본 보존 (audit / 시스템 일관성). 변환은 *카드 텍스트 (title/body/
+// ai_comment) 표시 단계* 에서만 적용.
+//
+// idempotent: humanize(humanize(x)) === humanize(x).
+
+const DIAGNOSIS_ENUM_MAP: Record<string, string> = {
+  organic_growth:              "자연 유입 성장",
+  paid_youtube_ads:            "유튜브 광고 의심",
+  subscriber_purchase:         "구독자 구매 정황 의심",
+  comeback_cycle:              "컴백 사이클 효과",
+  broadcast_appearance:        "방송 출연 효과",
+  community_word_of_mouth:     "커뮤니티 입소문",
+  controversy_spike:           "논란 신호",
+  platform_concentrated_promo: "특정 플랫폼 집중 홍보 정황",
+  member_centric_spike:        "멤버 개인 활동 영향",
+};
+
+function zMagnitude(z: number): string {
+  const abs = Math.abs(z);
+  if (abs >= 3) return "매우 큰 폭의";
+  if (abs >= 2) return "큰 폭의";
+  if (abs >= 1.5) return "두드러진";
+  return "소폭";
+}
+
+function zDirection(z: number): string {
+  return z >= 0 ? "증가" : "감소";
+}
+
+/**
+ * 카드 텍스트 (title/body/ai_comment) 안의 전문 통계 용어/enum key 를
+ * 운영자 친화 한국어로 치환. parseInsightBody 의 전처리로 자동 호출되며,
+ * title/ai_comment 표시 caller 들이 직접 호출해야 한다.
+ */
+export function humanizeInsightText(
+  text: string | null | undefined,
+): string {
+  if (!text) return text ?? "";
+  let out = text;
+
+  // 순서 중요: ER WoW 가 일반 WoW 매칭 *전에* 잡혀야 이중 변환 회피.
+  // ER WoW/WoW 와 숫자 사이에 한국어 조사(는/은/이/가/의/을/를/로/에) 또는
+  // 공백이 끼어들 수 있어 조사 그룹 허용.
+  const JOSA = "(?:는|은|이|가|의|을|를|로|에)?";
+
+  // (1) "ER WoW(조사)? ±N%" → "팬 참여율(좋아요·댓글 비율) N% (증가|하락)"
+  out = out.replace(
+    new RegExp(`ER\\s+WoW${JOSA}\\s*([+\\-]?\\s*\\d+(?:\\.\\d+)?)\\s*%`, "gi"),
+    (_m, raw: string) => {
+      const trimmed = raw.replace(/\s+/g, "");
+      const sign = trimmed.startsWith("-") ? "-" : "+";
+      const num = trimmed.replace(/^[+\-]/, "");
+      const dir = sign === "-" ? "하락" : "증가";
+      return `팬 참여율(좋아요·댓글 비율) ${num}% ${dir}`;
+    },
+  );
+
+  // (2) "temporal z=±N.N" → "최근 8주 평균 대비 [강도] [방향]"
+  out = out.replace(
+    /temporal\s*z\s*=\s*(-?\d+(?:\.\d+)?)/gi,
+    (_m, num: string) => {
+      const z = parseFloat(num);
+      return `최근 8주 평균 대비 ${zMagnitude(z)} ${zDirection(z)}`;
+    },
+  );
+
+  // (3) "WoW(조사)? ±N%" → "지난 주 대비 N% (증가|감소)"
+  // ER WoW 는 위 (1) 에서 이미 변환됐으므로 일반 WoW 매칭이 안전.
+  out = out.replace(
+    new RegExp(`\\bWoW${JOSA}\\s*([+\\-]?\\s*\\d+(?:\\.\\d+)?)\\s*%`, "gi"),
+    (_m, raw: string) => {
+      const trimmed = raw.replace(/\s+/g, "");
+      const sign = trimmed.startsWith("-") ? "-" : "+";
+      const num = trimmed.replace(/^[+\-]/, "");
+      const dir = sign === "-" ? "감소" : "증가";
+      return `지난 주 대비 ${num}% ${dir}`;
+    },
+  );
+
+  // (4) "z=±N.N" (단독, temporal 이 아닌 경우) → "(평소 대비 [강도] [방향])"
+  // word boundary 로 "fizz=2.3" 같은 합성어 매칭 회피.
+  out = out.replace(
+    /\bz\s*=\s*(-?\d+(?:\.\d+)?)/gi,
+    (_m, num: string) => {
+      const z = parseFloat(num);
+      return `(평소 대비 ${zMagnitude(z)} ${zDirection(z)})`;
+    },
+  );
+
+  // (5) enum key 9개 → 한국어 표현. markdown bold (`**xxx**`) 안의 것도
+  // 매칭됨. word boundary 로 "organic_growth_v2" 같은 변형은 회피.
+  for (const [enumKey, korean] of Object.entries(DIAGNOSIS_ENUM_MAP)) {
+    const rx = new RegExp(`\\b${enumKey}\\b`, "g");
+    out = out.replace(rx, korean);
+  }
+
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // 토큰 모델
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -322,6 +431,9 @@ function classifyBold(inner: string): Tone {
  */
 export function parseInsightBody(body: string | null | undefined): InsightToken[] {
   if (!body) return [];
+  // 운영자 친화 변환 먼저 — LLM 이 가끔 prompt 가이드 무시하고 통계 용어/
+  // enum key 그대로 emit 할 때의 안전망. humanizeInsightText 참조.
+  body = humanizeInsightText(body);
   const tokens: InsightToken[] = [];
   // `**...**` 매칭. greedy 하지 않게 [^*]+. ** 안에 ** 중첩 없다고 가정.
   const RX_BOLD = /\*\*([^*]+)\*\*/g;

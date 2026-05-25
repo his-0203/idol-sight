@@ -5,7 +5,7 @@ import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { formatKST, formatKSTDate } from "../lib/datetime";
 import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
-import { extractGroupKeys } from "../lib/insightFormat";
+import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
 import { colorOf } from "../design/groups";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -112,7 +112,7 @@ export function Insights() {
                 )}
               </div>
               {/* 2) Title */}
-              <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">{i.title}</div>
+              <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">{humanizeInsightText(i.title)}</div>
               {/* 3) Body — 그룹 뱃지/톤 강조 포함 */}
               <InsightBody
                 body={i.body}
@@ -122,7 +122,7 @@ export function Insights() {
               {i.ai_comment && (
                 <div class="mt-2 rounded border-l-2 border-violet-500/40 bg-violet-500/5 px-2 py-1 text-[12px] italic text-zinc-300">
                   <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
-                  {i.ai_comment}
+                  {humanizeInsightText(i.ai_comment)}
                 </div>
               )}
               {/* 5) 메타/출처 */}

@@ -28,7 +28,7 @@ import { colorOf } from "../design/groups";
 import { formatKST, formatKSTDate } from "../lib/datetime";
 import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
-import { extractGroupKeys } from "../lib/insightFormat";
+import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
 import { CompetitorOrganicityBar } from "../components/CompetitorOrganicityBar";
 
 type SummaryShape = {
@@ -730,7 +730,7 @@ export function MiiWANBriefing() {
                             )}
                           </div>
                         )}
-                        <div class="text-base font-semibold tracking-tight text-zinc-100">{i.title}</div>
+                        <div class="text-base font-semibold tracking-tight text-zinc-100">{humanizeInsightText(i.title)}</div>
                         <InsightBody
                           body={i.body}
                           class="mt-1 block text-sm leading-relaxed text-zinc-400"
@@ -738,7 +738,7 @@ export function MiiWANBriefing() {
                         {i.ai_comment && (
                           <div class="mt-2 rounded border-l-2 border-violet-500/40 bg-violet-500/5 px-2 py-1 text-[12px] italic text-zinc-300">
                             <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
-                            {i.ai_comment}
+                            {humanizeInsightText(i.ai_comment)}
                           </div>
                         )}
                         <IpxActionGuard score={score} />
@@ -1178,7 +1178,7 @@ function InsightGroup(props: {
                   {formatKSTDate(i.generated_at)}
                 </span>
               </div>
-              <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">{i.title}</div>
+              <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">{humanizeInsightText(i.title)}</div>
               <InsightBody
                 body={i.body}
                 class="mt-1 block text-sm leading-relaxed text-zinc-400"
@@ -1186,7 +1186,7 @@ function InsightGroup(props: {
               {i.ai_comment && (
                 <div class="mt-2 rounded border-l-2 border-violet-500/40 bg-violet-500/5 px-2 py-1 text-[12px] italic text-zinc-300">
                   <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
-                  {i.ai_comment}
+                  {humanizeInsightText(i.ai_comment)}
                 </div>
               )}
               <DataSourceDetails refs={(i.source_refs ?? []) as RawRef[]} />
