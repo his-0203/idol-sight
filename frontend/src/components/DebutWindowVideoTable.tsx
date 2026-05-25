@@ -138,7 +138,7 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
       <section class={"dw-video-section" + (selected ? " with-panel" : "")}>
         <div class="dw-video-main">
           {/* 상단 view tab — Debut Window / 전체 기간 */}
-          <div class="mb-1 flex items-center justify-between gap-2">
+          <div class="mb-3 flex items-center justify-between gap-2">
             <nav class="dw-view-tabs">
               <button type="button"
                       class={viewMode === "debut" ? "active" : ""}
