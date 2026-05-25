@@ -5,20 +5,25 @@ import { DebutWindowSignalPanel } from "./DebutWindowSignalPanel";
 const BUCKETS = ["D-60", "D-30", "D-Day", "D+30", "D+60"] as const;
 type Bucket = typeof BUCKETS[number];
 type FilterType = "all" | "long" | "short";
+type ViewMode = "debut" | "all";
 
+const PAGE_SIZE = 30;
+
+// VideoRow 는 두 view 가 공유 (전체 기간 view 는 score/verdict null 가능).
 interface VideoRow {
   video_id: string;
   title: string | null;
   is_short: number;
-  days_relative_to_debut: number;
+  published_at?: string;                         // all view 에서만 사용
+  days_relative_to_debut: number | null;
   view_count: number | null;
   like_count: number | null;
   comment_count: number | null;
   engagement_rate: number | null;
   organic_score: number | null;
-  verdict: string;
+  verdict: string | null;
   causes: string | null;
-  signal_breakdown: string;
+  signal_breakdown: string | null;
 }
 
 interface Props {
@@ -26,22 +31,23 @@ interface Props {
 }
 
 // V2.21 5-tier color scale.
-function verdictColor(v: string): string {
+function verdictColor(v: string | null): string {
   if (v === "organic_strong") return "#16a34a";
   if (v === "organic")        return "#22c55e";
   if (v === "borderline")     return "#eab308";
   if (v === "suspect")        return "#f97316";
   if (v === "likely_paid")    return "#ef4444";
-  return "#6b7280";  // insufficient_data
+  return "#6b7280";  // insufficient_data / null
 }
 
-function verdictLabelShort(v: string): string {
+function verdictLabelShort(v: string | null): string {
   if (v === "organic_strong") return "Strong";
   if (v === "organic")        return "Organic";
   if (v === "borderline")     return "Border";
   if (v === "suspect")        return "Suspect";
   if (v === "likely_paid")    return "Paid";
   if (v === "insufficient_data") return "Insufficient";
+  if (v === null)                return "Insufficient";   // V3: organicity 없음
   return v;
 }
 
@@ -70,16 +76,30 @@ function fmtViews(n: number | null): string {
   return String(n);
 }
 
+function fmtPublishedDate(iso: string | undefined): string {
+  if (!iso) return "—";
+  return iso.slice(0, 10);   // 'YYYY-MM-DD'
+}
+
 export function DebutWindowVideoTable({ groupKey }: Props) {
+  const [viewMode, setViewMode] = useState<ViewMode>("debut");
   const [bucket, setBucket] = useState<Bucket>("D-30");
   const [filterType, setFilterType] = useState<FilterType>("all");
+  // Debut Window view rows
   const [rows, setRows] = useState<VideoRow[] | null>(null);
+  // 전체 기간 view state
+  const [allRows, setAllRows] = useState<VideoRow[] | null>(null);
+  const [allTotal, setAllTotal] = useState(0);
+  const [page, setPage] = useState(0);
+
   const [selected, setSelected] = useState<VideoRow | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
 
+  // Debut Window view 데이터 fetch
   useEffect(() => {
+    if (viewMode !== "debut") return;
     setRows(null);
-    setSelected(null);  // 새 bucket/filter 로드 시 패널도 닫기
+    setSelected(null);
     let cancelled = false;
     api.debutWindowVideos(groupKey, bucket, filterType).then((r: { rows: VideoRow[] }) => {
       if (!cancelled) setRows(r.rows);
@@ -87,20 +107,45 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
       if (!cancelled) setRows([]);
     });
     return () => { cancelled = true; };
-  }, [groupKey, bucket, filterType]);
+  }, [viewMode, groupKey, bucket, filterType]);
+
+  // 전체 기간 view 데이터 fetch
+  useEffect(() => {
+    if (viewMode !== "all") return;
+    setAllRows(null);
+    setSelected(null);
+    let cancelled = false;
+    api.debutWindowVideosAll(groupKey, page * PAGE_SIZE, PAGE_SIZE, filterType).then(
+      (r: { rows: VideoRow[]; total: number }) => {
+        if (cancelled) return;
+        setAllRows(r.rows);
+        setAllTotal(r.total);
+      },
+    ).catch(() => {
+      if (!cancelled) { setAllRows([]); setAllTotal(0); }
+    });
+    return () => { cancelled = true; };
+  }, [viewMode, groupKey, page, filterType]);
+
+  // viewMode / filterType 변경 시 페이지 0 으로 reset
+  useEffect(() => { setPage(0); }, [viewMode, filterType, groupKey]);
+
+  const currentRows = viewMode === "debut" ? rows : allRows;
+  const totalPages = Math.max(1, Math.ceil(allTotal / PAGE_SIZE));
 
   return (
     <>
       <section class={"dw-video-section" + (selected ? " with-panel" : "")}>
         <div class="dw-video-main">
+          {/* 상단 view tab — Debut Window / 전체 기간 */}
           <div class="mb-1 flex items-center justify-between gap-2">
-            <nav class="dw-bucket-tabs">
-              {BUCKETS.map((b) => (
-                <button type="button"
-                        key={b}
-                        class={b === bucket ? "active" : ""}
-                        onClick={() => setBucket(b)}>{b}</button>
-              ))}
+            <nav class="dw-view-tabs">
+              <button type="button"
+                      class={viewMode === "debut" ? "active" : ""}
+                      onClick={() => setViewMode("debut")}>Debut Window</button>
+              <button type="button"
+                      class={viewMode === "all" ? "active" : ""}
+                      onClick={() => setViewMode("all")}>전체 기간</button>
             </nav>
             <button
               type="button"
@@ -111,6 +156,19 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
             >ⓘ</button>
           </div>
 
+          {/* Debut Window view 의 5 bucket 탭 */}
+          {viewMode === "debut" && (
+            <nav class="dw-bucket-tabs">
+              {BUCKETS.map((b) => (
+                <button type="button"
+                        key={b}
+                        class={b === bucket ? "active" : ""}
+                        onClick={() => setBucket(b)}>{b}</button>
+              ))}
+            </nav>
+          )}
+
+          {/* Long/Shorts 필터 — 두 view 공통 */}
           <div class="dw-type-filter">
             <span class="dw-type-filter-label">Filter:</span>
             {(["all", "long", "short"] as const).map((t) => (
@@ -127,7 +185,9 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
             <table class="dw-video-table">
               <thead>
                 <tr>
-                  <th class="dw-num">D-day</th>
+                  {viewMode === "debut"
+                    ? <th class="dw-num">D-day</th>
+                    : <th>Published</th>}
                   <th>Title</th>
                   <th>Type</th>
                   <th class="dw-num">Views</th>
@@ -137,21 +197,34 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {rows === null && (
+                {currentRows === null && (
                   <tr><td class="dw-empty-cell" colSpan={7}>Loading…</td></tr>
                 )}
-                {rows !== null && rows.length === 0 && (
-                  <tr><td class="dw-empty-cell" colSpan={7}>No videos in this bucket</td></tr>
+                {currentRows !== null && currentRows.length === 0 && (
+                  <tr><td class="dw-empty-cell" colSpan={7}>
+                    {viewMode === "debut" ? "No videos in this bucket" : "No videos"}
+                  </td></tr>
                 )}
-                {rows !== null && rows.map((r) => {
-                  const dayLabel = r.days_relative_to_debut >= 0
-                    ? `+${r.days_relative_to_debut}` : `${r.days_relative_to_debut}`;
+                {currentRows !== null && currentRows.map((r) => {
+                  const dayLabel = r.days_relative_to_debut === null
+                    ? "—"
+                    : r.days_relative_to_debut >= 0
+                      ? `+${r.days_relative_to_debut}`
+                      : `${r.days_relative_to_debut}`;
+                  const firstColumn = viewMode === "debut"
+                    ? dayLabel
+                    : fmtPublishedDate(r.published_at);
                   const isSelected = selected?.video_id === r.video_id;
+                  const canSelect = r.signal_breakdown !== null && r.signal_breakdown !== undefined;
                   return (
                     <tr key={r.video_id}
-                        onClick={() => setSelected(isSelected ? null : r)}
-                        class={"dw-row-clickable" + (isSelected ? " selected" : "")}>
-                      <td class="dw-num">{dayLabel}</td>
+                        onClick={() => {
+                          if (!canSelect) return;
+                          setSelected(isSelected ? null : r);
+                        }}
+                        class={(canSelect ? "dw-row-clickable" : "")
+                              + (isSelected ? " selected" : "")}>
+                      <td class={viewMode === "debut" ? "dw-num" : ""}>{firstColumn}</td>
                       <td class="dw-title-cell" title={r.title ?? ""}>
                         {r.title ?? r.video_id}
                       </td>
@@ -180,9 +253,25 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
               </tbody>
             </table>
           </div>
+
+          {/* 전체 기간 view 의 페이지네이션 컨트롤 */}
+          {viewMode === "all" && allRows !== null && allTotal > 0 && (
+            <div class="dw-pagination">
+              <button type="button"
+                      disabled={page === 0}
+                      onClick={() => setPage(page - 1)}>← 이전</button>
+              <span class="dw-pagination-info">
+                {page + 1} / {totalPages}
+                <span class="dw-pagination-total"> (총 {allTotal}개)</span>
+              </span>
+              <button type="button"
+                      disabled={(page + 1) >= totalPages}
+                      onClick={() => setPage(page + 1)}>다음 →</button>
+            </div>
+          )}
         </div>
 
-        {selected && (
+        {selected && selected.signal_breakdown && (
           <DebutWindowSignalPanel
             videoId={selected.video_id}
             title={selected.title}
@@ -199,7 +288,7 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
 
 /* ------------------------------------------------------------------ *\
  * Help modal: Score 산정 방식 + verdict thresholds + ER 의미.
- * Pattern mirrors HealthSpec.tsx (dim backdrop + click-stop card).
+ * (변경 없음 — 기존 코드 그대로)
 \* ------------------------------------------------------------------ */
 function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
   return (

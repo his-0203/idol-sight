@@ -460,3 +460,60 @@
   .cob-tag { display: none; }
   .cob-current-tag { font-size: 0.6em; }
 }
+
+/* V3: Debut Window view tab (상위 [Debut Window] [전체 기간]) */
+.dw-view-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.125rem;
+  border-radius: 0.375rem;
+  background: rgb(24 24 27 / 0.6);   /* zinc-900/60 */
+  border: 1px solid rgb(39 39 42);   /* zinc-800 */
+}
+.dw-view-tabs > button {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: rgb(161 161 170);           /* zinc-400 */
+  background: transparent;
+  border-radius: 0.25rem;
+  transition: color 120ms, background 120ms;
+}
+.dw-view-tabs > button:hover {
+  color: rgb(228 228 231);           /* zinc-200 */
+}
+.dw-view-tabs > button.active {
+  color: rgb(244 244 245);           /* zinc-100 */
+  background: rgb(63 63 70);         /* zinc-700 */
+}
+
+/* V3: 전체 기간 view 페이지네이션 컨트롤 */
+.dw-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding: 0.375rem 0;
+  font-size: 0.75rem;
+  color: rgb(161 161 170);
+}
+.dw-pagination > button {
+  padding: 0.25rem 0.625rem;
+  font-weight: 500;
+  color: rgb(228 228 231);
+  background: rgb(39 39 42);
+  border-radius: 0.25rem;
+  transition: background 120ms;
+}
+.dw-pagination > button:hover:not(:disabled) {
+  background: rgb(63 63 70);
+}
+.dw-pagination > button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.dw-pagination-info { white-space: nowrap; }
+.dw-pagination-total {
+  color: rgb(113 113 122);           /* zinc-500 */
+}
