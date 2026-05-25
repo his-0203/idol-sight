@@ -94,6 +94,13 @@ def test_engagement_rate_wow_drop():
     assert math.isclose(engagement_rate_wow_drop(now, prev), -0.5)
 
 
+def test_engagement_rate_wow_drop_prev_zero_returns_none():
+    """prev 의 ER 이 0 이면 None (모듈 컨벤션). views=0 케이스가 대표적."""
+    now = {"yt_likes_total": 500, "yt_comments_total": 100, "yt_total_views": 100_000}
+    prev = {"yt_likes_total": 0, "yt_comments_total": 0, "yt_total_views": 0}
+    assert engagement_rate_wow_drop(now, prev) is None
+
+
 def test_views_per_sub():
     agg = {"yt_total_views": 5_000_000, "yt_subscribers": 100_000}
     assert views_per_sub(agg) == 50.0

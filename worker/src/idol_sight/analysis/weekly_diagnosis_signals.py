@@ -71,15 +71,18 @@ def engagement_rate_from_agg(agg: dict[str, Any]) -> float:
     return (likes + 5 * comments) / views
 
 
-def engagement_rate_wow_drop(now: dict[str, Any], prev: dict[str, Any]) -> float:
-    """ER 의 WoW 변화율. prev_er=0 이면 0 (변화 없음으로 처리).
+def engagement_rate_wow_drop(now: dict[str, Any], prev: dict[str, Any]) -> float | None:
+    """ER 의 WoW 변화율. prev_er=0 이면 None (모듈 컨벤션: WoW ratio 함수
+    분모 0 = dead signal).
 
     음수가 클수록 ER 하락 큼 → paid_ads / sub_purchase 가설의 핵심 시그널.
+    호출자 (Task 3 classify_hypotheses) 는 None 을 "ER WoW 시그널 없음" 으로
+    처리 — `<= -0.20` 같은 임계 비교에서 None 은 자동으로 false.
     """
     now_er = engagement_rate_from_agg(now)
     prev_er = engagement_rate_from_agg(prev)
     if prev_er == 0:
-        return 0.0
+        return None
     return (now_er - prev_er) / prev_er
 
 
