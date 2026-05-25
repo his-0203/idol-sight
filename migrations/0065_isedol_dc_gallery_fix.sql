@@ -1,0 +1,62 @@
+-- migrations/0065_isedol_dc_gallery_fix.sql — V2.31
+--
+-- ISEDOL DC 갤러리 ID 정정: isekaidol(미니) → leesedol(마이너).
+--
+-- 배경
+-- ----
+-- 0002_seed.sql (또는 그 이전 시점)에 ISEDOL 의 dc_gallery_id 가
+-- 'isekaidol' 로 시드되었다. 2026-05-25 점검 결과 두 가지 문제가
+-- 확인됨:
+--
+--   1. https://gall.dcinside.com/mgallery/board/lists/?id=isekaidol
+--      → HTTP 404. isekaidol 은 *mgallery* 가 아니라 *mini* 갤러리다
+--      (https://gall.dcinside.com/mini/board/lists/?id=isekaidol →
+--      HTTP 200, "이세계아이돌 미니 갤러리").
+--   2. DcCollector 는 canonical URL (/board/lists/?id=<gid>) 로 fetch
+--      후 StealthyFetcher 가 JS redirect 를 따라가 mgallery / mini /
+--      person 으로 가도록 설계되어 있다. 그러나 dc:isedol 잡은 일주일
+--      이상 status='ok' / rows_inserted=0 를 반복 — canonical 이 mini
+--      로 redirect 되지 못하거나, mini 갤러리 마크업이 mgallery 의
+--      table.gall_list tr.us-post 패턴과 달라 parser 가 빈손으로
+--      끝나는 정황.
+--
+-- DC 검색 ("이세계아이돌") 으로 확인된 후보 갤러리들과 트래픽:
+--
+--   - isekaidol     (mini)      "이세계아이돌 미니 갤러리"      52 글/page
+--   - leesedol      (mgallery)  "이세계아이돌 마이너 갤러리"    52 글/page  ← 본진
+--   - isdshort      (mgallery)  "이세계아이돌 쇼츠 마이너 갤러리"  12 글/page (서브)
+--   - leesedolbamboo(mini)      "이세계아이돌 대나무숲 미니 갤러리" 48 글/page (익명)
+--
+-- 'leesedol' 이 정식 마이너 갤러리(본진) 이고 isekaidol(미니) 은 부속.
+-- DcCollector 는 mgallery URL 을 PLAVE / STELLIVE / SKINZ 등에서 이미
+-- 안정적으로 처리하므로 'leesedol' 로 변경하면 코드 변경 없이 즉시
+-- 수집 재개된다.
+--
+-- 변경
+-- ----
+-- dc_gallery_id: 'isekaidol' → 'leesedol'
+--
+-- supplemental 은 본 마이그레이션에서 추가하지 않는다 — mini 갤러리
+-- (isekaidol, leesedolbamboo) 와 쇼츠 갤러리(isdshort) 는 마크업/맥락이
+-- 본진과 달라 별도 검증이 필요하다. leesedol 본진 수집이 안정화된
+-- 다음 단계에서 supplemental 확장 여부를 결정한다.
+--
+-- 영향
+-- ----
+-- - dc:isedol 잡이 다음 collect-6h 사이클부터 leesedol mgallery 를
+--   fetch 한다. 페이지 구조가 PLAVE 등과 동일하므로 50건/사이클 수준
+--   적재 예상.
+-- - context_keywords 는 0064 에서 이미 정비된 값을 그대로 사용 ("이세계
+--   아이돌", "ISEGYE IDOL", "ISEDOL", "isedol", "Isedol", 멤버명 6종,
+--   "버추얼", "왁타버스") — primary 갤러리는 group-scoped 라 keyword
+--   필터를 적용하지 않으므로 영향 없음.
+-- - 기존 isekaidol URL 로 적재되어 있던 historical community_posts (0건
+--   이므로 영향 없음).
+--
+-- Rollback
+-- --------
+--   UPDATE groups SET dc_gallery_id = 'isekaidol' WHERE key = 'isedol';
+
+UPDATE groups
+   SET dc_gallery_id = 'leesedol'
+ WHERE key = 'isedol';
