@@ -15,6 +15,9 @@ from idol_sight.analysis.weekly_diagnosis_signals import member_centric_signals
 from idol_sight.analysis.weekly_diagnosis_signals import (
     group_event_within_window, music_show_consecutive_wins,
 )
+from idol_sight.analysis.weekly_diagnosis_signals import (
+    negative_keyword_z, twitter_controversy_z, NEGATIVE_KEYWORDS,
+)
 
 
 def test_cohort_z_score_basic():
@@ -287,3 +290,37 @@ def test_music_show_consecutive_wins_below_threshold():
     ]
     streak = music_show_consecutive_wins(wins)
     assert streak["consecutive"] == 0
+
+
+def test_negative_keyword_z_lit():
+    """이번 주 부정 키워드 카운트 50, 과거 평균 10/표편 8 → z=5.0."""
+    now_keywords = [
+        {"keyword": "논란", "count": 30},
+        {"keyword": "사과", "count": 15},
+        {"keyword": "의혹", "count": 5},
+        {"keyword": "활동", "count": 100},  # 부정 키워드 아님 — 제외
+    ]
+    past_weekly_neg_totals = [12, 8, 10, 5, 15, 7, 13, 9, 11, 10]
+    z = negative_keyword_z(now_keywords, past_weekly_neg_totals)
+    assert z > 2.5
+
+
+def test_negative_keyword_z_zero_signal():
+    """이번 주 부정 키워드 전혀 없음 → z 음수 또는 0."""
+    now_keywords = [{"keyword": "콘서트", "count": 100}]
+    past_weekly_neg_totals = [10, 12, 8]
+    z = negative_keyword_z(now_keywords, past_weekly_neg_totals)
+    assert z < 0
+
+
+def test_twitter_controversy_z():
+    """twitter_posts type='controversy' 카운트 z-score."""
+    cohort = [1, 2, 0, 1, 3, 2, 1]   # 평균 1.43, sd~1.0
+    z = twitter_controversy_z(now_count=8, cohort_counts=cohort)
+    assert z > 4.0
+
+
+def test_negative_keywords_list_includes_canonical():
+    """spec 의 부정 키워드 카탈로그가 모두 포함되어 있는지 sanity check."""
+    for kw in ("논란", "사과", "의혹", "해명"):
+        assert kw in NEGATIVE_KEYWORDS

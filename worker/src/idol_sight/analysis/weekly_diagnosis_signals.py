@@ -274,3 +274,37 @@ def music_show_consecutive_wins(wins: list[dict[str, Any]]) -> dict[str, Any]:
     if best["consecutive"] < MUSIC_SHOW_STREAK_THRESHOLD:
         return {"song_title": None, "consecutive": 0}
     return best
+
+
+# controversy 가설의 community_keywords 부정 키워드 카탈로그.
+# 이 리스트가 부족하면 false negative — 누락 의심 시 확장.
+NEGATIVE_KEYWORDS: frozenset[str] = frozenset({
+    "논란", "사과", "의혹", "해명", "거짓",
+    "비난", "악플", "고소", "탈퇴 요구",
+    "스캔들", "표절", "갈등",
+})
+
+
+def negative_keyword_z(
+    now_keywords: list[dict[str, Any]],
+    past_weekly_neg_totals: list[float],
+) -> float:
+    """이번 주 NEGATIVE_KEYWORDS 카운트 합을 과거 주간 합 분포에 z-score 화.
+
+    `past_weekly_neg_totals` 는 이전 N주의 부정 키워드 주간 합 (호출자
+    책임). 분포 부족 (< 2 표본) 이면 0 반환.
+    """
+    now_total = sum(
+        int(kw.get("count") or 0)
+        for kw in now_keywords
+        if kw.get("keyword") in NEGATIVE_KEYWORDS
+    )
+    return cohort_z_score(value=now_total, cohort=past_weekly_neg_totals)
+
+
+def twitter_controversy_z(now_count: int, cohort_counts: list[float]) -> float:
+    """twitter_posts type='controversy' 의 주간 카운트 z-score.
+
+    controversy_spike 가설의 직접 시그널 (community_keywords 와 OR 결합).
+    """
+    return cohort_z_score(value=float(now_count), cohort=cohort_counts)
