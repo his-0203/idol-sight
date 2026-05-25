@@ -242,31 +242,74 @@ with a 함의."""
 # 가설 enum. 시그널 없는 가설은 거론 금지 (signals_by_group 컨텍스트의
 # `hypotheses` 리스트에 없는 가설은 카드에서 언급조차 하지 말 것).
 _DIAGNOSIS_HYPOTHESIS_BLOCK = """\
-DIAGNOSIS HYPOTHESIS CATALOG — copy keys exactly, never invent:
-  organic_growth              자연 유입 (모든 지표 동기 상승)
-  paid_youtube_ads            YouTube 광고 의심 (views↑ but subs/ER 평탄)
-  subscriber_purchase         구독자 구매 의심 (subs↑ but views/ER 폭락)
-  comeback_cycle              컴백 사이클 (한터/차트/음방/뉴스 동시)
-  broadcast_appearance        방송/외부 출연 (news lag → community 점진)
-  community_word_of_mouth     커뮤니티 입소문 (community lag → subs/view)
-  controversy_spike           논란 (controversy/sentiment/keyword z 상승)
-  platform_concentrated_promo 표적 플랫폼 캠페인 (단일 reactivity dominant)
-  member_centric_spike        멤버 1명 인기 집중 (top1_share +10pt 이상)
-  insufficient_signal         시그널 없음 → 카드 emit 금지"""
+DIAGNOSIS HYPOTHESIS CATALOG — copy enum keys exactly to signals_json
+(audit trail), but in CARD BODY use the Korean phrase below verbatim.
+
+  enum key                    | 본문에 쓸 한국어 표현
+  ─────────────────────────────┼─────────────────────────────────────
+  organic_growth              | 자연 유입 성장
+  paid_youtube_ads            | 유튜브 광고 의심
+  subscriber_purchase         | 구독자 구매 정황 의심
+  comeback_cycle              | 컴백 사이클 효과
+  broadcast_appearance        | 방송 출연 효과
+  community_word_of_mouth     | 커뮤니티 입소문
+  controversy_spike           | 논란 신호
+  platform_concentrated_promo | 특정 플랫폼 집중 홍보 정황
+  member_centric_spike        | 멤버 개인 활동 영향
+  insufficient_signal         | (카드 emit 금지)
+
+본문에서는 한국어 표현만 사용한다. enum key (organic_growth, paid_youtube_ads
+등) 의 영문 표기는 *signals_json payload 의 hypothesis_primary 필드에서만*
+쓰이며, 카드 텍스트에는 절대 노출하지 않는다. 운영자가 영문 enum 을
+보지 않게 한다."""
 
 
 _DIAGNOSIS_GUIDELINES = """\
-type='diagnosis' CARD FORMAT — strict rules:
+type='diagnosis' CARD FORMAT — 운영자 친화 자연어 규칙:
 
 WHEN to emit a diagnosis card:
   signals_by_group[<group>].hypotheses 가 1개 이상일 때만. 점등된 가설이
   없는 그룹은 절대 diagnosis 카드 emit 금지 (insufficient_signal).
 
 WHAT goes in body (1-3 문장 한국어):
-  ① 주간 변화 요약 한 문장 (수치 1-2개 인용).
-  ② 점등된 시그널 사실 인용 (예: "ER −28%, 신규 영상 paid 의심 42%").
-  ③ "유력 가설은 [hypothesis_primary] 가능성. 대안 가설로 [alternative]
-     도 가능 (확률 중)." 형식의 가설 한 줄.
+  ① 주간 변화 요약 한 문장 (수치 1-2개 인용 — 자연 표현).
+  ② 점등된 시그널 사실 인용 (자연어).
+  ③ "유력 가설은 [한국어 표현] 가능성. 대안 가설로 [한국어 표현] 도 가능
+     (확률 중)." 형식.
+
+★ 전문 통계 용어를 본문에 노출 금지. signals 컨텍스트에서 받은 raw 수치는
+  반드시 자연어로 풀어쓴다. 운영자는 통계학자가 아니다.
+
+  STATISTICAL TERM → 자연어 변환표:
+    "category_z=2.3" / "subs z=2.3"  →  "다른 K-POP 그룹 대비 두드러진
+                                         증가" (cohort='kpop' 인 그룹)
+                                         또는 "서브컬쳐 cohort 안에서 큰
+                                         폭의 증가" (cohort='subculture')
+    "temporal z=2.3"                 →  "자기 평소 추세 대비 크게 상회"
+                                         "최근 8주 평균 크게 상회"
+    "temporal z=-2.3"                →  "최근 8주 평균 대비 크게 하락"
+    "WoW +48%"                       →  "지난 주 대비 48% 증가"
+                                         "한 주 동안 약 1.5배 증가"
+    "WoW -25%"                       →  "지난 주 대비 25% 감소"
+                                         "한 주 동안 약 1/4 줄어듦"
+    "ER WoW −28%"                    →  "팬 참여율 (좋아요·댓글 비율)
+                                         28% 하락" 또는 "팬 반응도
+                                         28% 떨어짐"
+    "viral velocity 5×"              →  "초기 24시간 조회가 평소보다
+                                         5배 빠름"
+    "organicity paid 비중 42%"       →  "신규 영상 중 광고성 패턴이
+                                         약 4건 중 1건 이상"
+    "controversy z=2.4 점등"         →  "논란 시그널이 평소 수준보다
+                                         크게 상회"
+    "reactivity dominant=naver"      →  "네이버 한 곳에만 반응이 집중"
+
+  ★ enum key (organic_growth / paid_youtube_ads / subscriber_purchase
+    / comeback_cycle / broadcast_appearance / community_word_of_mouth
+    / controversy_spike / platform_concentrated_promo /
+    member_centric_spike) 의 영문 표기를 본문에 *절대 노출하지 않는다*.
+    DIAGNOSIS HYPOTHESIS CATALOG 의 한국어 표현으로 paraphrase 한 뒤
+    인용한다. signals_json payload 의 hypothesis_primary 필드는 enum
+    그대로 유지 (audit/code 일관성), 카드 텍스트만 한글화.
 
 REQUIRED 어조:
   단정 어조 금지: "-이다", "-임", "-한 결과" 사용 금지.
@@ -274,14 +317,17 @@ REQUIRED 어조:
   카드 한 장에 가설은 *반드시* 둘 (유력 + 대안). signals.hypotheses 가
   1개뿐이라도 "대안 가설은 점등 안 됨 — 단일 유력 가설." 한 문장 첨부.
 
-SPECIAL — controversy_spike:
+SPECIAL — 논란 신호 (controversy_spike):
   body 마지막에 반드시 "PR팀 검수 후 대응, 직접 삭제·정정 요청 금지
   (Streisand 회피)." 강제 1줄 첨부. 단정 어조 절대 금지 (예: "악플 사태
-  발생" 금지 → "controversy 시그널 z=2.4 점등, 인간 검증 필요").
+  발생" 금지 → "논란 시그널이 평소 수준 대비 큰 폭으로 증가, 인간 검증
+  필요").
 
-SPECIAL — subscriber_purchase:
+SPECIAL — 구독자 구매 정황 의심:
   signals 의 confidence 가 'medium' 으로 캡됨. body 어조에 "검증 어려운
-  가설" 명시. 단정 절대 금지.
+  가설" 명시. 단정 절대 금지 (예: "ISEDOL 이 sub 구매" 금지 →
+  "ISEDOL 의 구독자 증가에 비해 조회수·참여율 증가가 따라오지 않아,
+  검증이 어려운 구독자 구매 정황 의심").
 
 SPECIAL — meta_guards:
   signals.meta_guards 가 비어 있지 않으면 body 끝에 "데이터 신뢰성 주의 —
@@ -292,50 +338,62 @@ SPECIAL — meta_guards:
 SPECIAL — MiiWAN scope diagnosis:
   scope='miiwan' 이면 type='diagnosis' 가 아니라 type='ipx_action' 으로
   emit. 경쟁사 시그널을 MiiWAN 운영 액션으로 자동 변환:
-    경쟁사 paid_youtube_ads 점등   → "Abyss 마케팅팀 D-30 광고 검토 회의
+    경쟁사 유튜브 광고 의심 점등 → "Abyss 마케팅팀 D-30 광고 검토 회의
                                        [날짜] 까지 소집" 류 액션
-    경쟁사 organic_growth 점등     → "콘텐츠 캘린더 벤치마킹 — [그룹]
+    경쟁사 자연 유입 성장 점등   → "콘텐츠 캘린더 벤치마킹 — [그룹]
                                        주간 영상 캡처 후 콘텐츠팀 공유"
-    경쟁사 controversy_spike 점등  → MiiWAN 자체 controversy 가 아니라면
+    경쟁사 논란 신호 점등        → MiiWAN 자체 controversy 가 아니라면
                                        무시 (남의 사고를 우리 액션으로
                                        전환하지 말 것)
 
-GOOD EXEMPLARS (formatting 만 — 숫자는 illustrative):
+GOOD EXEMPLARS (자연어 — 통계 용어/enum 영문 노출 0):
 
-  ✅ paid_youtube_ads (high)
-    title: "PLAVE 주간 조회 +24M 의 인과 진단"
-    body:  "**PLAVE** 주간 조회 z=2.4 로 폭증한 반면 구독 z=0.3 에 그치고
-            ER WoW −28% 동반. 신규 영상의 paid 의심 verdict 비중 42%.
-            유력 가설은 **paid_youtube_ads** 가능성. 대안 가설로
-            broadcast_appearance 도 가능 (확률 중) — 전주 news z=2.1
-            단발 spike 가 있었음."
+  ✅ 유튜브 광고 의심 (high)
+    title: "PLAVE 주간 조회 +24M — 광고 캠페인 정황"
+    body:  "**PLAVE** 주간 조회수가 다른 K-POP 그룹 대비 크게 폭증한 반면
+            구독자 증가는 비례하지 않고, 팬 참여율(좋아요·댓글 비율)이
+            28% 하락 동반. 신규 영상 중 광고성 verdict 가 약 4건 중 1건
+            이상. 유력 가설은 **유튜브 광고 의심** 가능성. 대안 가설로
+            **방송 출연 효과** 도 가능 (확률 중) — 전주 뉴스에 단발 spike
+            가 있었음."
     ai_comment: "광고 캠페인 가능성 우세 — MiiWAN D-30 광고 검토 트리거."
 
-  ✅ comeback_cycle (high, ground truth 매칭)
+  ✅ 컴백 사이클 효과 (high, ground truth 매칭)
     title: "**PLAVE** Caligo Pt.3 컴백 사이클 점등"
-    body:  "한터 초동 991,850장 + 멜론 TOP100 peak #5 + 음방 3연속 1위
-            + 뉴스 z=2.4 동시 점등. group_events 가 album_release 매칭
-            (5/22 Caligo Pt.3). 유력 가설은 **comeback_cycle** 확정.
-            대안 가설 없음 (ground truth 매칭으로 다른 가설 자동 감점)."
-    ai_comment: "컴백 캠페인 정상 사이클 — paid/sub 의심 카드 별도 생성 안 함."
+    body:  "한터 초동 991,850장, 멜론 TOP100 5위 진입, 음방 3연속 1위에
+            더해 뉴스 보도가 평소 수준 대비 큰 폭으로 증가. group_events
+            에 5/22 앨범 발매 (Caligo Pt.3) 가 매칭. 유력 가설은
+            **컴백 사이클 효과** 확정. 대안 가설 없음 (실제 이벤트
+            매칭으로 다른 가설 자동 감점)."
+    ai_comment: "컴백 캠페인 정상 사이클 — 광고/구매 의심 카드 별도 생성 안 함."
 
-  ✅ controversy_spike (high, Streisand guard)
-    title: "**ISEDOL** controversy 시그널 z=2.4 점등"
-    body:  "트위터 controversy type 12건 (z=2.4) + 커뮤 부정 키워드 z=2.1
-            동반. 유력 가설은 **controversy_spike** 가능성, 대안 가설
-            없음. PR팀 검수 후 대응, 직접 삭제·정정 요청 금지
+  ✅ 논란 신호 (high, Streisand guard)
+    title: "**ISEDOL** 논란 시그널 점등"
+    body:  "트위터의 논란 카테고리 트윗 12건이 평소 수준 대비 큰 폭으로
+            증가, 커뮤니티의 부정 키워드 누적도 동반 상승. 유력 가설은
+            **논란 신호** 가능성, 대안 가설은 점등 안 됨 — 단일 유력
+            가설. PR팀 검수 후 대응, 직접 삭제·정정 요청 금지
             (Streisand 회피)."
     ai_comment: "PR팀 검수 우선 — Streisand 회피 주의."
 
-  ✅ insufficient (이 카드는 emit 안 함 — 참고용)
+  ✅ insufficient (참고용)
     signals.hypotheses == [] → diagnosis 카드 생성 안 함. 기존 insight /
     weekly 카드로만 그룹 다룸.
 
-  ❌ BAD — 단정 어조 + 미점등 가설 거론
+  ❌ BAD #1 — 통계 용어 그대로 노출
+    body: "PLAVE 주간 조회 z=2.4 로 폭증한 반면 구독 z=0.3 에 그치고
+           ER WoW −28% 동반."
+    ← 'z=2.4', 'z=0.3', 'ER WoW' 모두 운영자가 모를 표현. 변환표 참조.
+
+  ❌ BAD #2 — enum key 영문 노출
+    body: "유력 가설은 **paid_youtube_ads** 가능성. 대안으로
+           broadcast_appearance 도 가능."
+    ← '유튜브 광고 의심', '방송 출연 효과' 로 한국어화.
+
+  ❌ BAD #3 — 단정 어조 + 미점등 가설 거론
     body: "PLAVE 가 광고를 돌렸다. sub 구매 정황도 보이고 컴백 캠페인일
            수도 있다."
-    ← 단정 어조 ("돌렸다"), 점등 안 된 가설들 (sub_purchase, comeback)
-       거론, 시그널 인용 없음. 다시 작성."""
+    ← 단정 어조 ("돌렸다"), 점등 안 된 가설들 거론. 다시 작성."""
 
 
 PROMPT_WEEKLY_TAIL_AI_COMMENT = _AI_COMMENT_GUIDELINES
