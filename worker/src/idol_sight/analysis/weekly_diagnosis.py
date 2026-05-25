@@ -453,9 +453,12 @@ def compute_group_signals(
         [_shift_iso_date(week_start, -7), _shift_iso_date(week_end, 7)],
     )
     music_show_rows = db.execute(
-        "SELECT group_key, show, song_title, win_date "
+        # 0048 schema 컬럼은 program / episode_date. signals 모듈 함수가
+        # show / win_date dict key 를 expect 하므로 AS alias 로 호환.
+        # status='confirmed' 만 카운트 (pending/rejected 제외 — 0048 설계).
+        "SELECT group_key, program AS show, song_title, episode_date AS win_date "
         "FROM music_show_wins_log "
-        "WHERE win_date BETWEEN ? AND ?",
+        "WHERE episode_date BETWEEN ? AND ? AND status = 'confirmed'",
         [week_start, week_end],
     )
     comm_kw_now = db.execute(
