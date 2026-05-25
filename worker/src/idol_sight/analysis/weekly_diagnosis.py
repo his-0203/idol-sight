@@ -228,6 +228,47 @@ def _dampen_if_comeback_active(hyps: list[Hypothesis]) -> list[Hypothesis]:
     return dampened
 
 
+def _check_broadcast_appearance(sig: dict) -> Hypothesis | None:
+    """전주 news z>=3 + 이번 주 community z>=1.5 + community_keywords 가 external."""
+    prev_news = sig.get("news_z_prev_week", 0.0)
+    if prev_news < 3.0:
+        return None
+    if sig["community_z"] < Z_THRESHOLD_PRIMARY:
+        return None
+    evidence = [
+        Evidence("news_z_prev_week", prev_news, f"전주 뉴스 z={prev_news:.1f} 단발"),
+        Evidence("community_z", sig["community_z"], f"이번 주 커뮤 z={sig['community_z']:.1f}"),
+    ]
+    if sig.get("community_keywords_topic") == "external":
+        evidence.append(Evidence(
+            "community_keywords_topic", "external",
+            "커뮤 키워드: 외부 매체/방송명 우세",
+        ))
+    return Hypothesis(key="broadcast_appearance", confidence="medium", evidence=evidence)
+
+
+def _check_community_word_of_mouth(sig: dict) -> Hypothesis | None:
+    """전주 community spike + 이번 주 subs/view 따라옴 + 자체 콘텐츠 토픽."""
+    prev_comm = sig.get("community_z_prev_week", 0.0)
+    if prev_comm < Z_THRESHOLD_STRONG:
+        return None
+    if sig["subs_z"] < Z_THRESHOLD_PRIMARY and sig["views_z"] < Z_THRESHOLD_PRIMARY:
+        return None
+    evidence = [
+        Evidence("community_z_prev_week", prev_comm,
+                 f"전주 커뮤 z={prev_comm:.1f} 선행"),
+        Evidence("subs_views_followup",
+                 max(sig["subs_z"], sig["views_z"]),
+                 f"이번 주 구독/조회 동반 (max z={max(sig['subs_z'], sig['views_z']):.1f})"),
+    ]
+    if sig.get("community_keywords_topic") == "self":
+        evidence.append(Evidence(
+            "community_keywords_topic", "self",
+            "커뮤 키워드: 자체 콘텐츠 우세",
+        ))
+    return Hypothesis(key="community_word_of_mouth", confidence="medium", evidence=evidence)
+
+
 def classify_hypotheses(sig: dict) -> list[Hypothesis]:
     """시그널 dict → 점등된 가설 리스트. 점등 안 된 가설은 omit.
 
@@ -238,6 +279,8 @@ def classify_hypotheses(sig: dict) -> list[Hypothesis]:
         _check_paid_youtube_ads(sig),
         _check_subscriber_purchase(sig),
         _check_comeback_cycle(sig),
+        _check_broadcast_appearance(sig),
+        _check_community_word_of_mouth(sig),
     ]
     lit = [c for c in candidates if c is not None]
     return _dampen_if_comeback_active(lit)

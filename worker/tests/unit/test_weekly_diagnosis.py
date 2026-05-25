@@ -152,3 +152,42 @@ def test_comeback_cycle_dampens_paid():
     # (classify 단계에서 감점 후 emit, 또는 후속 단계에서 감점 후 재emit —
     # 어느 쪽이든 최종 결과의 confidence 는 medium)
     assert paid is None or paid.confidence in ("medium", "low")
+
+
+def test_broadcast_appearance_lag_pattern():
+    """7일 전 news spike (z=3.0) + 이번 주 community z=1.8 + community 토픽 외부."""
+    sig = _base_signal_bundle() | {
+        "news_z_prev_week": 3.0,    # 시그널 모듈이 raw 로 채움
+        "community_z": 1.8,
+        "views_z": 1.5,
+        "community_keywords_topic": "external",   # 방송명 키워드
+    }
+    hyps = classify_hypotheses(sig)
+    ba = next((h for h in hyps if h.key == "broadcast_appearance"), None)
+    assert ba is not None
+    assert ba.confidence == "medium"
+
+
+def test_community_word_of_mouth_lag():
+    """전주 community spike + 이번 주 subs/view z>=1.5 + 자체 콘텐츠 토픽."""
+    sig = _base_signal_bundle() | {
+        "community_z_prev_week": 2.4,
+        "subs_z": 1.6,
+        "views_z": 1.7,
+        "community_keywords_topic": "self",
+    }
+    hyps = classify_hypotheses(sig)
+    wom = next((h for h in hyps if h.key == "community_word_of_mouth"), None)
+    assert wom is not None
+    assert wom.confidence == "medium"
+
+
+def test_broadcast_no_lag_no_match():
+    """이번 주 news 단발 spike 만, 직전 주는 평탄 → broadcast 안 점등."""
+    sig = _base_signal_bundle() | {
+        "news_z": 3.0,
+        "community_z": 0.4,
+        "news_z_prev_week": 0.2,
+    }
+    hyps = classify_hypotheses(sig)
+    assert not any(h.key == "broadcast_appearance" for h in hyps)
