@@ -60,6 +60,14 @@ def build_context(db: _Executor, *, week_start: str, week_end: str) -> dict[str,
     signals_by_group = compute_group_signals(
         db=db, week_start=week_start, week_end=week_end,
     )
+    # production debug: workflow stdout 에 시그널 점등 통계 출력 —
+    # type='diagnosis' 카드가 0개일 때 시그널 부족인지 LLM 무시인지 변별.
+    _lit = {gk: len(gs.hypotheses) for gk, gs in signals_by_group.items()}
+    _total_lit = sum(_lit.values())
+    log.info(
+        "causal_diagnosis: groups=%d hypotheses_lit=%d per_group=%s",
+        len(signals_by_group), _total_lit, _lit,
+    )
     return {
         "week": {"start": week_start, "end": week_end},
         "agg_summary_last_7d": last_7d,
