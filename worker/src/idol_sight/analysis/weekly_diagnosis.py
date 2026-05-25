@@ -71,6 +71,54 @@ ORGANICITY_PAID_THRESHOLD = 0.30
 SUBS_Z_SUB_PURCHASE = 2.5
 
 
+def _is_lit(
+    sig_entry: dict,
+    *,
+    z_threshold: float = Z_THRESHOLD_PRIMARY,
+    wow_threshold: float,
+) -> bool:
+    """sig dict 의 한 entry (subs/views/news/community 형식) 가 3-축 OR 판정.
+
+    sig_entry: {"category_z": float, "temporal_z": float, "wow_pct": float | None}
+    셋 중 *하나만* 점등이면 True. routine 변동은 모든 축 미달, 진짜 spike 는
+    어느 한 축에서 잡힘 — cohort 분포 비대칭 (kpop vs subculture) 영향 제거.
+    """
+    if sig_entry.get("category_z", 0.0) >= z_threshold:
+        return True
+    if sig_entry.get("temporal_z", 0.0) >= z_threshold:
+        return True
+    wow = sig_entry.get("wow_pct")
+    if wow is not None and wow >= wow_threshold:
+        return True
+    return False
+
+
+def _evidence_3axis(
+    name: str,
+    entry: dict,
+    *,
+    z_threshold: float = Z_THRESHOLD_PRIMARY,
+    wow_threshold: float,
+) -> Evidence:
+    """3-축 lit 시그널을 evidence label 로 풀어쓰기.
+
+    어느 축에서 점등됐는지 카드 운영자가 직관적으로 알 수 있도록
+    'category z=2.1, temporal z=1.8, WoW +6.2%' 같이 명시.
+    """
+    parts: list[str] = []
+    cat_z = entry.get("category_z", 0.0) or 0.0
+    tmp_z = entry.get("temporal_z", 0.0) or 0.0
+    if cat_z >= z_threshold:
+        parts.append(f"category z={cat_z:.1f}")
+    if tmp_z >= z_threshold:
+        parts.append(f"temporal z={tmp_z:.1f}")
+    wow = entry.get("wow_pct")
+    if wow is not None and wow >= wow_threshold:
+        parts.append(f"WoW {wow:+.0%}")
+    label = f"{name} spike — {', '.join(parts)}" if parts else f"{name} spike"
+    return Evidence(name, dict(entry), label=label)
+
+
 def _check_organic_growth(sig: dict) -> Hypothesis | None:
     # ER 시그널이 없으면 (신규 그룹의 prev_er=0 등) "ER 안정" 단정 불가 → organic 차단.
     # MiiWAN 데뷔 첫 주 같은 경우에 false positive 차단 (spec rev 2 §3.1 의 organic 조건 "ER 안정" 강제).
@@ -81,14 +129,14 @@ def _check_organic_growth(sig: dict) -> Hypothesis | None:
     if abs(er_wow) >= 0.15:
         return None
     lit_signals: list[Evidence] = []
-    if sig["subs_z"] >= Z_THRESHOLD_PRIMARY:
-        lit_signals.append(Evidence("subs_z", sig["subs_z"], f"구독 z={sig['subs_z']:.1f}"))
-    if sig["views_z"] >= Z_THRESHOLD_PRIMARY:
-        lit_signals.append(Evidence("views_z", sig["views_z"], f"조회 z={sig['views_z']:.1f}"))
-    if sig["news_z"] >= Z_THRESHOLD_PRIMARY:
-        lit_signals.append(Evidence("news_z", sig["news_z"], f"뉴스 z={sig['news_z']:.1f}"))
-    if sig["community_z"] >= Z_THRESHOLD_PRIMARY:
-        lit_signals.append(Evidence("community_z", sig["community_z"], f"커뮤 z={sig['community_z']:.1f}"))
+    if _is_lit(sig["subs"], wow_threshold=_S.SUBS_WOW_LIT):
+        lit_signals.append(_evidence_3axis("subs", sig["subs"], wow_threshold=_S.SUBS_WOW_LIT))
+    if _is_lit(sig["views"], wow_threshold=_S.VIEWS_WOW_LIT):
+        lit_signals.append(_evidence_3axis("views", sig["views"], wow_threshold=_S.VIEWS_WOW_LIT))
+    if _is_lit(sig["news"], wow_threshold=_S.NEWS_WOW_LIT):
+        lit_signals.append(_evidence_3axis("news", sig["news"], wow_threshold=_S.NEWS_WOW_LIT))
+    if _is_lit(sig["community"], wow_threshold=_S.COMMUNITY_WOW_LIT):
+        lit_signals.append(_evidence_3axis("community", sig["community"], wow_threshold=_S.COMMUNITY_WOW_LIT))
     if sig["market_share_z"] >= Z_THRESHOLD_PRIMARY:
         lit_signals.append(Evidence("market_share_z", sig["market_share_z"], f"share z={sig['market_share_z']:.1f}"))
     if len(lit_signals) < 4:
@@ -100,15 +148,22 @@ def _check_paid_youtube_ads(sig: dict) -> Hypothesis | None:
     er_wow = sig.get("er_wow") or 0.0
     evidence: list[Evidence] = []
     score = 0
-    if sig["views_z"] >= Z_THRESHOLD_STRONG:
-        evidence.append(Evidence("views_z", sig["views_z"], f"조회 z={sig['views_z']:.1f}"))
+    views_entry = sig["views"]
+    subs_entry = sig["subs"]
+    if _is_lit(views_entry, z_threshold=Z_THRESHOLD_STRONG, wow_threshold=_S.VIEWS_WOW_PAID):
+        evidence.append(_evidence_3axis(
+            "views", views_entry,
+            z_threshold=Z_THRESHOLD_STRONG, wow_threshold=_S.VIEWS_WOW_PAID,
+        ))
         score += 1
-    # subs 가 views 만큼 따라오지 않음 — 핵심 변별
-    if sig["views_z"] >= Z_THRESHOLD_PRIMARY and sig["subs_z"] < Z_THRESHOLD_PRIMARY:
+    # subs 가 views 만큼 따라오지 않음 — 핵심 변별 (category z 기준)
+    views_cat_z = views_entry.get("category_z", 0.0) or 0.0
+    subs_cat_z = subs_entry.get("category_z", 0.0) or 0.0
+    if views_cat_z >= Z_THRESHOLD_PRIMARY and subs_cat_z < Z_THRESHOLD_PRIMARY:
         evidence.append(Evidence(
             "subs_views_gap",
-            sig["views_z"] - sig["subs_z"],
-            f"subs 비례 안 함 (views z={sig['views_z']:.1f}, subs z={sig['subs_z']:.1f})",
+            views_cat_z - subs_cat_z,
+            f"subs 비례 안 함 (views z={views_cat_z:.1f}, subs z={subs_cat_z:.1f})",
         ))
         score += 1
     if er_wow <= ER_DROP_PAID_THRESHOLD:
@@ -141,8 +196,17 @@ def _check_subscriber_purchase(sig: dict) -> Hypothesis | None:
     er_wow = sig.get("er_wow") or 0.0
     evidence: list[Evidence] = []
     score = 0
-    if sig["subs_z"] >= SUBS_Z_SUB_PURCHASE:
-        evidence.append(Evidence("subs_z", sig["subs_z"], f"구독 z={sig['subs_z']:.1f}"))
+    subs_entry = sig["subs"]
+    if _is_lit(
+        subs_entry,
+        z_threshold=SUBS_Z_SUB_PURCHASE,
+        wow_threshold=_S.SUBS_WOW_SUB_PURCHASE,
+    ):
+        evidence.append(_evidence_3axis(
+            "subs", subs_entry,
+            z_threshold=SUBS_Z_SUB_PURCHASE,
+            wow_threshold=_S.SUBS_WOW_SUB_PURCHASE,
+        ))
         score += 1
     if sig.get("vps_wow") is not None and sig["vps_wow"] <= VPS_DROP_SUB_PURCHASE:
         evidence.append(Evidence(
@@ -187,8 +251,15 @@ def _check_comeback_cycle(sig: dict) -> Hypothesis | None:
             f"음방 {cb['music_streak']}연속 1위",
         ))
         score += 1
-    if sig["news_z"] >= Z_THRESHOLD_STRONG:
-        evidence.append(Evidence("news_z", sig["news_z"], f"뉴스 z={sig['news_z']:.1f}"))
+    if _is_lit(
+        sig["news"],
+        z_threshold=Z_THRESHOLD_STRONG,
+        wow_threshold=_S.NEWS_WOW_LIT,
+    ):
+        evidence.append(_evidence_3axis(
+            "news", sig["news"],
+            z_threshold=Z_THRESHOLD_STRONG, wow_threshold=_S.NEWS_WOW_LIT,
+        ))
         score += 1
     if cb.get("video_upload_z", 0) >= Z_THRESHOLD_PRIMARY:
         evidence.append(Evidence(
@@ -241,15 +312,15 @@ def _apply_dampen(
 
 
 def _check_broadcast_appearance(sig: dict) -> Hypothesis | None:
-    """전주 news z>=3 + 이번 주 community z>=1.5 + community_keywords 가 external."""
+    """전주 news z>=3 + 이번 주 community 시그널 점등 + community_keywords 가 external."""
     prev_news = sig.get("news_z_prev_week", 0.0)
     if prev_news < 3.0:
         return None
-    if sig["community_z"] < Z_THRESHOLD_PRIMARY:
+    if not _is_lit(sig["community"], wow_threshold=_S.COMMUNITY_WOW_LIT):
         return None
     evidence = [
         Evidence("news_z_prev_week", prev_news, f"전주 뉴스 z={prev_news:.1f} 단발"),
-        Evidence("community_z", sig["community_z"], f"이번 주 커뮤 z={sig['community_z']:.1f}"),
+        _evidence_3axis("community", sig["community"], wow_threshold=_S.COMMUNITY_WOW_LIT),
     ]
     if sig.get("community_keywords_topic") == "external":
         evidence.append(Evidence(
@@ -264,15 +335,22 @@ def _check_community_word_of_mouth(sig: dict) -> Hypothesis | None:
     prev_comm = sig.get("community_z_prev_week", 0.0)
     if prev_comm < Z_THRESHOLD_STRONG:
         return None
-    if sig["subs_z"] < Z_THRESHOLD_PRIMARY and sig["views_z"] < Z_THRESHOLD_PRIMARY:
+    subs_lit = _is_lit(sig["subs"], wow_threshold=_S.SUBS_WOW_LIT)
+    views_lit = _is_lit(sig["views"], wow_threshold=_S.VIEWS_WOW_LIT)
+    if not subs_lit and not views_lit:
         return None
     evidence = [
         Evidence("community_z_prev_week", prev_comm,
                  f"전주 커뮤 z={prev_comm:.1f} 선행"),
-        Evidence("subs_views_followup",
-                 max(sig["subs_z"], sig["views_z"]),
-                 f"이번 주 구독/조회 동반 (max z={max(sig['subs_z'], sig['views_z']):.1f})"),
     ]
+    if subs_lit:
+        evidence.append(_evidence_3axis(
+            "subs", sig["subs"], wow_threshold=_S.SUBS_WOW_LIT,
+        ))
+    if views_lit:
+        evidence.append(_evidence_3axis(
+            "views", sig["views"], wow_threshold=_S.VIEWS_WOW_LIT,
+        ))
     if sig.get("community_keywords_topic") == "self":
         evidence.append(Evidence(
             "community_keywords_topic", "self",
@@ -317,25 +395,32 @@ def _check_platform_concentrated(sig: dict) -> Hypothesis | None:
     dom_name, dom_ratio = sig["reactivity_dominant"]
     if dom_name is None:
         return None
-    # 보조 시그널: 같은 플랫폼에 해당하는 z 가 점등돼야 함
+    # 보조 시그널: 같은 플랫폼에 해당하는 3-축 지표가 점등돼야 함.
+    # platform_concentrated 는 강한 신호 → STRONG z (또는 큰 WoW) 요구.
     if dom_name == "naver":
-        support_z = sig["news_z"]
+        support_entry = sig["news"]
+        wow_th = _S.NEWS_WOW_LIT
     else:
-        support_z = sig["community_z"]
-    if support_z < Z_THRESHOLD_STRONG:
+        support_entry = sig["community"]
+        wow_th = _S.COMMUNITY_WOW_LIT
+    if not _is_lit(support_entry, z_threshold=Z_THRESHOLD_STRONG, wow_threshold=wow_th):
         return None
+    max_z = max(
+        support_entry.get("category_z", 0.0) or 0.0,
+        support_entry.get("temporal_z", 0.0) or 0.0,
+    )
     evidence = [
         Evidence(
             "reactivity_dominant", dom_name,
             f"{dom_name} 단독 reactivity {dom_ratio:.1f}×",
         ),
-        Evidence(
-            f"{dom_name}_z", support_z,
-            f"{dom_name} 지표 z={support_z:.1f}",
+        _evidence_3axis(
+            dom_name, support_entry,
+            z_threshold=Z_THRESHOLD_STRONG, wow_threshold=wow_th,
         ),
     ]
     # 보조 z 가 매우 강하면 high, 아니면 medium
-    confidence = "high" if support_z >= 2.5 else "medium"
+    confidence = "high" if max_z >= 2.5 else "medium"
     return Hypothesis(key="platform_concentrated_promo", confidence=confidence, evidence=evidence)
 
 
@@ -355,7 +440,9 @@ def _check_member_centric_spike(sig: dict) -> Hypothesis | None:
             f"인기 집중도 +{mc['hhi_norm_wow']:.2f}",
         ))
     # 그룹 차원 spike 가 동반돼야 의미 있는 가설
-    if sig["subs_z"] < Z_THRESHOLD_PRIMARY and sig["views_z"] < Z_THRESHOLD_PRIMARY:
+    subs_lit = _is_lit(sig["subs"], wow_threshold=_S.SUBS_WOW_LIT)
+    views_lit = _is_lit(sig["views"], wow_threshold=_S.VIEWS_WOW_LIT)
+    if not subs_lit and not views_lit:
         return None
     if not evidence:
         return None
@@ -498,6 +585,30 @@ def compute_group_signals(
         "WHERE substr(snapshot_at, 1, 10) BETWEEN ? AND ?",
         [prev_start, week_end],
     )
+    # rev 3 — 그룹 카테고리 메타 (kpop vs subculture).
+    groups_meta_rows = db.execute(
+        "SELECT key AS group_key, group_model FROM groups WHERE is_active = 1",
+        [],
+    )
+    category_by_group: dict[str, str] = {
+        r["group_key"]: _S._category_of(r.get("group_model"))
+        for r in groups_meta_rows
+        if r.get("group_key")
+    }
+    # rev 3 — 그룹별 weekly snapshot history (직전 8주). week_start 이전 기간의
+    # 모든 그룹 행을 한 번에 가져온 뒤 group_key 별로 last-snap-per-week 처리.
+    history_limit_days = max(_S.TEMPORAL_HISTORY_WEEKS * 7 * max(len(category_by_group), 1), 70)
+    history_rows = db.execute(
+        "SELECT group_key, snapshot_at, "
+        "       yt_subscribers, yt_total_views, naver_total_news, "
+        "       COALESCE(dc_total_posts,0) AS dc_total_posts, "
+        "       COALESCE(theqoo_posts,0) AS theqoo_posts, "
+        "       COALESCE(instiz_posts,0) AS instiz_posts "
+        "FROM agg_summary "
+        "WHERE substr(snapshot_at, 1, 10) < ? "
+        "ORDER BY snapshot_at DESC LIMIT ?",
+        [week_start, history_limit_days],
+    )
 
     # group_key → row 매핑. 같은 group_key 에 여러 snapshot 이 있으면
     # snapshot_at 가장 최근 row 만 남긴다 (정렬 후 last-wins).
@@ -510,18 +621,40 @@ def compute_group_signals(
         if r.get("group_key"):
             prev_by[r["group_key"]] = r
 
-    # cohort lists (z-score 분모) — 그룹당 1 row 의 dict 에서 생성.
-    # 멀티-스냅 가중치 회피.
+    # 그룹별 history rows. 한 그룹당 최근 TEMPORAL_HISTORY_WEEKS 개 snapshot 만.
+    history_by_group: dict[str, list[dict]] = {}
+    for r in history_rows:
+        gk = r.get("group_key")
+        if gk is None:
+            continue
+        bucket = history_by_group.setdefault(gk, [])
+        if len(bucket) < _S.TEMPORAL_HISTORY_WEEKS:
+            bucket.append(r)
+
+    def _comm_sum(r: dict) -> float:
+        return float(
+            (r.get("dc_total_posts") or 0)
+            + (r.get("theqoo_posts") or 0)
+            + (r.get("instiz_posts") or 0)
+        )
+
+    # 카테고리별 cohort lists (z-score 분모). N < CATEGORY_COHORT_MIN 이면 빈 리스트
+    # → cohort_z_score 가 0 반환 → category_z=0 fallback.
     now_rows = list(now_by.values())
-    subs_cohort      = [float(r.get("yt_subscribers")  or 0) for r in now_rows]
-    views_cohort     = [float(r.get("yt_total_views")  or 0) for r in now_rows]
-    news_cohort      = [float(r.get("naver_total_news") or 0) for r in now_rows]
-    community_cohort = [
-        float((r.get("dc_total_posts") or 0)
-              + (r.get("theqoo_posts") or 0)
-              + (r.get("instiz_posts") or 0))
-        for r in now_rows
-    ]
+
+    def _cohort_for(gk: str, key: str) -> list[float]:
+        cat = category_by_group.get(gk, "kpop")
+        members = [
+            r for r in now_rows
+            if category_by_group.get(r.get("group_key", "")) == cat
+        ]
+        if len(members) < _S.CATEGORY_COHORT_MIN:
+            return []
+        if key == "_community":
+            return [_comm_sum(r) for r in members]
+        return [float(r.get(key) or 0) for r in members]
+
+    # controversy 시그널은 rev 3 변경 대상 아님 — 기존 cross-sectional cohort 유지.
     controversy_count_cohort = [float(r.get("controversy_count") or 0) for r in now_rows]
     negative_ratio_cohort    = [float(r.get("negative_ratio")   or 0) for r in now_rows]
     organicity_by: dict[str, list[dict]] = {}
@@ -555,6 +688,29 @@ def compute_group_signals(
     for r in member_pop_rows:
         member_pop_by.setdefault(r["group_key"], []).append(r)
 
+    def _axis(
+        gk: str, key: str, *, comm: bool = False,
+    ) -> dict:
+        """rev 3 — 3-축 (category_z, temporal_z, wow_pct) 시그널 dict 빌더."""
+        now = now_by[gk]
+        prev = prev_by.get(gk, {})
+        history = history_by_group.get(gk, [])
+        if comm:
+            now_val = _comm_sum(now)
+            prev_val = _comm_sum(prev) if prev else 0.0
+            history_vals = [_comm_sum(h) for h in history]
+            cohort_vals = _cohort_for(gk, "_community")
+        else:
+            now_val = float(now.get(key) or 0)
+            prev_val = float(prev.get(key) or 0) if prev else 0.0
+            history_vals = [float(h.get(key) or 0) for h in history]
+            cohort_vals = _cohort_for(gk, key)
+        return {
+            "category_z": _S.cohort_z_score(now_val, cohort_vals),
+            "temporal_z": _S.temporal_z_score(now_val, history_vals),
+            "wow_pct":    _S.wow_pct(now_val, prev_val if prev else None),
+        }
+
     out: dict[str, GroupSignals] = {}
     for gk, now in now_by.items():
         prev = prev_by.get(gk, {})
@@ -564,15 +720,10 @@ def compute_group_signals(
         mp_prev = mp_rows[-2] if len(mp_rows) >= 2 else {}
 
         sig = {
-            "subs_z":             _S.cohort_z_score(float(now.get("yt_subscribers") or 0), subs_cohort),
-            "views_z":            _S.cohort_z_score(float(now.get("yt_total_views") or 0), views_cohort),
-            "news_z":             _S.cohort_z_score(float(now.get("naver_total_news") or 0), news_cohort),
-            "community_z":        _S.cohort_z_score(
-                float((now.get("dc_total_posts") or 0)
-                      + (now.get("theqoo_posts") or 0)
-                      + (now.get("instiz_posts") or 0)),
-                community_cohort,
-            ),
+            "subs":      _axis(gk, "yt_subscribers"),
+            "views":     _axis(gk, "yt_total_views"),
+            "news":      _axis(gk, "naver_total_news"),
+            "community": _axis(gk, "_community", comm=True),
             "market_share_z":     0.0,    # V1: agg_market_share 별도 쿼리 — 후속 enhancement
             "er_wow":             _S.engagement_rate_wow_drop(now, prev),
             "vps_wow":            _S.views_per_sub_wow_drop(now, prev),
@@ -624,9 +775,13 @@ def compute_group_signals(
         )
 
         deltas: dict[str, float] = {
-            "subs_z":   sig["subs_z"],
-            "views_z":  sig["views_z"],
-            "news_z":   sig["news_z"],
+            "subs_z":   sig["subs"]["category_z"],
+            "views_z":  sig["views"]["category_z"],
+            "news_z":   sig["news"]["category_z"],
+            "subs_temporal_z":   sig["subs"]["temporal_z"],
+            "views_temporal_z":  sig["views"]["temporal_z"],
+            "subs_wow":   sig["subs"]["wow_pct"] if sig["subs"]["wow_pct"] is not None else 0.0,
+            "views_wow":  sig["views"]["wow_pct"] if sig["views"]["wow_pct"] is not None else 0.0,
         }
         if sig["er_wow"] is not None:
             deltas["er_wow"] = sig["er_wow"]

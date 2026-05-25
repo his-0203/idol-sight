@@ -6,7 +6,7 @@ from idol_sight.llm.weekly import generate_weekly
 def _stub_db():
     db = MagicMock()
     # Stub out the five context queries used by build_context() PLUS the
-    # ten queries used by compute_group_signals() (called from inside
+    # twelve queries used by compute_group_signals() rev 3 (called from inside
     # build_context post-Task 5). Empty rows for the diagnosis queries
     # keeps these legacy tests focused on ai_comment / ipx_action behavior.
     db.execute.side_effect = [
@@ -20,7 +20,7 @@ def _stub_db():
         [{"group_key": "plave", "final": 65.0}],
         # top news per group
         [{"group_key": "plave", "title": "PLAVE 신곡", "source": "naver"}],
-        # compute_group_signals — 10 추가 쿼리, 모두 빈 결과
+        # compute_group_signals — 12 추가 쿼리 (rev 3), 모두 빈 결과
         [],   # last_7d (signals)
         [],   # prev_7d (signals)
         [],   # organicity
@@ -31,6 +31,8 @@ def _stub_db():
         [],   # twitter
         [],   # irrelevant
         [],   # member_pop
+        [],   # groups meta (rev 3)
+        [],   # agg_summary history (rev 3)
     ]
     return db
 
@@ -217,7 +219,7 @@ def test_prompt_weekly_diagnosis_operational_guards():
 
 
 def _stub_db_with_signals():
-    """build_context 의 기존 5 + compute_group_signals 의 10 쿼리 stub."""
+    """build_context 의 기존 5 + compute_group_signals 의 12 쿼리 stub (rev 3)."""
     db = MagicMock()
     db.execute.side_effect = [
         # build_context 의 기존 5 쿼리
@@ -237,7 +239,7 @@ def _stub_db_with_signals():
         [{"group_key": "plave", "album": "X", "rank": 2, "sales": 991_850}],
         [{"group_key": "plave", "final": 65.0}],
         [{"group_key": "plave", "title": "n", "source": "naver"}],
-        # compute_group_signals 의 추가 10 쿼리 — 빈 결과 또는 minimal
+        # compute_group_signals 의 추가 12 쿼리 (rev 3) — 빈 결과 또는 minimal
         [],   # last_7d
         [],   # prev_7d
         [],   # organicity
@@ -248,6 +250,8 @@ def _stub_db_with_signals():
         [],   # twitter
         [],   # irrelevant
         [],   # member_pop
+        [],   # groups meta (rev 3)
+        [],   # agg_summary history (rev 3)
     ]
     return db
 

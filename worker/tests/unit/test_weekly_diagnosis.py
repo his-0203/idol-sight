@@ -9,13 +9,19 @@ from idol_sight.analysis.weekly_diagnosis import (
 )
 
 
+def _axis(*, z: float = 0.0, t: float = 0.0, w: float | None = None) -> dict:
+    """rev 3 시그널 dict 의 한 entry — (category_z, temporal_z, wow_pct)."""
+    return {"category_z": z, "temporal_z": t, "wow_pct": w}
+
+
 def _base_signal_bundle() -> dict:
-    """모든 시그널이 중립값인 baseline. 각 test 가 필요한 키만 override."""
+    """rev 3 shape: 모든 시그널이 중립값인 baseline. 각 시그널 entry 는
+    {category_z, temporal_z, wow_pct} 3-축 dict. 각 test 가 필요한 키만 override."""
     return {
-        "subs_z":             0.0,
-        "views_z":            0.0,
-        "news_z":             0.0,
-        "community_z":        0.0,
+        "subs":      _axis(),
+        "views":     _axis(),
+        "news":      _axis(),
+        "community": _axis(),
         "market_share_z":     0.0,
         "er_wow":             0.0,
         "vps_wow":            None,
@@ -30,6 +36,8 @@ def _base_signal_bundle() -> dict:
         "controversy":        {"keyword_z": 0.0, "twitter_z": 0.0,
                                "controversy_count_z": 0.0,
                                "negative_ratio_z": 0.0},
+        "news_z_prev_week":           0.0,
+        "community_z_prev_week":      0.0,
         "community_keywords_topic": "neutral",   # 'self' | 'external' | 'negative' | 'neutral'
         "video_tags_paid_match":   False,
     }
@@ -60,11 +68,13 @@ def test_group_signals_empty_defaults():
 
 def test_organic_growth_all_signals_lit():
     """5개 시그널 (subs/views/news/community/market_share) 모두 z>=1.5 → high."""
-    sig = _base_signal_bundle() | {
-        "subs_z": 1.8, "views_z": 2.0, "news_z": 1.6,
-        "community_z": 1.7, "market_share_z": 1.5,
-        "er_wow": 0.02,   # 안정 (±5% 안)
-    }
+    sig = _base_signal_bundle()
+    sig["subs"]      = _axis(z=1.8)
+    sig["views"]     = _axis(z=2.0)
+    sig["news"]      = _axis(z=1.6)
+    sig["community"] = _axis(z=1.7)
+    sig["market_share_z"] = 1.5
+    sig["er_wow"] = 0.02   # 안정 (±5% 안)
     hyps = classify_hypotheses(sig)
     keys = [h.key for h in hyps]
     assert "organic_growth" in keys
@@ -74,29 +84,27 @@ def test_organic_growth_all_signals_lit():
 
 def test_paid_youtube_ads_high_views_low_er():
     """views z=3, subs z=0.3, ER drop 28%, organicity paid 42% → high."""
-    sig = _base_signal_bundle() | {
-        "views_z": 3.0,
-        "subs_z": 0.3,
-        "er_wow": -0.28,
-        "organicity_paid": 0.42,
-    }
+    sig = _base_signal_bundle()
+    sig["views"] = _axis(z=3.0)
+    sig["subs"]  = _axis(z=0.3)
+    sig["er_wow"] = -0.28
+    sig["organicity_paid"] = 0.42
     hyps = classify_hypotheses(sig)
     paid = next((h for h in hyps if h.key == "paid_youtube_ads"), None)
     assert paid is not None
     assert paid.confidence == "high"
     # subs_views_ratio (= subs_z - views_z) 음수 큼 → evidence 에 명시
-    assert any("views_z" in e.key or "engagement" in e.key.lower() or "organicity" in e.key.lower()
+    assert any("views" in e.key.lower() or "engagement" in e.key.lower() or "organicity" in e.key.lower()
                for e in paid.evidence)
 
 
 def test_subscriber_purchase_inverse_pattern():
     """subs z=3.0, views z=0.4, ER drop 35%, vps drop 32% → medium (캡 적용)."""
-    sig = _base_signal_bundle() | {
-        "subs_z": 3.0,
-        "views_z": 0.4,
-        "er_wow": -0.35,
-        "vps_wow": -0.32,
-    }
+    sig = _base_signal_bundle()
+    sig["subs"]  = _axis(z=3.0)
+    sig["views"] = _axis(z=0.4)
+    sig["er_wow"] = -0.35
+    sig["vps_wow"] = -0.32
     hyps = classify_hypotheses(sig)
     sp = next((h for h in hyps if h.key == "subscriber_purchase"), None)
     assert sp is not None
@@ -106,22 +114,22 @@ def test_subscriber_purchase_inverse_pattern():
 
 def test_subscriber_purchase_not_lit_when_vps_none():
     """subs spike + ER 하락 만 있고 vps_wow None → subscriber_purchase 점등 안 됨."""
-    sig = _base_signal_bundle() | {
-        "subs_z": 3.0, "er_wow": -0.35, "vps_wow": None,
-    }
+    sig = _base_signal_bundle()
+    sig["subs"] = _axis(z=3.0)
+    sig["er_wow"] = -0.35
+    sig["vps_wow"] = None
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "subscriber_purchase" for h in hyps)
 
 
 def test_comeback_cycle_full():
     """hanteo_sales>0 + chart_peak<=30 + news z>=2 + video upload z>=1.5 → high."""
-    sig = _base_signal_bundle() | {
-        "news_z": 2.4,
-        "comeback": {
-            "event_match": {"event_type": "album_release", "title": "Caligo Pt.3"},
-            "music_streak": 0, "hanteo_sales": 991_850, "chart_peak": 5,
-            "video_upload_z": 2.1,
-        },
+    sig = _base_signal_bundle()
+    sig["news"] = _axis(z=2.4)
+    sig["comeback"] = {
+        "event_match": {"event_type": "album_release", "title": "Caligo Pt.3"},
+        "music_streak": 0, "hanteo_sales": 991_850, "chart_peak": 5,
+        "video_upload_z": 2.1,
     }
     hyps = classify_hypotheses(sig)
     cb = next((h for h in hyps if h.key == "comeback_cycle"), None)
@@ -134,17 +142,18 @@ def test_comeback_cycle_full():
 
 def test_comeback_cycle_dampens_paid():
     """comeback + paid_ads 시그널 동시 → paid confidence 한 단계 감점."""
-    sig = _base_signal_bundle() | {
-        # paid 시그널 (3개)
-        "views_z": 3.0, "subs_z": 0.5, "er_wow": -0.28,
-        "organicity_paid": 0.35,
-        # comeback 시그널 (2개 — high)
-        "news_z": 2.5,
-        "comeback": {
-            "event_match": {"event_type": "album_release", "title": "X"},
-            "music_streak": 0, "hanteo_sales": 800_000, "chart_peak": 8,
-            "video_upload_z": 1.6,
-        },
+    sig = _base_signal_bundle()
+    # paid 시그널 (3개)
+    sig["views"] = _axis(z=3.0)
+    sig["subs"]  = _axis(z=0.5)
+    sig["er_wow"] = -0.28
+    sig["organicity_paid"] = 0.35
+    # comeback 시그널 (2개 — high)
+    sig["news"] = _axis(z=2.5)
+    sig["comeback"] = {
+        "event_match": {"event_type": "album_release", "title": "X"},
+        "music_streak": 0, "hanteo_sales": 800_000, "chart_peak": 8,
+        "video_upload_z": 1.6,
     }
     hyps = classify_hypotheses(sig)
     paid = next((h for h in hyps if h.key == "paid_youtube_ads"), None)
@@ -156,12 +165,11 @@ def test_comeback_cycle_dampens_paid():
 
 def test_broadcast_appearance_lag_pattern():
     """7일 전 news spike (z=3.0) + 이번 주 community z=1.8 + community 토픽 외부."""
-    sig = _base_signal_bundle() | {
-        "news_z_prev_week": 3.0,    # 시그널 모듈이 raw 로 채움
-        "community_z": 1.8,
-        "views_z": 1.5,
-        "community_keywords_topic": "external",   # 방송명 키워드
-    }
+    sig = _base_signal_bundle()
+    sig["news_z_prev_week"] = 3.0    # 시그널 모듈이 raw 로 채움
+    sig["community"] = _axis(z=1.8)
+    sig["views"]     = _axis(z=1.5)
+    sig["community_keywords_topic"] = "external"   # 방송명 키워드
     hyps = classify_hypotheses(sig)
     ba = next((h for h in hyps if h.key == "broadcast_appearance"), None)
     assert ba is not None
@@ -170,12 +178,11 @@ def test_broadcast_appearance_lag_pattern():
 
 def test_community_word_of_mouth_lag():
     """전주 community spike + 이번 주 subs/view z>=1.5 + 자체 콘텐츠 토픽."""
-    sig = _base_signal_bundle() | {
-        "community_z_prev_week": 2.4,
-        "subs_z": 1.6,
-        "views_z": 1.7,
-        "community_keywords_topic": "self",
-    }
+    sig = _base_signal_bundle()
+    sig["community_z_prev_week"] = 2.4
+    sig["subs"]  = _axis(z=1.6)
+    sig["views"] = _axis(z=1.7)
+    sig["community_keywords_topic"] = "self"
     hyps = classify_hypotheses(sig)
     wom = next((h for h in hyps if h.key == "community_word_of_mouth"), None)
     assert wom is not None
@@ -184,22 +191,20 @@ def test_community_word_of_mouth_lag():
 
 def test_broadcast_no_lag_no_match():
     """이번 주 news 단발 spike 만, 직전 주는 평탄 → broadcast 안 점등."""
-    sig = _base_signal_bundle() | {
-        "news_z": 3.0,
-        "community_z": 0.4,
-        "news_z_prev_week": 0.2,
-    }
+    sig = _base_signal_bundle()
+    sig["news"]      = _axis(z=3.0)
+    sig["community"] = _axis(z=0.4)
+    sig["news_z_prev_week"] = 0.2
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "broadcast_appearance" for h in hyps)
 
 
 def test_controversy_one_signal_high():
     """controversy_count_z=2.1 단독 점등 → high."""
-    sig = _base_signal_bundle() | {
-        "controversy": {
-            "keyword_z": 0.3, "twitter_z": 0.5,
-            "controversy_count_z": 2.1, "negative_ratio_z": 0.4,
-        },
+    sig = _base_signal_bundle()
+    sig["controversy"] = {
+        "keyword_z": 0.3, "twitter_z": 0.5,
+        "controversy_count_z": 2.1, "negative_ratio_z": 0.4,
     }
     hyps = classify_hypotheses(sig)
     co = next((h for h in hyps if h.key == "controversy_spike"), None)
@@ -209,11 +214,10 @@ def test_controversy_one_signal_high():
 
 def test_controversy_keyword_z_lit():
     """community_keywords negative_keyword_z=2.5 → 점등 high."""
-    sig = _base_signal_bundle() | {
-        "controversy": {
-            "keyword_z": 2.5, "twitter_z": 0.0,
-            "controversy_count_z": 0.0, "negative_ratio_z": 0.0,
-        },
+    sig = _base_signal_bundle()
+    sig["controversy"] = {
+        "keyword_z": 2.5, "twitter_z": 0.0,
+        "controversy_count_z": 0.0, "negative_ratio_z": 0.0,
     }
     hyps = classify_hypotheses(sig)
     assert any(h.key == "controversy_spike" for h in hyps)
@@ -221,10 +225,9 @@ def test_controversy_keyword_z_lit():
 
 def test_platform_concentrated_naver_only():
     """reactivity_dominant=('naver', 3.0) + naver news z=2.5 → medium-high."""
-    sig = _base_signal_bundle() | {
-        "reactivity_dominant": ("naver", 3.0),
-        "news_z": 2.5,
-    }
+    sig = _base_signal_bundle()
+    sig["reactivity_dominant"] = ("naver", 3.0)
+    sig["news"] = _axis(z=2.5)
     hyps = classify_hypotheses(sig)
     pc = next((h for h in hyps if h.key == "platform_concentrated_promo"), None)
     assert pc is not None
@@ -233,25 +236,23 @@ def test_platform_concentrated_naver_only():
 
 def test_platform_concentrated_not_lit_without_supporting_z():
     """reactivity dominant 만 있고 보조 z 가 없으면 점등 안 됨."""
-    sig = _base_signal_bundle() | {
-        "reactivity_dominant": ("naver", 3.0),
-        "news_z": 0.5,
-        "community_z": 0.4,
-    }
+    sig = _base_signal_bundle()
+    sig["reactivity_dominant"] = ("naver", 3.0)
+    sig["news"]      = _axis(z=0.5)
+    sig["community"] = _axis(z=0.4)
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "platform_concentrated_promo" for h in hyps)
 
 
 def test_member_centric_isedol_top1_jump():
     """ISEDOL top1_share +12pt → 점등, 그룹 spike 동반."""
-    sig = _base_signal_bundle() | {
-        "subs_z": 2.0,
-        "views_z": 2.0,
-        "member_centric": {
-            "lit": True, "dead": False,
-            "top1_share_now": 0.55, "top1_share_wow": 0.12,
-            "hhi_norm_wow": 0.08, "top1_share_high": False,
-        },
+    sig = _base_signal_bundle()
+    sig["subs"]  = _axis(z=2.0)
+    sig["views"] = _axis(z=2.0)
+    sig["member_centric"] = {
+        "lit": True, "dead": False,
+        "top1_share_now": 0.55, "top1_share_wow": 0.12,
+        "hhi_norm_wow": 0.08, "top1_share_high": False,
     }
     hyps = classify_hypotheses(sig)
     mc = next((h for h in hyps if h.key == "member_centric_spike"), None)
@@ -260,16 +261,17 @@ def test_member_centric_isedol_top1_jump():
 
 def test_member_centric_dampens_paid():
     """member_centric 점등 시 paid_ads confidence 한 단계 감점."""
-    sig = _base_signal_bundle() | {
-        # paid 시그널
-        "views_z": 3.0, "subs_z": 0.5, "er_wow": -0.28,
-        "organicity_paid": 0.35,
-        # member_centric 시그널
-        "member_centric": {
-            "lit": True, "dead": False,
-            "top1_share_now": 0.62, "top1_share_wow": 0.14,
-            "hhi_norm_wow": 0.10, "top1_share_high": True,
-        },
+    sig = _base_signal_bundle()
+    # paid 시그널
+    sig["views"] = _axis(z=3.0)
+    sig["subs"]  = _axis(z=0.5)
+    sig["er_wow"] = -0.28
+    sig["organicity_paid"] = 0.35
+    # member_centric 시그널
+    sig["member_centric"] = {
+        "lit": True, "dead": False,
+        "top1_share_now": 0.62, "top1_share_wow": 0.14,
+        "hhi_norm_wow": 0.10, "top1_share_high": True,
     }
     hyps = classify_hypotheses(sig)
     paid = next((h for h in hyps if h.key == "paid_youtube_ads"), None)
@@ -336,7 +338,7 @@ from idol_sight.analysis.weekly_diagnosis import compute_group_signals
 def test_compute_group_signals_organic_growth_e2e():
     """E2E: DB stub → cohort z-score → classify → GroupSignals dict."""
     db = MagicMock()
-    # build_context 의 6개 query 응답을 순서대로 stub:
+    # build_context 의 12개 query 응답을 순서대로 stub (rev 3 — groups 메타 + history 추가):
     # 1) last_7d agg_summary
     # 2) prev_7d agg_summary
     # 3) debut_window_video_organicity (주간 신규 영상)
@@ -347,6 +349,8 @@ def test_compute_group_signals_organic_growth_e2e():
     # 8) twitter type='controversy' (now + past)
     # 9) community_posts irrelevant flags
     # 10) agg_member_pop_meta (now + prev)
+    # 11) groups 메타 (group_model)        ← rev 3
+    # 12) agg_summary history (직전 8주)   ← rev 3
     db.execute.side_effect = [
         # 1) last_7d (cohort 5 그룹, plave 가 spike)
         [
@@ -410,6 +414,14 @@ def test_compute_group_signals_organic_growth_e2e():
         [],
         # 10) agg_member_pop_meta (now + prev — plave 는 corporate single-channel, dead)
         [],
+        # 11) groups 메타 (rev 3) — corporate=kpop cohort
+        [
+            {"group_key": "plave",  "group_model": "corporate"},
+            {"group_key": "isedol", "group_model": "segmentary"},
+            {"group_key": "skinz",  "group_model": "corporate"},
+        ],
+        # 12) agg_summary history (rev 3) — 빈 history (temporal_z = 0)
+        [],
     ]
     result = compute_group_signals(db=db, week_start="2026-04-22", week_end="2026-04-28")
 
@@ -424,45 +436,49 @@ def test_compute_group_signals_organic_growth_e2e():
 
 def test_organic_growth_3_signals_not_enough():
     """3개 점등 (4 미만) 은 organic 으로 인정 안 됨 (spec rev 2 §3.1)."""
-    sig = _base_signal_bundle() | {
-        "subs_z": 1.8, "views_z": 1.7, "news_z": 1.6,
-        # community_z, market_share_z 평탄 → 3개만 점등
-        "er_wow": 0.02,
-    }
+    sig = _base_signal_bundle()
+    sig["subs"]  = _axis(z=1.8)
+    sig["views"] = _axis(z=1.7)
+    sig["news"]  = _axis(z=1.6)
+    # community, market_share_z 평탄 → 3개만 점등
+    sig["er_wow"] = 0.02
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "organic_growth" for h in hyps)
 
 
 def test_organic_growth_er_wow_none_blocks():
     """신규 그룹 (prev_er=0 → er_wow=None) 는 organic high 차단."""
-    sig = _base_signal_bundle() | {
-        "subs_z": 2.0, "views_z": 2.0, "news_z": 1.8,
-        "community_z": 1.7, "market_share_z": 1.6,
-        "er_wow": None,   # 시그널 부재 — ER 안정 단정 불가
-    }
+    sig = _base_signal_bundle()
+    sig["subs"]      = _axis(z=2.0)
+    sig["views"]     = _axis(z=2.0)
+    sig["news"]      = _axis(z=1.8)
+    sig["community"] = _axis(z=1.7)
+    sig["market_share_z"] = 1.6
+    sig["er_wow"] = None   # 시그널 부재 — ER 안정 단정 불가
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "organic_growth" for h in hyps)
 
 
 def test_comeback_and_member_centric_dampen_paid_once():
     """comeback + member_centric 동시 점등 시 paid 가 한 단계만 감점 (low 까지 안 떨어짐)."""
-    sig = _base_signal_bundle() | {
-        # paid 시그널 (high 가능)
-        "views_z": 3.0, "subs_z": 0.5, "er_wow": -0.28,
-        "organicity_paid": 0.35,
-        # comeback 시그널 (high)
-        "news_z": 2.5,
-        "comeback": {
-            "event_match": {"event_type": "album_release", "title": "X"},
-            "music_streak": 0, "hanteo_sales": 800_000, "chart_peak": 8,
-            "video_upload_z": 1.6,
-        },
-        # member_centric 시그널 (high)
-        "member_centric": {
-            "lit": True, "dead": False,
-            "top1_share_now": 0.62, "top1_share_wow": 0.14,
-            "hhi_norm_wow": 0.10, "top1_share_high": True,
-        },
+    sig = _base_signal_bundle()
+    # paid 시그널 (high 가능)
+    sig["views"] = _axis(z=3.0)
+    sig["subs"]  = _axis(z=0.5)
+    sig["er_wow"] = -0.28
+    sig["organicity_paid"] = 0.35
+    # comeback 시그널 (high)
+    sig["news"] = _axis(z=2.5)
+    sig["comeback"] = {
+        "event_match": {"event_type": "album_release", "title": "X"},
+        "music_streak": 0, "hanteo_sales": 800_000, "chart_peak": 8,
+        "video_upload_z": 1.6,
+    }
+    # member_centric 시그널 (high)
+    sig["member_centric"] = {
+        "lit": True, "dead": False,
+        "top1_share_now": 0.62, "top1_share_wow": 0.14,
+        "hhi_norm_wow": 0.10, "top1_share_high": True,
     }
     hyps = classify_hypotheses(sig)
     paid = next((h for h in hyps if h.key == "paid_youtube_ads"), None)
@@ -517,12 +533,177 @@ def test_compute_group_signals_deduplicates_multi_row():
         ],
         # 3-10) 나머지 8개 쿼리는 빈 결과
         [], [], [], [], [], [], [], [],
+        # 11) groups 메타 (rev 3) — plave/isedol 모두 corporate 처리해서 cohort=2 → category_z=0
+        [
+            {"group_key": "plave",  "group_model": "corporate"},
+            {"group_key": "isedol", "group_model": "corporate"},
+        ],
+        # 12) agg_summary history (rev 3) — 빈 history
+        [],
     ]
     result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")
     # plave 와 isedol 둘 다 결과에 존재
     assert "plave" in result
     assert "isedol" in result
     # cohort 가 그룹당 1 element 였으므로 plave 의 subs_z 는 양수 (1.2M > isedol 0.6M)
-    assert result["plave"].deltas["subs_z"] > 0
-    # cohort 분모가 2 (그룹 2개) 라 z=1.0 근처 (sd=평균에서 ±1 sd 만큼 떨어짐)
-    # 정확 검증보다 *방향* 검증 — multi-row 가 분모를 부풀렸다면 sd 가 더 작아져 z가 더 컸을 것.
+    # (cohort=2 라 CATEGORY_COHORT_MIN=3 미달 → category_z=0 fallback; 그래도 wow_pct 양수)
+    # deltas 는 category_z 를 노출 — rev 3 cohort_min fallback 으로 0 일 수 있음.
+    assert result["plave"].deltas["subs_z"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# rev 3 — _is_lit OR helper + 3-축 시나리오 + subculture fallback
+# ---------------------------------------------------------------------------
+
+from idol_sight.analysis.weekly_diagnosis import _is_lit
+
+
+def test_is_lit_category_z_only():
+    entry = {"category_z": 2.0, "temporal_z": 0.5, "wow_pct": 0.02}
+    assert _is_lit(entry, wow_threshold=0.05) is True
+
+
+def test_is_lit_temporal_z_only():
+    entry = {"category_z": 0.3, "temporal_z": 1.8, "wow_pct": 0.02}
+    assert _is_lit(entry, wow_threshold=0.05) is True
+
+
+def test_is_lit_wow_only():
+    entry = {"category_z": 0.3, "temporal_z": 0.5, "wow_pct": 0.08}
+    assert _is_lit(entry, wow_threshold=0.05) is True
+
+
+def test_is_lit_none_lit():
+    entry = {"category_z": 0.3, "temporal_z": 0.5, "wow_pct": 0.02}
+    assert _is_lit(entry, wow_threshold=0.05) is False
+
+
+def test_is_lit_wow_none_safe():
+    """wow_pct=None (dead signal) 이라도 다른 축으로 lit 가능."""
+    entry = {"category_z": 1.8, "temporal_z": 0.5, "wow_pct": None}
+    assert _is_lit(entry, wow_threshold=0.05) is True
+
+
+def test_is_lit_custom_z_threshold():
+    """paid_ads 의 Z_THRESHOLD_STRONG=2.0 케이스."""
+    entry = {"category_z": 1.8, "temporal_z": 0.5, "wow_pct": 0.05}
+    assert _is_lit(entry, z_threshold=2.0, wow_threshold=0.20) is False
+    assert _is_lit(entry, z_threshold=1.5, wow_threshold=0.20) is True
+
+
+def test_organic_growth_lit_via_wow_only():
+    """category z + temporal z 모두 0 + WoW% 모두 임계치 통과 → organic lit."""
+    sig = _base_signal_bundle()
+    sig["subs"]      = {"category_z": 0.3, "temporal_z": 0.4, "wow_pct": 0.06}
+    sig["views"]     = {"category_z": 0.2, "temporal_z": 0.5, "wow_pct": 0.09}
+    sig["news"]      = {"category_z": 0.3, "temporal_z": 0.2, "wow_pct": 0.35}
+    sig["community"] = {"category_z": 0.1, "temporal_z": 0.4, "wow_pct": 0.40}
+    sig["er_wow"] = 0.02
+    hyps = classify_hypotheses(sig)
+    assert any(h.key == "organic_growth" for h in hyps)
+
+
+def test_organic_growth_lit_via_temporal_only():
+    """category cohort 비대칭이라 모두 0 + 자기 history 대비 큰 spike."""
+    sig = _base_signal_bundle()
+    sig["subs"]      = {"category_z": 0.0, "temporal_z": 2.1, "wow_pct": 0.02}
+    sig["views"]     = {"category_z": 0.0, "temporal_z": 1.8, "wow_pct": 0.03}
+    sig["news"]      = {"category_z": 0.0, "temporal_z": 1.7, "wow_pct": 0.10}
+    sig["community"] = {"category_z": 0.0, "temporal_z": 1.6, "wow_pct": 0.05}
+    sig["er_wow"] = 0.02
+    hyps = classify_hypotheses(sig)
+    assert any(h.key == "organic_growth" for h in hyps)
+
+
+def test_paid_ads_stricter_wow_threshold():
+    """views WoW 10% (organic 임계 초과) 만으로는 paid 안 점등 (임계 0.20); WoW 25% 면 점등."""
+    sig_organic = _base_signal_bundle()
+    sig_organic["views"] = {"category_z": 0.5, "temporal_z": 0.5, "wow_pct": 0.10}
+    sig_organic["subs"]  = {"category_z": 0.2, "temporal_z": 0.2, "wow_pct": 0.01}
+    sig_organic["er_wow"] = -0.25
+    sig_organic["organicity_paid"] = 0.40
+    # 10% WoW 만으로는 paid 점등 안 됨 (임계 0.20)
+    assert not any(h.key == "paid_youtube_ads"
+                   for h in classify_hypotheses(sig_organic))
+
+    sig_paid = _base_signal_bundle()
+    sig_paid["views"] = {"category_z": 0.5, "temporal_z": 0.5, "wow_pct": 0.25}
+    sig_paid["subs"]  = {"category_z": 0.2, "temporal_z": 0.2, "wow_pct": 0.01}
+    sig_paid["er_wow"] = -0.25
+    sig_paid["organicity_paid"] = 0.40
+    # 25% WoW 면 점등 — views 시그널 + ER + organicity = 3개 (subs/views gap 은 둘 다 category_z 작아서 False)
+    assert any(h.key == "paid_youtube_ads" for h in classify_hypotheses(sig_paid))
+
+
+def test_subscriber_purchase_uses_strict_wow_15pct():
+    """subs WoW 16% (임계 0.15 초과) + vps/er 강한 하락 → subscriber_purchase 점등 (medium 캡)."""
+    sig = _base_signal_bundle()
+    sig["subs"] = {"category_z": 0.5, "temporal_z": 0.5, "wow_pct": 0.16}
+    sig["vps_wow"] = -0.32
+    sig["er_wow"] = -0.30
+    hyps = classify_hypotheses(sig)
+    sp = next((h for h in hyps if h.key == "subscriber_purchase"), None)
+    assert sp is not None
+    assert sp.confidence == "medium"   # 캡 유지
+
+
+def test_compute_group_signals_subculture_falls_back_to_temporal():
+    """subculture cohort 가 2개라 CATEGORY_COHORT_MIN(3) 미달 → category_z=0.
+    history 대비 큰 spike 있으면 temporal_z 점등으로 lit 가능."""
+    db = MagicMock()
+    db.execute.side_effect = [
+        # 1) last_7d — 2개의 subculture 그룹만
+        [
+            {"group_key": "isedol", "snapshot_at": "2026-07-03T00:00:00Z",
+             "yt_subscribers": 1_000_000, "yt_total_views": 200_000_000,
+             "yt_likes_total": 2_000_000, "yt_comments_total": 300_000,
+             "naver_total_news": 100, "dc_total_posts": 100, "theqoo_posts": 50,
+             "instiz_posts": 30, "controversy_count": 0, "negative_ratio": 0.0,
+             "data_source": "live", "reactivity_sample": 1},
+            {"group_key": "stellive", "snapshot_at": "2026-07-03T00:00:00Z",
+             "yt_subscribers": 500_000, "yt_total_views": 80_000_000,
+             "yt_likes_total": 800_000, "yt_comments_total": 150_000,
+             "naver_total_news": 60, "dc_total_posts": 80, "theqoo_posts": 40,
+             "instiz_posts": 20, "controversy_count": 0, "negative_ratio": 0.0,
+             "data_source": "live", "reactivity_sample": 1},
+        ],
+        # 2) prev_7d
+        [
+            {"group_key": "isedol", "snapshot_at": "2026-06-25T00:00:00Z",
+             "yt_subscribers": 900_000, "yt_total_views": 180_000_000,
+             "yt_likes_total": 1_900_000, "yt_comments_total": 295_000,
+             "naver_total_news": 95, "data_source": "live"},
+        ],
+        # 3-10) 빈 결과
+        [], [], [], [], [], [], [], [],
+        # 11) groups 메타 — 두 그룹 모두 subculture (segmentary/confederation)
+        [
+            {"group_key": "isedol",   "group_model": "segmentary"},
+            {"group_key": "stellive", "group_model": "confederation"},
+        ],
+        # 12) agg_summary history — isedol 의 직전 8주 평탄
+        [
+            {"group_key": "isedol", "snapshot_at": "2026-06-18T00:00:00Z",
+             "yt_subscribers": 850_000, "yt_total_views": 170_000_000,
+             "naver_total_news": 90,
+             "dc_total_posts": 90, "theqoo_posts": 45, "instiz_posts": 25},
+            {"group_key": "isedol", "snapshot_at": "2026-06-11T00:00:00Z",
+             "yt_subscribers": 820_000, "yt_total_views": 160_000_000,
+             "naver_total_news": 85,
+             "dc_total_posts": 88, "theqoo_posts": 44, "instiz_posts": 22},
+            {"group_key": "isedol", "snapshot_at": "2026-06-04T00:00:00Z",
+             "yt_subscribers": 810_000, "yt_total_views": 155_000_000,
+             "naver_total_news": 88,
+             "dc_total_posts": 92, "theqoo_posts": 46, "instiz_posts": 24},
+        ],
+    ]
+    result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")
+    # subculture cohort 가 2개 < 3 → category_z=0 fallback. 그럼에도
+    # isedol 의 history 대비 spike (820k → 1M = 22%) 가 temporal_z 또는
+    # wow_pct 로 점등될 수 있어야 함.
+    assert "isedol" in result
+    isedol = result["isedol"]
+    # category_z 는 fallback 으로 0
+    assert isedol.deltas["subs_z"] == 0.0
+    # wow_pct 가 양수 (subs 가 history 대비 증가)
+    assert isedol.deltas["subs_wow"] > 0
