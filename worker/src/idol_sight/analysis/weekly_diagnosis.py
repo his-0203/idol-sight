@@ -14,6 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from idol_sight.analysis import weekly_diagnosis_signals as _S
+from idol_sight.analysis.weekly_diagnosis_signals import IRRELEVANT_RATIO_THRESHOLD
+
 
 HYPOTHESIS_KEYS: tuple[str, ...] = (
     "organic_growth",
@@ -213,22 +216,28 @@ def _confidence_dampen(c: str) -> str:
     return CONFIDENCE_LEVELS[min(idx + 1, 2)]
 
 
-def _dampen_if_comeback_active(hyps: list[Hypothesis]) -> list[Hypothesis]:
-    """comeback_cycle 이 점등돼 있으면 paid_ads / subscriber_purchase confidence 감점."""
-    comeback_active = any(h.key == "comeback_cycle" and h.confidence in ("high", "medium")
-                          for h in hyps)
-    if not comeback_active:
+def _apply_dampen(
+    hyps: list[Hypothesis],
+    *,
+    targets: set[str],
+    reasons: set[str],
+) -> list[Hypothesis]:
+    """`targets` 안의 가설들을 한 단계만 감점 (이유 수와 무관).
+
+    reasons 가 비어있으면 변경 없이 그대로 반환. low 로 떨어지면 emit 안 함.
+    """
+    if not reasons:
         return hyps
-    dampened: list[Hypothesis] = []
+    out: list[Hypothesis] = []
     for h in hyps:
-        if h.key in ("paid_youtube_ads", "subscriber_purchase"):
+        if h.key in targets:
             new_conf = _confidence_dampen(h.confidence)
             if new_conf == "low":
-                continue   # low 면 emit 안 함
-            dampened.append(Hypothesis(key=h.key, confidence=new_conf, evidence=h.evidence))
+                continue
+            out.append(Hypothesis(key=h.key, confidence=new_conf, evidence=h.evidence))
         else:
-            dampened.append(h)
-    return dampened
+            out.append(h)
+    return out
 
 
 def _check_broadcast_appearance(sig: dict) -> Hypothesis | None:
@@ -354,28 +363,13 @@ def _check_member_centric_spike(sig: dict) -> Hypothesis | None:
     return Hypothesis(key="member_centric_spike", confidence=confidence, evidence=evidence)
 
 
-def _dampen_if_member_centric_active(hyps: list[Hypothesis]) -> list[Hypothesis]:
-    """member_centric_spike 점등 시 그룹-차원 paid/sub_purchase confidence 감점."""
-    mc_active = any(h.key == "member_centric_spike" and h.confidence in ("high", "medium")
-                    for h in hyps)
-    if not mc_active:
-        return hyps
-    out: list[Hypothesis] = []
-    for h in hyps:
-        if h.key in ("paid_youtube_ads", "subscriber_purchase"):
-            new_conf = _confidence_dampen(h.confidence)
-            if new_conf == "low":
-                continue
-            out.append(Hypothesis(key=h.key, confidence=new_conf, evidence=h.evidence))
-        else:
-            out.append(h)
-    return out
-
-
 def classify_hypotheses(sig: dict) -> list[Hypothesis]:
     """시그널 dict → 점등된 가설 리스트. 점등 안 된 가설은 omit.
 
-    confidence 정렬은 후속 단계 (`compute_group_signals`) 에서 처리.
+    dampen 정책 (spec rev 2 §3.3):
+      - comeback_cycle 점등 → paid_youtube_ads / subscriber_purchase 감점.
+      - member_centric_spike 점등 → paid_youtube_ads / subscriber_purchase 감점.
+      - 둘 다 점등돼도 *한 번만* 감점 (set-based reason 누적).
     """
     candidates = [
         _check_organic_growth(sig),
@@ -389,8 +383,17 @@ def classify_hypotheses(sig: dict) -> list[Hypothesis]:
         _check_member_centric_spike(sig),
     ]
     lit = [c for c in candidates if c is not None]
-    lit = _dampen_if_comeback_active(lit)
-    lit = _dampen_if_member_centric_active(lit)
+
+    reasons: set[str] = set()
+    if any(h.key == "comeback_cycle" and h.confidence in ("high", "medium") for h in lit):
+        reasons.add("comeback")
+    if any(h.key == "member_centric_spike" and h.confidence in ("high", "medium") for h in lit):
+        reasons.add("member_centric")
+    lit = _apply_dampen(
+        lit,
+        targets={"paid_youtube_ads", "subscriber_purchase"},
+        reasons=reasons,
+    )
     return lit
 
 
@@ -406,7 +409,6 @@ def apply_meta_guards(
       (수정된 hypotheses, 점등된 메타가드 라벨 리스트)
     """
     guards: list[str] = []
-    from idol_sight.analysis.weekly_diagnosis_signals import IRRELEVANT_RATIO_THRESHOLD
     if irrelevant_ratio >= IRRELEVANT_RATIO_THRESHOLD:
         guards.append(f"irrelevant_flagged_{irrelevant_ratio:.0%}")
     if data_source_warning:
@@ -419,9 +421,6 @@ def apply_meta_guards(
         # low 가 되더라도 emit (메타가드는 카드 자체를 차단하지 않음 — body 에 경고만 첨부)
         out.append(Hypothesis(key=h.key, confidence=new_conf, evidence=h.evidence))
     return out, guards
-
-
-from idol_sight.analysis import weekly_diagnosis_signals as _S
 
 
 def compute_group_signals(
@@ -621,16 +620,19 @@ def compute_group_signals(
             data_source_warning=backfill_warning,
         )
 
+        deltas: dict[str, float] = {
+            "subs_z":   sig["subs_z"],
+            "views_z":  sig["views_z"],
+            "news_z":   sig["news_z"],
+        }
+        if sig["er_wow"] is not None:
+            deltas["er_wow"] = sig["er_wow"]
+
         out[gk] = GroupSignals(
             group_key=gk,
             hypotheses=hyps,
             meta_guards=guards,
-            deltas={
-                "subs_z":   sig["subs_z"],
-                "views_z":  sig["views_z"],
-                "news_z":   sig["news_z"],
-                "er_wow":   sig["er_wow"] if sig["er_wow"] is not None else 0.0,
-            },
+            deltas=deltas,
             organicity={
                 "paid_ratio": sig["organicity_paid"],
             } if sig["organicity_paid"] is not None else None,

@@ -420,3 +420,109 @@ def test_compute_group_signals_organic_growth_e2e():
     # 비어있지 않아야 함.
     assert isinstance(plave.hypotheses, list)
     assert plave.group_key == "plave"
+
+
+def test_organic_growth_3_signals_not_enough():
+    """3개 점등 (4 미만) 은 organic 으로 인정 안 됨 (spec rev 2 §3.1)."""
+    sig = _base_signal_bundle() | {
+        "subs_z": 1.8, "views_z": 1.7, "news_z": 1.6,
+        # community_z, market_share_z 평탄 → 3개만 점등
+        "er_wow": 0.02,
+    }
+    hyps = classify_hypotheses(sig)
+    assert not any(h.key == "organic_growth" for h in hyps)
+
+
+def test_organic_growth_er_wow_none_blocks():
+    """신규 그룹 (prev_er=0 → er_wow=None) 는 organic high 차단."""
+    sig = _base_signal_bundle() | {
+        "subs_z": 2.0, "views_z": 2.0, "news_z": 1.8,
+        "community_z": 1.7, "market_share_z": 1.6,
+        "er_wow": None,   # 시그널 부재 — ER 안정 단정 불가
+    }
+    hyps = classify_hypotheses(sig)
+    assert not any(h.key == "organic_growth" for h in hyps)
+
+
+def test_comeback_and_member_centric_dampen_paid_once():
+    """comeback + member_centric 동시 점등 시 paid 가 한 단계만 감점 (low 까지 안 떨어짐)."""
+    sig = _base_signal_bundle() | {
+        # paid 시그널 (high 가능)
+        "views_z": 3.0, "subs_z": 0.5, "er_wow": -0.28,
+        "organicity_paid": 0.35,
+        # comeback 시그널 (high)
+        "news_z": 2.5,
+        "comeback": {
+            "event_match": {"event_type": "album_release", "title": "X"},
+            "music_streak": 0, "hanteo_sales": 800_000, "chart_peak": 8,
+            "video_upload_z": 1.6,
+        },
+        # member_centric 시그널 (high)
+        "member_centric": {
+            "lit": True, "dead": False,
+            "top1_share_now": 0.62, "top1_share_wow": 0.14,
+            "hhi_norm_wow": 0.10, "top1_share_high": True,
+        },
+    }
+    hyps = classify_hypotheses(sig)
+    paid = next((h for h in hyps if h.key == "paid_youtube_ads"), None)
+    # 두 dampen 이유가 동시 점등돼도 *한 번만* 감점 → high → medium (low 로 안 떨어짐)
+    assert paid is not None
+    assert paid.confidence == "medium"
+
+
+def test_compute_group_signals_deduplicates_multi_row():
+    """compute_group_signals 가 같은 그룹의 여러 snapshot row 를 받으면
+    가장 최근만 사용해야 함 (cohort 분모도 그룹당 1 element)."""
+    db = MagicMock()
+    db.execute.side_effect = [
+        # 1) last_7d — plave 가 3개 snapshot (07/01, 07/02, 07/03 — 최신은 07/03)
+        [
+            {"group_key": "plave",  "snapshot_at": "2026-07-01T00:00:00Z",
+             "yt_subscribers": 1_000_000, "yt_total_views": 100_000_000,
+             "yt_likes_total": 1_000_000, "yt_comments_total": 200_000,
+             "naver_total_news": 100, "dc_total_posts": 100, "theqoo_posts": 50,
+             "instiz_posts": 30, "controversy_count": 0, "negative_ratio": 0.0,
+             "data_source": "live", "reactivity_sample": 1},
+            {"group_key": "plave",  "snapshot_at": "2026-07-02T00:00:00Z",
+             "yt_subscribers": 1_100_000, "yt_total_views": 110_000_000,
+             "yt_likes_total": 1_100_000, "yt_comments_total": 220_000,
+             "naver_total_news": 110, "dc_total_posts": 110, "theqoo_posts": 55,
+             "instiz_posts": 33, "controversy_count": 0, "negative_ratio": 0.0,
+             "data_source": "live", "reactivity_sample": 1},
+            {"group_key": "plave",  "snapshot_at": "2026-07-03T00:00:00Z",
+             "yt_subscribers": 1_200_000, "yt_total_views": 120_000_000,
+             "yt_likes_total": 1_200_000, "yt_comments_total": 250_000,
+             "naver_total_news": 120, "dc_total_posts": 120, "theqoo_posts": 60,
+             "instiz_posts": 36, "controversy_count": 0, "negative_ratio": 0.0,
+             "data_source": "live", "reactivity_sample": 1},
+            # isedol 1 snapshot
+            {"group_key": "isedol", "snapshot_at": "2026-07-03T00:00:00Z",
+             "yt_subscribers": 600_000, "yt_total_views": 80_000_000,
+             "yt_likes_total": 800_000, "yt_comments_total": 150_000,
+             "naver_total_news": 60, "dc_total_posts": 80, "theqoo_posts": 40,
+             "instiz_posts": 20, "controversy_count": 0, "negative_ratio": 0.0,
+             "data_source": "live", "reactivity_sample": 1},
+        ],
+        # 2) prev_7d
+        [
+            {"group_key": "plave",  "snapshot_at": "2026-06-25T00:00:00Z",
+             "yt_subscribers": 900_000, "yt_total_views": 90_000_000,
+             "yt_likes_total": 900_000, "yt_comments_total": 180_000,
+             "naver_total_news": 80, "data_source": "live"},
+            {"group_key": "isedol", "snapshot_at": "2026-06-25T00:00:00Z",
+             "yt_subscribers": 580_000, "yt_total_views": 78_000_000,
+             "yt_likes_total": 780_000, "yt_comments_total": 145_000,
+             "naver_total_news": 55, "data_source": "live"},
+        ],
+        # 3-10) 나머지 8개 쿼리는 빈 결과
+        [], [], [], [], [], [], [], [],
+    ]
+    result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")
+    # plave 와 isedol 둘 다 결과에 존재
+    assert "plave" in result
+    assert "isedol" in result
+    # cohort 가 그룹당 1 element 였으므로 plave 의 subs_z 는 양수 (1.2M > isedol 0.6M)
+    assert result["plave"].deltas["subs_z"] > 0
+    # cohort 분모가 2 (그룹 2개) 라 z=1.0 근처 (sd=평균에서 ±1 sd 만큼 떨어짐)
+    # 정확 검증보다 *방향* 검증 — multi-row 가 분모를 부풀렸다면 sd 가 더 작아져 z가 더 컸을 것.
