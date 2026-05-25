@@ -494,19 +494,31 @@ def compute_group_signals(
         [prev_start, week_end],
     )
 
-    # group_key → row 매핑
-    now_by  = {r["group_key"]: r for r in last_7d}
-    prev_by = {r["group_key"]: r for r in prev_7d}
-    # cohort lists (z-score 분모)
-    subs_cohort      = [float(r.get("yt_subscribers")  or 0) for r in last_7d]
-    views_cohort     = [float(r.get("yt_total_views")  or 0) for r in last_7d]
-    news_cohort      = [float(r.get("naver_total_news") or 0) for r in last_7d]
+    # group_key → row 매핑. 같은 group_key 에 여러 snapshot 이 있으면
+    # snapshot_at 가장 최근 row 만 남긴다 (정렬 후 last-wins).
+    now_by: dict[str, dict] = {}
+    for r in sorted(last_7d, key=lambda x: x.get("snapshot_at") or ""):
+        if r.get("group_key"):
+            now_by[r["group_key"]] = r
+    prev_by: dict[str, dict] = {}
+    for r in sorted(prev_7d, key=lambda x: x.get("snapshot_at") or ""):
+        if r.get("group_key"):
+            prev_by[r["group_key"]] = r
+
+    # cohort lists (z-score 분모) — 그룹당 1 row 의 dict 에서 생성.
+    # 멀티-스냅 가중치 회피.
+    now_rows = list(now_by.values())
+    subs_cohort      = [float(r.get("yt_subscribers")  or 0) for r in now_rows]
+    views_cohort     = [float(r.get("yt_total_views")  or 0) for r in now_rows]
+    news_cohort      = [float(r.get("naver_total_news") or 0) for r in now_rows]
     community_cohort = [
         float((r.get("dc_total_posts") or 0)
               + (r.get("theqoo_posts") or 0)
               + (r.get("instiz_posts") or 0))
-        for r in last_7d
+        for r in now_rows
     ]
+    controversy_count_cohort = [float(r.get("controversy_count") or 0) for r in now_rows]
+    negative_ratio_cohort    = [float(r.get("negative_ratio")   or 0) for r in now_rows]
     organicity_by: dict[str, list[dict]] = {}
     for r in organicity_rows:
         organicity_by.setdefault(r["group_key"], []).append(r)
@@ -582,11 +594,11 @@ def compute_group_signals(
                 ),
                 "controversy_count_z":   _S.cohort_z_score(
                     float(now.get("controversy_count") or 0),
-                    [float(r.get("controversy_count") or 0) for r in prev_7d],
+                    controversy_count_cohort,
                 ),
                 "negative_ratio_z":      _S.cohort_z_score(
                     float(now.get("negative_ratio") or 0),
-                    [float(r.get("negative_ratio") or 0) for r in prev_7d],
+                    negative_ratio_cohort,
                 ),
             },
             "news_z_prev_week":           0.0,    # V1: 단순화 — 후속
