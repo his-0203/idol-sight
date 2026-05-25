@@ -8,6 +8,9 @@ from idol_sight.analysis.weekly_diagnosis_signals import (
     views_per_sub, views_per_sub_wow_drop,
 )
 from idol_sight.analysis.weekly_diagnosis_signals import organicity_paid_ratio
+from idol_sight.analysis.weekly_diagnosis_signals import (
+    reactivity_dominant_platform, REACTIVITY_DOMINANCE_THRESHOLD,
+)
 
 
 def test_cohort_z_score_basic():
@@ -134,3 +137,56 @@ def test_organicity_paid_ratio_all_insufficient():
     # 분모 0 → None (dead signal)
     videos = [{"verdict": "insufficient_data"}, {"verdict": "insufficient_data"}]
     assert organicity_paid_ratio(videos) is None
+
+
+def test_reactivity_dominant_naver():
+    """reactivity_naver=3.0, 나머지 < 1.3 → 'naver' 반환."""
+    agg = {
+        "reactivity_dc": 1.0,
+        "reactivity_theqoo": 1.2,
+        "reactivity_instiz": 1.1,
+        "reactivity_naver": 3.0,
+        "reactivity_sample": 5,
+    }
+    name, ratio = reactivity_dominant_platform(agg)
+    assert name == "naver"
+    assert ratio == 3.0
+
+
+def test_reactivity_no_dominance():
+    """전 플랫폼 비슷한 reactivity → (None, 0.0)."""
+    agg = {
+        "reactivity_dc": 1.5,
+        "reactivity_theqoo": 1.4,
+        "reactivity_instiz": 1.6,
+        "reactivity_naver": 1.5,
+        "reactivity_sample": 5,
+    }
+    name, _ = reactivity_dominant_platform(agg)
+    assert name is None
+
+
+def test_reactivity_threshold_not_met():
+    """단일 max 가 임계치 < 2.5 → 점등 안 됨."""
+    agg = {
+        "reactivity_dc": 2.0,    # > 나머지지만 임계치 2.5 미달
+        "reactivity_theqoo": 1.0,
+        "reactivity_instiz": 1.0,
+        "reactivity_naver": 1.0,
+        "reactivity_sample": 5,
+    }
+    name, _ = reactivity_dominant_platform(agg)
+    assert name is None
+
+
+def test_reactivity_sample_too_low_blocks():
+    """sample < 3 → dominance 점등 차단 (메타가드)."""
+    agg = {
+        "reactivity_dc": 1.0,
+        "reactivity_theqoo": 1.0,
+        "reactivity_instiz": 1.0,
+        "reactivity_naver": 3.0,
+        "reactivity_sample": 2,    # 표본 부족
+    }
+    name, _ = reactivity_dominant_platform(agg)
+    assert name is None

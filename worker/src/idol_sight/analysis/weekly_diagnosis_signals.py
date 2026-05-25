@@ -124,3 +124,42 @@ def organicity_paid_ratio(videos: list[dict[str, Any]]) -> float | None:
         return None
     paid = sum(1 for v in scored if v.get("verdict") in ("suspect", "likely_paid"))
     return paid / len(scored)
+
+
+# Platform concentration 임계치. dominant 플랫폼의 reactivity 가 이 이상이고
+# 나머지 모두가 OTHER_MAX_THRESHOLD 미만일 때만 점등.
+REACTIVITY_DOMINANCE_THRESHOLD = 2.5
+REACTIVITY_OTHER_MAX_THRESHOLD = 1.3
+# reactivity_sample 가 이 미만이면 시그널 자체 차단 (표본 부족).
+REACTIVITY_MIN_SAMPLE = 3
+
+
+def reactivity_dominant_platform(agg: dict[str, Any]) -> tuple[str | None, float]:
+    """단일 플랫폼이 reactivity 를 압도하는지 판정.
+
+    Returns:
+      (platform_name, ratio) 점등 시.
+      (None, 0.0)            점등 안 됨.
+
+    점등 조건:
+      - reactivity_sample >= 3 (표본 부족 차단)
+      - max(reactivity_*) >= 2.5
+      - 나머지 3개 reactivity_* 가 모두 < 1.3
+
+    platform_concentrated_promo 가설의 핵심 시그널.
+    """
+    if int(agg.get("reactivity_sample") or 0) < REACTIVITY_MIN_SAMPLE:
+        return None, 0.0
+    platforms = {
+        "dc":     float(agg.get("reactivity_dc")     or 1.0),
+        "theqoo": float(agg.get("reactivity_theqoo") or 1.0),
+        "instiz": float(agg.get("reactivity_instiz") or 1.0),
+        "naver":  float(agg.get("reactivity_naver")  or 1.0),
+    }
+    dom_name, dom_val = max(platforms.items(), key=lambda kv: kv[1])
+    if dom_val < REACTIVITY_DOMINANCE_THRESHOLD:
+        return None, 0.0
+    others_max = max(v for k, v in platforms.items() if k != dom_name)
+    if others_max >= REACTIVITY_OTHER_MAX_THRESHOLD:
+        return None, 0.0
+    return dom_name, dom_val
