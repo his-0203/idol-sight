@@ -3,10 +3,26 @@
 Lifecycle:
     1. record_attempt → crawl_meta status='running'
     2. collector.collect(group) → CollectionResult or raise
-    3a. on success: client.batch(result.statements) → BatchSummary
-        - if statements_executed == statements_sent: record_success
-        - else: record_failure with 'partial: N/M' message
+    3a. on success:
+        - if result.errors and rows_inserted == 0: record_failure
+          (silent-fail guard — see below)
+        - else: client.batch(result.statements) → BatchSummary
+          - if statements_executed == statements_sent: record_success
+          - else: record_failure with 'partial: N/M' message
     3b. on raise: record_failure
+
+Silent-fail guard
+-----------------
+Several collectors (dc, theqoo, instiz, twitter) catch fetch exceptions
+internally and accumulate them in ``result.errors`` while still returning
+a CollectionResult — historically the orchestrator treated those runs as
+``status='ok'`` with no error_msg, masking real failures. Discovered
+2026-05-25 when dc:skinz timed out three Page.goto attempts (60s each)
+but was logged as ok/inserted=0 for the affected cycle. Now: any
+collector that returns a non-empty ``errors`` AND zero ``rows_inserted``
+is reclassified as failed so alerts.yml / Discord pick it up. Partial
+runs (some rows + some errors, e.g. primary OK but a supplemental hub
+failed) stay as 'ok' — those did write data.
 """
 
 from __future__ import annotations
@@ -54,6 +70,16 @@ def run_collector(
     except Exception as exc:                     # noqa: BLE001 — orchestrator is the recovery boundary
         runtime_ms = int((perf_counter() - started) * 1000)
         msg = f"{type(exc).__name__}: {exc}"[:1500]
+        record_failure(client, job=job, now=_now_iso(), runtime_ms=runtime_ms, error_msg=msg)
+        return RunSummary(job=job, status="failed", runtime_ms=runtime_ms, error_msg=msg)
+
+    if result.errors and result.rows_inserted == 0:
+        # Silent fail: collector swallowed an exception (fetch timeout,
+        # robot challenge, board moved, etc.) and returned an empty
+        # result. Without this guard the run would record status='ok' /
+        # error_msg=NULL and silently mask the problem.
+        runtime_ms = int((perf_counter() - started) * 1000)
+        msg = "; ".join(result.errors)[:1500]
         record_failure(client, job=job, now=_now_iso(), runtime_ms=runtime_ms, error_msg=msg)
         return RunSummary(job=job, status="failed", runtime_ms=runtime_ms, error_msg=msg)
 

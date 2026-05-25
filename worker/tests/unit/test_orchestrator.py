@@ -64,6 +64,57 @@ def test_run_collector_records_failure_on_exception():
     assert summary.status == "failed"
 
 
+def test_run_collector_records_failure_on_silent_collector_errors():
+    # dc:skinz 2026-05-25 regression: StealthyFetcher Page.goto timed out
+    # x3, DcCollector caught the exception and returned an empty result
+    # with errors populated. Without the silent-fail guard this was logged
+    # as status='ok' inserted=0 error_msg=NULL — invisible to monitoring.
+    collector = MagicMock()
+    collector.source = "dc"
+    collector.collect.return_value = CollectionResult(
+        rows_inserted=0, rows_updated=0,
+        statements=[],
+        errors=["skinz: primary gallery 'skinz': Timeout 60000ms exceeded"],
+    )
+    client = MagicMock()
+
+    summary = run_collector(client, collector, _group(), expected_interval_h=6)
+
+    assert client.execute.call_count == 2
+    failure_sql = client.execute.call_args_list[1][0][0]
+    assert "failed" in failure_sql
+    failure_params = client.execute.call_args_list[1][0][1]
+    assert "Timeout" in str(failure_params)
+
+    client.batch.assert_not_called()
+    assert summary.status == "failed"
+    assert "Timeout" in (summary.error_msg or "")
+
+
+def test_run_collector_partial_with_some_rows_stays_ok():
+    # Primary fetch succeeded (rows_inserted>0) but a supplemental hub
+    # failed and pushed an error. We still recorded data, so the run is
+    # 'ok' — partial supplemental failures shouldn't page on-call.
+    collector = MagicMock()
+    collector.source = "dc"
+    collector.collect.return_value = CollectionResult(
+        rows_inserted=12, rows_updated=0,
+        statements=[("INSERT", []), ("INSERT", [])],
+        errors=["wegosix: supplemental gallery 'vboyband': Timeout"],
+    )
+    client = MagicMock()
+    client.batch.return_value = MagicMock(
+        statements_sent=2, statements_executed=2, total_changes=12,
+    )
+
+    summary = run_collector(client, collector, _group(), expected_interval_h=6)
+
+    assert summary.status == "ok"
+    assert summary.rows_inserted == 12
+    success_sql = client.execute.call_args_list[1][0][0]
+    assert "ok" in success_sql
+
+
 def test_run_collector_records_partial_when_batch_drops_rows():
     collector = MagicMock()
     collector.source = "naver"
