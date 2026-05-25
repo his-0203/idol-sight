@@ -103,3 +103,24 @@ def views_per_sub_wow_drop(now: dict[str, Any], prev: dict[str, Any]) -> float |
     if now_vps is None or prev_vps is None or prev_vps == 0:
         return None
     return (now_vps - prev_vps) / prev_vps
+
+
+def organicity_paid_ratio(videos: list[dict[str, Any]]) -> float | None:
+    """`debut_window_video_organicity` 행들 중 suspect+likely_paid 비중.
+
+    `insufficient_data` 행은 분모에서 제외 (debut_window_organicity 의
+    내부 규약 — score_mean 계산에서도 동일하게 제외함).
+
+    None 반환:
+      - 입력이 빈 리스트
+      - 모든 행이 insufficient_data (denom = 0)
+
+    이 비율 ≥ 0.30 이 paid_youtube_ads 가설의 강한 시그널.
+    """
+    if not videos:
+        return None
+    scored = [v for v in videos if v.get("verdict") != "insufficient_data"]
+    if not scored:
+        return None
+    paid = sum(1 for v in scored if v.get("verdict") in ("suspect", "likely_paid"))
+    return paid / len(scored)

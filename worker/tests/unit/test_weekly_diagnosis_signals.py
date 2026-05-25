@@ -7,6 +7,7 @@ from idol_sight.analysis.weekly_diagnosis_signals import (
     engagement_rate_from_agg, engagement_rate_wow_drop,
     views_per_sub, views_per_sub_wow_drop,
 )
+from idol_sight.analysis.weekly_diagnosis_signals import organicity_paid_ratio
 
 
 def test_cohort_z_score_basic():
@@ -94,3 +95,42 @@ def test_views_per_sub_wow_drop_30pct():
     prev = {"yt_total_views": 5_000_000, "yt_subscribers": 100_000}   # 50
     # (35 - 50) / 50 = -0.3
     assert math.isclose(views_per_sub_wow_drop(now, prev), -0.3)
+
+
+def test_organicity_paid_ratio_30pct():
+    """suspect + likely_paid 비중. 영상 10개 중 3개가 paid 의심 = 0.3."""
+    videos = [
+        {"verdict": "organic_strong"},
+        {"verdict": "organic"},
+        {"verdict": "organic"},
+        {"verdict": "organic"},
+        {"verdict": "borderline"},
+        {"verdict": "borderline"},
+        {"verdict": "borderline"},
+        {"verdict": "suspect"},
+        {"verdict": "suspect"},
+        {"verdict": "likely_paid"},
+    ]
+    assert organicity_paid_ratio(videos) == 0.3
+
+
+def test_organicity_paid_ratio_excludes_insufficient():
+    """insufficient_data 는 분모에서 제외 (debut_window 의 규약)."""
+    videos = [
+        {"verdict": "organic"},
+        {"verdict": "suspect"},
+        {"verdict": "insufficient_data"},   # 제외
+        {"verdict": "insufficient_data"},   # 제외
+    ]
+    # 분모 2, paid 1 → 0.5
+    assert organicity_paid_ratio(videos) == 0.5
+
+
+def test_organicity_paid_ratio_empty():
+    assert organicity_paid_ratio([]) is None
+
+
+def test_organicity_paid_ratio_all_insufficient():
+    # 분모 0 → None (dead signal)
+    videos = [{"verdict": "insufficient_data"}, {"verdict": "insufficient_data"}]
+    assert organicity_paid_ratio(videos) is None
