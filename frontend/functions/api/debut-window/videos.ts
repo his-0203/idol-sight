@@ -27,6 +27,20 @@ interface VideoRow {
 
 const VALID_BUCKETS = new Set(["D-60", "D-30", "D-Day", "D+30", "D+60"]);
 
+// V3 (2026-05-25): frontend 5 탭 ↔ worker 9 bucket union 매핑.
+// Worker 의 WINDOW_BUCKETS 가 V2.22 의 ±30 10일 정밀도 (D-30/D-20/D-10/
+// D+10/D+20/D+30) 를 유지하면서 ±60 까지 확장됐다. frontend UI 는 5 탭
+// (D-60/D-30/D-Day/D+30/D+60) 만 노출하므로, 이 endpoint 가 frontend
+// bucket 을 받아 worker bucket(s) 의 union 으로 SQL IN 쿼리한다.
+// spec docs/.../2026-05-25-debut-window-expansion-and-all-time-view-design.md §3.3.
+const FRONTEND_BUCKET_MAP: Record<string, string[]> = {
+  "D-60":  ["D-60"],
+  "D-30":  ["D-30", "D-20", "D-10"],
+  "D-Day": ["D-Day"],
+  "D+30":  ["D+10", "D+20", "D+30"],
+  "D+60":  ["D+60"],
+};
+
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, request }) => {
   const url = new URL(request.url);
   const group = url.searchParams.get("group");
@@ -41,6 +55,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
     return jsonResponse({ error: "type must be all|long|short" }, 400);
   }
 
+  const workerBuckets = FRONTEND_BUCKET_MAP[bucket]!;   // VALID_BUCKETS 통과 보장
+  const bucketPlaceholders = workerBuckets.map(() => "?").join(",");
   let sql = `
     SELECT o.video_id, v.title, o.is_short, o.published_at,
            o.days_relative_to_debut,
@@ -49,9 +65,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
            o.organic_score, o.verdict, o.causes, o.signal_breakdown
     FROM debut_window_video_organicity o
     LEFT JOIN youtube_videos v ON v.video_id = o.video_id
-    WHERE o.group_key = ? AND o.window_bucket = ?
+    WHERE o.group_key = ? AND o.window_bucket IN (${bucketPlaceholders})
   `;
-  const params: (string | number)[] = [group, bucket];
+  const params: (string | number)[] = [group, ...workerBuckets];
   if (type === "long") {
     sql += ` AND o.is_short = 0`;
   } else if (type === "short") {
