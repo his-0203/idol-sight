@@ -46,6 +46,16 @@ export const api = {
     getJson<any>("/api/debut-window/summary" + (bucket ? `?bucket=${encodeURIComponent(bucket)}` : "")),
   debutWindowVideos: (group: string, bucket: string, type: "all" | "long" | "short" = "all") =>
     getJson<any>(`/api/debut-window/videos?group=${encodeURIComponent(group)}&bucket=${encodeURIComponent(bucket)}&type=${type}`),
+  debutWindowVideosAll: (
+    group: string,
+    offset: number,
+    limit: number,
+    type: "all" | "long" | "short" = "all",
+  ) =>
+    getJson<any>(
+      `/api/debut-window/videos-all?group=${encodeURIComponent(group)}`
+      + `&offset=${offset}&limit=${limit}&type=${type}`,
+    ),
   flagIrrelevant: async (payload: { url_hash?: string; url?: string; group_key: string; reason?: string }) => {
     const r = await fetch("/api/relevance-feedback", {
       method: "POST",
