@@ -69,7 +69,14 @@ SUBS_Z_SUB_PURCHASE = 2.5
 
 
 def _check_organic_growth(sig: dict) -> Hypothesis | None:
-    er_wow = sig.get("er_wow") or 0.0   # None → 0.0 (변화 없음으로 처리)
+    # ER 시그널이 없으면 (신규 그룹의 prev_er=0 등) "ER 안정" 단정 불가 → organic 차단.
+    # MiiWAN 데뷔 첫 주 같은 경우에 false positive 차단 (spec rev 2 §3.1 의 organic 조건 "ER 안정" 강제).
+    er_wow = sig.get("er_wow")
+    if er_wow is None:
+        return None
+    # ER 불안정 시 (절대값 ≥ 15%) organic 제외 — 광고/구매 의심을 못 배제.
+    if abs(er_wow) >= 0.15:
+        return None
     lit_signals: list[Evidence] = []
     if sig["subs_z"] >= Z_THRESHOLD_PRIMARY:
         lit_signals.append(Evidence("subs_z", sig["subs_z"], f"구독 z={sig['subs_z']:.1f}"))
@@ -81,13 +88,9 @@ def _check_organic_growth(sig: dict) -> Hypothesis | None:
         lit_signals.append(Evidence("community_z", sig["community_z"], f"커뮤 z={sig['community_z']:.1f}"))
     if sig["market_share_z"] >= Z_THRESHOLD_PRIMARY:
         lit_signals.append(Evidence("market_share_z", sig["market_share_z"], f"share z={sig['market_share_z']:.1f}"))
-    # ER 안정성 (절대값 < 0.15) — 광고 의심 가설을 깎아냄
-    if abs(er_wow) >= 0.15:
-        return None    # ER 불안정 시 organic 가설 제외
     if len(lit_signals) < 4:
         return None
-    confidence = "high" if len(lit_signals) >= 4 else "medium"
-    return Hypothesis(key="organic_growth", confidence=confidence, evidence=lit_signals)
+    return Hypothesis(key="organic_growth", confidence="high", evidence=lit_signals)
 
 
 def _check_paid_youtube_ads(sig: dict) -> Hypothesis | None:
