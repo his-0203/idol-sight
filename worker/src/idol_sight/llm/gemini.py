@@ -24,7 +24,15 @@ INSIGHT_OUTPUT_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "scope": {"type": "string"},     # 'market' | <group_key>
-                    "type":  {"type": "string"},     # 'insight' | 'ipx_action' | 'weekly' | 'diagnosis'
+                    # Gemini structured output enforces the enum — without it
+                    # the model defaults to historically-used values
+                    # (insight/weekly/ipx_action) and never emits 'diagnosis'.
+                    # 첫 production run (2026-05-25 weekly cron) 에서 diagnosis
+                    # 카드 0개 발생 → enum 명시로 strict 화.
+                    "type": {
+                        "type": "string",
+                        "enum": ["insight", "ipx_action", "weekly", "diagnosis"],
+                    },
                     "title": {"type": "string"},
                     "body":  {"type": "string"},
                     # Optional one-liner shown next to the card title in the
