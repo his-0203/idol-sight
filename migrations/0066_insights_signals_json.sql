@@ -1,0 +1,20 @@
+-- migrations/0066_insights_signals_json.sql
+-- Causal Diagnosis (spec 2026-05-25-causal-diagnosis-design.md rev 2)
+--
+-- insights 카드에 sig 다발을 JSON 으로 첨부. type='diagnosis' 카드만
+-- 채우고, 기존 insight/weekly/ipx_action 카드는 NULL.
+--
+-- Payload 형식 (코드 검증, D1 constraint 없음):
+--   {
+--     "hypothesis_primary":     "paid_youtube_ads",
+--     "hypothesis_alternative": "broadcast_appearance",  -- nullable
+--     "confidence":             "high",                  -- high|medium|low
+--     "evidence":               [{"key": "...", "value": ..., "label": "..."}],
+--     "meta_guards":            ["irrelevant_flagged_18%"]
+--   }
+--
+-- nullable 인 이유:
+--   1) 기존 행은 채울 방법이 없음.
+--   2) LLM 이 type=diagnosis 가 아닌 카드를 emit 할 때는 첨부할 시그널이 없음.
+--   3) Frontend V1 은 컬럼을 무시 (V2 가 evidence 칩으로 렌더링 예정).
+ALTER TABLE insights ADD COLUMN signals_json TEXT;
