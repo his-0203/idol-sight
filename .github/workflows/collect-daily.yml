@@ -71,7 +71,14 @@ jobs:
     # 2nd aggregate가 cancelled. melon-chart.yml 워크플로(동일 sandwich
     # 패턴)는 같은 이유로 이미 25min 사용 중이므로 동일 budget으로
     # 정렬. 후속 최적화(2nd aggregate --skip-derived)는 별도 PR로.
-    timeout-minutes: 25
+    #
+    # 25 → 90 min (V3.1, 2026-05-25): organicity 전 영상 적용 후
+    # build_video_organicity 가 1,231개 → 13,990개 (×11배) UPSERT.
+    # 첫 backfill 시 약 75분 추정 (PLAVE/STELLIVE/ISEDOL 의 5K+ 영상
+    # 각각 처리). 정상화 후 daily run 은 +1-2분 증가 정도지만 *대규모
+    # backfill 안전성* 위해 90분 여유. 후속 최적화는 별도 PR (D1 batch
+    # 사이즈 키우기 / organicity build 만 weekly cron 분리 등).
+    timeout-minutes: 90
     defaults: { run: { working-directory: worker } }
     env:
       CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
