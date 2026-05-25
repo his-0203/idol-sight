@@ -163,3 +163,57 @@ def reactivity_dominant_platform(agg: dict[str, Any]) -> tuple[str | None, float
     if others_max >= REACTIVITY_OTHER_MAX_THRESHOLD:
         return None, 0.0
     return dom_name, dom_val
+
+
+# member_centric_spike 가설의 점등 임계치.
+TOP1_SHARE_WOW_THRESHOLD = 0.10        # +10pt 이상
+HHI_NORM_WOW_THRESHOLD = 0.15          # +0.15 이상
+TOP1_SHARE_ABS_HIGH = 0.60             # 절대치 이 이상이면 high boost
+
+
+def member_centric_signals(
+    now: dict[str, Any], prev: dict[str, Any],
+) -> dict[str, Any]:
+    """agg_member_pop_meta 의 top1/top3/hhi_norm WoW 변화.
+
+    Returns:
+      {
+        "lit":             bool,   # 점등 여부
+        "dead":            bool,   # raw meta 가 없는 경우 (corporate single-channel)
+        "top1_share_now":  float | None,
+        "top1_share_wow":  float | None,
+        "hhi_norm_wow":    float | None,
+        "top1_share_high": bool,   # >= 0.60 → confidence boost
+      }
+    """
+    t1_now = now.get("top1_share")
+    t1_prev = prev.get("top1_share")
+    hhi_now = now.get("hhi_norm")
+    hhi_prev = prev.get("hhi_norm")
+
+    if t1_now is None and hhi_now is None:
+        return {
+            "lit": False, "dead": True,
+            "top1_share_now": None, "top1_share_wow": None,
+            "hhi_norm_wow": None, "top1_share_high": False,
+        }
+
+    t1_wow = (
+        (float(t1_now) - float(t1_prev)) if (t1_now is not None and t1_prev is not None) else None
+    )
+    hhi_wow = (
+        (float(hhi_now) - float(hhi_prev)) if (hhi_now is not None and hhi_prev is not None) else None
+    )
+
+    lit = (
+        (t1_wow is not None and t1_wow >= TOP1_SHARE_WOW_THRESHOLD)
+        or (hhi_wow is not None and hhi_wow >= HHI_NORM_WOW_THRESHOLD)
+    )
+    return {
+        "lit": lit,
+        "dead": False,
+        "top1_share_now": float(t1_now) if t1_now is not None else None,
+        "top1_share_wow": t1_wow,
+        "hhi_norm_wow": hhi_wow,
+        "top1_share_high": (t1_now is not None and float(t1_now) >= TOP1_SHARE_ABS_HIGH),
+    }

@@ -11,6 +11,7 @@ from idol_sight.analysis.weekly_diagnosis_signals import organicity_paid_ratio
 from idol_sight.analysis.weekly_diagnosis_signals import (
     reactivity_dominant_platform, REACTIVITY_DOMINANCE_THRESHOLD,
 )
+from idol_sight.analysis.weekly_diagnosis_signals import member_centric_signals
 
 
 def test_cohort_z_score_basic():
@@ -190,3 +191,36 @@ def test_reactivity_sample_too_low_blocks():
     }
     name, _ = reactivity_dominant_platform(agg)
     assert name is None
+
+
+def test_member_centric_top1_share_jump():
+    """top1_share 가 0.45 → 0.58 (+13pt) → 점등."""
+    now = {"top1_share": 0.58, "top3_share": 0.78, "hhi_norm": 0.40}
+    prev = {"top1_share": 0.45, "top3_share": 0.75, "hhi_norm": 0.30}
+    sig = member_centric_signals(now, prev)
+    assert sig["lit"] is True
+    assert sig["top1_share_now"] == 0.58
+    assert math.isclose(sig["top1_share_wow"], 0.13)
+
+
+def test_member_centric_hhi_jump_without_top1():
+    """top1 변화는 작지만 hhi_norm +0.18 점프 → 점등."""
+    now = {"top1_share": 0.40, "top3_share": 0.85, "hhi_norm": 0.50}
+    prev = {"top1_share": 0.38, "top3_share": 0.70, "hhi_norm": 0.32}
+    sig = member_centric_signals(now, prev)
+    assert sig["lit"] is True
+    assert math.isclose(sig["hhi_norm_wow"], 0.18)
+
+
+def test_member_centric_no_change():
+    now = {"top1_share": 0.40, "top3_share": 0.75, "hhi_norm": 0.30}
+    prev = {"top1_share": 0.39, "top3_share": 0.74, "hhi_norm": 0.29}
+    sig = member_centric_signals(now, prev)
+    assert sig["lit"] is False
+
+
+def test_member_centric_missing_meta_returns_dead():
+    """agg_member_pop_meta 행 자체가 없는 그룹 (corporate single-channel) → dead."""
+    sig = member_centric_signals({}, {})
+    assert sig["lit"] is False
+    assert sig["dead"] is True
