@@ -24,7 +24,7 @@ INSIGHT_OUTPUT_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "scope": {"type": "string"},     # 'market' | <group_key>
-                    "type":  {"type": "string"},     # 'insight' | 'ipx_action' | 'weekly'
+                    "type":  {"type": "string"},     # 'insight' | 'ipx_action' | 'weekly' | 'diagnosis'
                     "title": {"type": "string"},
                     "body":  {"type": "string"},
                     # Optional one-liner shown next to the card title in the

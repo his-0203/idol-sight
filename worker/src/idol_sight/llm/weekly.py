@@ -7,6 +7,10 @@ import logging
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from idol_sight.analysis.weekly_diagnosis import (
+    GroupSignals,
+    compute_group_signals,
+)
 from idol_sight.collectors.base import CollectionResult
 from idol_sight.llm.gemini import INSIGHT_OUTPUT_SCHEMA
 from idol_sight.llm.prompts import PROMPT_WEEKLY
@@ -50,6 +54,12 @@ def build_context(db: _Executor, *, week_start: str, week_end: str) -> dict[str,
         "ORDER BY published_at DESC LIMIT 40",
         [week_start, week_end],
     )
+    # spec rev 2 Task 5: causal-diagnosis signals 동봉 — LLM 이 type='diagnosis'
+    # 카드를 작성할 때 참조한다. compute_group_signals 가 내부적으로 10개의
+    # 추가 쿼리를 실행한다 (총 build_context 쿼리 수 = 5 + 10 = 15).
+    signals_by_group = compute_group_signals(
+        db=db, week_start=week_start, week_end=week_end,
+    )
     return {
         "week": {"start": week_start, "end": week_end},
         "agg_summary_last_7d": last_7d,
@@ -57,7 +67,39 @@ def build_context(db: _Executor, *, week_start: str, week_end: str) -> dict[str,
         "hanteo": hanteo,
         "market_share": market,
         "top_news_by_group": top_news,
+        "signals_by_group": _serialize_signals_for_llm(signals_by_group),
     }
+
+
+def _serialize_signals_for_llm(
+    signals: dict[str, GroupSignals],
+) -> dict[str, dict]:
+    """GroupSignals dataclass → LLM-friendly JSON-safe dict.
+
+    LLM 은 hypotheses 리스트와 meta_guards 리스트만 읽어 type='diagnosis'
+    카드 작성에 사용한다. generate_weekly 의 signals_json INSERT 경로도
+    이 dict 형태를 그대로 사용한다 (Hypothesis/Evidence 의 직접 attribute
+    접근을 줄여 일관성 유지).
+    """
+    out: dict[str, dict] = {}
+    for gk, gs in signals.items():
+        out[gk] = {
+            "hypotheses": [
+                {
+                    "key": h.key,
+                    "confidence": h.confidence,
+                    "evidence": [
+                        {"key": e.key, "value": e.value, "label": e.label}
+                        for e in h.evidence
+                    ],
+                }
+                for h in gs.hypotheses
+            ],
+            "meta_guards": list(gs.meta_guards),
+            "deltas": dict(gs.deltas),
+            "organicity": gs.organicity,
+        }
+    return out
 
 
 def _shift_iso_date(iso_date: str, days: int) -> str:
@@ -103,6 +145,9 @@ def generate_weekly(
         )
     items = accepted
 
+    # spec rev 2 Task 5: type='diagnosis' 카드의 signals_json 직렬화에 사용.
+    signals_by_group: dict[str, dict] = ctx.get("signals_by_group", {}) or {}
+
     now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     statements: list[tuple[str, list]] = []
     for item in items:
@@ -116,11 +161,33 @@ def generate_weekly(
         if isinstance(raw_ai_comment, str):
             stripped = raw_ai_comment.strip()
             ai_comment = stripped[:200] if stripped else None
+
+        # signals_json: type='diagnosis' 카드만 GroupSignals payload 를
+        # 직렬화. 다른 type (insight / weekly / ipx_action) 은 NULL.
+        # scope 가 signals_by_group 에 없거나 hypotheses 가 비어있으면 NULL.
+        signals_json: str | None = None
+        if item.get("type") == "diagnosis":
+            scope = item.get("scope") or "market"
+            gs = signals_by_group.get(scope)
+            if gs and gs.get("hypotheses"):
+                hyps = gs["hypotheses"]
+                primary = hyps[0]
+                alternative = hyps[1] if len(hyps) > 1 else None
+                payload = {
+                    "hypothesis_primary":     primary["key"],
+                    "hypothesis_alternative": alternative["key"] if alternative else None,
+                    "confidence":             primary["confidence"],
+                    "evidence":               primary["evidence"],
+                    "meta_guards":            gs.get("meta_guards", []),
+                }
+                signals_json = json.dumps(payload, ensure_ascii=False)
+
         statements.append((
             """
             INSERT INTO insights
-              (generated_at, week_start, scope, type, title, body, source_refs_json, ai_comment)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (generated_at, week_start, scope, type, title, body,
+               source_refs_json, ai_comment, signals_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.strip(),
             [
                 now_iso, week_start,
@@ -130,6 +197,7 @@ def generate_weekly(
                 item.get("body") or "",
                 json.dumps(item.get("source_refs") or [], ensure_ascii=False),
                 ai_comment,
+                signals_json,
             ],
         ))
 
