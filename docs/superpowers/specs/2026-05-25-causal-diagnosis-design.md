@@ -332,3 +332,133 @@ V2 에서 frontend 가 signals_json 를 읽어 evidence 칩/confidence 게이지
 6. weekly.py build_context 통합
 7. weekly cron workflow 추가
 8. end-to-end 통합 검증 (synthetic week)
+
+---
+
+## 13. rev 3 amendment — cohort 카테고리 분리 + temporal z + WoW% 신호 (2026-05-25)
+
+### 13.1 동기
+
+첫 production 운영 (week 2026-05-17~23) 에서 `causal_diagnosis: groups=9 hypotheses_lit=0` 발생. 진단:
+- 9 그룹 cohort 가 **bimodal** — ISEDOL/STELLIVE/PLAVE (head) + 나머지 6 (tail).
+- 표준편차가 거대해서 cross-sectional z-score 가 거의 모든 그룹에 대해 임계치 미달.
+- 운영 데이터에서 자연 발생 spike (subs +5% 등) 가 시그널화 되지 않음.
+
+근본 원인은 *측정 방향* 불일치:
+- 현 z-score: "이번 주 cohort 중 큰 그룹인가" (절대 크기)
+- 운영자가 원하는 신호: "이번 주 자기 history 대비 spike 인가" (변화)
+- 그리고 K-POP 그룹 (corporate) 과 서브컬쳐 그룹 (segmentary/confederation) 은 *지표 스케일이 한 자릿수 다름* — 같은 cohort 에서 비교하면 항상 서브컬쳐가 outlier.
+
+### 13.2 변경 사항
+
+**A. cohort 카테고리 분리** (group_model 컬럼 재활용 — 새 migration 불필요)
+
+```python
+def _category_of(group_model: str) -> str:
+    """K-POP/서브컬쳐 분류."""
+    return "kpop" if group_model == "corporate" else "subculture"
+```
+
+- **kpop cohort**: PLAVE, MiiWAN, SKINZ, OWIS, MY:RAKL, B:DAWN, wegosix (7개)
+- **subculture cohort**: ISEDOL, STELLIVE (2개)
+
+cross-sectional z 는 *같은 카테고리 안에서* 만 계산. subculture cohort 가 2개라 stdev 변별력 약하므로 N<3 fallback (cross-sectional z=0, temporal+WoW 만 사용).
+
+**B. temporal z-score** (`weekly_diagnosis_signals` 에 새 함수)
+
+같은 그룹의 직전 N주 weekly snapshot 분포 대비 이번 주 z-score. N=8 (충분한 표본 + 너무 멀지 않은 history).
+
+```python
+def temporal_z_score(
+    now_value: float, history: list[float],
+) -> float:
+    """동일 그룹의 historical 분포 대비 z. cohort_z_score 와 동일 계산, semantically 다름."""
+    return cohort_z_score(now_value, history)
+```
+
+history 추출 SQL:
+```sql
+SELECT MAX(snapshot_at) AS week_last_snap, group_key, yt_subscribers, ...
+FROM agg_summary
+WHERE group_key = ? AND substr(snapshot_at,1,10) < ?
+GROUP BY group_key, substr(snapshot_at,1,7)   -- 월 단위 last snap
+ORDER BY week_last_snap DESC LIMIT 8
+```
+
+**C. WoW % change 임계** (`weekly_diagnosis_signals` 에 새 함수)
+
+```python
+def wow_pct(now_value: float | None, prev_value: float | None) -> float | None:
+    """직전 주 대비 % 변화. prev=0/None 이면 None (dead signal)."""
+```
+
+임계치 (initial — 운영 데이터 보면서 calibration):
+| 지표 | organic 점등 | paid/spike 점등 |
+|---|---|---|
+| subs WoW | ≥ 5% | (조정 안 함) |
+| views WoW | ≥ 8% | ≥ 20% (paid_youtube_ads 의심 시) |
+| news WoW | ≥ 30% | — |
+| community WoW | ≥ 30% | — |
+
+**D. 가설 점등 조건 — 세 신호 OR 결합**
+
+각 시그널 (subs/views/news/community) 의 lit 판정:
+```python
+def _is_lit(z_category: float, z_temporal: float, wow: float | None, 
+            *, z_threshold: float, wow_threshold: float) -> bool:
+    return (
+        z_category >= z_threshold
+        or z_temporal >= z_threshold
+        or (wow is not None and wow >= wow_threshold)
+    )
+```
+
+`_check_*` 함수들이 이 helper 를 호출. 셋 중 *하나만* 점등이어도 그 시그널은 lit. routine 변동 (1-2%) 은 모두 미달, 진짜 spike 는 어느 한 축에서 잡힘.
+
+**E. evidence chip 풍부화**
+
+기존 evidence 는 한 가지 z 값만. rev 3 에서는 어느 축에서 점등됐는지 명시:
+```python
+Evidence("subs", value, label="구독 spike — kpop z=2.1, temporal z=1.8, WoW +6.2%")
+```
+
+LLM 이 이 라벨을 그대로 카드에 인용 가능. signals_json payload 에도 반영.
+
+### 13.3 영향 받는 가설
+
+| 가설 | rev 2 (cross-sectional only) | rev 3 (3 신호 OR) |
+|---|---|---|
+| organic_growth | subs/views/news/community/market_share z ≥ 1.5 가 4개+ | 같은 5개 시그널이 *(category z OR temporal z OR WoW%)* OR 점등이 4개+ |
+| paid_youtube_ads | views_z ≥ 2.0 + ER drop + organicity + subs/views gap | views: category z ≥ 2.0 OR temporal z ≥ 2.0 OR WoW ≥ 20%; 나머지 동일 |
+| subscriber_purchase | subs_z ≥ 2.5 + vps drop + ER drop | subs: category z ≥ 2.5 OR temporal z ≥ 2.5 OR WoW ≥ 15%; 나머지 동일 (medium 캡 유지) |
+| comeback_cycle | hanteo + chart + news z + video upload z + group_events | news: 3-축 OR; group_events 매칭은 그대로 |
+| broadcast_appearance | news_z_prev_week + community z | rev 2 의 V1 stub 그대로 (변경 없음) |
+| community_word_of_mouth | community_z_prev_week + subs/views z | 동일 |
+| controversy_spike | 4 시그널 (keyword/twitter/count/sentiment z) | controversy_count_z + negative_ratio_z 는 *카테고리 z 만* (시그널 의미가 자기 history 보다 cohort 비교가 더 의미) |
+| platform_concentrated_promo | reactivity dominance + 보조 z | 보조 z 는 카테고리 z OR temporal z |
+| member_centric_spike | top1_share WoW + hhi_norm WoW + 그룹 spike | 그룹 spike 부분이 (category OR temporal OR WoW) OR |
+
+### 13.4 회귀 방지
+
+- 기존 28 단위 테스트는 *cross-sectional z 가 충분히 큰 case* 라 그대로 통과 (signals dict 의 z 값이 같은 keyword "subs_z" 로 들어오기 때문).
+- 다만 spec rev 3 에서는 시그널 dict 키가 변경됨: `subs_z` → `subs` (dict with sub-keys: `category_z`, `temporal_z`, `wow_pct`). 기존 테스트의 `_base_signal_bundle()` 를 rev 3 shape 로 업데이트 필요.
+- compute_group_signals 의 cohort 빌드 부분이 카테고리 분기 + temporal history 쿼리 추가 → 11개 SQL 쿼리 (기존 10 + temporal history 1).
+- e2e mock test 는 추가 fixture row (8주 history) 필요.
+
+### 13.5 새 test 시나리오
+
+| test | 의도 |
+|---|---|
+| `test_temporal_z_score_basic` | history list 분포 대비 z 정확 계산 |
+| `test_wow_pct_basic` / `test_wow_pct_prev_zero_none` | 비율 함수 + dead signal |
+| `test_category_cohort_kpop_only` | kpop cohort 안에서 z 계산, subculture 그룹은 다른 cohort |
+| `test_subculture_cohort_too_small_falls_back_to_temporal` | subculture N<3 일 때 category z=0, temporal/WoW 만으로 lit 가능 |
+| `test_organic_growth_lit_via_wow_only` | category z 모두 0 + temporal z 모두 0 + WoW% 모두 임계치 통과 → organic lit |
+| `test_organic_growth_lit_via_temporal_only` | category 분포 비대칭이라 z=0 + 자기 history 대비 큰 spike → lit |
+| `test_paid_ads_stricter_wow_threshold` | views WoW 8% (normal) → paid 안 점등, WoW 25% → paid 점등 |
+
+### 13.6 점진 도입
+
+rev 3 변경은 spec rev 2 의 *모든 시그널 모듈을 인터페이스 호환 유지* — 새 함수 추가 + 기존 함수 의미 보강이지 함수 제거 없음. classify_hypotheses 의 dampen 체인 / meta_guards 적용 / GroupSignals dataclass / signals_json payload 모두 변경 없음. 사실상 *compute_group_signals 의 sig dict 빌드만* 큰 변경.
+
+migration 없음. 코드 변경만.
