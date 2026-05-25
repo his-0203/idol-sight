@@ -191,3 +191,52 @@ def test_broadcast_no_lag_no_match():
     }
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "broadcast_appearance" for h in hyps)
+
+
+def test_controversy_one_signal_high():
+    """controversy_count_z=2.1 단독 점등 → high."""
+    sig = _base_signal_bundle() | {
+        "controversy": {
+            "keyword_z": 0.3, "twitter_z": 0.5,
+            "controversy_count_z": 2.1, "negative_ratio_z": 0.4,
+        },
+    }
+    hyps = classify_hypotheses(sig)
+    co = next((h for h in hyps if h.key == "controversy_spike"), None)
+    assert co is not None
+    assert co.confidence == "high"
+
+
+def test_controversy_keyword_z_lit():
+    """community_keywords negative_keyword_z=2.5 → 점등 high."""
+    sig = _base_signal_bundle() | {
+        "controversy": {
+            "keyword_z": 2.5, "twitter_z": 0.0,
+            "controversy_count_z": 0.0, "negative_ratio_z": 0.0,
+        },
+    }
+    hyps = classify_hypotheses(sig)
+    assert any(h.key == "controversy_spike" for h in hyps)
+
+
+def test_platform_concentrated_naver_only():
+    """reactivity_dominant=('naver', 3.0) + naver news z=2.5 → medium-high."""
+    sig = _base_signal_bundle() | {
+        "reactivity_dominant": ("naver", 3.0),
+        "news_z": 2.5,
+    }
+    hyps = classify_hypotheses(sig)
+    pc = next((h for h in hyps if h.key == "platform_concentrated_promo"), None)
+    assert pc is not None
+    assert pc.confidence in ("medium", "high")
+
+
+def test_platform_concentrated_not_lit_without_supporting_z():
+    """reactivity dominant 만 있고 보조 z 가 없으면 점등 안 됨."""
+    sig = _base_signal_bundle() | {
+        "reactivity_dominant": ("naver", 3.0),
+        "news_z": 0.5,
+        "community_z": 0.4,
+    }
+    hyps = classify_hypotheses(sig)
+    assert not any(h.key == "platform_concentrated_promo" for h in hyps)

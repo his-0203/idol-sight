@@ -269,6 +269,64 @@ def _check_community_word_of_mouth(sig: dict) -> Hypothesis | None:
     return Hypothesis(key="community_word_of_mouth", confidence="medium", evidence=evidence)
 
 
+CONTROVERSY_Z_THRESHOLD = 2.0
+
+
+def _check_controversy_spike(sig: dict) -> Hypothesis | None:
+    co = sig["controversy"]
+    evidence: list[Evidence] = []
+    if co["controversy_count_z"] >= CONTROVERSY_Z_THRESHOLD:
+        evidence.append(Evidence(
+            "controversy_count_z", co["controversy_count_z"],
+            f"controversy 트윗 z={co['controversy_count_z']:.1f}",
+        ))
+    if co["negative_ratio_z"] >= CONTROVERSY_Z_THRESHOLD:
+        evidence.append(Evidence(
+            "negative_ratio_z", co["negative_ratio_z"],
+            f"부정 감성 비율 z={co['negative_ratio_z']:.1f}",
+        ))
+    if co["twitter_z"] >= CONTROVERSY_Z_THRESHOLD:
+        evidence.append(Evidence(
+            "twitter_controversy_z", co["twitter_z"],
+            f"트위터 controversy type z={co['twitter_z']:.1f}",
+        ))
+    if co["keyword_z"] >= CONTROVERSY_Z_THRESHOLD:
+        evidence.append(Evidence(
+            "negative_keyword_z", co["keyword_z"],
+            f"커뮤 부정 키워드 z={co['keyword_z']:.1f}",
+        ))
+    if not evidence:
+        return None
+    # 시그널 하나라도 점등 → high (인간 검증 강제 — prompts.py 가 streisand 가드 첨부)
+    return Hypothesis(key="controversy_spike", confidence="high", evidence=evidence)
+
+
+def _check_platform_concentrated(sig: dict) -> Hypothesis | None:
+    dom_name, dom_ratio = sig["reactivity_dominant"]
+    if dom_name is None:
+        return None
+    # 보조 시그널: 같은 플랫폼에 해당하는 z 가 점등돼야 함
+    if dom_name == "naver":
+        support_z = sig["news_z"]
+    else:
+        support_z = sig["community_z"]
+    if support_z < Z_THRESHOLD_STRONG:
+        return None
+    evidence = [
+        Evidence(
+            "reactivity_dominant", dom_name,
+            f"{dom_name} 단독 reactivity {dom_ratio:.1f}×",
+        ),
+        Evidence(
+            f"{dom_name}_z", support_z,
+            f"{dom_name} 지표 z={support_z:.1f}",
+        ),
+    ]
+    # 보조 z 가 매우 강하면 high, 아니면 medium
+    confidence = "high" if support_z >= 2.5 else "medium"
+    return Hypothesis(key="platform_concentrated_promo", confidence=confidence, evidence=evidence)
+
+
 def classify_hypotheses(sig: dict) -> list[Hypothesis]:
     """시그널 dict → 점등된 가설 리스트. 점등 안 된 가설은 omit.
 
@@ -281,6 +339,8 @@ def classify_hypotheses(sig: dict) -> list[Hypothesis]:
         _check_comeback_cycle(sig),
         _check_broadcast_appearance(sig),
         _check_community_word_of_mouth(sig),
+        _check_controversy_spike(sig),
+        _check_platform_concentrated(sig),
     ]
     lit = [c for c in candidates if c is not None]
     return _dampen_if_comeback_active(lit)
