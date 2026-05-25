@@ -56,10 +56,12 @@ def metric_delta(now: dict[str, Any], prev: dict[str, Any], key: str) -> float:
 
 
 def engagement_rate_from_agg(agg: dict[str, Any]) -> float:
-    """(likes + 5·comments) / views — health_score._engagement_rate 와 동일.
-
-    health_score.py 의 _engagement_rate 와 의도적으로 같은 산식 (운영자가
-    두 모듈을 비교했을 때 일관성). views=0 일 때는 0.0 반환.
+    """(likes + 5·comments) / views — health_score._engagement_rate 와 *산식*은
+    같지만 입력 키가 다르다. 이 함수는 raw `agg_summary` row (DB column 명
+    `yt_likes_total`, `yt_comments_total`, `yt_total_views`) 를 그대로 받고,
+    health_score._engagement_rate 는 cli.py 가 미리 re-key 한 dict (`likes_total`,
+    `comments_total`) 를 받는다. 두 함수를 함께 호출할 때 같은 *값*을 보장하려면
+    입력 dict 를 적절히 변환해야 한다. views=0 일 때는 0.0 반환.
     """
     likes = float(agg.get("yt_likes_total") or 0)
     comments = float(agg.get("yt_comments_total") or 0)
