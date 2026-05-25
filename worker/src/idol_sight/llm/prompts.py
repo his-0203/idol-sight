@@ -359,7 +359,8 @@ Produce 4-8 distinct items that a strategy team would act on. For each item:
 - `scope`: either 'market' (cross-group) or a specific group_key
   (plave/isedol/stellive/skinz/myrakl/owis/miiwan/bdawn).
 - `type`: 'insight' (analytic observation), 'weekly' (week summary),
-  or 'ipx_action' (recommended action for the team).
+  'ipx_action' (recommended action for the team),
+  or 'diagnosis' (causal hypothesis card — see DIAGNOSIS GUIDELINES below).
 - `title`: ≤ 80 chars, Korean.
 - `body`: 1-3 sentences, Korean. Reference numbers from the context.
   May contain `**bold**` markdown — see BODY FORMATTING block below.

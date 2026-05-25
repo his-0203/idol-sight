@@ -171,3 +171,32 @@ def test_prompt_weekly_includes_diagnosis_guidelines():
     assert "가능성" in PROMPT_WEEKLY or "의심" in PROMPT_WEEKLY
     # Streisand 가드
     assert "Streisand" in PROMPT_WEEKLY or "검수" in PROMPT_WEEKLY
+
+
+def test_prompt_weekly_covers_all_canonical_hypotheses():
+    """PROMPT_WEEKLY 가 HYPOTHESIS_KEYS 의 10 가설 모두 substring 으로 포함.
+
+    weekly_diagnosis 의 enum 이 단일 source of truth — prompt drift 방지.
+    한 가설이 enum block 에서 누락되면 LLM 이 그 가설명을 발명하거나 omit 한다.
+    """
+    from idol_sight.llm.prompts import PROMPT_WEEKLY
+    from idol_sight.analysis.weekly_diagnosis import HYPOTHESIS_KEYS
+    for key in HYPOTHESIS_KEYS:
+        assert key in PROMPT_WEEKLY, f"hypothesis {key!r} missing from prompt"
+
+
+def test_prompt_weekly_diagnosis_operational_guards():
+    """type='diagnosis' 카드의 핵심 운영 가드 표현이 모두 substring 으로 존재.
+
+    Streisand 가드 (controversy_spike), subscriber_purchase 검증 어려움 명시,
+    MiiWAN scope ipx_action 자동 변환 규칙. 이 표현들이 drift 로 빠지면
+    운영 안전망이 사라진다.
+    """
+    from idol_sight.llm.prompts import PROMPT_WEEKLY
+    # Streisand 가드 — controversy 카드 false positive 대응
+    assert "Streisand 회피" in PROMPT_WEEKLY
+    # subscriber_purchase 검증 어려움 명시 — 단정 회피
+    # ("검증 어려운\n  가설" 처럼 줄바꿈으로 분리될 수 있어 핵심 어구만 확인)
+    assert "검증 어려운" in PROMPT_WEEKLY
+    # MiiWAN scope → ipx_action 자동 변환 규칙
+    assert "ipx_action" in PROMPT_WEEKLY
