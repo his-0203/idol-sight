@@ -328,14 +328,18 @@ def irrelevant_flag_ratio(posts: list[dict[str, Any]]) -> float:
 
 
 def data_source_warning(rows: list[dict[str, Any]]) -> bool:
-    """7d window 의 agg_summary 행 중 과반이 backfill_* 이면 True.
+    """7d window 의 agg_summary 행 중 과반이 backfill_* 또는 manual_seed 면 True.
 
     수동 시드/백필이 자동 수집보다 많으면 시그널 자체의 신뢰성이 떨어짐.
+    spec rev 2 §3.2 메타가드 점등 조건.
     """
     if not rows:
         return False
-    backfill_count = sum(
+    suspect_count = sum(
         1 for r in rows
-        if (r.get("data_source") or "live").startswith("backfill")
+        if (
+            (ds := (r.get("data_source") or "live")).startswith("backfill")
+            or ds == "manual_seed"
+        )
     )
-    return (backfill_count / len(rows)) > DATA_SOURCE_BACKFILL_MAJORITY
+    return (suspect_count / len(rows)) > DATA_SOURCE_BACKFILL_MAJORITY

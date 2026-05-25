@@ -366,3 +366,27 @@ def test_data_source_warning_majority_live():
 
 def test_data_source_warning_empty():
     assert data_source_warning([]) is False
+
+
+def test_data_source_warning_manual_seed_majority():
+    """manual_seed 도 backfill 과 동일하게 잡아야 함 (spec rev 2 §3.2)."""
+    rows = [
+        {"data_source": "manual_seed"},
+        {"data_source": "manual_seed"},
+        {"data_source": "live"},
+        {"data_source": "live"},
+        {"data_source": "manual_seed"},
+    ]
+    # 3/5 = 0.6 > 0.5 → True
+    assert data_source_warning(rows) is True
+
+
+def test_data_source_warning_mixed_backfill_and_manual_seed():
+    """backfill_exact + manual_seed 가 합쳐서 과반이면 True."""
+    rows = [
+        {"data_source": "backfill_exact"},
+        {"data_source": "manual_seed"},
+        {"data_source": "live"},
+    ]
+    # 2/3 ≈ 0.67 > 0.5 → True
+    assert data_source_warning(rows) is True
