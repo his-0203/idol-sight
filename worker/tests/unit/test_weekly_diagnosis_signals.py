@@ -12,6 +12,9 @@ from idol_sight.analysis.weekly_diagnosis_signals import (
     reactivity_dominant_platform, REACTIVITY_DOMINANCE_THRESHOLD,
 )
 from idol_sight.analysis.weekly_diagnosis_signals import member_centric_signals
+from idol_sight.analysis.weekly_diagnosis_signals import (
+    group_event_within_window, music_show_consecutive_wins,
+)
 
 
 def test_cohort_z_score_basic():
@@ -224,3 +227,63 @@ def test_member_centric_missing_meta_returns_dead():
     sig = member_centric_signals({}, {})
     assert sig["lit"] is False
     assert sig["dead"] is True
+
+
+def test_group_event_match_within_7d():
+    """event_date 가 주간 윈도우 ±7d 안에 있으면 매칭."""
+    events = [
+        {"event_date": "2026-05-22", "event_type": "album_release", "title": "Caligo Pt.3"},
+        {"event_date": "2026-01-10", "event_type": "debut", "title": "Debut Show"},
+    ]
+    match = group_event_within_window(
+        events, week_start="2026-05-18", week_end="2026-05-24",
+    )
+    assert match is not None
+    assert match["title"] == "Caligo Pt.3"
+
+
+def test_group_event_no_match():
+    events = [
+        {"event_date": "2024-01-10", "event_type": "debut", "title": "Debut"},
+    ]
+    assert group_event_within_window(
+        events, week_start="2026-05-18", week_end="2026-05-24",
+    ) is None
+
+
+def test_group_event_window_edge_7d_before():
+    """주간 시작 7일 전 = 윈도우 안 (5/18 - 7 = 5/11)."""
+    events = [{"event_date": "2026-05-11", "event_type": "comeback", "title": "Comeback"}]
+    match = group_event_within_window(
+        events, week_start="2026-05-18", week_end="2026-05-24",
+    )
+    assert match is not None
+
+
+def test_group_event_window_8d_before_excluded():
+    events = [{"event_date": "2026-05-10", "event_type": "comeback", "title": "Old"}]
+    assert group_event_within_window(
+        events, week_start="2026-05-18", week_end="2026-05-24",
+    ) is None
+
+
+def test_music_show_consecutive_wins_3():
+    """동일 곡 (song_title) 3회 연속 1위 → 점등."""
+    wins = [
+        {"show": "M Countdown", "song_title": "Pump Up The Volume", "win_date": "2026-05-20"},
+        {"show": "Music Bank",   "song_title": "Pump Up The Volume", "win_date": "2026-05-21"},
+        {"show": "Inkigayo",     "song_title": "Pump Up The Volume", "win_date": "2026-05-22"},
+    ]
+    streak = music_show_consecutive_wins(wins)
+    assert streak["song_title"] == "Pump Up The Volume"
+    assert streak["consecutive"] == 3
+
+
+def test_music_show_consecutive_wins_below_threshold():
+    """2회 → 점등 안 됨 (threshold 3)."""
+    wins = [
+        {"show": "M Countdown", "song_title": "A", "win_date": "2026-05-20"},
+        {"show": "Music Bank",   "song_title": "A", "win_date": "2026-05-21"},
+    ]
+    streak = music_show_consecutive_wins(wins)
+    assert streak["consecutive"] == 0

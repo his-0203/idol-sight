@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date, timedelta
 from statistics import mean, stdev
 from typing import Any
 
@@ -217,3 +218,59 @@ def member_centric_signals(
         "hhi_norm_wow": hhi_wow,
         "top1_share_high": (t1_now is not None and float(t1_now) >= TOP1_SHARE_ABS_HIGH),
     }
+
+
+GROUP_EVENT_WINDOW_DAYS = 7
+MUSIC_SHOW_STREAK_THRESHOLD = 3
+
+
+def group_event_within_window(
+    events: list[dict[str, Any]],
+    *, week_start: str, week_end: str,
+) -> dict[str, Any] | None:
+    """주간 윈도우 [week_start - 7d, week_end + 7d] 안에 떨어지는 첫 매칭 이벤트.
+
+    comeback_cycle 가설의 ground truth. group_events 테이블의 album_release /
+    comeback / show_win / first_release / mv_release 등 이벤트와 매칭되면
+    confidence 부스트.
+    """
+    ws = date.fromisoformat(week_start) - timedelta(days=GROUP_EVENT_WINDOW_DAYS)
+    we = date.fromisoformat(week_end) + timedelta(days=GROUP_EVENT_WINDOW_DAYS)
+    for ev in events:
+        ed_raw = ev.get("event_date")
+        if not ed_raw:
+            continue
+        try:
+            ed = date.fromisoformat(ed_raw[:10])
+        except ValueError:
+            continue
+        if ws <= ed <= we:
+            return ev
+    return None
+
+
+def music_show_consecutive_wins(wins: list[dict[str, Any]]) -> dict[str, Any]:
+    """같은 song_title 의 연속 1위 횟수. 정렬은 win_date 오름차순 가정.
+
+    threshold (3) 미만이면 consecutive=0 으로 반환 (점등 안 됨 의미).
+    comeback_cycle momentum 증거.
+    """
+    if not wins:
+        return {"song_title": None, "consecutive": 0}
+    sorted_wins = sorted(wins, key=lambda w: w.get("win_date") or "")
+    # song_title 별 카운트 (가장 긴 streak 찾기)
+    best = {"song_title": None, "consecutive": 0}
+    current_song = None
+    current_count = 0
+    for w in sorted_wins:
+        song = w.get("song_title")
+        if song == current_song:
+            current_count += 1
+        else:
+            current_song = song
+            current_count = 1
+        if current_count > best["consecutive"]:
+            best = {"song_title": current_song, "consecutive": current_count}
+    if best["consecutive"] < MUSIC_SHOW_STREAK_THRESHOLD:
+        return {"song_title": None, "consecutive": 0}
+    return best
