@@ -3,6 +3,10 @@
 import math
 from idol_sight.analysis.weekly_diagnosis_signals import cohort_z_score
 from idol_sight.analysis.weekly_diagnosis_signals import wow_ratio, metric_delta
+from idol_sight.analysis.weekly_diagnosis_signals import (
+    engagement_rate_from_agg, engagement_rate_wow_drop,
+    views_per_sub, views_per_sub_wow_drop,
+)
 
 
 def test_cohort_z_score_basic():
@@ -54,3 +58,39 @@ def test_metric_delta_handles_null():
     now = {"subs": 100_000}
     prev = {}  # missing key
     assert metric_delta(now, prev, "subs") == 100_000
+
+
+def test_engagement_rate_from_agg():
+    """(likes + 5·comments) / views, health_score 와 동일 계산."""
+    agg = {"yt_likes_total": 1000, "yt_comments_total": 200, "yt_total_views": 100_000}
+    # (1000 + 5*200) / 100000 = 2000 / 100000 = 0.02
+    assert engagement_rate_from_agg(agg) == 0.02
+
+
+def test_engagement_rate_zero_views():
+    assert engagement_rate_from_agg({"yt_total_views": 0}) == 0.0
+
+
+def test_engagement_rate_wow_drop():
+    now = {"yt_likes_total": 500, "yt_comments_total": 100, "yt_total_views": 100_000}
+    prev = {"yt_likes_total": 1000, "yt_comments_total": 200, "yt_total_views": 100_000}
+    # now ER = 1000/100000 = 0.01, prev ER = 2000/100000 = 0.02
+    # drop = (0.01 - 0.02) / 0.02 = -0.5 (50% 하락)
+    assert math.isclose(engagement_rate_wow_drop(now, prev), -0.5)
+
+
+def test_views_per_sub():
+    agg = {"yt_total_views": 5_000_000, "yt_subscribers": 100_000}
+    assert views_per_sub(agg) == 50.0
+
+
+def test_views_per_sub_subscribers_zero():
+    # subs=0 이면 dead — None 반환
+    assert views_per_sub({"yt_total_views": 1_000_000, "yt_subscribers": 0}) is None
+
+
+def test_views_per_sub_wow_drop_30pct():
+    now = {"yt_total_views": 7_000_000, "yt_subscribers": 200_000}    # 35
+    prev = {"yt_total_views": 5_000_000, "yt_subscribers": 100_000}   # 50
+    # (35 - 50) / 50 = -0.3
+    assert math.isclose(views_per_sub_wow_drop(now, prev), -0.3)

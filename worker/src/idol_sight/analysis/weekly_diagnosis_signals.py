@@ -52,3 +52,54 @@ def metric_delta(now: dict[str, Any], prev: dict[str, Any], key: str) -> float:
     n = float(now.get(key) or 0)
     p = float(prev.get(key) or 0)
     return n - p
+
+
+def engagement_rate_from_agg(agg: dict[str, Any]) -> float:
+    """(likes + 5·comments) / views — health_score._engagement_rate 와 동일.
+
+    health_score.py 의 _engagement_rate 와 의도적으로 같은 산식 (운영자가
+    두 모듈을 비교했을 때 일관성). views=0 일 때는 0.0 반환.
+    """
+    likes = float(agg.get("yt_likes_total") or 0)
+    comments = float(agg.get("yt_comments_total") or 0)
+    views = float(agg.get("yt_total_views") or 0)
+    if views <= 0:
+        return 0.0
+    return (likes + 5 * comments) / views
+
+
+def engagement_rate_wow_drop(now: dict[str, Any], prev: dict[str, Any]) -> float:
+    """ER 의 WoW 변화율. prev_er=0 이면 0 (변화 없음으로 처리).
+
+    음수가 클수록 ER 하락 큼 → paid_ads / sub_purchase 가설의 핵심 시그널.
+    """
+    now_er = engagement_rate_from_agg(now)
+    prev_er = engagement_rate_from_agg(prev)
+    if prev_er == 0:
+        return 0.0
+    return (now_er - prev_er) / prev_er
+
+
+def views_per_sub(agg: dict[str, Any]) -> float | None:
+    """views / subscribers. subs<=0 이면 None (dead signal).
+
+    이 비율이 급락하면 sub 만 늘고 view 는 안 따라온 케이스 →
+    subscriber_purchase 가설.
+    """
+    subs = float(agg.get("yt_subscribers") or 0)
+    if subs <= 0:
+        return None
+    views = float(agg.get("yt_total_views") or 0)
+    return views / subs
+
+
+def views_per_sub_wow_drop(now: dict[str, Any], prev: dict[str, Any]) -> float | None:
+    """views/sub 의 WoW 변화율. 어느 쪽이라도 None 이면 None.
+
+    -0.30 이면 30% 하락 → subscriber_purchase 가설 시그널.
+    """
+    now_vps = views_per_sub(now)
+    prev_vps = views_per_sub(prev)
+    if now_vps is None or prev_vps is None or prev_vps == 0:
+        return None
+    return (now_vps - prev_vps) / prev_vps
