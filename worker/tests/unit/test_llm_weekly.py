@@ -155,3 +155,19 @@ def test_generate_weekly_persists_ai_comment_when_present():
     )
     _sql, params = result.statements[0]
     assert params[7] == "운영 부담 분산 — 사전 제작본 5건 확보 권장."
+
+
+def test_prompt_weekly_includes_diagnosis_guidelines():
+    """PROMPT_WEEKLY 에 _DIAGNOSIS_GUIDELINES 섹션이 들어있는지 sanity."""
+    from idol_sight.llm.prompts import PROMPT_WEEKLY
+    # 가설 카탈로그 enum 의 핵심 키들이 프롬프트에 노출돼 있어야 함.
+    for kw in ("organic_growth", "paid_youtube_ads", "subscriber_purchase",
+               "comeback_cycle", "controversy_spike",
+               "platform_concentrated_promo", "member_centric_spike"):
+        assert kw in PROMPT_WEEKLY
+    # type='diagnosis' 카드 형식 설명이 있어야 함.
+    assert "diagnosis" in PROMPT_WEEKLY
+    # 단정 어조 금지 가드 (가능성/의심/시사 사용 유도)
+    assert "가능성" in PROMPT_WEEKLY or "의심" in PROMPT_WEEKLY
+    # Streisand 가드
+    assert "Streisand" in PROMPT_WEEKLY or "검수" in PROMPT_WEEKLY
