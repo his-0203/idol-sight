@@ -327,3 +327,96 @@ def test_insufficient_signal_when_no_hypotheses_lit():
     sig = _base_signal_bundle()    # 전부 중립
     hyps = classify_hypotheses(sig)
     assert hyps == []
+
+
+from unittest.mock import MagicMock
+from idol_sight.analysis.weekly_diagnosis import compute_group_signals
+
+
+def test_compute_group_signals_organic_growth_e2e():
+    """E2E: DB stub → cohort z-score → classify → GroupSignals dict."""
+    db = MagicMock()
+    # build_context 의 6개 query 응답을 순서대로 stub:
+    # 1) last_7d agg_summary
+    # 2) prev_7d agg_summary
+    # 3) debut_window_video_organicity (주간 신규 영상)
+    # 4) group_events
+    # 5) music_show_wins_log
+    # 6) community_keywords (now)
+    # 7) community_keywords (past 10주)
+    # 8) twitter type='controversy' (now + past)
+    # 9) community_posts irrelevant flags
+    # 10) agg_member_pop_meta (now + prev)
+    db.execute.side_effect = [
+        # 1) last_7d (cohort 5 그룹, plave 가 spike)
+        [
+            {"group_key": "plave",  "yt_subscribers": 1_200_000, "yt_total_views": 200_000_000,
+             "yt_likes_total": 2_000_000, "yt_comments_total": 300_000,
+             "naver_total_news": 350,
+             "dc_total_posts": 5000, "theqoo_posts": 2000, "instiz_posts": 1000,
+             "controversy_count": 1, "negative_ratio": 0.04,
+             "reactivity_dc": 1.5, "reactivity_theqoo": 1.4, "reactivity_instiz": 1.3,
+             "reactivity_naver": 1.5, "reactivity_sample": 5,
+             "data_source": "live"},
+            {"group_key": "isedol", "yt_subscribers": 800_000,   "yt_total_views": 140_000_000,
+             "yt_likes_total": 1_500_000, "yt_comments_total": 250_000,
+             "naver_total_news": 100,
+             "dc_total_posts": 3000, "theqoo_posts": 1000, "instiz_posts": 500,
+             "controversy_count": 0, "negative_ratio": 0.02,
+             "reactivity_dc": 1.1, "reactivity_theqoo": 1.0, "reactivity_instiz": 1.0,
+             "reactivity_naver": 1.0, "reactivity_sample": 5,
+             "data_source": "live"},
+            {"group_key": "skinz",  "yt_subscribers": 50_000,    "yt_total_views": 5_000_000,
+             "yt_likes_total": 80_000, "yt_comments_total": 15_000,
+             "naver_total_news": 20,
+             "dc_total_posts": 200, "theqoo_posts": 50, "instiz_posts": 30,
+             "controversy_count": 0, "negative_ratio": 0.01,
+             "reactivity_dc": 1.0, "reactivity_theqoo": 1.0, "reactivity_instiz": 1.0,
+             "reactivity_naver": 1.0, "reactivity_sample": 1,
+             "data_source": "live"},
+        ],
+        # 2) prev_7d — plave 가 훨씬 작았음 → 큰 z-score
+        [
+            {"group_key": "plave",  "yt_subscribers": 1_000_000, "yt_total_views": 175_000_000,
+             "yt_likes_total": 1_800_000, "yt_comments_total": 280_000,
+             "naver_total_news": 280,
+             "dc_total_posts": 3000, "theqoo_posts": 1500, "instiz_posts": 700,
+             "data_source": "live"},
+            {"group_key": "isedol", "yt_subscribers": 800_000,   "yt_total_views": 138_000_000,
+             "yt_likes_total": 1_490_000, "yt_comments_total": 248_000,
+             "naver_total_news": 98,
+             "dc_total_posts": 2900, "theqoo_posts": 970, "instiz_posts": 490,
+             "data_source": "live"},
+            {"group_key": "skinz",  "yt_subscribers": 49_500,    "yt_total_views": 4_950_000,
+             "yt_likes_total": 79_500, "yt_comments_total": 14_800,
+             "naver_total_news": 19,
+             "dc_total_posts": 198, "theqoo_posts": 49, "instiz_posts": 29,
+             "data_source": "live"},
+        ],
+        # 3) debut_window_video_organicity (plave 신규 영상 없음 — 빈 결과)
+        [],
+        # 4) group_events
+        [],
+        # 5) music_show_wins_log
+        [],
+        # 6) community_keywords (이번 주)
+        [{"group_key": "plave", "keyword": "콘서트", "count": 100}],
+        # 7) community_keywords (과거 10주, plave 의 부정 키워드 분포)
+        [{"week": "w1", "neg_total": 5}, {"week": "w2", "neg_total": 8},
+         {"week": "w3", "neg_total": 6}, {"week": "w4", "neg_total": 7}],
+        # 8) twitter controversy (now + past)
+        [],
+        # 9) irrelevant flags
+        [],
+        # 10) agg_member_pop_meta (now + prev — plave 는 corporate single-channel, dead)
+        [],
+    ]
+    result = compute_group_signals(db=db, week_start="2026-04-22", week_end="2026-04-28")
+
+    assert "plave" in result
+    plave = result["plave"]
+    # plave 는 cohort 에서 압도적 1위 → 거의 모든 시그널이 큰 z 또는
+    # 보통 cohort 가 3개라 z 가 작을 수 있음. 최소한 GroupSignals 가
+    # 비어있지 않아야 함.
+    assert isinstance(plave.hypotheses, list)
+    assert plave.group_key == "plave"

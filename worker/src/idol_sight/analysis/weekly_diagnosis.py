@@ -416,3 +416,214 @@ def apply_meta_guards(
         # low 가 되더라도 emit (메타가드는 카드 자체를 차단하지 않음 — body 에 경고만 첨부)
         out.append(Hypothesis(key=h.key, confidence=new_conf, evidence=h.evidence))
     return out, guards
+
+
+from idol_sight.analysis import weekly_diagnosis_signals as _S
+
+
+def compute_group_signals(
+    *, db: _Executor, week_start: str, week_end: str,
+) -> dict[str, GroupSignals]:
+    """진입점 — DB executor 로부터 raw row 를 모아 GroupSignals dict 생성.
+
+    SQL 쿼리 개수: 10개 (test_compute_group_signals 의 stub 순서와 일치).
+    실제 운영 환경에서는 build_context 가 미리 일부를 모아둘 수도 있지만,
+    이 함수는 standalone 호출 가능하도록 자체 쿼리한다.
+    """
+    last_7d = db.execute(
+        "SELECT * FROM agg_summary WHERE substr(snapshot_at, 1, 10) BETWEEN ? AND ?",
+        [week_start, week_end],
+    )
+    prev_start = _shift_iso_date(week_start, -7)
+    prev_end = _shift_iso_date(week_end, -7)
+    prev_7d = db.execute(
+        "SELECT * FROM agg_summary WHERE substr(snapshot_at, 1, 10) BETWEEN ? AND ?",
+        [prev_start, prev_end],
+    )
+    organicity_rows = db.execute(
+        "SELECT group_key, verdict FROM debut_window_video_organicity "
+        "WHERE substr(published_at, 1, 10) BETWEEN ? AND ?",
+        [week_start, week_end],
+    )
+    events_rows = db.execute(
+        "SELECT group_key, event_date, event_type, title FROM group_events "
+        "WHERE event_date BETWEEN ? AND ?",
+        [_shift_iso_date(week_start, -7), _shift_iso_date(week_end, 7)],
+    )
+    music_show_rows = db.execute(
+        "SELECT group_key, show, song_title, win_date "
+        "FROM music_show_wins_log "
+        "WHERE win_date BETWEEN ? AND ?",
+        [week_start, week_end],
+    )
+    comm_kw_now = db.execute(
+        "SELECT group_key, keyword, count FROM community_keywords "
+        "WHERE substr(snapshot_at, 1, 10) BETWEEN ? AND ?",
+        [week_start, week_end],
+    )
+    comm_kw_past = db.execute(
+        "SELECT group_key, "
+        "  substr(snapshot_at, 1, 10) AS day, "
+        "  SUM(count) AS neg_total "
+        "FROM community_keywords "
+        "WHERE keyword IN (" + ",".join("?" * len(_S.NEGATIVE_KEYWORDS)) + ") "
+        "  AND substr(snapshot_at, 1, 10) < ? "
+        "GROUP BY group_key, day "
+        "ORDER BY day DESC LIMIT 70",
+        [*_S.NEGATIVE_KEYWORDS, week_start],
+    )
+    twitter_rows = db.execute(
+        "SELECT group_key, "
+        "  substr(posted_at, 1, 10) AS day, "
+        "  COUNT(*) AS n "
+        "FROM twitter_posts WHERE type='controversy' "
+        "  AND substr(posted_at, 1, 10) < ? "
+        "GROUP BY group_key, day ORDER BY day DESC LIMIT 70",
+        [week_end],
+    )
+    irrelevant_rows = db.execute(
+        "SELECT group_key, user_flagged_irrelevant "
+        "FROM community_posts "
+        "WHERE substr(collected_at, 1, 10) BETWEEN ? AND ?",
+        [week_start, week_end],
+    )
+    member_pop_rows = db.execute(
+        "SELECT group_key, snapshot_at, top1_share, top3_share, hhi_norm "
+        "FROM agg_member_pop_meta "
+        "WHERE substr(snapshot_at, 1, 10) BETWEEN ? AND ?",
+        [prev_start, week_end],
+    )
+
+    # group_key → row 매핑
+    now_by  = {r["group_key"]: r for r in last_7d}
+    prev_by = {r["group_key"]: r for r in prev_7d}
+    # cohort lists (z-score 분모)
+    subs_cohort      = [float(r.get("yt_subscribers")  or 0) for r in last_7d]
+    views_cohort     = [float(r.get("yt_total_views")  or 0) for r in last_7d]
+    news_cohort      = [float(r.get("naver_total_news") or 0) for r in last_7d]
+    community_cohort = [
+        float((r.get("dc_total_posts") or 0)
+              + (r.get("theqoo_posts") or 0)
+              + (r.get("instiz_posts") or 0))
+        for r in last_7d
+    ]
+    organicity_by: dict[str, list[dict]] = {}
+    for r in organicity_rows:
+        organicity_by.setdefault(r["group_key"], []).append(r)
+    events_by: dict[str, list[dict]] = {}
+    for r in events_rows:
+        events_by.setdefault(r["group_key"], []).append(r)
+    music_show_by: dict[str, list[dict]] = {}
+    for r in music_show_rows:
+        music_show_by.setdefault(r["group_key"], []).append(r)
+    comm_kw_now_by: dict[str, list[dict]] = {}
+    for r in comm_kw_now:
+        comm_kw_now_by.setdefault(r["group_key"], []).append(r)
+    comm_kw_past_by: dict[str, list[float]] = {}
+    for r in comm_kw_past:
+        gk = r.get("group_key")
+        if gk is None:
+            continue
+        comm_kw_past_by.setdefault(gk, []).append(float(r.get("neg_total") or 0))
+    twitter_by: dict[str, list[float]] = {}
+    for r in twitter_rows:
+        gk = r.get("group_key")
+        if gk is None:
+            continue
+        twitter_by.setdefault(gk, []).append(float(r.get("n") or 0))
+    irrelevant_by: dict[str, list[dict]] = {}
+    for r in irrelevant_rows:
+        irrelevant_by.setdefault(r["group_key"], []).append(r)
+    member_pop_by: dict[str, list[dict]] = {}
+    for r in member_pop_rows:
+        member_pop_by.setdefault(r["group_key"], []).append(r)
+
+    out: dict[str, GroupSignals] = {}
+    for gk, now in now_by.items():
+        prev = prev_by.get(gk, {})
+        # member_pop now/prev 최신/이전 한 쌍
+        mp_rows = sorted(member_pop_by.get(gk, []), key=lambda r: r.get("snapshot_at") or "")
+        mp_now  = mp_rows[-1] if mp_rows else {}
+        mp_prev = mp_rows[-2] if len(mp_rows) >= 2 else {}
+
+        sig = {
+            "subs_z":             _S.cohort_z_score(float(now.get("yt_subscribers") or 0), subs_cohort),
+            "views_z":            _S.cohort_z_score(float(now.get("yt_total_views") or 0), views_cohort),
+            "news_z":             _S.cohort_z_score(float(now.get("naver_total_news") or 0), news_cohort),
+            "community_z":        _S.cohort_z_score(
+                float((now.get("dc_total_posts") or 0)
+                      + (now.get("theqoo_posts") or 0)
+                      + (now.get("instiz_posts") or 0)),
+                community_cohort,
+            ),
+            "market_share_z":     0.0,    # V1: agg_market_share 별도 쿼리 — 후속 enhancement
+            "er_wow":             _S.engagement_rate_wow_drop(now, prev),
+            "vps_wow":            _S.views_per_sub_wow_drop(now, prev),
+            "organicity_paid":    _S.organicity_paid_ratio(organicity_by.get(gk, [])),
+            "reactivity_dominant": _S.reactivity_dominant_platform(now),
+            "member_centric":     _S.member_centric_signals(mp_now, mp_prev),
+            "comeback": {
+                "event_match":     _S.group_event_within_window(
+                    events_by.get(gk, []), week_start=week_start, week_end=week_end,
+                ),
+                "music_streak":    _S.music_show_consecutive_wins(music_show_by.get(gk, []))["consecutive"],
+                "hanteo_sales":    0,    # V1: hanteo_weekly 별도 쿼리 — 후속
+                "chart_peak":      now.get("melon_top100_peak"),
+                "video_upload_z":  0.0,   # V1: youtube_videos 별도 쿼리 — 후속
+            },
+            "controversy": {
+                "keyword_z":             _S.negative_keyword_z(
+                    comm_kw_now_by.get(gk, []),
+                    comm_kw_past_by.get(gk, []),
+                ),
+                "twitter_z":             _S.twitter_controversy_z(
+                    now_count=int(now.get("twitter_posts") or 0),
+                    cohort_counts=twitter_by.get(gk, []),
+                ),
+                "controversy_count_z":   _S.cohort_z_score(
+                    float(now.get("controversy_count") or 0),
+                    [float(r.get("controversy_count") or 0) for r in prev_7d],
+                ),
+                "negative_ratio_z":      _S.cohort_z_score(
+                    float(now.get("negative_ratio") or 0),
+                    [float(r.get("negative_ratio") or 0) for r in prev_7d],
+                ),
+            },
+            "news_z_prev_week":           0.0,    # V1: 단순화 — 후속
+            "community_z_prev_week":      0.0,    # V1: 단순화 — 후속
+            "community_keywords_topic":   "neutral",   # V1: stub — 후속
+            "video_tags_paid_match":      False,        # V1: stub — 후속
+        }
+
+        hyps = classify_hypotheses(sig)
+        irrelevant_ratio = _S.irrelevant_flag_ratio(irrelevant_by.get(gk, []))
+        backfill_warning = _S.data_source_warning(
+            [r for r in last_7d if r["group_key"] == gk]
+        )
+        hyps, guards = apply_meta_guards(
+            hyps,
+            irrelevant_ratio=irrelevant_ratio,
+            data_source_warning=backfill_warning,
+        )
+
+        out[gk] = GroupSignals(
+            group_key=gk,
+            hypotheses=hyps,
+            meta_guards=guards,
+            deltas={
+                "subs_z":   sig["subs_z"],
+                "views_z":  sig["views_z"],
+                "news_z":   sig["news_z"],
+                "er_wow":   sig["er_wow"] if sig["er_wow"] is not None else 0.0,
+            },
+            organicity={
+                "paid_ratio": sig["organicity_paid"],
+            } if sig["organicity_paid"] is not None else None,
+        )
+    return out
+
+
+def _shift_iso_date(iso_date: str, days: int) -> str:
+    from datetime import date, timedelta
+    d = date.fromisoformat(iso_date)
+    return (d + timedelta(days=days)).isoformat()
