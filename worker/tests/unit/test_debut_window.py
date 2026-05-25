@@ -18,18 +18,31 @@ from idol_sight.analysis.debut_window import (
 )
 
 
-def test_window_buckets_are_7_non_overlapping_ranges():
-    """V2.22: 7 buckets, contiguous from -30 to +30, each ~10d wide.
-    Replaces the prior 5-bucket (~30d each) D-60/D-30/D-Day/D+30/D+60 layout
-    so the briefing surfaces finer-grained debut-window posture
-    (D-30/D-20/D-10/D-Day/D+10/D+20/D+30)."""
-    assert len(WINDOW_BUCKETS) == 7
+def test_window_buckets_are_9_non_overlapping_ranges():
+    """V3 (2026-05-25): 9 buckets, D-60 ~ D+60. V2.22 의 ±30 10일 정밀도
+    (D-30/D-20/D-10/D+10/D+20/D+30) 유지 + D-60(-60,-31), D+60(31,60)
+    두 개 추가. ±30~60 영상도 organicity 데이터에 포함되도록.
+
+    Frontend (DebutWindowVideoTable.tsx) 의 5 탭 UI 는 server-side 에서
+    이 9 bucket 을 union 매핑한다 — 자세한 매핑은 spec rev 의 §3.3 표.
+    """
+    assert len(WINDOW_BUCKETS) == 9
     labels = [b[0] for b in WINDOW_BUCKETS]
-    assert labels == ["D-30", "D-20", "D-10", "D-Day", "D+10", "D+20", "D+30"]
+    assert labels == [
+        "D-60", "D-30", "D-20", "D-10", "D-Day",
+        "D+10", "D+20", "D+30", "D+60",
+    ]
     flat = [(lo, hi) for _, lo, hi in WINDOW_BUCKETS]
     assert flat == [
-        (-30, -21), (-20, -11), (-10, -2), (-1, 1),
-        (2, 10), (11, 20), (21, 30),
+        (-60, -31),
+        (-30, -21),
+        (-20, -11),
+        (-10,  -2),
+        ( -1,   1),
+        (  2,  10),
+        ( 11,  20),
+        ( 21,  30),
+        ( 31,  60),
     ]
 
 
@@ -53,14 +66,6 @@ def test_window_buckets_are_7_non_overlapping_ranges():
 ])
 def test_bucket_for_returns_correct_bucket(days, expected):
     assert bucket_for(days) == expected
-
-
-@pytest.mark.parametrize("days", [-31, -60, -100, 31, 60, 100])
-def test_bucket_for_returns_none_outside_window(days):
-    """V2.22: outside ±30d returns None. The fetch SQL still pulls ±60d so
-    legacy D-60/D+60 video_organicity rows remain readable, but new cron
-    cycles skip them at upsert time."""
-    assert bucket_for(days) is None
 
 
 @pytest.mark.parametrize("er,is_short,expected", [
@@ -459,3 +464,37 @@ def test_compute_causes_signal_specific(setup, expected_causes):
         f"b={breakdown.get('balance_score')}, "
         f"v={breakdown.get('velocity_coherence_score')})"
     )
+
+
+def test_bucket_for_d_minus_60_range():
+    """V3: -60 ~ -31 사이 영상은 D-60 bucket."""
+    assert bucket_for(-60) == "D-60"
+    assert bucket_for(-45) == "D-60"
+    assert bucket_for(-31) == "D-60"
+
+
+def test_bucket_for_d_plus_60_range():
+    """V3: +31 ~ +60 사이 영상은 D+60 bucket."""
+    assert bucket_for(31) == "D+60"
+    assert bucket_for(45) == "D+60"
+    assert bucket_for(60) == "D+60"
+
+
+def test_bucket_for_d_minus_30_d_minus_60_boundary():
+    """V3: -31 → D-60, -30 → D-30. 두 bucket 경계 정확."""
+    assert bucket_for(-31) == "D-60"
+    assert bucket_for(-30) == "D-30"
+
+
+def test_bucket_for_d_plus_30_d_plus_60_boundary():
+    """V3: +30 → D+30, +31 → D+60. 두 bucket 경계 정확."""
+    assert bucket_for(30) == "D+30"
+    assert bucket_for(31) == "D+60"
+
+
+def test_bucket_for_outside_pm_60_returns_none():
+    """V3: ±60 밖은 None (즉 -61, +61 영상은 organicity 분류 안 됨)."""
+    assert bucket_for(-61) is None
+    assert bucket_for(61) is None
+    assert bucket_for(-100) is None
+    assert bucket_for(100) is None
