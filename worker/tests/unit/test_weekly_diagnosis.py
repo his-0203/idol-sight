@@ -283,3 +283,47 @@ def test_member_centric_dead_meta_no_emit():
     sig = _base_signal_bundle()    # member_centric.dead=True
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "member_centric_spike" for h in hyps)
+
+
+from idol_sight.analysis.weekly_diagnosis import apply_meta_guards
+
+
+def test_meta_guard_irrelevant_dampens_all():
+    """irrelevant 비율 18% → 모든 가설 confidence 한 단계 감점."""
+    hyps = [
+        Hypothesis(key="organic_growth", confidence="high", evidence=[]),
+        Hypothesis(key="controversy_spike", confidence="high", evidence=[]),
+    ]
+    out, guards = apply_meta_guards(
+        hyps,
+        irrelevant_ratio=0.18,
+        data_source_warning=False,
+    )
+    assert "irrelevant_flagged_18%" in guards or any("irrelevant" in g for g in guards)
+    for h in out:
+        assert h.confidence == "medium"
+
+
+def test_meta_guard_backfill_majority_dampens():
+    hyps = [Hypothesis(key="organic_growth", confidence="high", evidence=[])]
+    out, guards = apply_meta_guards(
+        hyps, irrelevant_ratio=0.05, data_source_warning=True,
+    )
+    assert any("backfill" in g.lower() or "data_source" in g for g in guards)
+    assert out[0].confidence == "medium"
+
+
+def test_meta_guard_none():
+    hyps = [Hypothesis(key="organic_growth", confidence="high", evidence=[])]
+    out, guards = apply_meta_guards(
+        hyps, irrelevant_ratio=0.05, data_source_warning=False,
+    )
+    assert guards == []
+    assert out[0].confidence == "high"
+
+
+def test_insufficient_signal_when_no_hypotheses_lit():
+    """모든 시그널 z<1.5 → classify 가 빈 리스트 반환 → 호출자가 insufficient_signal 처리."""
+    sig = _base_signal_bundle()    # 전부 중립
+    hyps = classify_hypotheses(sig)
+    assert hyps == []

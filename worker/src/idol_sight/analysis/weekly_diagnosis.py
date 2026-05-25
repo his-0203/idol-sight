@@ -389,3 +389,30 @@ def classify_hypotheses(sig: dict) -> list[Hypothesis]:
     lit = _dampen_if_comeback_active(lit)
     lit = _dampen_if_member_centric_active(lit)
     return lit
+
+
+def apply_meta_guards(
+    hyps: list[Hypothesis],
+    *,
+    irrelevant_ratio: float,
+    data_source_warning: bool,
+) -> tuple[list[Hypothesis], list[str]]:
+    """data_credibility_warning 메타가드 적용 — 모든 가설 confidence 한 단계 감점.
+
+    Returns:
+      (수정된 hypotheses, 점등된 메타가드 라벨 리스트)
+    """
+    guards: list[str] = []
+    from idol_sight.analysis.weekly_diagnosis_signals import IRRELEVANT_RATIO_THRESHOLD
+    if irrelevant_ratio >= IRRELEVANT_RATIO_THRESHOLD:
+        guards.append(f"irrelevant_flagged_{irrelevant_ratio:.0%}")
+    if data_source_warning:
+        guards.append("data_source_backfill_majority")
+    if not guards:
+        return hyps, []
+    out: list[Hypothesis] = []
+    for h in hyps:
+        new_conf = _confidence_dampen(h.confidence)
+        # low 가 되더라도 emit (메타가드는 카드 자체를 차단하지 않음 — body 에 경고만 첨부)
+        out.append(Hypothesis(key=h.key, confidence=new_conf, evidence=h.evidence))
+    return out, guards
