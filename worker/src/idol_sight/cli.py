@@ -1035,14 +1035,40 @@ def analyze_weekly(
 
     # 5. LLM weekly insights
     if settings.gemini_api_key:
+        import time as _time
+
+        from idol_sight.analysis.weekly_diagnosis import compute_group_signals
         from idol_sight.llm.gemini import GeminiClient
         from idol_sight.llm.weekly import generate_weekly
+
+        # phase 5a — causal-diagnosis signals (13 SQL). 기존엔 build_context
+        # 안에서 호출돼 step logging / latency 가 LLM context 빌드와 섞여
+        # 있었다 (backlog item). cli 단계로 분리해 두 phase 의 비용을 분리
+        # 측정 + 향후 cache / skip 결정에 활용.
+        _t0 = _time.monotonic()
+        signals_by_group = compute_group_signals(
+            db=client, week_start=week_start, week_end=week_end,
+        )
+        _lit_total = sum(len(gs.hypotheses) for gs in signals_by_group.values())
+        typer.echo(
+            f"llm: signals computed in {_time.monotonic() - _t0:.1f}s "
+            f"(groups={len(signals_by_group)} hypotheses_lit={_lit_total})"
+        )
+
+        # phase 5b — LLM 호출 (signals 주입).
         gemini = GeminiClient(api_key=settings.gemini_api_key)
-        weekly = generate_weekly(db=client, gemini=gemini,
-                                  week_start=week_start, week_end=week_end)
+        _t1 = _time.monotonic()
+        weekly = generate_weekly(
+            db=client, gemini=gemini,
+            week_start=week_start, week_end=week_end,
+            signals_by_group=signals_by_group,
+        )
         if weekly.statements:
             client.batch(weekly.statements)
-        typer.echo(f"llm: wrote {weekly.rows_inserted} insights")
+        typer.echo(
+            f"llm: wrote {weekly.rows_inserted} insights "
+            f"(LLM phase {_time.monotonic() - _t1:.1f}s)"
+        )
     else:
         typer.echo("llm: skipped (GEMINI_API_KEY unset)")
 

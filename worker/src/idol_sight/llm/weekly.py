@@ -26,7 +26,21 @@ class _Gemini(Protocol):
     def generate(self, *, system_prompt: str, context: dict, response_schema: dict) -> dict: ...
 
 
-def build_context(db: _Executor, *, week_start: str, week_end: str) -> dict[str, Any]:
+def build_context(
+    db: _Executor,
+    *,
+    week_start: str,
+    week_end: str,
+    signals_by_group: dict[str, GroupSignals] | None = None,
+) -> dict[str, Any]:
+    """Weekly LLM 컨텍스트 빌더.
+
+    signals_by_group:
+      None 이면 (legacy 호출 경로) 이 함수 안에서 compute_group_signals 를
+      호출 — 기존 동작 유지. cli.py 처럼 phase 를 분리한 호출자는 미리
+      compute_group_signals 결과를 만들어 주입할 수 있다. 이 경우 step
+      logging / latency 측정이 cli 단계에서 명확해진다.
+    """
     last_7d = db.execute(
         "SELECT * FROM agg_summary WHERE substr(snapshot_at, 1, 10) BETWEEN ? AND ?",
         [week_start, week_end],
@@ -55,11 +69,12 @@ def build_context(db: _Executor, *, week_start: str, week_end: str) -> dict[str,
         [week_start, week_end],
     )
     # spec rev 2 Task 5: causal-diagnosis signals 동봉 — LLM 이 type='diagnosis'
-    # 카드를 작성할 때 참조한다. compute_group_signals 가 내부적으로 10개의
-    # 추가 쿼리를 실행한다 (총 build_context 쿼리 수 = 5 + 10 = 15).
-    signals_by_group = compute_group_signals(
-        db=db, week_start=week_start, week_end=week_end,
-    )
+    # 카드를 작성할 때 참조한다. signals_by_group 가 None 이면 여기서 직접
+    # 호출 (legacy), 아니면 주입된 값 사용 (cli phase 분리).
+    if signals_by_group is None:
+        signals_by_group = compute_group_signals(
+            db=db, week_start=week_start, week_end=week_end,
+        )
     # production debug: workflow stdout 에 시그널 점등 통계 출력 —
     # type='diagnosis' 카드가 0개일 때 시그널 부족인지 LLM 무시인지 변별.
     _lit = {gk: len(gs.hypotheses) for gk, gs in signals_by_group.items()}
@@ -122,8 +137,17 @@ def generate_weekly(
     gemini: _Gemini,
     week_start: str,
     week_end: str,
+    signals_by_group: dict[str, GroupSignals] | None = None,
 ) -> CollectionResult:
-    ctx = build_context(db, week_start=week_start, week_end=week_end)
+    """signals_by_group:
+      None 이면 build_context 안에서 compute_group_signals 호출 (기존 동작).
+      cli phase 분리 호출자는 미리 만든 signals 를 주입한다."""
+    ctx = build_context(
+        db,
+        week_start=week_start,
+        week_end=week_end,
+        signals_by_group=signals_by_group,
+    )
     parsed = gemini.generate(
         system_prompt=PROMPT_WEEKLY,
         context=ctx,
