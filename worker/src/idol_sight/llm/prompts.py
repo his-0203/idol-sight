@@ -396,9 +396,121 @@ GOOD EXEMPLARS (자연어 — 통계 용어/enum 영문 노출 0):
     ← 단정 어조 ("돌렸다"), 점등 안 된 가설들 거론. 다시 작성."""
 
 
+# `insight` / `weekly` 카드의 본문 분석 깊이 강제. 운영자 피드백 누적:
+# "**미완소년** 주간 구독자 약 3.3배 급증" 같이 *단일 지표 변화만* 적시
+# 한 카드는 보고서 가치가 없다. 운영자가 원하는 건 ① 다른 지표와의
+# cross-reference ② 가능한 원인 추정 ③ 운영자 시각의 함의다.
+#
+# type='diagnosis' 가 가설 catalog 점등 시 작성되는 반면, insight/weekly
+# 는 시그널이 약해도 emit 된다 (특히 MiiWAN 같은 신생 그룹은 cohort 가
+# 좁아 diagnosis 점등 자체가 드물다). 그래서 분석 깊이 책임이 insight
+# /weekly 본문에 떨어진다 — 단일 지표 인용으로 끝나면 안 된다.
+_ANALYSIS_DEPTH_GUIDELINES = """\
+ANALYSIS DEPTH — type='insight' 및 type='weekly' 카드 작성 규칙:
+
+PROBLEM (운영자 피드백):
+  단일 지표 변화만 적시한 카드는 보고서 가치가 없다. 예:
+    ❌ "**미완소년** 주간 구독자 약 **3.3배** 급증."
+  운영자는 *왜 그렇게 됐는지* 와 *어떻게 봐야 하는지* 를 요구한다.
+
+REQUIRED — 모든 insight/weekly 카드 body 는 다음 3요소를 충족:
+
+  ① 사실: 변화 수치 인용 (자연 표현, BODY FORMATTING 의 lexicon/bold).
+  ② Cross-reference: 같은 그룹·같은 주의 다른 지표와 *비교*. 적어도
+     ONE 차원 더 인용. 가능한 cross-ref 차원:
+       - 다른 KPI: 조회수, ER (참여율), 영상 업로드, 뉴스 보도,
+         커뮤니티 멘션, 트위터 controversy/일반, 음원 차트
+       - 베이스라인 맥락: 동급 그룹 D-N 시점 수치 비교
+         (예: PLAVE D-30 시 28K vs MiiWAN 12.6K)
+       - 시간 맥락: 직전 4-8주 추세, 단발 spike 인지 누적인지
+       - 이벤트 매칭: group_events / 뉴스 헤드라인 / 컴백 일정
+       - 멤버 분포: top1 share, hhi_norm 변화
+  ③ 인과 추정 (1 문장, 추측 어조): "~ 가능성", "~ 시사", "~ 신호".
+     단정 금지 ("증가했다" 만 적고 끝내지 말 것). 가능한 원인 후보를
+     1-2개 짚는다. 변동의 *질* (자연 유입 / 카운트다운 펌프 / 단발
+     보도 / 컴백 / 멤버 단일 / 광고 의심 / 베이스 작아 비율 왜곡 등)
+     을 추정.
+
+★ 단일 지표 + 무인과 카드는 emit 금지. 위 3요소 중 ②, ③ 둘 다 빠지면
+  다시 작성하거나 type='weekly' 로 격하 후 cross-ref/인과 둘 다 보강.
+
+CROSS-REF CHEATSHEET — 컨텍스트에서 찾는 위치:
+  - 다른 KPI 동반 상승 여부: agg_summary_last_7d 와 agg_summary_prev_7d
+    의 같은 그룹 row 를 직접 비교 (yt_total_views, naver_total_news,
+    dc_total_posts, theqoo_posts, instiz_posts 등).
+  - 베이스라인: 다른 그룹의 같은 KPI 를 동시기로 비교 (단순 비율
+    인용은 OK — "MiiWAN 41.6K 는 PLAVE 동일 시점 X% 수준" 등).
+  - 시그널 보조: signals_by_group 의 deltas (subs_wow, views_wow,
+    subs_z, views_z, er_wow) 가 점등된 그룹은 그 값이 그대로 cross-ref
+    재료. diagnosis 카드 emit 여부와 무관하게 *insight body* 가 활용 가능.
+  - 이벤트: top_news_by_group 헤드라인 — 그 주에 큰 보도/이슈가 있었나.
+
+신생 그룹 / 데뷔 전 그룹 (MiiWAN 등) 의 비율 폭증 가드:
+  베이스 작은 수치에서 절대 증가량이 작아도 *배율* 은 폭증한다.
+  예: 5K → 15K 가 3× 증가지만, 28K (PLAVE D-30) 대비는 여전히 53%.
+  반드시 *동일 시점 동급 그룹 베이스라인* 또는 *절대 수치* 를 함께
+  인용해 비율 환각을 차단한다. 운영자가 카드만 보고 "MiiWAN 이
+  PLAVE 를 추월했다" 라고 오독하면 카드는 실패한 것이다.
+
+EXEMPLARS:
+
+  ❌ BAD #1 — 단일 지표, 인과 없음
+    title: "**미완소년** 구독자 3.3× 급증"
+    body:  "**미완소년** 주간 구독자가 약 **3.3배** 급증."
+    ← 사실 1개. cross-ref 0개. 원인 추정 0개. 운영자 손에 들어가면
+      "그래서 어떻게 해야 하나" 질문이 1차로 나옴.
+
+  ✅ GOOD #1 — 같은 사실, 분석 깊이 충족
+    title: "**미완소년** 구독자 3.3× — 카운트다운 펌프 가능성"
+    body:  "**미완소년** 주간 구독자 12.6K→41.6K 로 약 **3.3배** 증가.
+            같은 주 조회수는 1.8배 증가 (구독 대비 후행), 뉴스 보도
+            +5건, @miiwanzip 디시 멘션 WoW +120% 동반 상승. 절대값
+            41.6K 는 PLAVE D-30 시점 28K 대비 1.5× 수준. **데뷔 D-30**
+            카운트다운 + 멤버 reveal 보도의 단기 펌프 효과 가능성,
+            다만 신규 유입의 retention 은 다음 주 조회/ER 후행으로
+            변별 필요."
+    ai_comment: "카운트다운 펌프 가능성 — 다음 주 retention 후행 관찰."
+    ← 사실 + 4개 cross-ref (조회수, 뉴스, 커뮤, 동급 베이스라인) +
+      인과 추정 ("카운트다운 펌프 효과 가능성") + 다음 액션 hook
+      (retention 관찰). ai_comment 는 의역 아닌 함의.
+
+  ✅ GOOD #2 — 부정 신호, cross-ref + 가설
+    title: "**ISEDOL** 조회 둔화 — 컴백 부재 단순 정체 신호"
+    body:  "**ISEDOL** 주간 조회수가 직전 주 대비 **−18%** 둔화. 동시기
+            구독자는 +0.4% 보합, ER (좋아요·댓글 비율) 은 12.3% 로
+            6주 평균 (11.8%) 부근 유지. 뉴스 보도·커뮤니티 멘션 모두
+            평소 수준. 새 영상 업로드 0건 + group_events 상 5월 발매
+            일정 부재로 **컴백 사이클 공백** 에 따른 단순 정체 가능성.
+            팬덤 이탈 신호로 보기는 ER 평탄·구독 보합이 부족해 단정
+            보류."
+    ← 5개 cross-ref + 컴백 사이클 추정 + 단정 보류 (ER 평탄성을 가설
+      반증 근거로 명시).
+
+  ✅ GOOD #3 — market scope 카드, cross-group cross-ref
+    title: "**PLAVE** 주간 점유율 **+12.4%p** — 컴백 사이클이 끌어올림"
+    body:  "**PLAVE** 주간 share 38.2% 로 **+12.4%p** 확대, 동시기
+            ISEDOL/STELLIVE 각 −3.1%p/−5.7%p 축소. 한터 초동
+            991K·멜론 TOP100 5위·음방 3연속 1위 동반. 5/22 발매
+            *Caligo Pt.3* 의 컴백 사이클로 단기 share 가 PLAVE 한
+            그룹에 집중. 다음 주 차트 후행 빠지면서 정상 분포로
+            돌아갈 가능성."
+    ← market scope 는 *그룹 간 cross-ref* 가 본질. 단일 그룹 share
+      만 인용 금지.
+
+  ❌ BAD #2 — cross-ref 는 있으나 인과 추정 없음
+    body: "**PLAVE** 조회 +24M, ISEDOL +3M 로 격차 확대."
+    ← 사실 2개. 인과 추정 0개. 한 문장 더 ("컴백 사이클의 단기 펌프
+      가능성" 등) 가 필요.
+
+이 분석 깊이 규칙은 type='ipx_action' / type='diagnosis' 에는
+적용되지 않는다 (각각 별도 가이드라인 보유). insight / weekly 의
+*본문 작성 기준점* 으로만 강제."""
+
+
 PROMPT_WEEKLY_TAIL_AI_COMMENT = _AI_COMMENT_GUIDELINES
 PROMPT_WEEKLY_BODY_FORMATTING = _BODY_FORMATTING_GUIDELINES
 PROMPT_WEEKLY_DIAGNOSIS = _DIAGNOSIS_GUIDELINES
+PROMPT_WEEKLY_ANALYSIS_DEPTH = _ANALYSIS_DEPTH_GUIDELINES
 
 
 PROMPT_WEEKLY = f"""\
@@ -416,12 +528,16 @@ You will be given a JSON context with:
 Produce 4-8 distinct items that a strategy team would act on. For each item:
 - `scope`: either 'market' (cross-group) or a specific group_key
   (plave/isedol/stellive/skinz/myrakl/owis/miiwan/bdawn).
-- `type`: 'insight' (analytic observation), 'weekly' (week summary),
+- `type`: 'insight' (analytic observation — MUST include cross-reference
+  and causal inference per ANALYSIS DEPTH block below),
+  'weekly' (week summary — same depth rules as insight apply),
   'ipx_action' (recommended action for the team),
   or 'diagnosis' (causal hypothesis card — see DIAGNOSIS GUIDELINES below).
 - `title`: ≤ 80 chars, Korean.
-- `body`: 1-3 sentences, Korean. Reference numbers from the context.
+- `body`: 2-4 sentences, Korean. Reference numbers from the context.
   May contain `**bold**` markdown — see BODY FORMATTING block below.
+  For insight/weekly types, body MUST satisfy the 3-element rule
+  (fact + cross-reference + causal inference) — see ANALYSIS DEPTH block.
 - `ai_comment`: optional one-liner (≤ 60 chars, Korean) capturing the
   *operator-side implication* of the observation. See guideline block
   below — emit the field only if you can write a non-trivial 함의
@@ -433,6 +549,8 @@ Be precise with numbers (use exactly what the context shows).
 Do NOT invent figures. If something cannot be sourced, leave it out.
 
 {_BODY_FORMATTING_GUIDELINES}
+
+{_ANALYSIS_DEPTH_GUIDELINES}
 
 GOOD-vs-BAD BODY EXEMPLARS (formatting only — numbers are illustrative):
 
@@ -469,6 +587,12 @@ include AT LEAST:
   - 1 item with `scope='miiwan'` describing MiiWAN's current momentum
     (debut readiness, member-level signal, competitive position vs
     PLAVE/ISEDOL D-30 baseline, anomalies in news/community pulse).
+    This item MUST follow the ANALYSIS DEPTH 3-element rule —
+    cross-reference + causal inference are non-negotiable for MiiWAN
+    because operators specifically called out single-metric cards
+    (e.g. "구독자 3.3배 급증" 만 적힌 카드) as the failure mode they
+    want suppressed. baseline 작은 신생 그룹은 비율 환각이 특히
+    크므로 절대 수치 또는 동급 D-N 베이스라인 비교를 같이 인용.
   - 1 item with `type='ipx_action'` recommending a concrete next step
     for the IPX/Abyss team. `scope` for ipx_action items MUST be
     'miiwan' (no exceptions — operators have a separate competitive

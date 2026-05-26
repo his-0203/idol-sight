@@ -9,6 +9,7 @@ section fails CI loudly.
 
 from idol_sight.llm.prompts import (
     PROMPT_WEEKLY,
+    PROMPT_WEEKLY_ANALYSIS_DEPTH,
     PROMPT_WEEKLY_BODY_FORMATTING,
     PROMPT_WEEKLY_TAIL_AI_COMMENT,
 )
@@ -123,6 +124,28 @@ def test_body_formatting_guidelines_lists_tone_lexicon_terms():
     for term in positive_terms + negative_terms:
         assert term in PROMPT_WEEKLY_BODY_FORMATTING, (
             f"body formatting block must list tone lexicon term: {term}"
+        )
+
+
+def test_prompt_weekly_includes_analysis_depth_block():
+    # 운영자 피드백: "**미완소년** 주간 구독자 약 3.3배 급증" 같이
+    # 단일 지표만 적시한 카드는 보고서 가치가 없다. ANALYSIS DEPTH 블록은
+    # insight/weekly 본문에 cross-reference + causal inference 를 강제하는
+    # 규칙. 이 블록이 prompt 에서 사라지면 단일 지표 카드가 다시 emit된다.
+    assert "ANALYSIS DEPTH" in PROMPT_WEEKLY
+    assert PROMPT_WEEKLY_ANALYSIS_DEPTH in PROMPT_WEEKLY
+    # 3-element rule 명시 — 사실 / cross-ref / 인과 추정.
+    for token in ("Cross-reference", "인과 추정"):
+        assert token in PROMPT_WEEKLY_ANALYSIS_DEPTH, (
+            f"analysis depth block must mention: {token}"
+        )
+    # 운영자가 직접 지적한 anti-pattern 예 — 그대로 박혀 있어야 LLM 이
+    # 같은 형태의 카드를 안 만든다.
+    assert "3.3배" in PROMPT_WEEKLY_ANALYSIS_DEPTH
+    # 신생 그룹 비율 환각 가드.
+    for token in ("베이스라인", "비율 환각"):
+        assert token in PROMPT_WEEKLY_ANALYSIS_DEPTH, (
+            f"analysis depth block must mention baseline guard: {token}"
         )
 
 
