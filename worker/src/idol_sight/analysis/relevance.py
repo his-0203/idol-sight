@@ -58,6 +58,22 @@ GENERIC_KEYWORD_BLOCKLIST: frozenset[str] = frozenset({
     # demote. 한글 "제로" 는 2자 short-token 이라 SHORT_TOKEN_THRESHOLD
     # 가 자동 anchor-gate 하므로 별도 등재 불요.
     "Zero", "zero",
+    # V2.33 — UR:L (uryael) 그룹/멤버 일반어 충돌 가드.
+    #   "URL" / "url" — IT 용어 (모든 링크 안내 / 광고 메시지에 등장)
+    #   "모카" — 음료명 (커피 모카) — 한글 2자라 short-token 이긴 하나
+    #            "모카" 자체가 자주 등장하므로 strict 모드에서 한 번 더
+    #            anchor 강제.
+    #   "마냥" — 부사 ("마냥 좋다") — 한글 2자 short-token + 부사 출현
+    #            빈도가 매우 높아 동일 가드.
+    #   "Mocha" — 음료/색상 (latte mocha, mocha color) — 영문이라 short-
+    #            token 아님 → 명시적 blocklist 필요.
+    #   "Manyang" — 영문 발음 표기. 일반어 충돌은 낮지만 "many" prefix
+    #            매칭 위험 (substring match) — 함께 등재.
+    # primary (sandboxurl) fetch 는 group-scoped 이라 영향 없고
+    # supplemental (vboyband) 에서만 anchor (UR:L / 유아렐) 동반 시 매치.
+    "URL", "url", "Url",
+    "모카", "Mocha",
+    "마냥", "Manyang",
 })
 
 # Phrases that mark a post as commercial/거래/광고/도배 noise. We match

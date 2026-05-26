@@ -71,12 +71,60 @@ LIST_URL_TPL = (
     "https://gall.dcinside.com/board/lists/?id={gallery_id}&list_num=100"
 )
 
+# `/board/lists/?id=<gid>` covers regular boards AND mgallery (the latter
+# via dcinside's JS redirect — mgallery boards return us-post rows on the
+# /board/ URL directly). MINI galleries (e.g. `sandboxurl` for UR:L) are
+# in a separate `/mini/` namespace and the `/board/` URL returns 404 with
+# no parseable rows. `_fetch_list_with_fallback` tries /board/ first
+# (cheap when it works, which is most groups) and falls back to /mini/
+# only when the first attempt yields no us-post rows. See V2.33 changelog.
+MINI_LIST_URL_TPL = (
+    "https://gall.dcinside.com/mini/board/lists/?id={gallery_id}&list_num=100"
+)
+
 
 class DcCollector:
     source = "dc"
 
     def __init__(self, stealthy: Any | None = None):
         self._stealthy = stealthy or StealthyFetcher
+
+    def _fetch_list_with_fallback(self, gallery_id: str) -> Any:
+        """Fetch dc gallery list page, with /mini/ fallback.
+
+        `/board/lists/?id=<gid>` handles regular boards + mgallery
+        (mgallery via JS redirect). MINI galleries (e.g. UR:L's
+        `sandboxurl`) live in a separate `/mini/` namespace and return
+        no us-post rows on the /board/ URL. We try /board/ first
+        (cheap, covers most groups) and fall back to /mini/ only when
+        the first fetch yields zero parseable rows.
+        """
+        page = self._stealthy.fetch(
+            LIST_URL_TPL.format(gallery_id=gallery_id),
+            headless=True,
+            network_idle=True,
+            solve_cloudflare=True,
+        )
+        rows = page.css("table.gall_list tbody tr.us-post") or page.css(
+            "tr.us-post"
+        )
+        if rows:
+            return page
+        # No us-post rows — likely a /mini/ gallery. Try the mini URL.
+        mini_page = self._stealthy.fetch(
+            MINI_LIST_URL_TPL.format(gallery_id=gallery_id),
+            headless=True,
+            network_idle=True,
+            solve_cloudflare=True,
+        )
+        mini_rows = mini_page.css("table.gall_list tbody tr.us-post") or (
+            mini_page.css("tr.us-post")
+        )
+        if mini_rows:
+            return mini_page
+        # Neither URL parsed any rows — return the first page so the
+        # caller's _parse gets an empty result rather than a crash.
+        return page
 
     def collect(
         self, group: GroupConfig, since: str | None = None
@@ -102,12 +150,7 @@ class DcCollector:
 
         if primary:
             try:
-                page = self._stealthy.fetch(
-                    LIST_URL_TPL.format(gallery_id=primary),
-                    headless=True,
-                    network_idle=True,
-                    solve_cloudflare=True,
-                )
+                page = self._fetch_list_with_fallback(primary)
                 primary_rows = self._parse(page)
                 # Group-scoped: keep every us-post row except global spam
                 # (양도/팝니다/[광고]/도배 — noise even inside the group's
@@ -122,12 +165,7 @@ class DcCollector:
 
         for gid in supplemental:
             try:
-                page = self._stealthy.fetch(
-                    LIST_URL_TPL.format(gallery_id=gid),
-                    headless=True,
-                    network_idle=True,
-                    solve_cloudflare=True,
-                )
+                page = self._fetch_list_with_fallback(gid)
                 sup_rows = self._parse(page)
                 # Cross-group hub: only keep rows whose title is relevant
                 # to THIS group's context_keywords. ``strict_generic_blocklist``
