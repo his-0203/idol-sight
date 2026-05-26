@@ -81,6 +81,11 @@ GROUPS: list[dict[str, Any]] = [
     # bare channel ID (Matrix API accepts both):
     #   --handle bdawn=UCSIqs6OAVAedCmCo8GtVoHQ
     {"key": "bdawn",   "handle": "@b_dawn_official", "debut": "2026-05-06"},
+    # UR:L (유아렐, uryael) — 샌드박스네트워크 첫 버추얼 아이돌. 데뷔
+    # 2025-12-31 (Chemical Love). Channel ID UCLAA9TKj-EYf2RUl1gLB9pQ
+    # 직접 시드 — handle '@URL-유아렐' 은 SocialBlade API 에 URL-encoded
+    # 한글 핸들이 거절될 수 있어 channel ID 우선. V2.33.
+    {"key": "uryael",  "handle": "UCLAA9TKj-EYf2RUl1gLB9pQ", "debut": "2025-12-31"},
 ]
 
 WINDOW_BEFORE_DAYS = 180
