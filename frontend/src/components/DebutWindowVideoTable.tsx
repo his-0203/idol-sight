@@ -47,8 +47,8 @@ function verdictLabelShort(v: string | null): string {
   if (v === "suspect")        return "Suspect";
   if (v === "likely_paid")    return "Paid";
   if (v === "insufficient_data") return "Insufficient";
-  if (v === null)                return "Insufficient";   // V3: organicity 없음
-  return v;
+  // null (V3: organicity 없음) 또는 unknown verdict → 안전 fallback.
+  return v ?? "Insufficient";
 }
 
 const CAUSE_LABEL: Record<string, string> = {
@@ -101,7 +101,7 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
     setRows(null);
     setSelected(null);
     let cancelled = false;
-    api.debutWindowVideos(groupKey, bucket, filterType).then((r: { rows: VideoRow[] }) => {
+    api.debutWindowVideos<VideoRow>(groupKey, bucket, filterType).then((r) => {
       if (!cancelled) setRows(r.rows);
     }).catch(() => {
       if (!cancelled) setRows([]);
@@ -115,11 +115,14 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
     setAllRows(null);
     setSelected(null);
     let cancelled = false;
-    api.debutWindowVideosAll(groupKey, page * PAGE_SIZE, PAGE_SIZE, filterType).then(
-      (r: { rows: VideoRow[]; total: number }) => {
+    api.debutWindowVideosAll<VideoRow>(groupKey, page * PAGE_SIZE, PAGE_SIZE, filterType).then(
+      (r) => {
         if (cancelled) return;
         setAllRows(r.rows);
-        setAllTotal(r.total);
+        // total 은 첫 페이지 (offset===0) 에서만 backend 가 동봉 → 그 이후
+        // 페이지는 캐시된 값 유지. groupKey/filterType 바뀌면 page=0 으로
+        // reset 되어 다시 fetch 됨.
+        if (r.total !== undefined) setAllTotal(r.total);
       },
     ).catch(() => {
       if (!cancelled) { setAllRows([]); setAllTotal(0); }
@@ -142,10 +145,16 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
             <nav class="dw-view-tabs">
               <button type="button"
                       class={viewMode === "debut" ? "active" : ""}
-                      onClick={() => setViewMode("debut")}>Debut Window</button>
+                      onClick={() => {
+                        setSelected(null);   // sub-frame stale-selected 회피
+                        setViewMode("debut");
+                      }}>Debut Window</button>
               <button type="button"
                       class={viewMode === "all" ? "active" : ""}
-                      onClick={() => setViewMode("all")}>전체 기간</button>
+                      onClick={() => {
+                        setSelected(null);
+                        setViewMode("all");
+                      }}>전체 기간</button>
             </nav>
             <button
               type="button"

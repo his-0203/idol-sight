@@ -12,7 +12,9 @@
 //   limit  (optional, default 30): 페이지 크기 (max 100)
 //   type   (optional, default 'all'): all|long|short — Long-form/Shorts 필터
 //
-// Response: { group, type, total, offset, limit, rows }
+// Response: { group, type, total?, offset, limit, rows }
+//   total 은 offset===0 일 때만 동봉. 페이지마다 SELECT COUNT(*) 재실행을
+//   막기 위한 최적화 — frontend 가 첫 페이지에서 받은 total 을 캐시한다.
 
 import { d1Query, type D1Database } from "../../lib/d1";
 import { jsonResponse } from "../../lib/jsonResponse";
@@ -93,8 +95,13 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   `;
 
   const rows = await d1Query<VideoRowAll>(env.DB, rowsSql, [group, limit, offset]);
-  const countRow = await d1Query<{ n: number }>(env.DB, countSql, [group]);
-  const total = countRow[0]?.n ?? 0;
+  // COUNT 는 첫 페이지에서만 실행 → 후속 페이지의 매 요청마다 fullscan COUNT
+  // 회피. frontend 가 첫 페이지에서 받은 total 을 캐시한다.
+  let total: number | undefined;
+  if (offset === 0) {
+    const countRow = await d1Query<{ n: number }>(env.DB, countSql, [group]);
+    total = countRow[0]?.n ?? 0;
+  }
 
   return jsonResponse({ group, type, total, offset, limit, rows }, 200);
 };

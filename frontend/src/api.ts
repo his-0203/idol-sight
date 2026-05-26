@@ -42,17 +42,43 @@ export const api = {
   },
   search:      (q: string) => getJson<any>(`/api/search?q=${encodeURIComponent(q)}`),
   healthSpec:  () => getJson<any>("/api/health/spec"),
-  debutWindowSummary: (bucket?: string) =>
-    getJson<any>("/api/debut-window/summary" + (bucket ? `?bucket=${encodeURIComponent(bucket)}` : "")),
-  debutWindowVideos: (group: string, bucket: string, type: "all" | "long" | "short" = "all") =>
-    getJson<any>(`/api/debut-window/videos?group=${encodeURIComponent(group)}&bucket=${encodeURIComponent(bucket)}&type=${type}`),
-  debutWindowVideosAll: (
+  // Debut Window API — row 타입은 caller (KPI / CompetitorOrganicityBar /
+  // DebutWindowVideoTable) 가 자체 interface 로 정의 → generic T 노출.
+  debutWindowSummary: <T = unknown>(bucket?: string): Promise<{ rows: T[] }> =>
+    getJson<{ rows: T[] }>(
+      "/api/debut-window/summary"
+      + (bucket ? `?bucket=${encodeURIComponent(bucket)}` : ""),
+    ),
+  debutWindowVideos: <T = unknown>(
+    group: string,
+    bucket: string,
+    type: "all" | "long" | "short" = "all",
+  ): Promise<{ group: string; bucket: string; type: string; rows: T[] }> =>
+    getJson<{ group: string; bucket: string; type: string; rows: T[] }>(
+      `/api/debut-window/videos?group=${encodeURIComponent(group)}`
+      + `&bucket=${encodeURIComponent(bucket)}&type=${type}`,
+    ),
+  debutWindowVideosAll: <T = unknown>(
     group: string,
     offset: number,
     limit: number,
     type: "all" | "long" | "short" = "all",
-  ) =>
-    getJson<any>(
+  ): Promise<{
+    group: string;
+    type: string;
+    total?: number;     // V3.x: backend 가 offset===0 일 때만 COUNT 실행
+    offset: number;
+    limit: number;
+    rows: T[];
+  }> =>
+    getJson<{
+      group: string;
+      type: string;
+      total?: number;
+      offset: number;
+      limit: number;
+      rows: T[];
+    }>(
       `/api/debut-window/videos-all?group=${encodeURIComponent(group)}`
       + `&offset=${offset}&limit=${limit}&type=${type}`,
     ),
