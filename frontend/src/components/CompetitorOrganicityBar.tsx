@@ -7,16 +7,18 @@ import { api } from "../api";
 const BUCKETS = ["D-30", "D-20", "D-10", "D-Day", "D+10", "D+20", "D+30"] as const;
 type Bucket = typeof BUCKETS[number];
 
-// V2.22.3 (2026-05-15): legacy V2.21 buckets are still present in
-// `debut_window_organicity_summary` for groups whose videos all fall
-// outside the new ±30d window (e.g. MiiWAN today: D-32, all videos
-// landed in legacy D-60). Keep them out of the picker but allow them
-// as last-resort fallback rows so those groups still show up on the
-// bar with an explicit "@legacy bucket" stripe.
-const LEGACY_BUCKETS = ["D-60", "D+60"] as const;
-type LegacyBucket = typeof LEGACY_BUCKETS[number];
-type AnyBucket = Bucket | LegacyBucket;
-const ALL_BUCKETS = [...BUCKETS, ...LEGACY_BUCKETS] as readonly AnyBucket[];
+// V3 (2026-05-25): worker WINDOW_BUCKETS 가 ±60 까지 확장. D-60 / D+60 row
+// 도 V3 계산이지만 picker 의 ±30 정밀도 7 탭 UX 를 유지하기 위해 D-60/D+60
+// 은 picker 에서 제외하고 fallback rank 의 마지막 ring 으로만 사용. ±30
+// 안에 영상 없는 그룹 (예: 데뷔 D-32 시점 MiiWAN) 은 EXTENDED bucket 으로
+// 라도 점수를 노출. UI 는 "extended (±60)" 라벨로 표기.
+//
+// (이전 명칭: V2.22.3 의 LEGACY_BUCKETS — V3 backfill 이후 V2.21 legacy
+//  계산이 아니므로 변수/라벨 모두 갱신.)
+const EXTENDED_BUCKETS = ["D-60", "D+60"] as const;
+type ExtendedBucket = typeof EXTENDED_BUCKETS[number];
+type AnyBucket = Bucket | ExtendedBucket;
+const ALL_BUCKETS = [...BUCKETS, ...EXTENDED_BUCKETS] as readonly AnyBucket[];
 
 // V2.22.3 (2026-05-15): user-requested exclusion from the cohort
 // posture bar. ISEDOL/STELLIVE are 서브컬처 (segmentary / confederation)
@@ -60,10 +62,10 @@ interface DisplayRow {
   sample_count: number;
   display_mode: DisplayMode;
   shown_bucket: AnyBucket;
-  /** True when shown_bucket is a legacy V2.21 label (D-60 / D+60).
-   *  UI renders these with an extra "legacy" indicator so the operator
-   *  knows the score was computed under the older calibration window. */
-  legacy: boolean;
+  /** True when shown_bucket is an extended ±60 bucket (D-60 / D+60).
+   *  UI renders these with a distinct stripe + "extended" tag so the
+   *  operator knows the score came from outside the ±30 picker range. */
+  extended: boolean;
 }
 
 function scoreFor(row: SummaryRow, mode: Mode): number | null {
@@ -93,10 +95,10 @@ function colorForScore(score: number | null): string {
 // - exact: the selected bucket has a non-null score for this mode.
 // - current: selected bucket empty for this mode → fall back to the group's
 //   chronologically latest bucket whose mode column is non-null. First the
-//   live V2.22 BUCKETS (chronological reverse), then the V2.21 LEGACY_BUCKETS
-//   (D-60 → D+60) as a last resort so pre-window groups like MiiWAN still
-//   show up with an explicit @bucket marker. legacy=true on the row triggers
-//   a distinct UI stripe.
+//   V2.22 ±30 BUCKETS (chronological reverse), then the V3 EXTENDED_BUCKETS
+//   (D-60 / D+60) as a last resort so pre-window groups (e.g. MiiWAN
+//   currently at D-32) still show up with an explicit @bucket marker.
+//   extended=true on the row triggers a distinct UI stripe.
 // - none: the group has no scoreable data in any bucket for this mode.
 function pickDisplayRow(
   byBucket: Map<AnyBucket, SummaryRow>,
@@ -112,7 +114,7 @@ function pickDisplayRow(
       sample_count: sampleCountFor(exact, mode),
       display_mode: "exact",
       shown_bucket: selected,
-      legacy: false,
+      extended: false,
     };
   }
   // V2.22 buckets first (chronologically newest → oldest).
@@ -126,12 +128,12 @@ function pickDisplayRow(
         sample_count: sampleCountFor(row, mode),
         display_mode: "current",
         shown_bucket: b,
-        legacy: false,
+        extended: false,
       };
     }
   }
-  // Legacy V2.21 buckets as final fallback (D-60 / D+60).
-  for (const b of LEGACY_BUCKETS) {
+  // Extended ±60 buckets as final fallback (D-60 / D+60). V3 calculation.
+  for (const b of EXTENDED_BUCKETS) {
     const row = byBucket.get(b);
     if (row && scoreFor(row, mode) !== null) {
       return {
@@ -140,7 +142,7 @@ function pickDisplayRow(
         sample_count: sampleCountFor(row, mode),
         display_mode: "current",
         shown_bucket: b,
-        legacy: true,
+        extended: true,
       };
     }
   }
@@ -150,7 +152,7 @@ function pickDisplayRow(
     sample_count: 0,
     display_mode: "none",
     shown_bucket: selected,
-    legacy: false,
+    extended: false,
   };
 }
 
@@ -161,7 +163,7 @@ export function CompetitorOrganicityBar() {
 
   useEffect(() => {
     let cancelled = false;
-    api.debutWindowSummary().then((r: { rows: SummaryRow[] }) => {
+    api.debutWindowSummary<SummaryRow>().then((r) => {
       if (!cancelled) setAllRows(r.rows);
     }).catch(() => {
       if (!cancelled) setAllRows([]);
@@ -195,9 +197,9 @@ export function CompetitorOrganicityBar() {
   });
 
   const fallbackCount = sorted.filter(
-    (r) => r.display_mode === "current" && !r.legacy,
+    (r) => r.display_mode === "current" && !r.extended,
   ).length;
-  const legacyCount = sorted.filter((r) => r.legacy).length;
+  const extendedCount = sorted.filter((r) => r.extended).length;
 
   return (
     <section class="cob-section">
@@ -226,13 +228,14 @@ export function CompetitorOrganicityBar() {
           const isOurs = r.group_key === "miiwan";
           const label = r.score === null ? "N/A" : Math.round(r.score).toString();
           const isFallback = r.display_mode === "current";
+          // class 명은 css 호환을 위해 'legacy' 유지 (시각 stripe 토큰).
           const fillClass = "cob-bar-fill"
             + (isFallback ? " fallback" : "")
-            + (r.legacy ? " legacy" : "");
+            + (r.extended ? " legacy" : "");
           const tooltip = r.display_mode === "none"
             ? `${MODE_LABEL[mode]}: 데이터 없음`
-            : r.legacy
-              ? `V2.22 윈도우(±30d) 안에 영상 없음 — V2.21 legacy bucket(${r.shown_bucket}, ±60d) 점수 표시 · ${r.sample_count} videos`
+            : r.extended
+              ? `±30 윈도우 안에 영상 없음 — V3 ±60 확장 bucket(${r.shown_bucket}) 점수 표시 · ${r.sample_count} videos`
               : isFallback
                 ? `선택 버킷 데이터 없음 — 현재 시점(${r.shown_bucket}) 점수 표시 · ${r.sample_count} videos`
                 : `${r.sample_count} videos`;
@@ -246,8 +249,8 @@ export function CompetitorOrganicityBar() {
               <div class="cob-score">
                 <span class="cob-score-value">{label}</span>
                 {isFallback && (
-                  <span class={"cob-current-tag" + (r.legacy ? " legacy" : "")}>
-                    @{r.shown_bucket}{r.legacy ? " legacy" : ""}
+                  <span class={"cob-current-tag" + (r.extended ? " legacy" : "")}>
+                    @{r.shown_bucket}{r.extended ? " extended" : ""}
                   </span>
                 )}
               </div>
@@ -263,9 +266,9 @@ export function CompetitorOrganicityBar() {
             {fallbackCount}개 그룹은 해당 버킷 데이터 없어 현재 시점 점수로 표시 (@버킷)
           </span></>
         )}
-        {legacyCount > 0 && (
+        {extendedCount > 0 && (
           <> · <span class="cob-fallback-note legacy">
-            {legacyCount}개 그룹은 V2.22 윈도우에 영상 없어 V2.21 legacy bucket 점수 표시 (@bucket legacy)
+            {extendedCount}개 그룹은 ±30 윈도우에 영상 없어 V3 ±60 확장 bucket 점수 표시 (@bucket extended)
           </span></>
         )}
       </div>
