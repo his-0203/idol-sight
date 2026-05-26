@@ -53,6 +53,11 @@ GENERIC_KEYWORD_BLOCKLIST: frozenset[str] = frozenset({
     "버추얼", "virtual",
     "IPX", "ABYSS", "VLAST", "Bridge", "Duri", "ACCORD",
     "ama",
+    # V2.32 — wegosix 멤버 "제로" 영문 표기. 일반어 ("zero gravity",
+    # "zero waste", "zero-sum" 등) 충돌이 너무 잦아 anchor-required 로
+    # demote. 한글 "제로" 는 2자 short-token 이라 SHORT_TOKEN_THRESHOLD
+    # 가 자동 anchor-gate 하므로 별도 등재 불요.
+    "Zero", "zero",
 })
 
 # Phrases that mark a post as commercial/거래/광고/도배 noise. We match
