@@ -609,6 +609,17 @@ def compute_group_signals(
         "ORDER BY snapshot_at DESC LIMIT ?",
         [week_start, history_limit_days],
     )
+    # V1 stub 활성화 (2026-05-26) — market_share_z. agg_market_share 의 해당 주
+    # final score 를 category cohort 로 z 계산. organic_growth 의 5번째 lit
+    # signal 활성화. week_start 와 같은 week_start row 가 없는 경우 (수요일
+    # 실행 등) 가장 가까운 직전 week 의 row 사용.
+    market_share_rows = db.execute(
+        "SELECT group_key, final FROM agg_market_share "
+        "WHERE week_start = ("
+        "  SELECT MAX(week_start) FROM agg_market_share WHERE week_start <= ?"
+        ")",
+        [week_end],
+    )
 
     # group_key → row 매핑. 같은 group_key 에 여러 snapshot 이 있으면
     # snapshot_at 가장 최근 row 만 남긴다 (정렬 후 last-wins).
@@ -657,6 +668,25 @@ def compute_group_signals(
     # controversy 시그널은 rev 3 변경 대상 아님 — 기존 cross-sectional cohort 유지.
     controversy_count_cohort = [float(r.get("controversy_count") or 0) for r in now_rows]
     negative_ratio_cohort    = [float(r.get("negative_ratio")   or 0) for r in now_rows]
+
+    # market_share final → group_key → float. now_rows 의 group 만 포함.
+    market_share_by: dict[str, float] = {
+        r["group_key"]: float(r.get("final") or 0.0)
+        for r in market_share_rows
+        if r.get("group_key")
+    }
+
+    def _market_share_z(gk: str) -> float:
+        if gk not in market_share_by:
+            return 0.0
+        cat = category_by_group.get(gk, "kpop")
+        cohort = [
+            v for k, v in market_share_by.items()
+            if category_by_group.get(k) == cat
+        ]
+        if len(cohort) < _S.CATEGORY_COHORT_MIN:
+            return 0.0
+        return _S.cohort_z_score(market_share_by[gk], cohort)
     organicity_by: dict[str, list[dict]] = {}
     for r in organicity_rows:
         organicity_by.setdefault(r["group_key"], []).append(r)
@@ -687,6 +717,35 @@ def compute_group_signals(
     member_pop_by: dict[str, list[dict]] = {}
     for r in member_pop_rows:
         member_pop_by.setdefault(r["group_key"], []).append(r)
+
+    # V1 stub 활성화 (2026-05-26) — 전주 시점의 category cohort z.
+    # broadcast_appearance / community_word_of_mouth 의 lag 패턴 (전주 spike +
+    # 이번 주 후행) 활성화. prev_by 의 same-category cohort 로 계산.
+    prev_rows = list(prev_by.values())
+
+    def _prev_cohort_for(gk: str, key: str) -> list[float]:
+        cat = category_by_group.get(gk, "kpop")
+        members = [
+            r for r in prev_rows
+            if category_by_group.get(r.get("group_key", "")) == cat
+        ]
+        if len(members) < _S.CATEGORY_COHORT_MIN:
+            return []
+        if key == "_community":
+            return [_comm_sum(r) for r in members]
+        return [float(r.get(key) or 0) for r in members]
+
+    def _prev_z(gk: str, key: str, *, comm: bool = False) -> float:
+        prev = prev_by.get(gk)
+        if prev is None:
+            return 0.0
+        if comm:
+            prev_val = _comm_sum(prev)
+            cohort_vals = _prev_cohort_for(gk, "_community")
+        else:
+            prev_val = float(prev.get(key) or 0)
+            cohort_vals = _prev_cohort_for(gk, key)
+        return _S.cohort_z_score(prev_val, cohort_vals)
 
     def _axis(
         gk: str, key: str, *, comm: bool = False,
@@ -724,7 +783,7 @@ def compute_group_signals(
             "views":     _axis(gk, "yt_total_views"),
             "news":      _axis(gk, "naver_total_news"),
             "community": _axis(gk, "_community", comm=True),
-            "market_share_z":     0.0,    # V1: agg_market_share 별도 쿼리 — 후속 enhancement
+            "market_share_z":     _market_share_z(gk),
             "er_wow":             _S.engagement_rate_wow_drop(now, prev),
             "vps_wow":            _S.views_per_sub_wow_drop(now, prev),
             "organicity_paid":    _S.organicity_paid_ratio(organicity_by.get(gk, [])),
@@ -757,8 +816,8 @@ def compute_group_signals(
                     negative_ratio_cohort,
                 ),
             },
-            "news_z_prev_week":           0.0,    # V1: 단순화 — 후속
-            "community_z_prev_week":      0.0,    # V1: 단순화 — 후속
+            "news_z_prev_week":           _prev_z(gk, "naver_total_news"),
+            "community_z_prev_week":      _prev_z(gk, "_community", comm=True),
             "community_keywords_topic":   "neutral",   # V1: stub — 후속
             "video_tags_paid_match":      False,        # V1: stub — 후속
         }

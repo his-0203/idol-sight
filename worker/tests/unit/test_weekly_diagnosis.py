@@ -338,7 +338,7 @@ from idol_sight.analysis.weekly_diagnosis import compute_group_signals
 def test_compute_group_signals_organic_growth_e2e():
     """E2E: DB stub → cohort z-score → classify → GroupSignals dict."""
     db = MagicMock()
-    # build_context 의 12개 query 응답을 순서대로 stub (rev 3 — groups 메타 + history 추가):
+    # build_context 의 13개 query 응답을 순서대로 stub:
     # 1) last_7d agg_summary
     # 2) prev_7d agg_summary
     # 3) debut_window_video_organicity (주간 신규 영상)
@@ -351,6 +351,7 @@ def test_compute_group_signals_organic_growth_e2e():
     # 10) agg_member_pop_meta (now + prev)
     # 11) groups 메타 (group_model)        ← rev 3
     # 12) agg_summary history (직전 8주)   ← rev 3
+    # 13) agg_market_share (해당 주 final)  ← 2026-05-26 stub 활성화
     db.execute.side_effect = [
         # 1) last_7d (cohort 5 그룹, plave 가 spike)
         [
@@ -421,6 +422,8 @@ def test_compute_group_signals_organic_growth_e2e():
             {"group_key": "skinz",  "group_model": "corporate"},
         ],
         # 12) agg_summary history (rev 3) — 빈 history (temporal_z = 0)
+        [],
+        # 13) agg_market_share — 빈 결과 (market_share_z = 0)
         [],
     ]
     result = compute_group_signals(db=db, week_start="2026-04-22", week_end="2026-04-28")
@@ -539,6 +542,8 @@ def test_compute_group_signals_deduplicates_multi_row():
             {"group_key": "isedol", "group_model": "corporate"},
         ],
         # 12) agg_summary history (rev 3) — 빈 history
+        [],
+        # 13) agg_market_share — 빈 결과
         [],
     ]
     result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")
@@ -696,6 +701,8 @@ def test_compute_group_signals_subculture_falls_back_to_temporal():
              "naver_total_news": 88,
              "dc_total_posts": 92, "theqoo_posts": 46, "instiz_posts": 24},
         ],
+        # 13) agg_market_share — 빈 결과
+        [],
     ]
     result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")
     # subculture cohort 가 2개 < 3 → category_z=0 fallback. 그럼에도
