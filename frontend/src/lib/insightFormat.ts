@@ -144,6 +144,18 @@ export const GROUP_LEXICON: GroupEntry[] = [
       { alias: "위고식스", label: "WE GO-6", word: false },
     ],
   },
+  {
+    key: "uryael",
+    display: "유아렐",
+    aliases: [
+      // 한국에서는 주로 "유아렐" 로 호명 — 한글 표기를 primary anchor 로.
+      { alias: "유아렐",       label: "유아렐", word: false },
+      { alias: "UR:L",         label: "유아렐", word: false },
+      { alias: "uryael",       label: "유아렐", word: true },
+      { alias: "URL유아렐",    label: "유아렐", word: false },
+      { alias: "URL-유아렐",   label: "유아렐", word: false },
+    ],
+  },
 ];
 
 // 매칭 시 사용할 (alias, key, label, word) 평탄 배열을 alias 길이 내림차순으로

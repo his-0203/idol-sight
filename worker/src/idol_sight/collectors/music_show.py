@@ -65,6 +65,7 @@ _GROUP_QUERY_ALIASES: dict[str, list[str]] = {
     "wegosix":  ["WE GO-6", "위고식스"],
     "owis":     ["OWIS", "오위스"],
     "myrakl":   ["MY:RAKL", "미라클"],
+    "uryael":   ["UR:L", "유아렐"],
 }
 
 
