@@ -24,7 +24,7 @@ jobs:
       # ~3 → ~5min, well inside the 10min timeout.
       max-parallel: 2
       matrix:
-        group:  [plave, isedol, stellive, skinz, myrakl, miiwan, owis, bdawn, wegosix]
+        group:  [plave, isedol, stellive, skinz, myrakl, miiwan, owis, bdawn, wegosix, uryael]
         source: [naver]
     runs-on: ubuntu-latest
     timeout-minutes: 10
