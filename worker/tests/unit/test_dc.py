@@ -160,6 +160,45 @@ def test_supplemental_match_passes_keyword_in_fixture():
     assert result.rows_inserted >= 1
 
 
+def test_fetch_url_requests_list_num_100():
+    """V2.32: 단일 fetch 캡처를 50 → 100 건으로 늘리기 위해
+    ``&list_num=100`` 파라미터를 list URL 에 항상 붙인다. DC 가
+    50 글/페이지를 기본으로 주지만 list_num=100 은 한 번의 CF 챌린지
+    통과로 두 페이지치를 받아오는 표준 파라미터다 (list_num=200 은
+    무시되므로 100 이 상한). 활성 갤러리에서는 12h 사이 50건 초과
+    폭주 시의 누락을 막고, 비활성 갤러리에서는 첫 가동 시 캡처량을
+    배가시킨다."""
+    stealthy = MagicMock()
+    stealthy.fetch.return_value = _load_page()
+
+    c = DcCollector(stealthy=stealthy)
+    c.collect(_plave())
+
+    stealthy.fetch.assert_called_once()
+    call_url = stealthy.fetch.call_args[0][0]
+    assert "list_num=100" in call_url, (
+        f"expected list_num=100 in fetch URL, got: {call_url}"
+    )
+
+
+def test_supplemental_fetch_also_requests_list_num_100():
+    """list_num=100 은 primary 뿐 아니라 supplemental hub gallery
+    (vboyband 등) fetch 에도 적용되어야 한다. 통합갤은 글이 많아 page 1
+    50건이 며칠치를 못 따라가는 경우가 잦으므로 효과가 더 크다."""
+    stealthy = MagicMock()
+    stealthy.fetch.return_value = _load_page()
+
+    c = DcCollector(stealthy=stealthy)
+    c.collect(_miiwan_with_supp(["vboyband"]))
+
+    assert stealthy.fetch.call_count == 2
+    for call in stealthy.fetch.call_args_list:
+        url = call.args[0]
+        assert "list_num=100" in url, (
+            f"expected list_num=100 in every DC fetch URL, got: {url}"
+        )
+
+
 def test_no_primary_no_supplemental_returns_error():
     """When both primary and supplemental are missing, the collector
     short-circuits with an explanatory error rather than fetching."""

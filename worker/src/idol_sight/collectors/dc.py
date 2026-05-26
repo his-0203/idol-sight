@@ -67,7 +67,9 @@ from idol_sight.utils.url_hash import url_hash
 
 log = logging.getLogger(__name__)
 
-LIST_URL_TPL = "https://gall.dcinside.com/board/lists/?id={gallery_id}"
+LIST_URL_TPL = (
+    "https://gall.dcinside.com/board/lists/?id={gallery_id}&list_num=100"
+)
 
 
 class DcCollector:

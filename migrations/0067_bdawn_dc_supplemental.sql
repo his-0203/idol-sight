@@ -1,0 +1,44 @@
+-- migrations/0067_bdawn_dc_supplemental.sql — V2.32
+--
+-- B:DAWN DC 본진 갤러리가 사실상 비어있어 (us-post 3건, data-no 최대
+-- 4) ``vboyband`` 통합갤 supplemental 을 추가한다.
+--
+-- 배경
+-- ----
+-- 2026-05-25 진단 결과 dc_gallery_id 매핑은 정확하지만 일부 그룹은
+-- 본진 갤러리 자체가 비활성이라 누적 적재가 거의 안 늘어남:
+--
+--   group    last7d   본진 첫 페이지 us-post   비고
+--   bdawn    1        3                       사실상 죽은 갤러리 (글 4개)
+--   skinz    10       45                      첫 페이지 거의 안 갱신
+--   owis     24       47                      첫 페이지 거의 안 갱신
+--   myrakl   31       47                      첫 페이지 거의 안 갱신
+--
+-- B:DAWN 본진은 글 자체가 없는 케이스라 list_num=100 (V2.32 코드 변경)
+-- 으로도 해결되지 않는다. 데뷔(2026-05-06)한 지 20일 된 신생 그룹이라
+-- 본진 트래픽이 모이기 전까지는 'vboyband' (버추얼 보이그룹 통합갤,
+-- list_num=100 적용 시 us-post 97건) 을 supplemental 로 추가해서
+-- DcCollector 가 통갤에서 B:DAWN 언급 글을 보조 캡처하게 한다.
+--
+-- SKINZ/OWIS/MY:RAKL 은 본진이 살아있지만 활성도가 낮은 케이스라 본
+-- 마이그레이션 범위 밖이다. 그룹 성별/장르가 vboyband (버추얼 보이그룹)
+-- 와 일치하는지 별도 검증 후 후속 마이그레이션으로 추가 결정한다.
+--
+-- 영향
+-- ----
+-- - DcCollector 가 bdawn 그룹 처리 시 fetch 2회 (primary 'bdawn' +
+--   supplemental 'vboyband'). collect-6h 잡 시간 +10s.
+-- - vboyband 통갤 글은 ``is_relevant(..., strict_generic_blocklist=True)``
+--   를 통과해야 적재. B:DAWN context_keywords (0064 에 등록된
+--   "B:DAWN","BDAWN","Bdawn","b:dawn","비던","비:던","ㅂㄷ" 등) 가
+--   anchor 역할을 하므로 일반 버추얼 보이그룹 글이 누설되지 않음.
+-- - miiwan / wegosix 는 이미 supplemental='["vboyband"]' (0062, 0064
+--   기반) 이므로 본 마이그레이션은 bdawn 한 그룹만 변경.
+--
+-- Rollback
+-- --------
+--   UPDATE groups SET dc_supplemental_galleries = NULL WHERE key = 'bdawn';
+
+UPDATE groups
+   SET dc_supplemental_galleries = '["vboyband"]'
+ WHERE key = 'bdawn';
