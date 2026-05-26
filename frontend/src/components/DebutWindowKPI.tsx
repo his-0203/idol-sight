@@ -32,7 +32,7 @@ export function DebutWindowKPI({ groupKey }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    api.debutWindowSummary().then((r: { rows: SummaryRow[] }) => {
+    api.debutWindowSummary<SummaryRow>().then((r) => {
       if (cancelled) return;
       const filtered = r.rows.filter((x) => x.group_key === groupKey);
       const m = new Map<string, SummaryRow>();

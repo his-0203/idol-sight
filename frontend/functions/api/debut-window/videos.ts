@@ -6,6 +6,7 @@
 
 import { d1Query, type D1Database } from "../../lib/d1";
 import { jsonResponse } from "../../lib/jsonResponse";
+import { FRONTEND_BUCKET_MAP, VALID_BUCKETS } from "../../lib/debutWindowBuckets";
 
 interface VideoRow {
   video_id: string;
@@ -24,22 +25,6 @@ interface VideoRow {
   causes: string | null;
   signal_breakdown: string;
 }
-
-const VALID_BUCKETS = new Set(["D-60", "D-30", "D-Day", "D+30", "D+60"]);
-
-// V3 (2026-05-25): frontend 5 탭 ↔ worker 9 bucket union 매핑.
-// Worker 의 WINDOW_BUCKETS 가 V2.22 의 ±30 10일 정밀도 (D-30/D-20/D-10/
-// D+10/D+20/D+30) 를 유지하면서 ±60 까지 확장됐다. frontend UI 는 5 탭
-// (D-60/D-30/D-Day/D+30/D+60) 만 노출하므로, 이 endpoint 가 frontend
-// bucket 을 받아 worker bucket(s) 의 union 으로 SQL IN 쿼리한다.
-// spec docs/.../2026-05-25-debut-window-expansion-and-all-time-view-design.md §3.3.
-const FRONTEND_BUCKET_MAP: Record<string, string[]> = {
-  "D-60":  ["D-60"],
-  "D-30":  ["D-30", "D-20", "D-10"],
-  "D-Day": ["D-Day"],
-  "D+30":  ["D+10", "D+20", "D+30"],
-  "D+60":  ["D+60"],
-};
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, request }) => {
   const url = new URL(request.url);
