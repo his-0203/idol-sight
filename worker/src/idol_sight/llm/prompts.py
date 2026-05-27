@@ -40,7 +40,7 @@ REQUIRED in every body:
   2. DUE: 명시적 마감. ("오늘 18시까지", "이번 주 금요일까지",
      "24시간 이내", "D-7일까지"). NOT "조속히", "신속하게".
   3. OWNER hint: 누가 할지 한 단어 ([PR팀], [콘텐츠팀],
-     [@miiwanzip 운영자], [Abyss 마케팅], [법무]).
+     [@miiwan_official 운영자], [Abyss 마케팅], [법무]).
   4. MEASURABLE outcome: 결과를 숫자로. ("영상 1건 업로드",
      "슬랙 1회", "DM 5명", "조회수 5K 이하면 콘셉트 변경").
      NOT "참여 강화", "관심 증진".
@@ -69,8 +69,8 @@ ANTI-PATTERNS — 만약 body에 다음이 포함되면 다시 작성:
 EXEMPLARS (어조·길이·구체성 참고):
 
   ① 카운트다운 캠페인 (debut milestone)
-    title: "@miiwanzip 카운트다운 콘텐츠 D-30 구간 즉시 발동"
-    body:  "[@miiwanzip 운영자] 오늘부터 D-30까지 매일 KST 18시
+    title: "@miiwan_official 카운트다운 콘텐츠 D-30 구간 즉시 발동"
+    body:  "[@miiwan_official 운영자] 오늘부터 D-30까지 매일 KST 18시
             카운트다운 1컷을 업로드한다 (총 30건, 솔로곡 티저 1개씩
             포함). 24시간 조회수 5K 미달인 컷이 3일 연속 나오면
             콘셉트를 ''서사 맥락 영상''으로 즉시 전환한다."
@@ -146,7 +146,7 @@ EXEMPLAR (톤 참고):
                 D-30 (28K) 대비 45% 수준."
   ai_comment:  "데뷔 직전 베이스 부족 — 카운트다운 콘텐츠 가속 필요."
 
-  body:        "[@miiwanzip 운영자] 오늘부터 D-30 까지 매일 KST
+  body:        "[@miiwan_official 운영자] 오늘부터 D-30 까지 매일 KST
                 18시 카운트다운 1컷을 업로드한다 (총 30건)."
   ai_comment:  "운영 부담 분산 — 사전 제작본 5건 이상 확보 권장."
 
@@ -464,7 +464,7 @@ EXEMPLARS:
     title: "**미완소년** 구독자 3.3× — 카운트다운 펌프 가능성"
     body:  "**미완소년** 주간 구독자 12.6K→41.6K 로 약 **3.3배** 증가.
             같은 주 조회수는 1.8배 증가 (구독 대비 후행), 뉴스 보도
-            +5건, @miiwanzip 디시 멘션 WoW +120% 동반 상승. 절대값
+            +5건, @miiwan_official 디시 멘션 WoW +120% 동반 상승. 절대값
             41.6K 는 PLAVE D-30 시점 28K 대비 1.5× 수준. **데뷔 D-30**
             카운트다운 + 멤버 reveal 보도의 단기 펌프 효과 가능성,
             다만 신규 유입의 retention 은 다음 주 조회/ER 후행으로
@@ -602,7 +602,7 @@ include AT LEAST:
 If MiiWAN data is too sparse for either item to ground in real numbers,
 emit ONE ipx_action stating a concrete pre-debut MiiWAN initiative
 based on what IS in context (debut milestone, member reveal cadence,
-@miiwanzip content push, PR coordination). Use the exemplars above —
+@miiwan_official content push, PR coordination). Use the exemplars above —
 do NOT default to data-pipeline language ("수집 큐 검수", "채널 ID
 재등록") unless agg_summary actually shows a NULL run for the
 relevant signal. NEVER fall back to "데이터 부족 — 검토 필요" or any
