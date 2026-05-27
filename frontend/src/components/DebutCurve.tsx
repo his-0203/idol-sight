@@ -134,10 +134,12 @@ type NewsView = 'cumulative-line' | 'weekly-bar';
 // DebutCurve 한정으로 시리즈/범례에서 숨길 그룹. STELLIVE 는 6인
 // confederation (각 멤버 솔로 채널 합산) 모델이라 D-N 데뷔 정렬 축에서
 // 다른 그룹과 같은 평면에서 비교하면 왜곡이 큼 (예: 단일 채널 1개의
-// D-30 vs 6개 채널 합산의 D-30). is_active=0 으로 백엔드에서는 그대로
+// D-30 vs 6개 채널 합산의 D-30). UR:L (uryael) 도 같은 이유 — segmentary
+// 모델 (그룹 채널 + 4 멤버 솔로 채널) 의 subculture cohort 라 K-pop 그룹
+// 들과 같은 D-N 평면 비교 부적합. is_active=0 으로 백엔드에서는 그대로
 // 유지하되 *이 차트에서만* 가린다. 다른 화면 (MarketOverview, GroupContent,
 // Insights 등) 에서는 정상 노출.
-const HIDDEN_GROUPS = new Set<string>(["stellive"]);
+const HIDDEN_GROUPS = new Set<string>(["stellive", "uryael"]);
 
 function cohortOf(groupModel: string | null | undefined): "kpop" | "subculture" {
   return (groupModel === "segmentary" || groupModel === "confederation")
