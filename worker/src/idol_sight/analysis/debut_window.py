@@ -31,25 +31,31 @@ __all__ = [
     "build_summary",
 ]
 
-# (label, days_lo_inclusive, days_hi_inclusive). V3.1 (2026-05-25):
-# organicity 전 영상 적용. Pre(-∞..-61) / Post(61..+∞) 두 bucket 추가해
-# 데뷔 ±60 밖 영상도 분류. V3 의 9 bucket (D-60~D+60) 유지.
+# (label, days_lo_inclusive, days_hi_inclusive). V2.34 (2026-05-27):
+# 균등 20일 폭 통일. 이전엔 D-60/D+60 (30일), D-30~D+30 (10일), D-Day
+# (3일) 로 폭 비대칭이라 그룹 간 점수 비교 시 표본 수 격차 (D-60 30일
+# 영상 vs D-30 10일 영상) 가 발생, 또한 ±30 안쪽의 D-20/D-10/D+10/D+20
+# 가 KPI / Posture bar / DebutWindowVideoTable 5탭 UI 에 비노출 → 데뷔
+# windowing 의 연속 비교가 불가했음.
 #
-# Pre/Post 라벨은 frontend 의 5 탭 UI (FRONTEND_BUCKET_MAP) 와 V2.22 의
-# CompetitorOrganicityBar 7 bucket 매핑에 *포함되지 않음* — 자동 무시.
+# 신규 정의: 7 named bucket 모두 정확히 20일 폭. D-Day 는 데뷔일 중심
+# ±10일(−10..+9) 으로 "데뷔 직전·직후 1주반" 의미 보존. 라벨 N 은 N일
+# 부근 ±10 범위. Pre/Post 는 ±69일 밖 catch-all (전체 기간 view 에서만
+# 가시).
+#
+# Pre/Post 라벨은 frontend 의 DebutWindowKPI / CompetitorOrganicityBar /
+# DebutWindowVideoTable 의 7 탭 UI 에 *포함되지 않음* — 자동 무시.
 # DebutWindowVideoTable 의 [전체 기간] view 만 모든 bucket 영상 표시.
 WINDOW_BUCKETS: list[tuple[str, int, int]] = [
-    ("Pre",   -999999, -61),
-    ("D-60",     -60,  -31),
-    ("D-30",     -30,  -21),
-    ("D-20",     -20,  -11),
-    ("D-10",     -10,   -2),
-    ("D-Day",     -1,    1),
-    ("D+10",       2,   10),
-    ("D+20",      11,   20),
-    ("D+30",      21,   30),
-    ("D+60",      31,   60),
-    ("Post",      61, 999999),
+    ("Pre",   -999999, -71),
+    ("D-60",     -70,  -51),
+    ("D-40",     -50,  -31),
+    ("D-20",     -30,  -11),
+    ("D-Day",    -10,    9),
+    ("D+20",      10,   29),
+    ("D+40",      30,   49),
+    ("D+60",      50,   69),
+    ("Post",      70, 999999),
 ]
 
 # Engagement-rate boundaries (V2 calibrated 2026-05-13 from 1125-video remote

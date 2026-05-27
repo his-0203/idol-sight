@@ -18,54 +18,73 @@ from idol_sight.analysis.debut_window import (
 )
 
 
-def test_window_buckets_are_11_non_overlapping_ranges():
-    """V3.1 (2026-05-25): organicity 전 영상 적용. Pre(-∞..-61) / Post(61..+∞)
-    두 bucket 추가 — 데뷔 ±60일 밖 영상도 organicity 분류. V3 의 9 bucket
-    (D-60 ~ D+60) 유지 + Pre/Post 가 ±60 밖 catch.
+def test_window_buckets_are_9_non_overlapping_ranges():
+    """V2.34 (2026-05-27): 균등 20일 폭 통일. 7 named bucket (D-60/D-40/D-20/
+    D-Day/D+20/D+40/D+60) + Pre/Post catch-all = 9 bucket. 모든 named bucket
+    이 정확히 20일 폭, 인접 bucket 경계 연속, 데뷔 ±69일 안에 빈 구간 없음.
 
-    CompetitorOrganicityBar 의 V2.22 7 bucket + 2 legacy (D-60/D+60) 패턴
-    은 Pre/Post 라벨을 ALL_BUCKETS 에 안 포함시켜 자동 ignore 한다.
-    DebutWindowVideoTable 의 5 탭 UI 도 마찬가지.
+    이전 V3.1 (2026-05-25) 의 11 bucket 은 D-60/D+60 (30일) / D-30~D+30
+    (10일) / D-Day (3일) 의 비대칭 폭이었으나 균등 폭으로 통일.
     """
-    assert len(WINDOW_BUCKETS) == 11
+    assert len(WINDOW_BUCKETS) == 9
     labels = [b[0] for b in WINDOW_BUCKETS]
     assert labels == [
-        "Pre", "D-60", "D-30", "D-20", "D-10", "D-Day",
-        "D+10", "D+20", "D+30", "D+60", "Post",
+        "Pre", "D-60", "D-40", "D-20", "D-Day",
+        "D+20", "D+40", "D+60", "Post",
     ]
     flat = [(lo, hi) for _, lo, hi in WINDOW_BUCKETS]
     assert flat == [
-        (-999999, -61),
-        (-60, -31),
-        (-30, -21),
-        (-20, -11),
-        (-10,  -2),
-        ( -1,   1),
-        (  2,  10),
-        ( 11,  20),
-        ( 21,  30),
-        ( 31,  60),
-        ( 61, 999999),
+        (-999999, -71),
+        (-70, -51),
+        (-50, -31),
+        (-30, -11),
+        (-10,   9),
+        ( 10,  29),
+        ( 30,  49),
+        ( 50,  69),
+        ( 70, 999999),
     ]
+    # 균등 20일 폭 회귀 가드 — named bucket 7개 모두 hi-lo+1 == 20.
+    named = [b for b in WINDOW_BUCKETS if b[0] not in ("Pre", "Post")]
+    assert all(hi - lo + 1 == 20 for _, lo, hi in named)
 
 
 @pytest.mark.parametrize("days,expected", [
-    (-30, "D-30"),
-    (-21, "D-30"),
+    # D-60: -70..-51
+    (-70, "D-60"),
+    (-60, "D-60"),
+    (-51, "D-60"),
+    # D-40: -50..-31
+    (-50, "D-40"),
+    (-40, "D-40"),
+    (-31, "D-40"),
+    # D-20: -30..-11
+    (-30, "D-20"),
     (-20, "D-20"),
-    (-15, "D-20"),
     (-11, "D-20"),
-    (-10, "D-10"),
-    (-2,  "D-10"),
+    # D-Day: -10..+9 (centered on debut)
+    (-10, "D-Day"),
     (-1,  "D-Day"),
     (0,   "D-Day"),
     (1,   "D-Day"),
-    (2,   "D+10"),
-    (10,  "D+10"),
-    (11,  "D+20"),
+    (9,   "D-Day"),
+    # D+20: 10..29
+    (10,  "D+20"),
     (20,  "D+20"),
-    (21,  "D+30"),
-    (30,  "D+30"),
+    (29,  "D+20"),
+    # D+40: 30..49
+    (30,  "D+40"),
+    (40,  "D+40"),
+    (49,  "D+40"),
+    # D+60: 50..69
+    (50,  "D+60"),
+    (60,  "D+60"),
+    (69,  "D+60"),
+    # Pre / Post catch-all
+    (-100, "Pre"),
+    (-71,  "Pre"),
+    (70,   "Post"),
+    (200,  "Post"),
 ])
 def test_bucket_for_returns_correct_bucket(days, expected):
     assert bucket_for(days) == expected
@@ -287,7 +306,7 @@ def test_build_video_organicity_scores_all_videos_emits_upserts():
                 "video_id": "vid_inside",
                 "group_key": "miiwan",
                 "is_short": 0,
-                "published_at": "2026-06-01T00:00:00Z",  # D-15 → D-20 bucket
+                "published_at": "2026-06-01T00:00:00Z",  # D-15 → D-15 bucket (V2.34)
                 "view_count": 500_000,
                 "like_count": 30_000,
                 "comment_count": 1_000,
@@ -321,7 +340,7 @@ def test_build_video_organicity_scores_all_videos_emits_upserts():
     by_id = {p[0]: p for p in params_list}
     assert set(by_id) == {"vid_inside", "vid_outside"}
 
-    # In-window video lands in D-20 bucket
+    # In-window video lands in D-20 bucket (V2.34 균등 20일 폭, -15 ∈ -30..-11)
     assert "D-20" in by_id["vid_inside"]
     # Out-of-window video lands in Pre bucket (V3.1)
     assert "Pre" in by_id["vid_outside"]
@@ -482,47 +501,47 @@ def test_compute_causes_signal_specific(setup, expected_causes):
 
 
 def test_bucket_for_d_minus_60_range():
-    """V3: -60 ~ -31 사이 영상은 D-60 bucket."""
+    """V2.34: -70 ~ -51 사이 영상은 D-60 bucket (20일 폭)."""
+    assert bucket_for(-70) == "D-60"
     assert bucket_for(-60) == "D-60"
-    assert bucket_for(-45) == "D-60"
-    assert bucket_for(-31) == "D-60"
+    assert bucket_for(-51) == "D-60"
 
 
 def test_bucket_for_d_plus_60_range():
-    """V3: +31 ~ +60 사이 영상은 D+60 bucket."""
-    assert bucket_for(31) == "D+60"
-    assert bucket_for(45) == "D+60"
+    """V2.34: +50 ~ +69 사이 영상은 D+60 bucket (20일 폭)."""
+    assert bucket_for(50) == "D+60"
     assert bucket_for(60) == "D+60"
+    assert bucket_for(69) == "D+60"
 
 
-def test_bucket_for_d_minus_30_d_minus_60_boundary():
-    """V3: -31 → D-60, -30 → D-30. 두 bucket 경계 정확."""
-    assert bucket_for(-31) == "D-60"
-    assert bucket_for(-30) == "D-30"
+def test_bucket_for_d_minus_40_d_minus_60_boundary():
+    """V2.34: -51 → D-60, -50 → D-40. 두 bucket 경계 정확 (20일 폭)."""
+    assert bucket_for(-51) == "D-60"
+    assert bucket_for(-50) == "D-40"
 
 
-def test_bucket_for_d_plus_30_d_plus_60_boundary():
-    """V3: +30 → D+30, +31 → D+60. 두 bucket 경계 정확."""
-    assert bucket_for(30) == "D+30"
-    assert bucket_for(31) == "D+60"
+def test_bucket_for_d_plus_40_d_plus_60_boundary():
+    """V2.34: +49 → D+40, +50 → D+60. 두 bucket 경계 정확."""
+    assert bucket_for(49) == "D+40"
+    assert bucket_for(50) == "D+60"
 
 
-def test_bucket_for_outside_pm_60_maps_to_pre_post():
-    """V3.1: ±60 밖 영상은 Pre/Post bucket 로 매핑 (V3 의 None 반환 폐지)."""
-    assert bucket_for(-61) == "Pre"
+def test_bucket_for_outside_pm_69_maps_to_pre_post():
+    """V2.34: ±69 밖 영상은 Pre/Post bucket 로 매핑 (20일 폭 7 bucket 의 catch-all)."""
+    assert bucket_for(-71) == "Pre"
     assert bucket_for(-100) == "Pre"
     assert bucket_for(-999999) == "Pre"
-    assert bucket_for(61) == "Post"
+    assert bucket_for(70) == "Post"
     assert bucket_for(100) == "Post"
     assert bucket_for(999999) == "Post"
 
 
 def test_bucket_for_pre_post_boundary():
-    """V3.1: Pre/Post 와 D-60/D+60 의 경계 정확."""
-    assert bucket_for(-61) == "Pre"
-    assert bucket_for(-60) == "D-60"
-    assert bucket_for(60) == "D+60"
-    assert bucket_for(61) == "Post"
+    """V2.34: Pre/Post 와 D-60/D+60 의 경계 정확."""
+    assert bucket_for(-71) == "Pre"
+    assert bucket_for(-70) == "D-60"
+    assert bucket_for(69) == "D+60"
+    assert bucket_for(70) == "Post"
 
 
 def test_bucket_for_extreme_values():

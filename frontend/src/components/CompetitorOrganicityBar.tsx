@@ -1,24 +1,18 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 
-// V2.22 (2026-05-14): split prior 5-bucket layout (D-60/D-30/D-Day/D+30/D+60,
-// each ~30d) into 7 ~10d buckets so the picker resolves to D-30/D-20/D-10/
-// D-Day/D+10/D+20/D+30.
-const BUCKETS = ["D-30", "D-20", "D-10", "D-Day", "D+10", "D+20", "D+30"] as const;
-type Bucket = typeof BUCKETS[number];
-
-// V3 (2026-05-25): worker WINDOW_BUCKETS 가 ±60 까지 확장. D-60 / D+60 row
-// 도 V3 계산이지만 picker 의 ±30 정밀도 7 탭 UX 를 유지하기 위해 D-60/D+60
-// 은 picker 에서 제외하고 fallback rank 의 마지막 ring 으로만 사용. ±30
-// 안에 영상 없는 그룹 (예: 데뷔 D-32 시점 MiiWAN) 은 EXTENDED bucket 으로
-// 라도 점수를 노출. UI 는 "extended (±60)" 라벨로 표기.
+// V2.34 (2026-05-27): worker WINDOW_BUCKETS 가 7 named bucket × 균등 20일
+// 폭으로 통일. V2.22 의 ±30 7탭 / V3 의 ±60 extended fallback hack 은 모두
+// 폭 비대칭 우회였고 균등 폭 통일 후 단일 7탭 picker 로 단순화.
 //
-// (이전 명칭: V2.22.3 의 LEGACY_BUCKETS — V3 backfill 이후 V2.21 legacy
-//  계산이 아니므로 변수/라벨 모두 갱신.)
-const EXTENDED_BUCKETS = ["D-60", "D+60"] as const;
-type ExtendedBucket = typeof EXTENDED_BUCKETS[number];
-type AnyBucket = Bucket | ExtendedBucket;
-const ALL_BUCKETS = [...BUCKETS, ...EXTENDED_BUCKETS] as readonly AnyBucket[];
+// 모든 탭이 동일한 표본 단위 (20일 윈도) → 그룹 간 점수 비교 시 sample
+// size warp 없음. extended/legacy stripe 도 폐기.
+const BUCKETS = [
+  "D-60", "D-40", "D-20", "D-Day", "D+20", "D+40", "D+60",
+] as const;
+type Bucket = typeof BUCKETS[number];
+type AnyBucket = Bucket;
+const ALL_BUCKETS = BUCKETS as readonly AnyBucket[];
 
 // V2.22.3 (2026-05-15): user-requested exclusion from the cohort
 // posture bar. ISEDOL/STELLIVE are 서브컬처 (segmentary / confederation)
@@ -62,10 +56,6 @@ interface DisplayRow {
   sample_count: number;
   display_mode: DisplayMode;
   shown_bucket: AnyBucket;
-  /** True when shown_bucket is an extended ±60 bucket (D-60 / D+60).
-   *  UI renders these with a distinct stripe + "extended" tag so the
-   *  operator knows the score came from outside the ±30 picker range. */
-  extended: boolean;
 }
 
 function scoreFor(row: SummaryRow, mode: Mode): number | null {
@@ -94,11 +84,9 @@ function colorForScore(score: number | null): string {
 // Pick what to display for a single group under selected (bucket, mode).
 // - exact: the selected bucket has a non-null score for this mode.
 // - current: selected bucket empty for this mode → fall back to the group's
-//   chronologically latest bucket whose mode column is non-null. First the
-//   V2.22 ±30 BUCKETS (chronological reverse), then the V3 EXTENDED_BUCKETS
-//   (D-60 / D+60) as a last resort so pre-window groups (e.g. MiiWAN
-//   currently at D-32) still show up with an explicit @bucket marker.
-//   extended=true on the row triggers a distinct UI stripe.
+//   chronologically latest bucket whose mode column is non-null (BUCKETS
+//   reverse iteration: D+60 → D-60). 모든 bucket 이 균등 20일 폭이라
+//   별도 extended tier 불필요 (V2.34).
 // - none: the group has no scoreable data in any bucket for this mode.
 function pickDisplayRow(
   byBucket: Map<AnyBucket, SummaryRow>,
@@ -114,10 +102,9 @@ function pickDisplayRow(
       sample_count: sampleCountFor(exact, mode),
       display_mode: "exact",
       shown_bucket: selected,
-      extended: false,
     };
   }
-  // V2.22 buckets first (chronologically newest → oldest).
+  // 균등 폭 BUCKETS 를 chronologically newest → oldest 로 순회.
   for (let i = BUCKETS.length - 1; i >= 0; i--) {
     const b = BUCKETS[i]!;
     const row = byBucket.get(b);
@@ -128,21 +115,6 @@ function pickDisplayRow(
         sample_count: sampleCountFor(row, mode),
         display_mode: "current",
         shown_bucket: b,
-        extended: false,
-      };
-    }
-  }
-  // Extended ±60 buckets as final fallback (D-60 / D+60). V3 calculation.
-  for (const b of EXTENDED_BUCKETS) {
-    const row = byBucket.get(b);
-    if (row && scoreFor(row, mode) !== null) {
-      return {
-        group_key: groupKey,
-        score: scoreFor(row, mode),
-        sample_count: sampleCountFor(row, mode),
-        display_mode: "current",
-        shown_bucket: b,
-        extended: true,
       };
     }
   }
@@ -152,12 +124,13 @@ function pickDisplayRow(
     sample_count: 0,
     display_mode: "none",
     shown_bucket: selected,
-    extended: false,
   };
 }
 
 export function CompetitorOrganicityBar() {
-  const [bucket, setBucket] = useState<Bucket>("D-30");
+  // V2.34: 기본 D-Day (균등 20일 폭 7탭 의 중앙). 데뷔 모먼트 기준 비교가
+  // posture bar 의 가장 자주 쓰이는 view 라 첫 진입 시 즉시 정보 노출.
+  const [bucket, setBucket] = useState<Bucket>("D-Day");
   const [mode, setMode] = useState<Mode>("all_weighted");
   const [allRows, setAllRows] = useState<SummaryRow[] | null>(null);
 
@@ -197,9 +170,8 @@ export function CompetitorOrganicityBar() {
   });
 
   const fallbackCount = sorted.filter(
-    (r) => r.display_mode === "current" && !r.extended,
+    (r) => r.display_mode === "current",
   ).length;
-  const extendedCount = sorted.filter((r) => r.extended).length;
 
   return (
     <section class="cob-section">
@@ -228,17 +200,12 @@ export function CompetitorOrganicityBar() {
           const isOurs = r.group_key === "miiwan";
           const label = r.score === null ? "N/A" : Math.round(r.score).toString();
           const isFallback = r.display_mode === "current";
-          // class 명은 css 호환을 위해 'legacy' 유지 (시각 stripe 토큰).
-          const fillClass = "cob-bar-fill"
-            + (isFallback ? " fallback" : "")
-            + (r.extended ? " legacy" : "");
+          const fillClass = "cob-bar-fill" + (isFallback ? " fallback" : "");
           const tooltip = r.display_mode === "none"
             ? `${MODE_LABEL[mode]}: 데이터 없음`
-            : r.extended
-              ? `±30 윈도우 안에 영상 없음 — V3 ±60 확장 bucket(${r.shown_bucket}) 점수 표시 · ${r.sample_count} videos`
-              : isFallback
-                ? `선택 버킷 데이터 없음 — 현재 시점(${r.shown_bucket}) 점수 표시 · ${r.sample_count} videos`
-                : `${r.sample_count} videos`;
+            : isFallback
+              ? `선택 버킷 데이터 없음 — 현재 시점(${r.shown_bucket}) 점수 표시 · ${r.sample_count} videos`
+              : `${r.sample_count} videos`;
           return (
             <div class={`cob-row ${isOurs ? "ours" : ""}`} key={r.group_key} title={tooltip}>
               <div class="cob-name">{r.group_key.toUpperCase()}</div>
@@ -249,9 +216,7 @@ export function CompetitorOrganicityBar() {
               <div class="cob-score">
                 <span class="cob-score-value">{label}</span>
                 {isFallback && (
-                  <span class={"cob-current-tag" + (r.extended ? " legacy" : "")}>
-                    @{r.shown_bucket}{r.extended ? " extended" : ""}
-                  </span>
+                  <span class="cob-current-tag">@{r.shown_bucket}</span>
                 )}
               </div>
               {isOurs && <div class="cob-tag">← ours</div>}
@@ -264,11 +229,6 @@ export function CompetitorOrganicityBar() {
         {fallbackCount > 0 && (
           <> · <span class="cob-fallback-note">
             {fallbackCount}개 그룹은 해당 버킷 데이터 없어 현재 시점 점수로 표시 (@버킷)
-          </span></>
-        )}
-        {extendedCount > 0 && (
-          <> · <span class="cob-fallback-note legacy">
-            {extendedCount}개 그룹은 ±30 윈도우에 영상 없어 V3 ±60 확장 bucket 점수 표시 (@bucket extended)
           </span></>
         )}
       </div>

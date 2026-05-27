@@ -2,7 +2,11 @@ import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { DebutWindowSignalPanel } from "./DebutWindowSignalPanel";
 
-const BUCKETS = ["D-60", "D-30", "D-Day", "D+30", "D+60"] as const;
+// V2.34 (2026-05-27): 균등 20일 폭 7 bucket. worker WINDOW_BUCKETS 와 1:1.
+// 이전 5탭 (D-60/D-30/D-Day/D+30/D+60) 은 비대칭 폭의 union 매핑이었음.
+const BUCKETS = [
+  "D-60", "D-40", "D-20", "D-Day", "D+20", "D+40", "D+60",
+] as const;
 type Bucket = typeof BUCKETS[number];
 type FilterType = "all" | "long" | "short";
 type ViewMode = "debut" | "all";
@@ -83,7 +87,8 @@ function fmtPublishedDate(iso: string | undefined): string {
 
 export function DebutWindowVideoTable({ groupKey }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("debut");
-  const [bucket, setBucket] = useState<Bucket>("D-30");
+  // V2.34: 기본 D-Day. 7탭 grid 의 중앙 + 데뷔 모먼트 영상 우선 노출.
+  const [bucket, setBucket] = useState<Bucket>("D-Day");
   const [filterType, setFilterType] = useState<FilterType>("all");
   // Debut Window view rows
   const [rows, setRows] = useState<VideoRow[] | null>(null);

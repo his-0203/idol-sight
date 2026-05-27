@@ -1,23 +1,23 @@
 // frontend/functions/lib/debutWindowBuckets.ts
 //
-// V3 (2026-05-25): frontend 5 탭 ↔ worker 9 bucket union 매핑 (single source
-// of truth). videos.ts / summary.ts 양쪽에서 공유.
+// V2.34 (2026-05-27): worker WINDOW_BUCKETS 가 9 named bucket 으로 균등
+// 15일 폭 통일됨 (이전 V3.1 의 비대칭 11 bucket 폐기). frontend UI 도
+// 동일하게 9 탭 노출 → worker bucket ↔ frontend bucket 이 1:1 identity
+// 매핑. 이전 V3 의 union 매핑 (D-30 → [D-30, D-20, D-10]) 은 폭 비대칭
+// 결과를 5탭 UI 에 합쳤던 우회였고 균등 폭 통일 후 불필요.
 //
-// Worker WINDOW_BUCKETS (analysis/debut_window.py) 는 V2.22 의 ±30 10일
-// 정밀도 (D-30/D-20/D-10/D+10/D+20/D+30) 를 유지하면서 ±60 까지 확장됐다.
-// frontend UI 는 5 탭 (D-60/D-30/D-Day/D+30/D+60) 만 노출하므로, 5 탭 →
-// worker bucket(s) union 매핑이 필요. summary 도 동일 매핑으로 GROUP BY.
-//
-// V3.1 (2026-05-25): worker 가 Pre/Post bucket 도 저장하지만 5 탭 UI 에는
-// 포함하지 않음. 매핑에서 자동 제외 → KPI/CompetitorOrganicityBar 무영향.
-//
-// spec docs/superpowers/specs/2026-05-25-debut-window-expansion-and-all-time-view-design.md §3.3
+// summary.ts / videos.ts 양쪽이 이 모듈을 single source of truth 로 공유.
 
+// V2.34: identity map. 키 = worker bucket = frontend bucket.
+// 의도적으로 List value 를 유지 — summary.ts 의 GROUP BY CASE 빌더와
+// videos.ts 의 WHERE IN() 빌더가 둘 다 array iteration 을 가정하기 때문.
 export const FRONTEND_BUCKET_MAP: Record<string, string[]> = {
   "D-60":  ["D-60"],
-  "D-30":  ["D-30", "D-20", "D-10"],
+  "D-40":  ["D-40"],
+  "D-20":  ["D-20"],
   "D-Day": ["D-Day"],
-  "D+30":  ["D+10", "D+20", "D+30"],
+  "D+20":  ["D+20"],
+  "D+40":  ["D+40"],
   "D+60":  ["D+60"],
 };
 
