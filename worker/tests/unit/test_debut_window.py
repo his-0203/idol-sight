@@ -405,15 +405,18 @@ def test_build_summary_groups_by_bucket_with_view_weighted_mean():
         ],
     })
     result = build_summary(client)
-    sqls = [s[0] for s in result.statements]
-    params_list = [s[1] for s in result.statements]
-    assert len(result.statements) == 1
-    assert "INSERT INTO debut_window_organicity_summary" in sqls[0]
+    # statements[0] is the table-clearing DELETE (see
+    # test_build_summary_prunes_stale_rows_with_leading_delete); the single
+    # group/bucket here produces exactly one upsert after it.
+    assert len(result.statements) == 2
+    upserts = [s for s in result.statements
+               if "INSERT INTO debut_window_organicity_summary" in s[0]]
+    assert len(upserts) == 1
     # V2.21 params (17 cols): group_key, bucket, video_count, long_count, short_count,
     #         score_mean, _mean_long, _mean_short, _mean_simple,
     #         strong_ratio, organic_ratio, borderline_ratio, suspect_ratio, likely_ratio,
     #         total_views, total_engagement, computed_at
-    p = params_list[0]
+    p = upserts[0][1]
     assert p[0] == "plave"
     assert p[1] == "D-30"
     assert p[2] == 6               # total video_count
@@ -444,6 +447,37 @@ def test_build_summary_groups_by_bucket_with_view_weighted_mean():
         60_000 + 2_000 + 30_000 + 1_000 + 12_000 + 600
         + 4_000 + 50 + 10_000 + 100 + 1 + 0
     )
+
+
+def test_build_summary_prunes_stale_rows_with_leading_delete():
+    """build_summary is a full recompute from the per-video table, so it must
+    emit a leading ``DELETE FROM debut_window_organicity_summary`` before the
+    rebuild upserts. Otherwise (group, bucket) rows that emptied out — e.g.
+    when a group's debut_date shifts and all its videos move to the Pre bucket
+    — persist with frozen scores and are served by the frontend forever.
+
+    Regression for the wegosix 2026-08-31 debut-shift incident: migration 0074
+    moved the debut date but build_summary only upserted, leaving stale
+    D-Day/D-20/D+20 summary rows that the main-page DebutWindowKPI kept showing.
+    """
+    client = _client({
+        "FROM debut_window_video_organicity": [
+            # After the debut shift all wegosix videos land in Pre.
+            {"group_key": "wegosix", "window_bucket": "Pre", "is_short": 0,
+             "view_count": 10_000, "organic_score": 80, "verdict": "organic_strong",
+             "like_count": 500, "comment_count": 20},
+        ],
+    })
+    result = build_summary(client)
+    sqls = [s[0] for s in result.statements]
+    # First statement clears the whole summary table.
+    assert sqls[0].strip().upper().startswith(
+        "DELETE FROM DEBUT_WINDOW_ORGANICITY_SUMMARY"
+    )
+    # The DELETE carries no parameters.
+    assert result.statements[0][1] == []
+    # …and the rebuild upserts follow it.
+    assert any("INSERT INTO debut_window_organicity_summary" in s for s in sqls)
 
 
 def test_compute_causes_attaches_viral_real_on_organic_strong():

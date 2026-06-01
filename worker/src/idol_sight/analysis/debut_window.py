@@ -395,6 +395,16 @@ FROM debut_window_video_organicity
 """
 
 
+# build_summary is a full recompute from the per-video table, so the summary
+# table is cleared before the rebuild upserts. Without this, a (group, bucket)
+# row that emptied out — e.g. when a group's debut_date shifts (migration 0074
+# moved wegosix to 2026-08-31, pushing every existing video into the Pre
+# bucket) — would survive with a frozen score because the upserts only touch
+# buckets that still have videos. The leading DELETE keeps the summary an exact
+# mirror of the current per-video classification.
+_CLEAR_SUMMARY_SQL = "DELETE FROM debut_window_organicity_summary"
+
+
 _UPSERT_SUMMARY_SQL = """
 INSERT INTO debut_window_organicity_summary
   (group_key, window_bucket, video_count, long_form_count, short_form_count,
@@ -451,7 +461,11 @@ def build_summary(client: _Executor) -> CollectionResult:
     for r in rows:
         grouped[(r["group_key"], r["window_bucket"])].append(r)
 
-    statements: list[tuple[str, list[Any]]] = []
+    # Clear first so emptied (group, bucket) rows don't persist (see
+    # _CLEAR_SUMMARY_SQL). Sequenced ahead of the rebuild upserts in the same
+    # batch; a partial-write failure surfaces as a non-zero orchestrator exit
+    # and the next cron rebuilds from scratch.
+    statements: list[tuple[str, list[Any]]] = [(_CLEAR_SUMMARY_SQL, [])]
     for (group_key, bucket), bucket_rows in grouped.items():
         scored = [r for r in bucket_rows if r.get("verdict") != "insufficient_data"]
         scored_long = [r for r in scored if not (r.get("is_short") or 0)]
