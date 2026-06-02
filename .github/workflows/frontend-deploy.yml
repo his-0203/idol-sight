@@ -34,10 +34,14 @@ jobs:
         run: echo "subject=$(git log -1 --pretty=%s)" >> "$GITHUB_OUTPUT"
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+        # @v4 는 node24 런타임 (v3 는 node20 → 2026-06-16 deprecation).
+        # wranglerVersion 핀: @v4 기본값이 wrangler CLI v4 라, 배포 동작을
+        # 그대로 두기 위해 repo lockfile 과 동일한 v3 (3.114.17) 로 고정.
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          wranglerVersion: "3.114.17"
           workingDirectory: frontend
           command: >-
             pages deploy dist
