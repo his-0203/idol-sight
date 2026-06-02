@@ -22,6 +22,14 @@ interface TrendRow {
 interface SummaryRow {
   group_key: string; yt_subscribers: number | null;
 }
+interface ChallengeRow {
+  week_start: string; rank: number; name: string; tag: string;
+  description: string | null; origin: string | null;
+  hashtags: string | null; example_video_ids: string | null;
+  yt_recent_shorts: number | null; yt_total_views: number | null;
+  miiwan_fit: string | null; source_urls: string | null;
+  confidence: string | null; generated_at: string;
+}
 
 const parseJsonArr = (s: string | null): string[] => {
   try { const v = s ? JSON.parse(s) : []; return Array.isArray(v) ? v.map(String) : []; }
@@ -75,6 +83,26 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         AND snapshot_at = (SELECT MAX(snapshot_at) FROM agg_member_popularity WHERE group_key = ?)`,
     [SELF_KEY, SELF_KEY]);
 
+  // 최신 주차 챌린지. 테이블 미적용(원격 migration 전) 이면 graceful 빈 배열.
+  let challenges: Array<Record<string, unknown>> = [];
+  try {
+    const rows = await d1Query<ChallengeRow>(env.DB,
+      `SELECT * FROM weekly_challenges
+        WHERE week_start = (SELECT MAX(week_start) FROM weekly_challenges)
+        ORDER BY rank`);
+    challenges = rows.map((r) => ({
+      rank: r.rank, name: r.name, tag: r.tag, description: r.description,
+      origin: r.origin, hashtags: parseJsonArr(r.hashtags),
+      example_video_ids: parseJsonArr(r.example_video_ids),
+      yt_recent_shorts: r.yt_recent_shorts, yt_total_views: r.yt_total_views,
+      miiwan_fit: r.miiwan_fit, source_urls: parseJsonArr(r.source_urls),
+      confidence: r.confidence, week_start: r.week_start,
+      generated_at: r.generated_at,
+    }));
+  } catch {
+    challenges = [];
+  }
+
   const self = groups.find((g) => g.key === SELF_KEY);
   const s = summaryNow[0];
   const input: DiagnosticInput = {
@@ -94,5 +122,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     trend,
     groups: groups.filter((g) => g.key !== SELF_KEY).map((g) => ({ key: g.key, name_kr: g.name_kr })),
     diagnostic: buildDiagnostic(input),
+    challenges,
   });
 };

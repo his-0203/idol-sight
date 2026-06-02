@@ -36,6 +36,16 @@ function baseEnv(over: Partial<Record<string, any[]>> = {}) {
     if (sql.includes("FROM agg_summary")) {
       return over.summary ?? [{ group_key: "miiwan", yt_subscribers: 1300 }];
     }
+    if (sql.includes("FROM weekly_challenges")) {
+      return over.challenges ?? [
+        { week_start: "2026-06-01", rank: 1, name: "Magnetic 챌린지", tag: "kpop",
+          description: "포인트 안무", origin: "ILLIT - Magnetic",
+          hashtags: '["#Magnetic"]', example_video_ids: '["v1"]',
+          yt_recent_shorts: 42, yt_total_views: 1000000, miiwan_fit: "안무 단순",
+          source_urls: '["http://s"]', confidence: "high",
+          generated_at: "2026-06-01T01:00:00Z" },
+      ];
+    }
     if (sql.includes("FROM agg_member_popularity")) {
       return over.members ?? [{ composite_score: 3 }, { composite_score: 2 }, { composite_score: 1 }];
     }
@@ -52,6 +62,9 @@ describe("/api/shorts-trend", () => {
     expect(body.groups.some((g: any) => g.key === "plave")).toBe(true);
     expect(body.diagnostic.group_key).toBe("miiwan");
     expect(body.diagnostic.dimensions.discoverability.length).toBeGreaterThan(0);
+    expect(body.challenges).toHaveLength(1);
+    expect(body.challenges[0].name).toBe("Magnetic 챌린지");
+    expect(body.challenges[0].hashtags).toEqual(["#Magnetic"]);
   });
 
   it("MiiWAN 은 트렌드(경쟁사) 목록에서 제외", async () => {
@@ -67,5 +80,23 @@ describe("/api/shorts-trend", () => {
     } as any);
     const body = await res.json() as any;
     expect(body.diagnostic.shorts_n).toBe(0);
+  });
+
+  it("weekly_challenges 테이블 부재/에러 시 challenges 빈 배열", async () => {
+    const env = {
+      DB: { prepare: vi.fn((sql: string) => ({
+        bind: vi.fn().mockReturnThis(),
+        all: vi.fn(async () => {
+          if (sql.includes("FROM weekly_challenges")) throw new Error("no such table");
+          if (sql.includes("FROM groups")) return { results: [
+            { key: "miiwan", name: "MiiWAN", name_kr: "미완소년", context_keywords: "[]" }] };
+          return { results: [] };
+        }),
+        first: vi.fn(async () => null),
+      })) },
+    } as any;
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.challenges).toEqual([]);
   });
 });
