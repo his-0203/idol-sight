@@ -17,7 +17,6 @@ from typing import Any, Protocol
 from idol_sight.analysis import weekly_diagnosis_signals as _S
 from idol_sight.analysis.weekly_diagnosis_signals import IRRELEVANT_RATIO_THRESHOLD
 
-
 HYPOTHESIS_KEYS: tuple[str, ...] = (
     "organic_growth",
     "paid_youtube_ads",
@@ -88,9 +87,7 @@ def _is_lit(
     if sig_entry.get("temporal_z", 0.0) >= z_threshold:
         return True
     wow = sig_entry.get("wow_pct")
-    if wow is not None and wow >= wow_threshold:
-        return True
-    return False
+    return wow is not None and wow >= wow_threshold
 
 
 def _evidence_3axis(
@@ -121,7 +118,8 @@ def _evidence_3axis(
 
 def _check_organic_growth(sig: dict) -> Hypothesis | None:
     # ER 시그널이 없으면 (신규 그룹의 prev_er=0 등) "ER 안정" 단정 불가 → organic 차단.
-    # MiiWAN 데뷔 첫 주 같은 경우에 false positive 차단 (spec rev 2 §3.1 의 organic 조건 "ER 안정" 강제).
+    # MiiWAN 데뷔 첫 주 같은 경우에 false positive 차단
+    # (spec rev 2 §3.1 의 organic 조건 "ER 안정" 강제).
     er_wow = sig.get("er_wow")
     if er_wow is None:
         return None
@@ -136,9 +134,11 @@ def _check_organic_growth(sig: dict) -> Hypothesis | None:
     if _is_lit(sig["news"], wow_threshold=_S.NEWS_WOW_LIT):
         lit_signals.append(_evidence_3axis("news", sig["news"], wow_threshold=_S.NEWS_WOW_LIT))
     if _is_lit(sig["community"], wow_threshold=_S.COMMUNITY_WOW_LIT):
-        lit_signals.append(_evidence_3axis("community", sig["community"], wow_threshold=_S.COMMUNITY_WOW_LIT))
+        lit_signals.append(_evidence_3axis("community", sig["community"],
+                                           wow_threshold=_S.COMMUNITY_WOW_LIT))
     if sig["market_share_z"] >= Z_THRESHOLD_PRIMARY:
-        lit_signals.append(Evidence("market_share_z", sig["market_share_z"], f"share z={sig['market_share_z']:.1f}"))
+        lit_signals.append(Evidence("market_share_z", sig["market_share_z"],
+                                    f"share z={sig['market_share_z']:.1f}"))
     if len(lit_signals) < 4:
         return None
     return Hypothesis(key="organic_growth", confidence="high", evidence=lit_signals)
@@ -793,7 +793,8 @@ def compute_group_signals(
                 "event_match":     _S.group_event_within_window(
                     events_by.get(gk, []), week_start=week_start, week_end=week_end,
                 ),
-                "music_streak":    _S.music_show_consecutive_wins(music_show_by.get(gk, []))["consecutive"],
+                "music_streak":
+                    _S.music_show_consecutive_wins(music_show_by.get(gk, []))["consecutive"],
                 "hanteo_sales":    0,    # V1: hanteo_weekly 별도 쿼리 — 후속
                 "chart_peak":      now.get("melon_top100_peak"),
                 "video_upload_z":  0.0,   # V1: youtube_videos 별도 쿼리 — 후속

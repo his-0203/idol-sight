@@ -196,8 +196,8 @@ def test_prompt_weekly_covers_all_canonical_hypotheses():
     weekly_diagnosis 의 enum 이 단일 source of truth — prompt drift 방지.
     한 가설이 enum block 에서 누락되면 LLM 이 그 가설명을 발명하거나 omit 한다.
     """
-    from idol_sight.llm.prompts import PROMPT_WEEKLY
     from idol_sight.analysis.weekly_diagnosis import HYPOTHESIS_KEYS
+    from idol_sight.llm.prompts import PROMPT_WEEKLY
     for key in HYPOTHESIS_KEYS:
         assert key in PROMPT_WEEKLY, f"hypothesis {key!r} missing from prompt"
 

@@ -39,6 +39,10 @@ src = ["src"]
 [tool.ruff.lint]
 select = ["E","F","I","UP","B","SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+# 테스트는 픽스처/그룹 단위로 import 를 함수 사이에 두는 패턴 허용.
+"tests/**" = ["E402"]
+
 [tool.pyright]
 include = ["src", "tests"]
 typeCheckingMode = "basic"

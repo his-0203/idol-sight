@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock
+
 from idol_sight.llm.gemini import GeminiClient
 
 

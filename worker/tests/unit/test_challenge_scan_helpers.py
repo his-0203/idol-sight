@@ -1,8 +1,14 @@
 import json
+
 from idol_sight.analysis.challenge_scan import (
-    Challenge, parse_structured_challenges, week_start_kst, iso_days_ago,
-    select_and_rank, build_upsert_statements, extract_video_id,
+    Challenge,
+    build_upsert_statements,
+    extract_video_id,
+    iso_days_ago,
+    parse_structured_challenges,
     search_query_for,
+    select_and_rank,
+    week_start_kst,
 )
 
 
@@ -84,15 +90,15 @@ def test_parse_extracts_example_urls_to_candidate_ids():
 
 def test_week_start_kst_monday():
     import datetime as dt
-    e = dt.datetime(2026, 6, 2, 5, 0, tzinfo=dt.timezone.utc).timestamp()
+    e = dt.datetime(2026, 6, 2, 5, 0, tzinfo=dt.UTC).timestamp()
     assert week_start_kst(e) == "2026-06-01"
-    e2 = dt.datetime(2026, 6, 7, 22, 0, tzinfo=dt.timezone.utc).timestamp()
+    e2 = dt.datetime(2026, 6, 7, 22, 0, tzinfo=dt.UTC).timestamp()
     assert week_start_kst(e2) == "2026-06-08"
 
 
 def test_iso_days_ago():
     import datetime as dt
-    e = dt.datetime(2026, 6, 8, 0, 0, tzinfo=dt.timezone.utc).timestamp()
+    e = dt.datetime(2026, 6, 8, 0, 0, tzinfo=dt.UTC).timestamp()
     assert iso_days_ago(e, 7) == "2026-06-01T00:00:00Z"
 
 

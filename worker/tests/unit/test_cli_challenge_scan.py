@@ -1,5 +1,7 @@
 from unittest.mock import patch
+
 from typer.testing import CliRunner
+
 from idol_sight.cli import app
 
 runner = CliRunner()

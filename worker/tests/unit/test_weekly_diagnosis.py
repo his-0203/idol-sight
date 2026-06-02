@@ -1,10 +1,11 @@
 """weekly_diagnosis — 가설 분류 + confidence + 메타가드."""
 
-import math
 
 from idol_sight.analysis.weekly_diagnosis import (
-    HYPOTHESIS_KEYS, CONFIDENCE_LEVELS,
-    Evidence, Hypothesis, GroupSignals,
+    CONFIDENCE_LEVELS,
+    HYPOTHESIS_KEYS,
+    GroupSignals,
+    Hypothesis,
     classify_hypotheses,
 )
 
@@ -94,7 +95,8 @@ def test_paid_youtube_ads_high_views_low_er():
     assert paid is not None
     assert paid.confidence == "high"
     # subs_views_ratio (= subs_z - views_z) 음수 큼 → evidence 에 명시
-    assert any("views" in e.key.lower() or "engagement" in e.key.lower() or "organicity" in e.key.lower()
+    assert any("views" in e.key.lower() or "engagement" in e.key.lower()
+               or "organicity" in e.key.lower()
                for e in paid.evidence)
 
 
@@ -332,6 +334,7 @@ def test_insufficient_signal_when_no_hypotheses_lit():
 
 
 from unittest.mock import MagicMock
+
 from idol_sight.analysis.weekly_diagnosis import compute_group_signals
 
 
@@ -636,7 +639,8 @@ def test_paid_ads_stricter_wow_threshold():
     sig_paid["subs"]  = {"category_z": 0.2, "temporal_z": 0.2, "wow_pct": 0.01}
     sig_paid["er_wow"] = -0.25
     sig_paid["organicity_paid"] = 0.40
-    # 25% WoW 면 점등 — views 시그널 + ER + organicity = 3개 (subs/views gap 은 둘 다 category_z 작아서 False)
+    # 25% WoW 면 점등 — views 시그널 + ER + organicity = 3개
+    # (subs/views gap 은 둘 다 category_z 작아서 False)
     assert any(h.key == "paid_youtube_ads" for h in classify_hypotheses(sig_paid))
 
 

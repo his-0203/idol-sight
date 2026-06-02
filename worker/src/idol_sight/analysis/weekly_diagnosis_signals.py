@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import math
 from datetime import date, timedelta
 from statistics import mean, stdev
 from typing import Any
@@ -208,7 +207,8 @@ def member_centric_signals(
         (float(t1_now) - float(t1_prev)) if (t1_now is not None and t1_prev is not None) else None
     )
     hhi_wow = (
-        (float(hhi_now) - float(hhi_prev)) if (hhi_now is not None and hhi_prev is not None) else None
+        (float(hhi_now) - float(hhi_prev))
+        if (hhi_now is not None and hhi_prev is not None) else None
     )
 
     lit = (

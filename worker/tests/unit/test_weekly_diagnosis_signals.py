@@ -1,26 +1,26 @@
 """weekly_diagnosis_signals — 순수 함수 단위 테스트."""
 
 import math
-from idol_sight.analysis.weekly_diagnosis_signals import cohort_z_score
-from idol_sight.analysis.weekly_diagnosis_signals import wow_ratio, metric_delta
+
 from idol_sight.analysis.weekly_diagnosis_signals import (
-    engagement_rate_from_agg, engagement_rate_wow_drop,
-    views_per_sub, views_per_sub_wow_drop,
-)
-from idol_sight.analysis.weekly_diagnosis_signals import organicity_paid_ratio
-from idol_sight.analysis.weekly_diagnosis_signals import (
-    reactivity_dominant_platform, REACTIVITY_DOMINANCE_THRESHOLD,
-)
-from idol_sight.analysis.weekly_diagnosis_signals import member_centric_signals
-from idol_sight.analysis.weekly_diagnosis_signals import (
-    group_event_within_window, music_show_consecutive_wins,
-)
-from idol_sight.analysis.weekly_diagnosis_signals import (
-    negative_keyword_z, twitter_controversy_z, NEGATIVE_KEYWORDS,
-)
-from idol_sight.analysis.weekly_diagnosis_signals import (
-    irrelevant_flag_ratio, data_source_warning,
     IRRELEVANT_RATIO_THRESHOLD,
+    NEGATIVE_KEYWORDS,
+    cohort_z_score,
+    data_source_warning,
+    engagement_rate_from_agg,
+    engagement_rate_wow_drop,
+    group_event_within_window,
+    irrelevant_flag_ratio,
+    member_centric_signals,
+    metric_delta,
+    music_show_consecutive_wins,
+    negative_keyword_z,
+    organicity_paid_ratio,
+    reactivity_dominant_platform,
+    twitter_controversy_z,
+    views_per_sub,
+    views_per_sub_wow_drop,
+    wow_ratio,
 )
 
 
@@ -404,10 +404,17 @@ def test_data_source_warning_mixed_backfill_and_manual_seed():
 # ---------------------------------------------------------------------------
 
 from idol_sight.analysis.weekly_diagnosis_signals import (
-    temporal_z_score, wow_pct, _category_of,
-    SUBS_WOW_LIT, VIEWS_WOW_LIT, VIEWS_WOW_PAID,
-    SUBS_WOW_SUB_PURCHASE, NEWS_WOW_LIT, COMMUNITY_WOW_LIT,
-    TEMPORAL_HISTORY_WEEKS, CATEGORY_COHORT_MIN,
+    CATEGORY_COHORT_MIN,
+    COMMUNITY_WOW_LIT,
+    NEWS_WOW_LIT,
+    SUBS_WOW_LIT,
+    SUBS_WOW_SUB_PURCHASE,
+    TEMPORAL_HISTORY_WEEKS,
+    VIEWS_WOW_LIT,
+    VIEWS_WOW_PAID,
+    _category_of,
+    temporal_z_score,
+    wow_pct,
 )
 
 

@@ -139,7 +139,9 @@ class GeminiClient:
     def generate_grounded(self, *, prompt: str) -> GroundedResult:
         """Google Search grounding 으로 prompt 를 조사해 텍스트+출처를 반환."""
         from google.genai.types import (
-            GenerateContentConfig, Tool, GoogleSearch,
+            GenerateContentConfig,
+            GoogleSearch,
+            Tool,
         )
         config = GenerateContentConfig(
             tools=[Tool(google_search=GoogleSearch())],
