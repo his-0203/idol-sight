@@ -1,7 +1,7 @@
 import json
 from idol_sight.analysis.challenge_scan import (
     Challenge, parse_structured_challenges, week_start_kst, iso_days_ago,
-    select_and_rank, build_upsert_statements,
+    select_and_rank, build_upsert_statements, extract_video_id,
 )
 
 
@@ -19,6 +19,34 @@ def test_parse_structured_challenges():
     assert chs[1].origin == ""
     assert parse_structured_challenges({}) == []
     assert parse_structured_challenges({"challenges": "nope"}) == []
+
+
+def test_extract_video_id():
+    assert extract_video_id("https://www.youtube.com/shorts/abcdefghijk") == "abcdefghijk"
+    assert extract_video_id("https://youtu.be/12345678901") == "12345678901"
+    assert extract_video_id("https://www.youtube.com/watch?v=ABCDEFGHIJK") == "ABCDEFGHIJK"
+    assert extract_video_id("https://example.com/x") is None
+    assert extract_video_id("") is None
+
+
+def test_parse_extracts_example_urls_to_candidate_ids():
+    payload = {"challenges": [{
+        "name": "A", "tag": "kpop", "hashtags": [], "source_urls": [],
+        "confidence": "high", "miiwan_fit": "",
+        "example_urls": [
+            "https://www.youtube.com/shorts/abcdefghijk",
+            "https://youtu.be/12345678901",
+            "https://example.com/not-youtube",                 # 파싱 안 됨 → 버림
+            "https://www.youtube.com/shorts/abcdefghijk",      # 중복 → 제거
+        ],
+    }]}
+    chs = parse_structured_challenges(payload)
+    assert chs[0].candidate_video_ids == ["abcdefghijk", "12345678901"]
+    # example_urls 없으면 후보 빈 리스트
+    assert parse_structured_challenges(
+        {"challenges": [{"name": "B", "tag": "general", "hashtags": [],
+                         "source_urls": [], "confidence": "low", "miiwan_fit": ""}]}
+    )[0].candidate_video_ids == []
 
 
 def test_week_start_kst_monday():

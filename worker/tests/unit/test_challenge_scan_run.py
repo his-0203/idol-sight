@@ -10,33 +10,36 @@ def _now():
     return dt.datetime(2026, 6, 2, 5, 0, tzinfo=dt.timezone.utc).timestamp()
 
 
-def test_measure_challenge_examples_only_shorts():
-    # videoDuration=short(<4분) 결과에 MV(200s)·롱폼이 섞여 와도, 예시는 ≤60s 숏츠만.
-    yt = MagicMock()
-    yt.search_shorts.return_value = ["mv", "s1", "s2", "nodur"]
-    yt.fetch_stats.return_value = [
-        {"video_id": "mv", "views": 9999, "duration_sec": 200, "title": "공식 MV"},
-        {"video_id": "s1", "views": 500, "duration_sec": 30, "title": "챌린지"},
-        {"video_id": "s2", "views": 800, "duration_sec": 45, "title": "챌린지2"},
-        {"video_id": "nodur", "views": 7000, "duration_sec": 0, "title": "길이불명"},
-    ]
+def test_measure_challenge_examples_from_verified_llm_candidates():
+    # 예시 = LLM 제시 후보를 API 검증한 결과. MV(>60s)·미존재 제외, LLM 순서 보존,
+    # 조회수 정렬 안 함(view=인기≠관련성). 지표(yt_recent_shorts)는 별도 검색 표본.
     ch = Challenge(name="C", tag="kpop", description="", origin="", hashtags=["#c"],
-                   source_urls=[], confidence="high", miiwan_fit="")
+                   source_urls=[], confidence="high", miiwan_fit="",
+                   candidate_video_ids=["mv", "s1", "ghost", "s2"])
+    yt = MagicMock()
+    yt.search_shorts.return_value = ["x"]              # 지표용 블라인드 검색
+    table = {
+        "x":  {"video_id": "x", "views": 10, "duration_sec": 30},
+        "mv": {"video_id": "mv", "views": 9999, "duration_sec": 200},  # MV → 제외
+        "s1": {"video_id": "s1", "views": 5, "duration_sec": 30},
+        "s2": {"video_id": "s2", "views": 800, "duration_sec": 45},
+        # "ghost" 는 videos.list 미반환 → 제외
+    }
+    yt.fetch_stats.side_effect = lambda ids: [table[i] for i in ids if i in table]
     measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
-    assert "mv" not in ch.example_video_ids       # MV(200s) 제외
-    assert "nodur" not in ch.example_video_ids     # 길이불명(0) 제외
-    assert ch.example_video_ids == ["s2", "s1"]    # 숏츠만, 조회수순
-    assert ch.yt_recent_shorts == 4                # 카운트는 검색 표본 전체
+    # s1(view 5) 이 s2(view 800) 보다 앞 → LLM 순서 보존, view 정렬 안 함
+    assert ch.example_video_ids == ["s1", "s2"]
+    assert ch.yt_recent_shorts == 1                    # 지표는 별도 검색 표본
 
 
-def test_measure_challenge_no_shorts_leaves_empty():
-    yt = MagicMock()
-    yt.search_shorts.return_value = ["mv"]
-    yt.fetch_stats.return_value = [{"video_id": "mv", "views": 9, "duration_sec": 240}]
+def test_measure_challenge_no_candidates_leaves_empty():
     ch = Challenge(name="C", tag="kpop", description="", origin="", hashtags=["#c"],
-                   source_urls=[], confidence="low", miiwan_fit="")
+                   source_urls=[], confidence="low", miiwan_fit="",
+                   candidate_video_ids=[])
+    yt = MagicMock()
+    yt.search_shorts.return_value = []
     measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
-    assert ch.example_video_ids == []              # 진짜 숏츠 없으면 링크 없음(MV 금지)
+    assert ch.example_video_ids == []                  # 후보 없으면 링크 없음(MV·무관 금지)
 
 
 def _gemini(challenges):

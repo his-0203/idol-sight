@@ -621,7 +621,10 @@ CHALLENGE_DISCOVERY_PROMPT = (
     "- 각 챌린지마다: 이름, 한 줄 설명(무슨 동작/포맷), 원곡/아티스트/사운드 출처, "
     "대표 해시태그, 그리고 **반드시 검증 가능한 출처 URL**.\n"
     "- 최근 7일 내 실제 활동이 확인되는 것만. 확실치 않으면 제외.\n"
-    "- 각 항목의 확신도(high/medium/low)를 함께 적어라.\n\n"
+    "- 각 항목의 확신도(high/medium/low)를 함께 적어라.\n"
+    "- **각 챌린지를 실제로 찍은 YouTube Shorts 영상 URL 1~3개** — 공식 MV·"
+    "뮤직비디오·티저가 아니라, 사람이 그 챌린지(안무·포맷)를 따라 한 짧은 세로 클립의 "
+    "URL. 반드시 검색에서 실제로 확인한 것만 적고, 없으면 비워둘 것 (지어내지 말 것).\n\n"
     "한국어로, 챌린지마다 항목을 구분해 서술하라. (이후 단계에서 JSON 으로 구조화됨)"
 )
 
@@ -634,6 +637,8 @@ CHALLENGE_STRUCTURE_SYSTEM = (
     "- miiwan_fit: 각 챌린지를 'MiiWAN'(2026-06 데뷔 직후의 버추얼 아이돌 그룹) 이 "
     "이번 주 따라 만들 때의 적합도·참여 난이도를 한 줄로. (예: '안무 단순, 즉시 가능' / "
     "'원곡 라이선스 필요, 난이도 높음')\n"
+    "- example_urls: 텍스트에 등장한 '챌린지를 찍은 클립'의 YouTube URL 만 (공식 MV·"
+    "뮤직비디오 제외). 없으면 빈 배열.\n"
     "텍스트에 챌린지가 없으면 challenges: [] 를 반환하라."
 )
 
@@ -651,11 +656,12 @@ CHALLENGE_SCHEMA = {
                     "origin": {"type": "string"},
                     "hashtags": {"type": "array", "items": {"type": "string"}},
                     "source_urls": {"type": "array", "items": {"type": "string"}},
+                    "example_urls": {"type": "array", "items": {"type": "string"}},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                     "miiwan_fit": {"type": "string"},
                 },
                 "required": ["name", "tag", "description", "hashtags",
-                             "source_urls", "confidence", "miiwan_fit"],
+                             "source_urls", "example_urls", "confidence", "miiwan_fit"],
             },
         }
     },

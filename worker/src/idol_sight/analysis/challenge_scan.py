@@ -7,6 +7,7 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 
 from idol_sight.llm.prompts import (
@@ -17,6 +18,17 @@ log = logging.getLogger(__name__)
 
 KPOP_WEIGHT = 1.3   # kpop 태그 랭크 가중
 SHORT_MAX_SEC = 60  # 예시 영상 = 진짜 숏츠 상한(초). MV/일반영상 배제 (is_short 기준과 동일)
+
+# YouTube URL → 11자 video_id. shorts/ · watch?v= · youtu.be/ · live/ 지원.
+_YT_ID_RE = re.compile(
+    r"(?:youtube\.com/(?:shorts/|watch\?v=|live/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})"
+)
+
+
+def extract_video_id(url: str) -> str | None:
+    """YouTube URL 에서 video_id 추출. 못 찾으면 None."""
+    m = _YT_ID_RE.search(url or "")
+    return m.group(1) if m else None
 
 
 @dataclass
@@ -29,6 +41,8 @@ class Challenge:
     source_urls: list[str]
     confidence: str
     miiwan_fit: str
+    # LLM 이 제시한 챌린지 클립 후보 (URL→video_id, 검증 전). measure 에서 API 검증.
+    candidate_video_ids: list[str] = field(default_factory=list)
     yt_recent_shorts: int | None = None
     yt_total_views: int | None = None
     example_video_ids: list[str] = field(default_factory=list)
@@ -47,6 +61,12 @@ def parse_structured_challenges(payload: object) -> list[Challenge]:
         if not isinstance(it, dict) or not it.get("name"):
             continue
         tag = it.get("tag")
+        # example_urls(LLM 제시) → video_id 후보. 파싱 안 되는 URL 은 버림. 중복 제거.
+        cand: list[str] = []
+        for u in (it.get("example_urls") or []):
+            vid = extract_video_id(str(u))
+            if vid and vid not in cand:
+                cand.append(vid)
         out.append(Challenge(
             name=str(it["name"]),
             tag="kpop" if tag == "kpop" else "general",
@@ -56,6 +76,7 @@ def parse_structured_challenges(payload: object) -> list[Challenge]:
             source_urls=[str(u) for u in (it.get("source_urls") or []) if u],
             confidence=str(it.get("confidence") or "low"),
             miiwan_fit=str(it.get("miiwan_fit") or ""),
+            candidate_video_ids=cand,
         ))
     return out
 
@@ -121,25 +142,37 @@ def build_upsert_statements(
 
 
 def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
-    """YouTube 키워드 검색으로 ch 의 측정 필드를 in-place 채움. 실패는 무시(미측정)."""
+    """ch 의 측정 필드를 in-place 채움. 두 가지를 분리한다:
+      ① 반응 규모 지표(yt_recent_shorts/yt_total_views) — 해시태그 블라인드 검색 표본.
+      ② 예시 영상(example_video_ids) — LLM 이 제시한 챌린지 클립 후보를 API 로 검증
+         (존재 + 0<길이<=60s 진짜 숏츠) 한 것만. LLM 순서 보존. 조회수 정렬 안 함
+         (view=인기≠관련성). 검증 통과가 없으면 링크 없음 (MV·무관 영상 절대 금지).
+    각 단계 실패는 비-치명(해당 필드만 비움)."""
+    # ① 반응 규모 지표 (블라인드 검색 — 링크가 아니라 '얼마나 활발한가'만)
     query = ch.hashtags[0] if ch.hashtags else ch.name
     try:
         ids = yt.search_shorts(query=query, published_after=published_after)
-        if not ids:
-            return
-        # 조회수 합산과 숏폼 수의 표본 윈도우를 일치시킨다 (videos.list 는 50개/콜).
-        stats = yt.fetch_stats(ids)
-        ch.yt_recent_shorts = len(ids)
-        ch.yt_total_views = sum((s.get("views") or 0) for s in stats)
-        # 예시 영상은 '진짜 숏츠'(0<dur<=60s) 만 — videoDuration=short 는 <4분이라
-        # MV·티저가 섞이고 조회수순 1위가 흔히 공식 MV다. 길이로 강하게 배제하고
-        # 그 안에서 조회수순 상위 3개를 챌린지 예시로 쓴다. 숏츠가 없으면 링크 없음.
-        shorts = [s for s in stats
-                  if 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC]
-        shorts.sort(key=lambda s: s.get("views") or 0, reverse=True)
-        ch.example_video_ids = [s["video_id"] for s in shorts[:3] if s.get("video_id")]
-    except Exception as e:  # noqa: BLE001 — 후보별 측정 실패는 치명적이지 않음
-        log.warning("measure failed for %r: %s", ch.name, e)
+        if ids:
+            stats = yt.fetch_stats(ids)
+            ch.yt_recent_shorts = len(ids)
+            ch.yt_total_views = sum((s.get("views") or 0) for s in stats)
+    except Exception as e:  # noqa: BLE001
+        log.warning("metric measure failed for %r: %s", ch.name, e)
+
+    # ② 예시 = LLM 제시 후보를 검증 (존재 + ≤60s 숏츠). LLM 순서 유지, view 정렬 X.
+    if not ch.candidate_video_ids:
+        return
+    try:
+        vstats = yt.fetch_stats(ch.candidate_video_ids[:8])
+        by_id = {s.get("video_id"): s for s in vstats}
+        verified: list[str] = []
+        for vid in ch.candidate_video_ids:
+            s = by_id.get(vid)
+            if s and 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC:
+                verified.append(vid)
+        ch.example_video_ids = verified[:3]
+    except Exception as e:  # noqa: BLE001
+        log.warning("example verify failed for %r: %s", ch.name, e)
 
 
 def run_challenge_scan(
