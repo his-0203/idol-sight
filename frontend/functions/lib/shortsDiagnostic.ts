@@ -141,7 +141,6 @@ export interface DiagnosticInput {
   newsCountPrev: number | null;
   dcPosts: number | null;
   memberShares: number[];
-  now: number;
 }
 
 export interface Diagnostic {

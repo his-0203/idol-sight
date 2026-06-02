@@ -133,7 +133,7 @@ function reportInput(over: Partial<DiagnosticInput> = {}): DiagnosticInput {
     groupTokens: ["미완소년", "MiiWAN"],
     subscribers: 1300, twitterHandles: [], twitterPosts: 0,
     newsCount: 13, newsCountPrev: 13, dcPosts: 38,
-    memberShares: [3, 2, 2, 2, 1], now: Date.parse("2026-06-02T00:00:00Z"),
+    memberShares: [3, 2, 2, 2, 1],
     ...over,
   };
 }
