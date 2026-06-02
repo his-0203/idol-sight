@@ -2,23 +2,45 @@ import json
 from idol_sight.analysis.challenge_scan import (
     Challenge, parse_structured_challenges, week_start_kst, iso_days_ago,
     select_and_rank, build_upsert_statements, extract_video_id,
+    build_discovery_prompt,
 )
 
 
 def test_parse_structured_challenges():
     payload = {"challenges": [
         {"name": "A", "tag": "kpop", "description": "d", "origin": "o",
-         "hashtags": ["#a"], "source_urls": ["http://x"], "confidence": "high",
-         "miiwan_fit": "쉬움"},
+         "hashtags": ["#a"],
+         "source_urls": ["https://news.x/a", "[TF초점] 기사 제목 - Daum (2026)"],
+         "confidence": "high", "miiwan_fit": "쉬움",
+         "started_around": "2026-05-26경", "momentum": "rising",
+         "valid_until": "~2026-06-12"},
         {"name": "B", "tag": "general", "description": "", "hashtags": [],
-         "source_urls": [], "confidence": "low", "miiwan_fit": ""},
+         "source_urls": [], "confidence": "low", "miiwan_fit": "",
+         "momentum": "garbage"},
     ]}
     chs = parse_structured_challenges(payload)
     assert len(chs) == 2
     assert chs[0].name == "A" and chs[0].tag == "kpop"
+    # source_urls: 실제 http URL 만, 기사 제목 문구는 버림 (깨진 링크 방지)
+    assert chs[0].source_urls == ["https://news.x/a"]
+    # 생애주기 파싱
+    assert chs[0].started_around == "2026-05-26경"
+    assert chs[0].momentum == "rising"
+    assert chs[0].valid_until == "~2026-06-12"
+    # 잘못된 momentum 값은 unknown 으로 정규화
+    assert chs[1].momentum == "unknown"
     assert chs[1].origin == ""
     assert parse_structured_challenges({}) == []
     assert parse_structured_challenges({"challenges": "nope"}) == []
+
+
+def test_build_discovery_prompt_injects_dates():
+    import datetime as dt
+    e = dt.datetime(2026, 6, 3, 5, 0, tzinfo=dt.timezone.utc).timestamp()  # KST 6/3
+    p = build_discovery_prompt(e)
+    assert "2026-06-03" in p        # 오늘
+    assert "2026-05-27" in p        # 일주일 전
+    assert "{today}" not in p       # 플레이스홀더가 모두 치환됨
 
 
 def test_extract_video_id():

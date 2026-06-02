@@ -13,6 +13,9 @@ export interface ChallengeItem {
   miiwan_fit: string | null;
   source_urls: string[];
   confidence: string | null;
+  started_around?: string | null;
+  momentum?: string | null;
+  valid_until?: string | null;
   week_start?: string;
   generated_at?: string;
 }
@@ -21,6 +24,12 @@ const TAG_LABEL: Record<string, string> = { kpop: "K-POP", general: "일반" };
 const CONF_COLOR: Record<string, string> = {
   high: "#22c55e", medium: "#eab308", low: "#6b7280",
 };
+const MOMENTUM: Record<string, { label: string; color: string }> = {
+  rising:    { label: "확산 중 ↑", color: "#22c55e" },
+  peaking:   { label: "정점", color: "#eab308" },
+  declining: { label: "하락 ↓", color: "#f87171" },
+};
+const isHttp = (u: string) => /^https?:\/\//.test(u);
 
 export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
   if (items.length === 0) {
@@ -65,6 +74,21 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
                   : `숏폼 ${c.yt_recent_shorts}+ · 조회 ${fmt(c.yt_total_views)}`}
               </span>
             </div>
+            {/* 생애주기 (LLM 추정): 추세·시작·유효기한 */}
+            {(c.momentum || c.started_around || c.valid_until) && (
+              <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-hint">
+                {c.momentum && MOMENTUM[c.momentum] && (
+                  <span class="inline-flex items-center gap-1"
+                    style={{ color: MOMENTUM[c.momentum]!.color }}>
+                    <span class="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ background: MOMENTUM[c.momentum]!.color }} />
+                    {MOMENTUM[c.momentum]!.label}
+                  </span>
+                )}
+                {c.started_around && <span class="text-zinc-500">시작 {c.started_around}</span>}
+                {c.valid_until && <span class="text-zinc-400">업로드 유효 {c.valid_until}</span>}
+              </div>
+            )}
             {c.miiwan_fit && (
               <div class="mt-1 text-hint text-brand-fg">MiiWAN: {c.miiwan_fit}</div>
             )}
@@ -73,9 +97,9 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
                 <a key={v} class="text-zinc-400 hover:underline" target="_blank" rel="noreferrer"
                   href={`https://www.youtube.com/shorts/${v}`}>예시 ↗</a>
               ))}
-              {c.source_urls.map((u, i) => (
+              {c.source_urls.filter(isHttp).map((u, i, arr) => (
                 <a key={u} class="text-zinc-600 hover:underline" target="_blank" rel="noreferrer"
-                  href={u}>출처{c.source_urls.length > 1 ? i + 1 : ""} ↗</a>
+                  href={u}>출처{arr.length > 1 ? i + 1 : ""} ↗</a>
               ))}
             </div>
           </li>

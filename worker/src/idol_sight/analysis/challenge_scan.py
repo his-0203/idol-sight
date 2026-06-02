@@ -31,6 +31,11 @@ def extract_video_id(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _is_http_url(s: str) -> bool:
+    """실제 http(s) URL 인지 (기사 제목·설명 문구 배제용)."""
+    return s.startswith("http://") or s.startswith("https://")
+
+
 @dataclass
 class Challenge:
     name: str
@@ -41,6 +46,10 @@ class Challenge:
     source_urls: list[str]
     confidence: str
     miiwan_fit: str
+    # 생애주기 (LLM grounding 추정값 — 측정 아님)
+    started_around: str = ""
+    momentum: str = "unknown"   # rising | peaking | declining | unknown
+    valid_until: str = ""
     # LLM 이 제시한 챌린지 클립 후보 (URL→video_id, 검증 전). measure 에서 API 검증.
     candidate_video_ids: list[str] = field(default_factory=list)
     yt_recent_shorts: int | None = None
@@ -67,15 +76,20 @@ def parse_structured_challenges(payload: object) -> list[Challenge]:
             vid = extract_video_id(str(u))
             if vid and vid not in cand:
                 cand.append(vid)
+        mom = it.get("momentum")
         out.append(Challenge(
             name=str(it["name"]),
             tag="kpop" if tag == "kpop" else "general",
             description=str(it.get("description") or ""),
             origin=str(it.get("origin") or ""),
             hashtags=[str(h) for h in (it.get("hashtags") or []) if h],
-            source_urls=[str(u) for u in (it.get("source_urls") or []) if u],
+            # 출처는 실제 http(s) URL 만 — 기사 제목/설명 문구는 버림(깨진 링크 방지).
+            source_urls=[str(u) for u in (it.get("source_urls") or []) if _is_http_url(str(u))],
             confidence=str(it.get("confidence") or "low"),
             miiwan_fit=str(it.get("miiwan_fit") or ""),
+            started_around=str(it.get("started_around") or ""),
+            momentum=mom if mom in ("rising", "peaking", "declining") else "unknown",
+            valid_until=str(it.get("valid_until") or ""),
             candidate_video_ids=cand,
         ))
     return out
@@ -92,6 +106,19 @@ def iso_days_ago(now_epoch: float, days: int) -> str:
     """RFC3339(UTC, Z) — YouTube publishedAfter 용."""
     t = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc) - _dt.timedelta(days=days)
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _date_kst(now_epoch: float) -> str:
+    """KST 달력 날짜 (YYYY-MM-DD)."""
+    kst = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc) + _dt.timedelta(hours=9)
+    return kst.date().isoformat()
+
+
+def build_discovery_prompt(now_epoch: float) -> str:
+    """오늘/일주일전 날짜를 주입한 발굴 프롬프트 — grounding 이 최신성 앵커를 잡게."""
+    return CHALLENGE_DISCOVERY_PROMPT.format(
+        today=_date_kst(now_epoch), week_ago=_date_kst(now_epoch - 7 * 86400),
+    )
 
 
 def select_and_rank(
@@ -118,8 +145,9 @@ _INSERT_SQL = (
     "INSERT INTO weekly_challenges"
     " (week_start, rank, name, tag, description, origin, hashtags,"
     "  example_video_ids, yt_recent_shorts, yt_total_views, miiwan_fit,"
-    "  source_urls, confidence, generated_at)"
-    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "  source_urls, confidence, generated_at,"
+    "  started_around, momentum, valid_until)"
+    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 
@@ -137,6 +165,7 @@ def build_upsert_statements(
             c.yt_recent_shorts, c.yt_total_views, c.miiwan_fit,
             json.dumps(c.source_urls, ensure_ascii=False),
             c.confidence, generated_at,
+            c.started_around, c.momentum, c.valid_until,
         ]))
     return stmts
 
@@ -181,7 +210,7 @@ def run_challenge_scan(
     """발굴→구조화→측정→랭크→UPSERT. 저장한 챌린지 수 반환.
     발굴(grounded+structure) 실패는 비-치명: 로그 후 0 반환(기존 주차 보존)."""
     try:
-        grounded = gemini.generate_grounded(prompt=CHALLENGE_DISCOVERY_PROMPT)
+        grounded = gemini.generate_grounded(prompt=build_discovery_prompt(now_epoch))
         structured = gemini.generate(
             system_prompt=CHALLENGE_STRUCTURE_SYSTEM,
             context={"grounded_text": grounded.text, "sources": grounded.sources},

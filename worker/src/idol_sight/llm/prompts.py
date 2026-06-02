@@ -613,15 +613,22 @@ vague phrasing.
 # ── 주간 바이럴 챌린지 (설계 2026-06-02-weekly-viral-challenges) ──────────────
 # grounded(google_search) 발굴용 프롬프트. 출처 URL 필수 + 최근 7일 + K-POP 가중.
 CHALLENGE_DISCOVERY_PROMPT = (
-    "당신은 K-POP/숏폼 트렌드 리서처다. Google 검색을 사용해 **최근 7일 이내** "
-    "바이럴 중인 숏폼 '챌린지'를 조사해 정리하라.\n\n"
+    "당신은 K-POP/숏폼 트렌드 리서처다. **오늘은 {today} 다.** Google 검색을 사용해 "
+    "**{week_ago} ~ {today} (최근 7일)** 에 **새로 시작되었거나 이 기간에 새롭게 "
+    "급확산된** 숏폼 '챌린지'만 조사해 정리하라.\n\n"
+    "절대 규칙(최신성):\n"
+    "- 이전부터 유명하거나 몇 달/몇 주 전에 유행이 끝난 챌린지는 **제외**. "
+    "'지금도 회자되는 유명 챌린지'가 아니라 '이번 주에 새로 뜨는 중인 것'을 찾아라.\n"
+    "- 각 챌린지가 최근 7일 내에 실제로 (새로) 확산 중이라는 근거가 없으면 빼라.\n\n"
     "요구사항:\n"
     "- K-POP 아이돌 챌린지(타이틀곡 안무·아이돌 포맷)를 약 7개로 우선·다수 포함.\n"
     "- 그 외 일반 YouTube Shorts/숏폼 챌린지(밈·트렌드)를 약 3개 포함.\n"
     "- 각 챌린지마다: 이름, 한 줄 설명(무슨 동작/포맷), 원곡/아티스트/사운드 출처, "
-    "대표 해시태그, 그리고 **반드시 검증 가능한 출처 URL**.\n"
-    "- 최근 7일 내 실제 활동이 확인되는 것만. 확실치 않으면 제외.\n"
-    "- 각 항목의 확신도(high/medium/low)를 함께 적어라.\n"
+    "대표 해시태그, 그리고 **반드시 http 로 시작하는 검증 가능한 출처 URL**.\n"
+    "- 각 항목의 확신도(high/medium/low).\n"
+    "- **생애주기 추정**: 대략 시작 시점(started_around), 현재 확산 추세"
+    "(momentum: 상승 rising / 정점 peaking / 하락 declining / 불명 unknown), "
+    "그리고 지금 따라 올려도 유효할 대략 기한(valid_until, 예: '~{today}+2주').\n"
     "- **각 챌린지를 실제로 찍은 YouTube Shorts 영상 URL 1~3개** — 공식 MV·"
     "뮤직비디오·티저가 아니라, 사람이 그 챌린지(안무·포맷)를 따라 한 짧은 세로 클립의 "
     "URL. 반드시 검색에서 실제로 확인한 것만 적고, 없으면 비워둘 것 (지어내지 말 것).\n\n"
@@ -632,7 +639,12 @@ CHALLENGE_DISCOVERY_PROMPT = (
 CHALLENGE_STRUCTURE_SYSTEM = (
     "아래 리서치 텍스트를 JSON 으로 구조화하라. 텍스트에 없는 챌린지를 지어내지 말 것.\n"
     "- tag: K-POP 아이돌 챌린지는 'kpop', 그 외는 'general'.\n"
-    "- source_urls: 텍스트에 등장한 출처 URL 만. 없으면 빈 배열.\n"
+    "- source_urls: 텍스트에 등장한 **http(s) 로 시작하는 실제 URL 만**. 기사 제목·"
+    "설명 문구는 절대 넣지 말 것. 실제 URL 이 없으면 빈 배열.\n"
+    "- started_around: 대략 시작 시점 (예: '2026-05-26경'). 모르면 빈 문자열.\n"
+    "- momentum: 'rising' | 'peaking' | 'declining' | 'unknown' 중 하나.\n"
+    "- valid_until: 지금 따라 올려도 유효할 대략 기한 (예: '~2026-06-12', '1주 더'). "
+    "모르면 빈 문자열.\n"
     "- confidence: 텍스트의 확신도(high/medium/low). 불명확하면 'low'.\n"
     "- miiwan_fit: 각 챌린지를 'MiiWAN'(2026-06 데뷔 직후의 버추얼 아이돌 그룹) 이 "
     "이번 주 따라 만들 때의 적합도·참여 난이도를 한 줄로. (예: '안무 단순, 즉시 가능' / "
@@ -657,11 +669,16 @@ CHALLENGE_SCHEMA = {
                     "hashtags": {"type": "array", "items": {"type": "string"}},
                     "source_urls": {"type": "array", "items": {"type": "string"}},
                     "example_urls": {"type": "array", "items": {"type": "string"}},
+                    "started_around": {"type": "string"},
+                    "momentum": {"type": "string",
+                                 "enum": ["rising", "peaking", "declining", "unknown"]},
+                    "valid_until": {"type": "string"},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                     "miiwan_fit": {"type": "string"},
                 },
                 "required": ["name", "tag", "description", "hashtags",
-                             "source_urls", "example_urls", "confidence", "miiwan_fit"],
+                             "source_urls", "example_urls", "momentum",
+                             "confidence", "miiwan_fit"],
             },
         }
     },

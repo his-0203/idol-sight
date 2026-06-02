@@ -29,6 +29,7 @@ interface ChallengeRow {
   yt_recent_shorts: number | null; yt_total_views: number | null;
   miiwan_fit: string | null; source_urls: string | null;
   confidence: string | null; generated_at: string;
+  started_around: string | null; momentum: string | null; valid_until: string | null;
 }
 
 const parseJsonArr = (s: string | null): string[] => {
@@ -98,6 +99,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       miiwan_fit: r.miiwan_fit, source_urls: parseJsonArr(r.source_urls),
       confidence: r.confidence, week_start: r.week_start,
       generated_at: r.generated_at,
+      started_around: r.started_around, momentum: r.momentum,
+      valid_until: r.valid_until,
     }));
   } catch {
     challenges = [];
