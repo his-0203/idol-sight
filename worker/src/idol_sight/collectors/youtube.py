@@ -381,3 +381,58 @@ class YouTubeCollector:
             rows_inserted=len(videos), rows_updated=0,
             statements=statements, runtime_ms=runtime_ms,
         )
+
+    def search_shorts(
+        self, *, query: str, published_after: str, max_results: int = 50,
+    ) -> list[str]:
+        """임의 키워드로 최근 숏폼을 조회수순 검색해 video_id 목록 반환."""
+        with self._http_factory() as client:
+            r = client.get(
+                f"{API}/search",
+                params={
+                    "key": self._key,
+                    "q": query,
+                    "type": "video",
+                    "videoDuration": "short",
+                    "order": "viewCount",
+                    "publishedAfter": published_after,
+                    "maxResults": max_results,
+                    "part": "id",
+                },
+            )
+            r.raise_for_status()
+            items = r.json().get("items", [])
+        ids: list[str] = []
+        for it in items:
+            vid = (it.get("id") or {}).get("videoId")
+            if vid:
+                ids.append(vid)
+        return ids
+
+    def fetch_stats(self, video_ids: list[str]) -> list[dict]:
+        """video_id 목록의 통계(조회/좋아요/댓글)+제목 반환. 빈 입력은 호출 없이 []."""
+        if not video_ids:
+            return []
+        with self._http_factory() as client:
+            r = client.get(
+                f"{API}/videos",
+                params={
+                    "key": self._key,
+                    "id": ",".join(video_ids),
+                    "part": "statistics,snippet",
+                },
+            )
+            r.raise_for_status()
+            items = r.json().get("items", [])
+        out: list[dict] = []
+        for it in items:
+            stats = it.get("statistics") or {}
+            snip = it.get("snippet") or {}
+            out.append({
+                "video_id": it.get("id"),
+                "views": int(stats.get("viewCount") or 0),
+                "likes": int(stats.get("likeCount") or 0),
+                "comments": int(stats.get("commentCount") or 0),
+                "title": snip.get("title"),
+            })
+        return out
