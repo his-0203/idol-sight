@@ -5,6 +5,7 @@ import {
   titleHasGroupToken, titleHasDecoration, titleHasHashtag,
   coveragePct, normalizedHHI, groupNameVariants,
 } from "../../functions/lib/shortsDiagnostic";
+import { statusByThresholds, buildDiagnostic, type DiagnosticInput } from "../../functions/lib/shortsDiagnostic";
 
 describe("기초 통계", () => {
   test("median 홀/짝", () => {
@@ -96,5 +97,92 @@ describe("groupNameVariants — 공식 그룹명만 (별명 제외)", () => {
     expect(v).toContain("미완");      // 미완소년의 부분문자열 → 변형으로 인정
     expect(v).not.toContain("ㅁㅇㅅㄴ"); // 초성 약자 — 검색 텍스트 아님
     expect(v).not.toContain("겜율이");  // 멤버 별명
+  });
+});
+
+describe("statusByThresholds", () => {
+  test("higher-better: good/warn/bad 경계", () => {
+    const t = { good: 10, warn: 3, direction: "higher" as const };
+    expect(statusByThresholds(12, t)).toBe("good");
+    expect(statusByThresholds(10, t)).toBe("good");
+    expect(statusByThresholds(5, t)).toBe("warn");
+    expect(statusByThresholds(3, t)).toBe("warn");
+    expect(statusByThresholds(2, t)).toBe("bad");
+  });
+  test("lower-better: good/warn/bad 경계", () => {
+    const t = { good: 0.2, warn: 0.5, direction: "lower" as const };
+    expect(statusByThresholds(0.1, t)).toBe("good");
+    expect(statusByThresholds(0.2, t)).toBe("good");
+    expect(statusByThresholds(0.4, t)).toBe("warn");
+    expect(statusByThresholds(0.5, t)).toBe("warn");
+    expect(statusByThresholds(0.7, t)).toBe("bad");
+  });
+});
+
+const REPORT_VIEWS = [2259, 1519, 1403, 1334, 1321, 1303, 1128, 1098, 969, 912, 902, 866, 740];
+function reportInput(over: Partial<DiagnosticInput> = {}): DiagnosticInput {
+  const shorts = REPORT_VIEWS.map((v, i) => ({
+    video_id: `v${i}`,
+    title: "˚₊‧꒰ა 내부 별명 영상",
+    published_at: `2026-05-${String(10 + i).padStart(2, "0")}T00:00:00Z`,
+    views: v, likes: Math.round(v * 0.06), comments: 5,
+    viral_velocity_ratio: 1.1,
+  }));
+  return {
+    group_key: "miiwan", shorts,
+    groupTokens: ["미완소년", "MiiWAN"],
+    subscribers: 1300, twitterHandles: [], twitterPosts: 0,
+    newsCount: 13, newsCountPrev: 13, dcPosts: 38,
+    memberShares: [3, 2, 2, 2, 1], now: Date.parse("2026-06-02T00:00:00Z"),
+    ...over,
+  };
+}
+
+describe("buildDiagnostic — 리포트 재현", () => {
+  test("브레이크아웃 배율 ≈ 2.0× → bad", () => {
+    const d = buildDiagnostic(reportInput());
+    const k = d.dimensions.viral_physics.find((x) => x.id === "breakout_ratio")!;
+    expect(k.value).toBeCloseTo(2.0, 1);
+    expect(k.status).toBe("bad");
+  });
+  test("그룹명 커버리지 0% → bad", () => {
+    const d = buildDiagnostic(reportInput());
+    const k = d.dimensions.discoverability.find((x) => x.id === "group_name_coverage")!;
+    expect(k.value).toBe(0);
+    expect(k.status).toBe("bad");
+  });
+  test("장식 특수문자 100% → bad, 평균 ER ≈ 6% → good", () => {
+    const d = buildDiagnostic(reportInput());
+    const dec = d.dimensions.discoverability.find((x) => x.id === "decoration_ratio")!;
+    expect(dec.status).toBe("bad");
+    const er = d.dimensions.core_strength.find((x) => x.id === "avg_er")!;
+    expect(er.status).toBe("good");
+  });
+  test("X 미운영 → bad", () => {
+    const d = buildDiagnostic(reportInput());
+    const x = d.dimensions.discovery_channels.find((y) => y.id === "x_operating")!;
+    expect(x.status).toBe("bad");
+    expect(x.display).toBe("미운영");
+  });
+  test("우선순위 TOP3 = bad KPI, 차원 우선순위 순", () => {
+    const d = buildDiagnostic(reportInput());
+    expect(d.priorities).toHaveLength(3);
+    expect(d.priorities[0]!.id).toBe("breakout_ratio");
+    expect(d.priorities[0]!.fix.length).toBeGreaterThan(0);
+  });
+  test("표본 부족(n<5): 분포 KPI status=na + caveat", () => {
+    const d = buildDiagnostic(reportInput({ shorts: reportInput().shorts.slice(0, 3) }));
+    const k = d.dimensions.viral_physics.find((x) => x.id === "breakout_ratio")!;
+    expect(k.status).toBe("na");
+    expect(d.caveats.some((c) => c.includes("표본"))).toBe(true);
+  });
+  test("항상 식별자 caveat 포함", () => {
+    const d = buildDiagnostic(reportInput());
+    expect(d.caveats.some((c) => c.includes("공식 그룹명"))).toBe(true);
+  });
+  test("숏폼 0개 → shorts_n 0, 분포 na, 크래시 없음", () => {
+    const d = buildDiagnostic(reportInput({ shorts: [] }));
+    expect(d.shorts_n).toBe(0);
+    expect(d.dimensions.viral_physics.every((k) => k.status === "na")).toBe(true);
   });
 });

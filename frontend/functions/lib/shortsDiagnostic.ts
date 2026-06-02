@@ -106,3 +106,273 @@ export function groupNameVariants(
     base.some((b) => lc(b).includes(lc(k)) || lc(k).includes(lc(b))));
   return Array.from(new Set([...base, ...variants]));
 }
+
+export type Status = "good" | "warn" | "bad" | "na";
+
+export interface ShortRow {
+  video_id: string;
+  title: string | null;
+  published_at: string | null;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  viral_velocity_ratio: number | null;
+}
+
+export interface Kpi {
+  id: string;
+  label: string;
+  value: number | null;
+  display: string;
+  status: Status;
+  target: string;
+  why: string;
+  fix: string;
+}
+
+export interface DiagnosticInput {
+  group_key: string;
+  shorts: ShortRow[];
+  groupTokens: string[];
+  subscribers: number | null;
+  twitterHandles: string[];
+  twitterPosts: number | null;
+  newsCount: number | null;
+  newsCountPrev: number | null;
+  dcPosts: number | null;
+  memberShares: number[];
+  now: number;
+}
+
+export interface Diagnostic {
+  group_key: string;
+  shorts_n: number;
+  dimensions: {
+    viral_physics: Kpi[];
+    discoverability: Kpi[];
+    core_strength: Kpi[];
+    discovery_channels: Kpi[];
+    operating_rhythm: Kpi[];
+  };
+  priorities: Array<{ id: string; label: string; display: string; fix: string }>;
+  caveats: string[];
+}
+
+export interface Threshold {
+  good: number;
+  warn: number;
+  direction: "higher" | "lower";
+}
+
+export function statusByThresholds(value: number, t: Threshold): Status {
+  if (t.direction === "higher") {
+    if (value >= t.good) return "good";
+    if (value >= t.warn) return "warn";
+    return "bad";
+  }
+  if (value <= t.good) return "good";
+  if (value <= t.warn) return "warn";
+  return "bad";
+}
+
+// 표본이 이 미만이면 분포 기반(A. 바이럴 물리) KPI 는 na 처리.
+const SMALL_SAMPLE = 5;
+
+const T = {
+  breakout:   { good: 10,  warn: 3,   direction: "higher" } as Threshold,
+  cv:         { good: 0.8, warn: 0.4, direction: "higher" } as Threshold,
+  band:       { good: 0.4, warn: 0.7, direction: "lower"  } as Threshold,
+  coverage:   { good: 80,  warn: 40,  direction: "higher" } as Threshold,
+  decoration: { good: 20,  warn: 50,  direction: "lower"  } as Threshold,
+  hashtag:    { good: 50,  warn: 20,  direction: "higher" } as Threshold,
+  er:         { good: 4,   warn: 2,   direction: "higher" } as Threshold,
+  velocity:   { good: 2,   warn: 1,   direction: "higher" } as Threshold,
+};
+
+const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
+
+export function buildDiagnostic(input: DiagnosticInput): Diagnostic {
+  const { shorts, groupTokens } = input;
+  const n = shorts.length;
+  const small = n < SMALL_SAMPLE;
+  const views = shorts.map((s) => s.views ?? 0).filter((v) => v > 0);
+  const ers = shorts
+    .filter((s) => (s.views ?? 0) > 0)
+    .map((s) => ((s.likes ?? 0) + (s.comments ?? 0)) / (s.views as number) * 100);
+  const velocities = shorts
+    .map((s) => s.viral_velocity_ratio)
+    .filter((v): v is number => v != null);
+
+  const distStatus = (s: Status): Status => (small || views.length === 0 ? "na" : s);
+
+  const breakout = breakoutRatio(views);
+  const cv = coefficientOfVariation(views);
+  const band = bandConcentration(views);
+  const med = median(views);
+  const cadence = cadenceDays(
+    shorts.map((s) => s.published_at).filter((p): p is string => !!p),
+  );
+  const hhi = normalizedHHI(input.memberShares);
+  const avgVel = velocities.length ? mean(velocities) : null;
+
+  const covGroup = coveragePct(shorts, (s) => titleHasGroupToken(s.title, groupTokens));
+  const covDecor = coveragePct(shorts, (s) => titleHasDecoration(s.title));
+  const covHash = coveragePct(shorts, (s) => titleHasHashtag(s.title));
+  const avgLen = mean(shorts.map((s) => (s.title ?? "").length));
+  const avgEr = ers.length ? mean(ers) : null;
+
+  const xOk = input.twitterHandles.length > 0 && (input.twitterPosts ?? 0) > 0;
+  const newsDelta = (input.newsCount ?? 0) - (input.newsCountPrev ?? 0);
+
+  const dimensions: Diagnostic["dimensions"] = {
+    viral_physics: [
+      {
+        id: "breakout_ratio", label: "브레이크아웃 배율",
+        value: round(breakout), display: `${round(breakout)}×`,
+        status: distStatus(statusByThresholds(breakout, T.breakout)),
+        target: "≥10×",
+        why: "바이럴 채널은 1편이 중앙값의 수십~수백 배로 튄다. 2× 평탄 = breakout 0건.",
+        fix: "초동 속도(피크 시간 업로드+알림·커뮤니티 부스트)와 공유 유발 소재로 1편을 끝까지 밀어 콜드 피드로 진입시킨다.",
+      },
+      {
+        id: "view_cv", label: "조회 변동계수(CV)",
+        value: round(cv, 2), display: round(cv, 2).toFixed(2),
+        status: distStatus(statusByThresholds(cv, T.cv)),
+        target: "≥0.8",
+        why: "조회가 거의 평탄(낮은 CV)하면 '같은 사람들'에게만 도달한다는 신호.",
+        fix: "포맷 실험으로 분산을 키우고, 반응 좋은 1편에 초기 트래픽을 집중.",
+      },
+      {
+        id: "band_concentration", label: "좁은 밴드 집중도",
+        value: round(band * 100), display: `${round(band * 100)}%`,
+        status: distStatus(statusByThresholds(band, T.band)),
+        target: "<40%",
+        why: "조회 92%가 좁은 밴드에 갇히면 구독자 도달 천장에 막힌 것.",
+        fix: "구독 피드 밖(추천)으로 나갈 후킹·사운드·식별자를 영상에 심는다.",
+      },
+      {
+        id: "ceiling_vs_subs", label: "천장 vs 구독자",
+        value: input.subscribers ? round(med / input.subscribers, 2) : null,
+        display: input.subscribers ? `중앙 ${med} / 구독 ${input.subscribers}` : "구독자 미상",
+        status: "na",
+        target: "—",
+        why: "중앙 조회가 활성 구독자 규모에 수렴하면 추천 피드 미진입(에코챔버) 징후.",
+        fix: "비구독자 완시청률을 끌어올려 추천 확장 게이트를 통과.",
+      },
+    ],
+    discoverability: [
+      {
+        id: "group_name_coverage", label: "공식 그룹명 제목 커버리지",
+        value: round(covGroup), display: `${round(covGroup)}%`,
+        status: n === 0 ? "na" : statusByThresholds(covGroup, T.coverage),
+        target: "≥80%",
+        why: "제목에 그룹명이 없으면 검색·추천 매칭 단서가 없어 신규 유입 경로가 닫힌다.",
+        fix: "제목 앞부분에 미완소년·MiiWAN 등 공식 식별자를 배치(곡명·본명 사전 추가 시 정밀도↑).",
+      },
+      {
+        id: "decoration_ratio", label: "이모지·장식 특수문자 비율",
+        value: round(covDecor), display: `${round(covDecor)}%`,
+        status: n === 0 ? "na" : statusByThresholds(covDecor, T.decoration),
+        target: "<20%",
+        why: "장식 기호·이모지 과다는 검색 키워드를 밀어내고 알고리즘 분류를 방해.",
+        fix: "장식은 줄이고 검색어 중심으로. 감성은 썸네일·첫 컷으로.",
+      },
+      {
+        id: "avg_title_len", label: "평균 제목 길이",
+        value: round(avgLen), display: `${round(avgLen)}자`,
+        status: "na", target: "—",
+        why: "지나치게 짧으면 키워드가 부족, 너무 길면 핵심이 묻힌다(해석 보조).",
+        fix: "앞 15~20자에 핵심 키워드를 담는다.",
+      },
+      {
+        id: "hashtag_pct", label: "해시태그 사용률",
+        value: round(covHash), display: `${round(covHash)}%`,
+        status: n === 0 ? "na" : statusByThresholds(covHash, T.hashtag),
+        target: "≥50%",
+        why: "해시태그는 묶음 노출·재생목록 유입 경로.",
+        fix: "#미완소년 #버추얼아이돌 등 주제 태그와 시리즈명을 일관 사용.",
+      },
+    ],
+    core_strength: [
+      {
+        id: "avg_er", label: "평균 ER",
+        value: avgEr == null ? null : round(avgEr, 2),
+        display: avgEr == null ? "—" : `${round(avgEr, 2)}%`,
+        status: avgEr == null ? "na" : statusByThresholds(avgEr, T.er),
+        target: "≥4%",
+        why: "본 사람의 관여도. 높으면 콘텐츠 자체는 강하다는 뜻.",
+        fix: "유지 — cadence·퀄리티는 그대로 두고 '바깥을 향하게' 재설계.",
+      },
+      {
+        id: "member_hhi", label: "멤버 집중 HHI(정규화)",
+        value: hhi == null ? null : round(hhi, 2),
+        display: hhi == null ? "—" : round(hhi, 2).toFixed(2),
+        status: "na", target: "—",
+        why: "0=균등, 1=집중. 대표 얼굴 형성 정도(해석 보조).",
+        fix: "대표 1인 푸시와 균등 노출 사이 전략적 선택.",
+      },
+      {
+        id: "dc_activity", label: "DC 갤러리 활동",
+        value: input.dcPosts ?? null,
+        display: input.dcPosts == null ? "—" : `${input.dcPosts}건`,
+        status: (input.dcPosts ?? 0) > 0 ? "good" : "na",
+        target: "—",
+        why: "코어 응집 장치(신규 유입구는 아님).",
+        fix: "코어 담론을 신규 발견 콘텐츠로 번역해 바깥으로 확장.",
+      },
+    ],
+    discovery_channels: [
+      {
+        id: "x_operating", label: "X(트위터) 운영",
+        value: null, display: xOk ? "운영" : "미운영",
+        status: xOk ? "good" : "bad",
+        target: "운영",
+        why: "글로벌·버추얼 팬덤 1차 발견·2차창작 확산 채널.",
+        fix: "X 계정 개설·운영 + 숏폼 동시 배포로 외부 유입 생성.",
+      },
+      {
+        id: "news_stall", label: "뉴스 추세",
+        value: input.newsCount ?? null,
+        display: input.newsCount == null ? "—" : `${input.newsCount}건 (Δ${newsDelta >= 0 ? "+" : ""}${newsDelta})`,
+        status: newsDelta > 0 ? "good" : "warn",
+        target: "증가",
+        why: "미디어 발견 경로. 정체는 PR 동력 약화 신호.",
+        fix: "데뷔 마일스톤·기획 보도자료로 기사 흐름 재가동.",
+      },
+    ],
+    operating_rhythm: [
+      {
+        id: "upload_cadence", label: "업로드 간격(중앙값)",
+        value: cadence || null,
+        display: cadence ? `${round(cadence)}일` : "—",
+        status: "na", target: "일관성",
+        why: "주제·포맷·빈도가 일정해야 알고리즘이 채널 시청자상을 학습(해석 보조).",
+        fix: "정기 cadence 유지 + 포맷·주제 일관, 잦은 노선 변경 지양.",
+      },
+      {
+        id: "avg_velocity", label: "평균 24h velocity",
+        value: avgVel == null ? null : round(avgVel, 2),
+        display: avgVel == null ? "—" : `${round(avgVel, 2)}×`,
+        status: avgVel == null ? "na" : statusByThresholds(avgVel, T.velocity),
+        target: "≥2×",
+        why: "업로드 직후 확산 여부. 1 미만은 채널 평균에도 못 미침.",
+        fix: "피크 시간 업로드 + 초기 알림·커뮤니티 동원으로 초동 부스트.",
+      },
+    ],
+  };
+
+  const order: Array<keyof Diagnostic["dimensions"]> = [
+    "viral_physics", "discoverability", "discovery_channels",
+    "operating_rhythm", "core_strength",
+  ];
+  const priorities = order
+    .flatMap((dim) => dimensions[dim])
+    .filter((k) => k.status === "bad")
+    .slice(0, 3)
+    .map((k) => ({ id: k.id, label: k.label, display: k.display, fix: k.fix }));
+
+  const caveats: string[] = ["식별자 = 공식 그룹명 기준 (곡명·본명 사전 추가 시 정밀도↑)"];
+  if (small) caveats.push(`표본 ${n}편 — 분포 지표(바이럴 물리)는 방향성 참고`);
+
+  return { group_key: input.group_key, shorts_n: n, dimensions, priorities, caveats };
+}
