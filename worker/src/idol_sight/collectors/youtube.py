@@ -384,8 +384,10 @@ class YouTubeCollector:
 
     def search_shorts(
         self, *, query: str, published_after: str, max_results: int = 50,
+        order: str = "viewCount",
     ) -> list[str]:
-        """임의 키워드로 최근 숏폼을 조회수순 검색해 video_id 목록 반환."""
+        """임의 키워드로 최근 숏폼을 검색해 video_id 목록 반환.
+        order='viewCount'(반응 규모) | 'relevance'(예시 클립 찾기) 등."""
         with self._http_factory() as client:
             r = client.get(
                 f"{API}/search",
@@ -394,7 +396,7 @@ class YouTubeCollector:
                     "q": query,
                     "type": "video",
                     "videoDuration": "short",
-                    "order": "viewCount",
+                    "order": order,
                     "publishedAfter": published_after,
                     "maxResults": max_results,
                     "part": "id",

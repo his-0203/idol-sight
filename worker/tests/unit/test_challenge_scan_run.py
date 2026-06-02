@@ -32,14 +32,35 @@ def test_measure_challenge_examples_from_verified_llm_candidates():
     assert ch.yt_recent_shorts == 1                    # 지표는 별도 검색 표본
 
 
-def test_measure_challenge_no_candidates_leaves_empty():
+def test_measure_challenge_relevance_fallback_when_no_candidates():
+    # LLM 후보 없음 → 'name 챌린지' relevance 검색 폴백 → ≤60s 검증분을 예시로.
+    ch = Challenge(name="Catch Catch", tag="kpop", description="", origin="",
+                   hashtags=["#x"], source_urls=[], confidence="high", miiwan_fit="",
+                   candidate_video_ids=[])
+    yt = MagicMock()
+    # 1차=지표(viewCount), 2차=예시 폴백(relevance)
+    yt.search_shorts.side_effect = [["m1"], ["rel1", "mvlong", "rel2"]]
+    table = {
+        "m1":     {"video_id": "m1", "views": 100, "duration_sec": 30},
+        "rel1":   {"video_id": "rel1", "views": 5, "duration_sec": 30},
+        "mvlong": {"video_id": "mvlong", "views": 999, "duration_sec": 200},  # MV → 제외
+        "rel2":   {"video_id": "rel2", "views": 7, "duration_sec": 40},
+    }
+    yt.fetch_stats.side_effect = lambda ids: [table[i] for i in ids if i in table]
+    measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
+    assert ch.example_video_ids == ["rel1", "rel2"]       # 관련성 순서, MV 제외
+    assert yt.search_shorts.call_args_list[1].kwargs.get("order") == "relevance"
+
+
+def test_measure_challenge_empty_when_nothing_found():
     ch = Challenge(name="C", tag="kpop", description="", origin="", hashtags=["#c"],
                    source_urls=[], confidence="low", miiwan_fit="",
                    candidate_video_ids=[])
     yt = MagicMock()
-    yt.search_shorts.return_value = []
+    yt.search_shorts.return_value = []      # 지표·폴백 모두 빈 결과
+    yt.fetch_stats.return_value = []
     measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
-    assert ch.example_video_ids == []                  # 후보 없으면 링크 없음(MV·무관 금지)
+    assert ch.example_video_ids == []        # 그래도 없으면 링크 없음(프런트가 검색링크 보장)
 
 
 def _gemini(challenges):
@@ -70,7 +91,7 @@ def test_run_writes_ranked_challenges():
     assert n == 1
     gemini.generate_grounded.assert_called_once()
     gemini.generate.assert_called_once()
-    yt.search_shorts.assert_called_once()
+    assert yt.search_shorts.called   # 지표(+예시 폴백 가능) 검색 수행
     stmts = d1.batch.call_args[0][0]
     assert stmts[0][0].strip().upper().startswith("DELETE")
     assert any("INSERT INTO weekly_challenges" in s for s, _ in stmts)

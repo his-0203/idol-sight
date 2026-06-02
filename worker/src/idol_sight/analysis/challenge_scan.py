@@ -188,20 +188,33 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
     except Exception as e:  # noqa: BLE001
         log.warning("metric measure failed for %r: %s", ch.name, e)
 
-    # ② 예시 = LLM 제시 후보를 검증 (존재 + ≤60s 숏츠). LLM 순서 유지, view 정렬 X.
-    if not ch.candidate_video_ids:
-        return
-    try:
-        vstats = yt.fetch_stats(ch.candidate_video_ids[:8])
-        by_id = {s.get("video_id"): s for s in vstats}
-        verified: list[str] = []
-        for vid in ch.candidate_video_ids:
-            s = by_id.get(vid)
-            if s and 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC:
-                verified.append(vid)
-        ch.example_video_ids = verified[:3]
-    except Exception as e:  # noqa: BLE001
-        log.warning("example verify failed for %r: %s", ch.name, e)
+    # ② 예시 = LLM 제시 후보를 API 검증 (존재 + ≤60s 숏츠). LLM 순서 유지, view 정렬 X.
+    if ch.candidate_video_ids:
+        try:
+            vstats = yt.fetch_stats(ch.candidate_video_ids[:8])
+            by_id = {s.get("video_id"): s for s in vstats}
+            ch.example_video_ids = [
+                vid for vid in ch.candidate_video_ids
+                if (s := by_id.get(vid)) and 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC
+            ][:3]
+        except Exception as e:  # noqa: BLE001
+            log.warning("example verify failed for %r: %s", ch.name, e)
+
+    # ②-b LLM 후보로 못 채웠으면 relevance 검색 폴백. 'name 챌린지' 로 관련성순 검색 →
+    #     ≤60s 검증. order=relevance(조회수 아님)이라 해당 챌린지 클립일 확률이 높다.
+    if not ch.example_video_ids and ch.name:
+        try:
+            rel_ids = yt.search_shorts(
+                query=f"{ch.name} 챌린지", published_after=published_after,
+                order="relevance", max_results=10,
+            )
+            rby = {s.get("video_id"): s for s in yt.fetch_stats(rel_ids)}
+            ch.example_video_ids = [
+                vid for vid in rel_ids
+                if (s := rby.get(vid)) and 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC
+            ][:3]
+        except Exception as e:  # noqa: BLE001
+            log.warning("example fallback search failed for %r: %s", ch.name, e)
 
 
 def run_challenge_scan(

@@ -93,9 +93,14 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
               <div class="mt-1 text-hint text-brand-fg">MiiWAN: {c.miiwan_fit}</div>
             )}
             <div class="mt-1 flex flex-wrap gap-3 text-hint">
-              {c.example_video_ids.map((v) => (
+              {/* 항상 작동: 챌린지를 YouTube 에서 직접 검색 (검증된 예시가 없어도 버튼 보장) */}
+              <a class="text-zinc-300 hover:underline" target="_blank" rel="noreferrer"
+                href={`https://www.youtube.com/results?search_query=${encodeURIComponent(c.name + " 챌린지")}`}>
+                YouTube에서 보기 ↗
+              </a>
+              {c.example_video_ids.map((v, i) => (
                 <a key={v} class="text-zinc-400 hover:underline" target="_blank" rel="noreferrer"
-                  href={`https://www.youtube.com/shorts/${v}`}>예시 ↗</a>
+                  href={`https://www.youtube.com/shorts/${v}`}>예시{c.example_video_ids.length > 1 ? i + 1 : ""} ↗</a>
               ))}
               {c.source_urls.filter(isHttp).map((u, i, arr) => (
                 <a key={u} class="text-zinc-600 hover:underline" target="_blank" rel="noreferrer"

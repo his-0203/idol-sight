@@ -52,3 +52,22 @@ def test_fetch_stats_missing_duration_is_zero():
 def test_fetch_stats_empty_ids_no_call():
     yt = _collector({})
     assert yt.fetch_stats([]) == []
+
+
+def test_search_shorts_passes_order():
+    captured: dict = {}
+
+    class _Cap:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, params=None):
+            captured.update(params or {})
+            return httpx.Response(200, json={"items": []},
+                                  request=httpx.Request("GET", url))
+
+    yt = YouTubeCollector(api_key="k", http_factory=lambda: _Cap())
+    yt.search_shorts(query="q", published_after="2026-01-01T00:00:00Z", order="relevance")
+    assert captured["order"] == "relevance"
+    # 기본값은 viewCount (지표용)
+    yt.search_shorts(query="q", published_after="2026-01-01T00:00:00Z")
+    assert captured["order"] == "viewCount"
