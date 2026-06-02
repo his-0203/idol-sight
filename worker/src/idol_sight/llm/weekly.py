@@ -178,7 +178,8 @@ def generate_weekly(
     items = accepted
 
     # spec rev 2 Task 5: type='diagnosis' 카드의 signals_json 직렬화에 사용.
-    signals_by_group: dict[str, dict] = ctx.get("signals_by_group", {}) or {}
+    # (파라미터 signals_by_group[GroupSignals|None] 과 구분 — 여기선 ctx 의 직렬화 dict.)
+    signals_for_cards: dict[str, dict] = ctx.get("signals_by_group", {}) or {}
 
     now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     statements: list[tuple[str, list]] = []
@@ -196,11 +197,11 @@ def generate_weekly(
 
         # signals_json: type='diagnosis' 카드만 GroupSignals payload 를
         # 직렬화. 다른 type (insight / weekly / ipx_action) 은 NULL.
-        # scope 가 signals_by_group 에 없거나 hypotheses 가 비어있으면 NULL.
+        # scope 가 signals_for_cards 에 없거나 hypotheses 가 비어있으면 NULL.
         signals_json: str | None = None
         if item.get("type") == "diagnosis":
             scope = item.get("scope") or "market"
-            gs = signals_by_group.get(scope)
+            gs = signals_for_cards.get(scope)
             if gs and gs.get("hypotheses"):
                 hyps = gs["hypotheses"]
                 primary = hyps[0]

@@ -50,7 +50,7 @@ def test_wow_ratio_positive_growth():
 
 
 def test_wow_ratio_negative_drop():
-    assert math.isclose(wow_ratio(now=50, prev=100), -0.5)
+    assert (r := wow_ratio(now=50, prev=100)) is not None and math.isclose(r, -0.5)
 
 
 def test_wow_ratio_prev_zero_returns_none():
@@ -91,7 +91,7 @@ def test_engagement_rate_wow_drop():
     prev = {"yt_likes_total": 1000, "yt_comments_total": 200, "yt_total_views": 100_000}
     # now ER = 1000/100000 = 0.01, prev ER = 2000/100000 = 0.02
     # drop = (0.01 - 0.02) / 0.02 = -0.5 (50% 하락)
-    assert math.isclose(engagement_rate_wow_drop(now, prev), -0.5)
+    assert (r := engagement_rate_wow_drop(now, prev)) is not None and math.isclose(r, -0.5)
 
 
 def test_engagement_rate_wow_drop_prev_zero_returns_none():
@@ -115,7 +115,7 @@ def test_views_per_sub_wow_drop_30pct():
     now = {"yt_total_views": 7_000_000, "yt_subscribers": 200_000}    # 35
     prev = {"yt_total_views": 5_000_000, "yt_subscribers": 100_000}   # 50
     # (35 - 50) / 50 = -0.3
-    assert math.isclose(views_per_sub_wow_drop(now, prev), -0.3)
+    assert (r := views_per_sub_wow_drop(now, prev)) is not None and math.isclose(r, -0.3)
 
 
 def test_organicity_paid_ratio_30pct():
@@ -311,7 +311,7 @@ def test_negative_keyword_z_lit():
         {"keyword": "의혹", "count": 5},
         {"keyword": "활동", "count": 100},  # 부정 키워드 아님 — 제외
     ]
-    past_weekly_neg_totals = [12, 8, 10, 5, 15, 7, 13, 9, 11, 10]
+    past_weekly_neg_totals: list[float] = [12, 8, 10, 5, 15, 7, 13, 9, 11, 10]
     z = negative_keyword_z(now_keywords, past_weekly_neg_totals)
     assert z > 2.5
 
@@ -319,14 +319,14 @@ def test_negative_keyword_z_lit():
 def test_negative_keyword_z_zero_signal():
     """이번 주 부정 키워드 전혀 없음 → z 음수 또는 0."""
     now_keywords = [{"keyword": "콘서트", "count": 100}]
-    past_weekly_neg_totals = [10, 12, 8]
+    past_weekly_neg_totals: list[float] = [10, 12, 8]
     z = negative_keyword_z(now_keywords, past_weekly_neg_totals)
     assert z < 0
 
 
 def test_twitter_controversy_z():
     """twitter_posts type='controversy' 카운트 z-score."""
-    cohort = [1, 2, 0, 1, 3, 2, 1]   # 평균 1.43, sd~1.0
+    cohort: list[float] = [1, 2, 0, 1, 3, 2, 1]   # 평균 1.43, sd~1.0
     z = twitter_controversy_z(now_count=8, cohort_counts=cohort)
     assert z > 4.0
 
@@ -420,7 +420,7 @@ from idol_sight.analysis.weekly_diagnosis_signals import (
 
 def test_temporal_z_score_basic():
     """history 분포 대비 z. cohort_z_score 와 동일 계산, semantically 다름."""
-    history = [100, 110, 105, 115, 108, 112, 120, 95]
+    history: list[float] = [100, 110, 105, 115, 108, 112, 120, 95]
     z = temporal_z_score(now_value=160, history=history)
     assert z > 4.0    # 강한 spike
 
@@ -431,7 +431,7 @@ def test_temporal_z_score_empty_history():
 
 
 def test_wow_pct_basic():
-    assert math.isclose(wow_pct(now_value=110, prev_value=100), 0.10)
+    assert (r := wow_pct(now_value=110, prev_value=100)) is not None and math.isclose(r, 0.10)
 
 
 def test_wow_pct_prev_zero_returns_none():

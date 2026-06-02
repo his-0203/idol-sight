@@ -71,7 +71,8 @@ def _parse_guyso_payload(html: str) -> list[dict[str, Any]] | None:
 
 def fetch_guyso_daily(chart_date: str, fetcher: Any | None = None) -> list[dict[str, Any]] | None:
     """Fetch one day from guyso.me. chart_date is 'YYYY-MM-DD'."""
-    fetcher = fetcher or Fetcher
+    if fetcher is None:
+        fetcher = Fetcher
     yyyymmdd = chart_date.replace("-", "")
     url = GUYSO_DAILY_URL.format(yyyymmdd=yyyymmdd)
     try:
