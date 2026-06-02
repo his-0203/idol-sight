@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from typing import Any
 
 import typer
 
+from idol_sight.analysis.challenge_scan import run_challenge_scan
 from idol_sight.collectors.channel_stats import ChannelStatsCollector
 from idol_sight.collectors.dc import DcCollector
 from idol_sight.collectors.hanteo import HanteoCollector
@@ -21,6 +23,7 @@ from idol_sight.collectors.twitter import TwitterCollector
 from idol_sight.collectors.youtube import YouTubeCollector
 from idol_sight.config import GroupConfig, Settings, load_settings
 from idol_sight.d1 import D1Client
+from idol_sight.llm.gemini import GeminiClient
 from idol_sight.notify import notify_failure
 from idol_sight.orchestrator import run_collector
 
@@ -872,6 +875,20 @@ def alerts_run(
         return
     for a in fired:
         typer.echo(f"FIRED [{a.severity}] {a.alert_key} — {a.title}")
+
+
+@app.command(name="challenge-scan", help="주간 바이럴 챌린지 발굴+측정 후 D1 저장.")
+def challenge_scan() -> None:
+    settings = load_settings()
+    if not settings.gemini_api_key:
+        raise typer.BadParameter("GEMINI_API_KEY required")
+    if not settings.yt_api_key:
+        raise typer.BadParameter("YT_API_KEY required")
+    client = _make_d1_client(settings)
+    gemini = GeminiClient(api_key=settings.gemini_api_key)
+    yt = YouTubeCollector(api_key=settings.yt_api_key)
+    n = run_challenge_scan(gemini, yt, client, now_epoch=time.time())
+    typer.echo(f"challenge-scan: wrote {n} challenges")
 
 
 @app.command("analyze-weekly", help="Run weekly analysis: hanteo, market_share, member_pop, llm.")
