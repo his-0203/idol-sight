@@ -10,7 +10,7 @@ export interface DiagnosticData {
   shorts_n: number;
   dimensions: {
     viral_physics: Kpi[]; discoverability: Kpi[]; core_strength: Kpi[];
-    discovery_channels: Kpi[]; operating_rhythm: Kpi[];
+    operating_rhythm: Kpi[];
   };
   priorities: Array<{ id: string; label: string; display: string; fix: string }>;
   caveats: string[];
@@ -21,8 +21,7 @@ const STATUS_COLOR: Record<Status, string> = {
 };
 const DIM_LABEL: Record<string, string> = {
   viral_physics: "바이럴 물리", discoverability: "발견 가능성",
-  core_strength: "코어 강도", discovery_channels: "발견 채널",
-  operating_rhythm: "운영 리듬",
+  core_strength: "코어 강도", operating_rhythm: "운영 리듬",
 };
 
 // 숏폼 알고리즘 7 레버 (리포트 9p evergreen).
@@ -44,9 +43,19 @@ const PLATFORMS: Array<[string, string]> = [
 
 function KpiCell({ k }: { k: Kpi }) {
   return (
-    <div class="rounded-ctrl border border-zinc-800 p-3" title={`${k.why}\n\n처방: ${k.fix}`}>
+    <div class="rounded-ctrl border border-zinc-800 p-3">
       <div class="flex items-center justify-between">
-        <span class="text-hint text-zinc-400">{k.label}</span>
+        <span class="flex items-center gap-1 text-hint text-zinc-400">
+          {k.label}
+          {/* 타이틀 옆 ? 아이콘 — 호버 시 설명(why)+처방(fix) 노출. */}
+          <span
+            class="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full
+                   border border-zinc-600 text-[9px] leading-none text-zinc-500
+                   hover:border-zinc-400 hover:text-zinc-200"
+            title={`${k.why}\n\n처방: ${k.fix}`}
+            aria-label={`${k.label} 설명: ${k.why} 처방: ${k.fix}`}
+          >?</span>
+        </span>
         <span class="inline-block h-2 w-2 rounded-full" style={{ background: STATUS_COLOR[k.status] }} />
       </div>
       <div class="mt-1 text-lg font-bold tabular-nums">{k.display}</div>

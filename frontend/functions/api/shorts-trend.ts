@@ -11,7 +11,7 @@ const TREND_LIMIT = 400;
 
 interface GroupRow {
   key: string; name: string; name_kr: string;
-  context_keywords: string | null; twitter_handles: string | null;
+  context_keywords: string | null;
 }
 interface TrendRow {
   video_id: string; group_key: string; title: string | null;
@@ -20,8 +20,7 @@ interface TrendRow {
   view_count_24h: number | null; viral_velocity_ratio: number | null;
 }
 interface SummaryRow {
-  group_key: string; yt_subscribers: number | null; twitter_posts: number | null;
-  naver_total_news: number | null; dc_total_posts: number | null;
+  group_key: string; yt_subscribers: number | null;
 }
 
 const parseJsonArr = (s: string | null): string[] => {
@@ -40,7 +39,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       ORDER BY snapshot_at DESC LIMIT 1) AS comments`;
 
   const groups = await d1Query<GroupRow>(env.DB,
-    `SELECT key, name, name_kr, context_keywords, twitter_handles
+    `SELECT key, name, name_kr, context_keywords
        FROM groups WHERE is_active = 1`);
   const nameByKey: Record<string, string> = {};
   for (const g of groups) nameByKey[g.key] = g.name_kr || g.name;
@@ -66,14 +65,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     [SELF_KEY]);
 
   const summaryNow = await d1Query<SummaryRow>(env.DB,
-    `SELECT group_key, yt_subscribers, twitter_posts, naver_total_news, dc_total_posts
+    `SELECT group_key, yt_subscribers
        FROM agg_summary
       WHERE group_key = ?
-      ORDER BY snapshot_at DESC LIMIT 1`, [SELF_KEY]);
-  const summaryPrev = await d1Query<{ group_key: string; naver_total_news: number | null }>(env.DB,
-    `SELECT group_key, naver_total_news
-       FROM agg_summary
-      WHERE group_key = ? AND snapshot_at <= datetime('now', '-7 days')
       ORDER BY snapshot_at DESC LIMIT 1`, [SELF_KEY]);
   const members = await d1Query<{ composite_score: number | null }>(env.DB,
     `SELECT composite_score FROM agg_member_popularity
@@ -90,11 +84,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       ? groupNameVariants(self.name, self.name_kr, parseJsonArr(self.context_keywords))
       : [SELF_KEY],
     subscribers: s?.yt_subscribers ?? null,
-    twitterHandles: self ? parseJsonArr(self.twitter_handles) : [],
-    twitterPosts: s?.twitter_posts ?? null,
-    newsCount: s?.naver_total_news ?? null,
-    newsCountPrev: summaryPrev[0]?.naver_total_news ?? null,
-    dcPosts: s?.dc_total_posts ?? null,
     memberShares: members.map((m) => m.composite_score ?? 0),
   };
 

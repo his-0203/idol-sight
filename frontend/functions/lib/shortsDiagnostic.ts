@@ -135,11 +135,6 @@ export interface DiagnosticInput {
   shorts: ShortRow[];
   groupTokens: string[];
   subscribers: number | null;
-  twitterHandles: string[];
-  twitterPosts: number | null;
-  newsCount: number | null;
-  newsCountPrev: number | null;
-  dcPosts: number | null;
   memberShares: number[];
 }
 
@@ -150,7 +145,6 @@ export interface Diagnostic {
     viral_physics: Kpi[];
     discoverability: Kpi[];
     core_strength: Kpi[];
-    discovery_channels: Kpi[];
     operating_rhythm: Kpi[];
   };
   priorities: Array<{ id: string; label: string; display: string; fix: string }>;
@@ -219,9 +213,6 @@ export function buildDiagnostic(input: DiagnosticInput): Diagnostic {
   const covHash = coveragePct(shorts, (s) => titleHasHashtag(s.title));
   const avgLen = mean(shorts.map((s) => (s.title ?? "").length));
   const avgEr = ers.length ? mean(ers) : null;
-
-  const xOk = input.twitterHandles.length > 0 && (input.twitterPosts ?? 0) > 0;
-  const newsDelta = (input.newsCount ?? 0) - (input.newsCountPrev ?? 0);
 
   const dimensions: Diagnostic["dimensions"] = {
     viral_physics: [
@@ -310,34 +301,6 @@ export function buildDiagnostic(input: DiagnosticInput): Diagnostic {
         why: "0=균등, 1=집중. 대표 얼굴 형성 정도(해석 보조).",
         fix: "대표 1인 푸시와 균등 노출 사이 전략적 선택.",
       },
-      {
-        id: "dc_activity", label: "DC 갤러리 활동",
-        value: input.dcPosts ?? null,
-        display: input.dcPosts == null ? "—" : `${input.dcPosts}건`,
-        status: (input.dcPosts ?? 0) > 0 ? "good" : "na",
-        target: "—",
-        why: "코어 응집 장치(신규 유입구는 아님).",
-        fix: "코어 담론을 신규 발견 콘텐츠로 번역해 바깥으로 확장.",
-      },
-    ],
-    discovery_channels: [
-      {
-        id: "x_operating", label: "X(트위터) 운영",
-        value: null, display: xOk ? "운영" : "미운영",
-        status: xOk ? "good" : "bad",
-        target: "운영",
-        why: "글로벌·버추얼 팬덤 1차 발견·2차창작 확산 채널.",
-        fix: "X 계정 개설·운영 + 숏폼 동시 배포로 외부 유입 생성.",
-      },
-      {
-        id: "news_stall", label: "뉴스 추세",
-        value: input.newsCount ?? null,
-        display: input.newsCount == null ? "—" : `${input.newsCount}건 (Δ${newsDelta >= 0 ? "+" : ""}${newsDelta})`,
-        status: newsDelta > 0 ? "good" : "warn",
-        target: "증가",
-        why: "미디어 발견 경로. 정체는 PR 동력 약화 신호.",
-        fix: "데뷔 마일스톤·기획 보도자료로 기사 흐름 재가동.",
-      },
     ],
     operating_rhythm: [
       {
@@ -361,8 +324,7 @@ export function buildDiagnostic(input: DiagnosticInput): Diagnostic {
   };
 
   const order: Array<keyof Diagnostic["dimensions"]> = [
-    "viral_physics", "discoverability", "discovery_channels",
-    "operating_rhythm", "core_strength",
+    "viral_physics", "discoverability", "operating_rhythm", "core_strength",
   ];
   const priorities = order
     .flatMap((dim) => dimensions[dim])

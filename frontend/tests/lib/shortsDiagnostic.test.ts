@@ -131,8 +131,7 @@ function reportInput(over: Partial<DiagnosticInput> = {}): DiagnosticInput {
   return {
     group_key: "miiwan", shorts,
     groupTokens: ["미완소년", "MiiWAN"],
-    subscribers: 1300, twitterHandles: [], twitterPosts: 0,
-    newsCount: 13, newsCountPrev: 13, dcPosts: 38,
+    subscribers: 1300,
     memberShares: [3, 2, 2, 2, 1],
     ...over,
   };
@@ -158,11 +157,10 @@ describe("buildDiagnostic — 리포트 재현", () => {
     const er = d.dimensions.core_strength.find((x) => x.id === "avg_er")!;
     expect(er.status).toBe("good");
   });
-  test("X 미운영 → bad", () => {
+  test("DC 갤러리 활동·발견 채널 차원은 제외됨", () => {
     const d = buildDiagnostic(reportInput());
-    const x = d.dimensions.discovery_channels.find((y) => y.id === "x_operating")!;
-    expect(x.status).toBe("bad");
-    expect(x.display).toBe("미운영");
+    expect((d.dimensions as Record<string, unknown>).discovery_channels).toBeUndefined();
+    expect(d.dimensions.core_strength.find((k) => k.id === "dc_activity")).toBeUndefined();
   });
   test("우선순위 TOP3 = bad KPI, 차원 우선순위 순", () => {
     const d = buildDiagnostic(reportInput());

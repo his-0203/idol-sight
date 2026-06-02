@@ -33,12 +33,8 @@ function baseEnv(over: Partial<Record<string, any[]>> = {}) {
           views: 1100, likes: 70, comments: 5, viral_velocity_ratio: 1.1 },
       ];
     }
-    if (sql.includes("FROM agg_summary") && sql.includes("<= datetime")) {
-      return over.prevSummary ?? [{ group_key: "miiwan", naver_total_news: 13 }];
-    }
     if (sql.includes("FROM agg_summary")) {
-      return over.summary ?? [{ group_key: "miiwan", yt_subscribers: 1300,
-        twitter_posts: 0, naver_total_news: 13, dc_total_posts: 38 }];
+      return over.summary ?? [{ group_key: "miiwan", yt_subscribers: 1300 }];
     }
     if (sql.includes("FROM agg_member_popularity")) {
       return over.members ?? [{ composite_score: 3 }, { composite_score: 2 }, { composite_score: 1 }];
