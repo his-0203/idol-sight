@@ -56,6 +56,12 @@ describe("제목 정규식", () => {
     expect(titleHasDecoration("최고의 인테리어는 마하진 ⟡")).toBe(true);
     expect(titleHasDecoration("포켓몬 박사 나이선 학위 박탈 논란?!")).toBe(false); // ?! 는 장식 아님
     expect(titleHasDecoration("미완소년 신곡 무대")).toBe(false);
+    // \p{S} 오탐 회귀 가드: 수학기호·물결은 장식 아님.
+    expect(titleHasDecoration("미완소년 D-7~")).toBe(false);
+    expect(titleHasDecoration("최종 점수 = 100")).toBe(false);
+    expect(titleHasDecoration("A+B 콜라보")).toBe(false);
+    // \p{So} 는 별·하트 등 '기타 기호' 는 여전히 장식으로 잡는다.
+    expect(titleHasDecoration("별 ★ 모음")).toBe(true);
   });
   test("해시태그 감지", () => {
     expect(titleHasHashtag("데뷔 #미완소년 #MiiWAN")).toBe(true);

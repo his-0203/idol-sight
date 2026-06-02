@@ -63,9 +63,10 @@ export function titleHasGroupToken(title: string | null, tokens: string[]): bool
   return tokens.some((tok) => tok && t.includes(tok.toLowerCase()));
 }
 
-// 이모지(Extended_Pictographic) · 기호(\p{S}) · 장식 문장부호 curated set.
-// '?!' '…' '~' 같은 일반 문장부호는 의도적으로 제외 (장식 아님).
-const DECORATION_RE = /\p{Extended_Pictographic}|\p{S}|[‧꒰꒱ა⟡⟢✦✧⋆]/u;
+// 이모지(Extended_Pictographic) · "기타 기호"(\p{So}: ★☆♥ 등) · 장식 문장부호 curated set.
+// \p{S} 전체(수학기호 \p{Sm}: + = ~ × | < >, 통화 \p{Sc}) 는 일반 제목에서 흔해
+// 오탐을 유발하므로 의도적으로 제외. '?!' '…' '~' 도 장식 아님.
+const DECORATION_RE = /\p{Extended_Pictographic}|\p{So}|[‧꒰꒱ა⟡⟢✦✧⋆˚₊]/u;
 export function titleHasDecoration(title: string | null): boolean {
   return !!title && DECORATION_RE.test(title);
 }
@@ -93,6 +94,9 @@ export function normalizedHHI(shares: number[]): number | null {
 
 // 공식 그룹명 토큰만 추출 (멤버 별명·초성 약자 제외). name/name_kr 을 기준으로,
 // context_keywords 중 그 이름과 부분문자열 관계인 것(대소문자 변형·축약)만 인정.
+// 알려진 한계: 공백·숫자 치환 변형(예: WeGoSix→"wego6"/"we go six")은
+// 부분문자열 관계가 아니라 누락된다. MiiWAN 변형은 부분문자열(미완/miiwan)이라
+// 현재 영향 없음. 타 그룹 coverage 에 재사용 시 정밀 토큰 사전 도입 검토.
 export function groupNameVariants(
   name: string | null, nameKr: string | null, contextKeywords: string[],
 ): string[] {
