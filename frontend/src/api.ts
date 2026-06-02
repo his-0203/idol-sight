@@ -27,6 +27,7 @@ export const api = {
     return getJson<any>(`/api/melon/${encodeURIComponent(k)}?${qs}`);
   },
   weekly:      () => getJson<any>("/api/weekly"),
+  shortsTrend: () => getJson<any>("/api/shorts-trend"),
   insights:    (week?: string) =>
     getJson<any>("/api/insights" + (week ? `?week=${encodeURIComponent(week)}` : "")),
   miiwan:      () => getJson<any>("/api/miiwan"),

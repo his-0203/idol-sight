@@ -11,6 +11,7 @@ const MARKET_TABS: Array<[RouterState["tab"], string]> = [
   ["market",   "시장 개요"],
   ["weekly",   "주간 업데이트"],
   ["insights", "인사이트"],
+  ["shorts",   "숏폼 트렌드"],
   ["miiwan",   "MiiWAN"],
 ];
 
