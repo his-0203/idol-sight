@@ -1,0 +1,86 @@
+import { fmt } from "../format";
+
+export interface ChallengeItem {
+  rank: number;
+  name: string;
+  tag: string;
+  description: string | null;
+  origin: string | null;
+  hashtags: string[];
+  example_video_ids: string[];
+  yt_recent_shorts: number | null;
+  yt_total_views: number | null;
+  miiwan_fit: string | null;
+  source_urls: string[];
+  confidence: string | null;
+  week_start?: string;
+  generated_at?: string;
+}
+
+const TAG_LABEL: Record<string, string> = { kpop: "K-POP", general: "일반" };
+const CONF_COLOR: Record<string, string> = {
+  high: "#22c55e", medium: "#eab308", low: "#6b7280",
+};
+
+export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
+  if (items.length === 0) {
+    return (
+      <section class="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+        <h2 class="text-lg font-bold">이번 주 바이럴 챌린지</h2>
+        <p class="mt-2 text-zinc-400">이번 주 챌린지 데이터가 아직 없습니다.</p>
+      </section>
+    );
+  }
+  const week = items[0]?.week_start;
+  return (
+    <section class="mb-6 rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+      <div class="mb-1 flex items-center justify-between">
+        <h2 class="text-lg font-bold">이번 주 바이럴 챌린지</h2>
+        <span class="text-hint text-zinc-500">{week ? `${week} 주` : ""}</span>
+      </div>
+      <p class="mb-3 text-hint text-zinc-600">발굴(AI 웹검색) + YouTube 측정 · MiiWAN 적합도 제안</p>
+      <ol class="space-y-2">
+        {items.map((c) => (
+          <li key={c.rank} class="rounded-ctrl border border-zinc-800 p-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-bold tabular-nums text-zinc-300">#{c.rank}</span>
+              <span class="font-semibold">{c.name}</span>
+              <span class="rounded-full bg-zinc-800 px-2 py-0.5 text-hint text-zinc-300">
+                {TAG_LABEL[c.tag] ?? c.tag}
+              </span>
+              {c.confidence && (
+                <span class="inline-flex items-center gap-1 text-hint text-zinc-500">
+                  <span class="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ background: CONF_COLOR[c.confidence] ?? "#6b7280" }} />
+                  {c.confidence}
+                </span>
+              )}
+            </div>
+            {c.description && <div class="mt-1 text-data text-zinc-300">{c.description}</div>}
+            <div class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-hint text-zinc-500">
+              {c.origin && <span>원곡: {c.origin}</span>}
+              {c.hashtags.length > 0 && <span>{c.hashtags.join(" ")}</span>}
+              <span>
+                측정: {c.yt_recent_shorts == null ? "미측정"
+                  : `숏폼 ${c.yt_recent_shorts}+ · 조회 ${fmt(c.yt_total_views)}`}
+              </span>
+            </div>
+            {c.miiwan_fit && (
+              <div class="mt-1 text-hint text-brand-fg">MiiWAN: {c.miiwan_fit}</div>
+            )}
+            <div class="mt-1 flex flex-wrap gap-3 text-hint">
+              {c.example_video_ids.map((v) => (
+                <a key={v} class="text-zinc-400 hover:underline" target="_blank" rel="noreferrer"
+                  href={`https://www.youtube.com/shorts/${v}`}>예시 ↗</a>
+              ))}
+              {c.source_urls.map((u, i) => (
+                <a key={u} class="text-zinc-600 hover:underline" target="_blank" rel="noreferrer"
+                  href={u}>출처{c.source_urls.length > 1 ? i + 1 : ""} ↗</a>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}

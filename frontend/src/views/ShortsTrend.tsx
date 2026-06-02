@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { MiiwanShortsDiagnostic, type DiagnosticData } from "../components/MiiwanShortsDiagnostic";
 import { ShortsTrendTable } from "../components/ShortsTrendTable";
+import { WeeklyChallenges, type ChallengeItem } from "../components/WeeklyChallenges";
 import { formatKST } from "../lib/datetime";
 import type { TrendShort } from "../lib/shortsTrend";
 
@@ -12,6 +13,7 @@ interface Payload {
   trend: TrendShort[];
   groups: Array<{ key: string; name_kr: string }>;
   diagnostic: DiagnosticData;
+  challenges: ChallengeItem[];
 }
 
 export function ShortsTrend() {
@@ -28,6 +30,7 @@ export function ShortsTrend() {
   return (
     <div>
       <MiiwanShortsDiagnostic data={data.diagnostic} />
+      <WeeklyChallenges items={data.challenges ?? []} />
       <ShortsTrendTable
         rows={data.trend}
         groups={data.groups}
