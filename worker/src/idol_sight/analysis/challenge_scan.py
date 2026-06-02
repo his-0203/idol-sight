@@ -16,7 +16,6 @@ from idol_sight.llm.prompts import (
 
 log = logging.getLogger(__name__)
 
-KPOP_WEIGHT = 1.3   # kpop 태그 랭크 가중
 SHORT_MAX_SEC = 60  # 예시 영상 = 진짜 숏츠 상한(초). MV/일반영상 배제 (is_short 기준과 동일)
 
 # YouTube URL → 11자 video_id. shorts/ · watch?v= · youtu.be/ · live/ 지원.
@@ -79,7 +78,7 @@ def parse_structured_challenges(payload: object) -> list[Challenge]:
         mom = it.get("momentum")
         out.append(Challenge(
             name=str(it["name"]),
-            tag="kpop" if tag == "kpop" else "general",
+            tag="meme" if tag == "meme" else "dance",
             description=str(it.get("description") or ""),
             origin=str(it.get("origin") or ""),
             hashtags=[str(h) for h in (it.get("hashtags") or []) if h],
@@ -122,20 +121,24 @@ def build_discovery_prompt(now_epoch: float) -> str:
 
 
 def select_and_rank(
-    challenges: list[Challenge], *, target_kpop: int, target_general: int,
+    challenges: list[Challenge], *, total: int = 10, min_meme: int = 3,
 ) -> list[Challenge]:
+    """측정 점수로 상위 total 개 선정 + 랭크. 단 밈(비-댄스)은 조회수로 측정이 약해
+    묻히기 쉬우므로 최소 min_meme 개를 보장한다 (있는 만큼). 전부 K-POP 아이돌."""
     views = [c.yt_total_views or 0 for c in challenges]
     shorts = [c.yt_recent_shorts or 0 for c in challenges]
     mv = max(views) or 1
     ms = max(shorts) or 1
     for c in challenges:
-        base = (c.yt_total_views or 0) / mv * 0.7 + (c.yt_recent_shorts or 0) / ms * 0.3
-        c.score = base * (KPOP_WEIGHT if c.tag == "kpop" else 1.0)
-    kpop = sorted([c for c in challenges if c.tag == "kpop"],
-                  key=lambda c: c.score, reverse=True)[:target_kpop]
-    general = sorted([c for c in challenges if c.tag == "general"],
-                     key=lambda c: c.score, reverse=True)[:target_general]
-    selected = sorted(kpop + general, key=lambda c: c.score, reverse=True)
+        c.score = (c.yt_total_views or 0) / mv * 0.7 + (c.yt_recent_shorts or 0) / ms * 0.3
+    memes = sorted([c for c in challenges if c.tag == "meme"],
+                   key=lambda c: c.score, reverse=True)
+    guaranteed = memes[:min_meme]                       # 밈 최소 보장
+    gids = {id(c) for c in guaranteed}
+    rest = sorted([c for c in challenges if id(c) not in gids],
+                  key=lambda c: c.score, reverse=True)
+    selected = guaranteed + rest[: max(0, total - len(guaranteed))]
+    selected.sort(key=lambda c: c.score, reverse=True)
     for i, c in enumerate(selected, 1):
         c.rank = i
     return selected
@@ -203,9 +206,11 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
     # ②-b LLM 후보로 못 채웠으면 relevance 검색 폴백. 'name 챌린지' 로 관련성순 검색 →
     #     ≤60s 검증. order=relevance(조회수 아님)이라 해당 챌린지 클립일 확률이 높다.
     if not ch.example_video_ids and ch.name:
+        # 이름에 이미 '챌린지'가 있으면 중복 부착 금지 (밈은 그대로 검색).
+        q = ch.name if ("챌린지" in ch.name or ch.tag == "meme") else f"{ch.name} 챌린지"
         try:
             rel_ids = yt.search_shorts(
-                query=f"{ch.name} 챌린지", published_after=published_after,
+                query=q, published_after=published_after,
                 order="relevance", max_results=10,
             )
             rby = {s.get("video_id"): s for s in yt.fetch_stats(rel_ids)}
@@ -218,7 +223,7 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
 
 
 def run_challenge_scan(
-    gemini, yt, d1, *, now_epoch: float, target_kpop: int = 7, target_general: int = 3,
+    gemini, yt, d1, *, now_epoch: float, total: int = 10, min_meme: int = 3,
 ) -> int:
     """발굴→구조화→측정→랭크→UPSERT. 저장한 챌린지 수 반환.
     발굴(grounded+structure) 실패는 비-치명: 로그 후 0 반환(기존 주차 보존)."""
@@ -239,8 +244,7 @@ def run_challenge_scan(
     published_after = iso_days_ago(now_epoch, 7)
     for ch in challenges:
         measure_challenge(yt, ch, published_after)
-    selected = select_and_rank(challenges, target_kpop=target_kpop,
-                               target_general=target_general)
+    selected = select_and_rank(challenges, total=total, min_meme=min_meme)
     week_start = week_start_kst(now_epoch)
     generated_at = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc)\
         .strftime("%Y-%m-%dT%H:%M:%SZ")

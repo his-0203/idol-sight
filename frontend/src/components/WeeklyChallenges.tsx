@@ -20,7 +20,12 @@ export interface ChallengeItem {
   generated_at?: string;
 }
 
-const TAG_LABEL: Record<string, string> = { kpop: "K-POP", general: "일반" };
+const TAG_LABEL: Record<string, string> = { dance: "댄스", meme: "밈" };
+
+// YouTube 검색어: 이름에 이미 '챌린지'가 있거나 밈이면 그대로, 아니면 '챌린지' 부착.
+function ytQuery(c: { name: string; tag: string }): string {
+  return c.name.includes("챌린지") || c.tag === "meme" ? c.name : `${c.name} 챌린지`;
+}
 const CONF_COLOR: Record<string, string> = {
   high: "#22c55e", medium: "#eab308", low: "#6b7280",
 };
@@ -95,7 +100,7 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
             <div class="mt-1 flex flex-wrap gap-3 text-hint">
               {/* 항상 작동: 챌린지를 YouTube 에서 직접 검색 (검증된 예시가 없어도 버튼 보장) */}
               <a class="text-zinc-300 hover:underline" target="_blank" rel="noreferrer"
-                href={`https://www.youtube.com/results?search_query=${encodeURIComponent(c.name + " 챌린지")}`}>
+                href={`https://www.youtube.com/results?search_query=${encodeURIComponent(ytQuery(c))}`}>
                 YouTube에서 보기 ↗
               </a>
               {c.example_video_ids.map((v, i) => (

@@ -13,7 +13,7 @@ def _now():
 def test_measure_challenge_examples_from_verified_llm_candidates():
     # 예시 = LLM 제시 후보를 API 검증한 결과. MV(>60s)·미존재 제외, LLM 순서 보존,
     # 조회수 정렬 안 함(view=인기≠관련성). 지표(yt_recent_shorts)는 별도 검색 표본.
-    ch = Challenge(name="C", tag="kpop", description="", origin="", hashtags=["#c"],
+    ch = Challenge(name="C", tag="dance", description="", origin="", hashtags=["#c"],
                    source_urls=[], confidence="high", miiwan_fit="",
                    candidate_video_ids=["mv", "s1", "ghost", "s2"])
     yt = MagicMock()
@@ -34,7 +34,7 @@ def test_measure_challenge_examples_from_verified_llm_candidates():
 
 def test_measure_challenge_relevance_fallback_when_no_candidates():
     # LLM 후보 없음 → 'name 챌린지' relevance 검색 폴백 → ≤60s 검증분을 예시로.
-    ch = Challenge(name="Catch Catch", tag="kpop", description="", origin="",
+    ch = Challenge(name="Catch Catch", tag="dance", description="", origin="",
                    hashtags=["#x"], source_urls=[], confidence="high", miiwan_fit="",
                    candidate_video_ids=[])
     yt = MagicMock()
@@ -53,7 +53,7 @@ def test_measure_challenge_relevance_fallback_when_no_candidates():
 
 
 def test_measure_challenge_empty_when_nothing_found():
-    ch = Challenge(name="C", tag="kpop", description="", origin="", hashtags=["#c"],
+    ch = Challenge(name="C", tag="dance", description="", origin="", hashtags=["#c"],
                    source_urls=[], confidence="low", miiwan_fit="",
                    candidate_video_ids=[])
     yt = MagicMock()
@@ -79,7 +79,7 @@ def _yt(ids, stats):
 
 def test_run_writes_ranked_challenges():
     gemini = _gemini([
-        {"name": "K", "tag": "kpop", "description": "d", "origin": "o",
+        {"name": "K", "tag": "dance", "description": "d", "origin": "o",
          "hashtags": ["#k"], "source_urls": ["http://s"], "confidence": "high",
          "miiwan_fit": "쉬움"},
     ])
@@ -87,7 +87,7 @@ def test_run_writes_ranked_challenges():
                              "comments": 0, "title": "t"}])
     d1 = MagicMock()
     n = run_challenge_scan(gemini, yt, d1, now_epoch=_now(),
-                           target_kpop=7, target_general=3)
+                           total=10, min_meme=3)
     assert n == 1
     gemini.generate_grounded.assert_called_once()
     gemini.generate.assert_called_once()
@@ -102,21 +102,21 @@ def test_run_skips_when_no_challenges():
     yt = _yt([], [])
     d1 = MagicMock()
     n = run_challenge_scan(gemini, yt, d1, now_epoch=_now(),
-                           target_kpop=7, target_general=3)
+                           total=10, min_meme=3)
     assert n == 0
     d1.batch.assert_not_called()
 
 
 def test_run_tolerates_measure_failure():
     gemini = _gemini([
-        {"name": "K", "tag": "kpop", "description": "", "hashtags": ["#k"],
+        {"name": "K", "tag": "dance", "description": "", "hashtags": ["#k"],
          "source_urls": [], "confidence": "low", "miiwan_fit": ""},
     ])
     yt = MagicMock()
     yt.search_shorts.side_effect = RuntimeError("quota")
     d1 = MagicMock()
     n = run_challenge_scan(gemini, yt, d1, now_epoch=_now(),
-                           target_kpop=7, target_general=3)
+                           total=10, min_meme=3)
     assert n == 1
     stmts = d1.batch.call_args[0][0]
     assert any("INSERT INTO weekly_challenges" in s for s, _ in stmts)
@@ -128,6 +128,6 @@ def test_run_skips_on_discovery_error():
     gemini.generate_grounded.side_effect = RuntimeError("grounding down")
     d1 = MagicMock()
     n = run_challenge_scan(gemini, MagicMock(), d1, now_epoch=_now(),
-                           target_kpop=7, target_general=3)
+                           total=10, min_meme=3)
     assert n == 0
     d1.batch.assert_not_called()

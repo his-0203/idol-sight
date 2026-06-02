@@ -613,9 +613,9 @@ vague phrasing.
 # ── 주간 바이럴 챌린지 (설계 2026-06-02-weekly-viral-challenges) ──────────────
 # grounded(google_search) 발굴용 프롬프트. 출처 URL 필수 + 최근 7일 + K-POP 가중.
 CHALLENGE_DISCOVERY_PROMPT = (
-    "당신은 K-POP/숏폼 트렌드 리서처다. **오늘은 {today} 다.** Google 검색을 사용해 "
-    "**{week_ago} ~ {today} (최근 7일)** 에 **새로 시작되었거나 이 기간에 새롭게 "
-    "급확산된** 숏폼 '챌린지'만 조사해 정리하라.\n\n"
+    "당신은 K-POP 아이돌 숏폼 트렌드(밈) 리서처다. **오늘은 {today} 다.** Google 검색을 "
+    "사용해 **{week_ago} ~ {today} (최근 7일)** 에 **새로 시작되었거나 이 기간에 새롭게 "
+    "급확산된 K-POP 아이돌 관련** 숏폼 트렌드만 조사해 정리하라.\n\n"
     "절대 규칙(최신성) — 어기면 실패:\n"
     "- **각 챌린지 원곡(또는 사운드)의 발매일을 검색해 확인하라.** 원곡이 약 1개월 "
     "이상 전(특히 몇 달~작년)에 나왔으면, 지금 영상이 좀 올라와도 '이번 주 새 트렌드'가 "
@@ -626,9 +626,14 @@ CHALLENGE_DISCOVERY_PROMPT = (
     "- 각 챌린지가 {week_ago} 이후 실제로 (새로) 확산 중이라는 근거가 없으면 빼라. "
     "started_around 는 추측하지 말고 검색으로 확인한 실제 시작 시점만 적어라.\n\n"
     "요구사항:\n"
-    "- K-POP 아이돌 챌린지(타이틀곡 안무·아이돌 포맷)를 약 7개로 우선·다수 포함.\n"
-    "- 그 외 일반 YouTube Shorts/숏폼 챌린지(밈·트렌드)를 약 3개 포함.\n"
-    "- 각 챌린지마다: 이름, 한 줄 설명(무슨 동작/포맷), 원곡/아티스트/사운드 출처, "
+    "- **K-POP 아이돌 관련만** (비-K-POP·일반 인터넷 밈은 제외). 총 약 10개.\n"
+    "- 아래 두 종류를 모두 포함하라:\n"
+    "  · 댄스 챌린지(tag=dance): 타이틀곡 포인트 안무 따라 하기.\n"
+    "  · 비-댄스 밈(tag=meme): 아이돌의 재밌는 순간·말버릇·오디오·리액션·짤 포맷 등이 "
+    "팬들 사이에서 숏츠로 변주·확산되는 것 (예: '거제 야호' 류의 밈). 댄스만 보지 말고 "
+    "이런 밈적 재미요소도 적극 찾아라.\n"
+    "- 각 항목에 tag(dance | meme)를 명시.\n"
+    "- 각 항목마다: 이름, 한 줄 설명(무슨 동작/포맷/밈인지), 원곡/아티스트/사운드 출처, "
     "대표 해시태그, 그리고 **반드시 http 로 시작하는 검증 가능한 출처 URL**.\n"
     "- 해시태그는 실제로 쓰이는 형식으로 — 보통 **#그룹명_곡명, #곡명** 식이다 "
     "(예: #HIIPE_Princess #Stolen). '#XXXChallenge' 같은 임의 조합을 지어내지 말고 "
@@ -645,8 +650,8 @@ CHALLENGE_DISCOVERY_PROMPT = (
 
 # grounded 텍스트 → JSON 구조화 + MiiWAN 적합도. 비-grounded generate() 로 호출.
 CHALLENGE_STRUCTURE_SYSTEM = (
-    "아래 리서치 텍스트를 JSON 으로 구조화하라. 텍스트에 없는 챌린지를 지어내지 말 것.\n"
-    "- tag: K-POP 아이돌 챌린지는 'kpop', 그 외는 'general'.\n"
+    "아래 리서치 텍스트를 JSON 으로 구조화하라. 텍스트에 없는 항목을 지어내지 말 것.\n"
+    "- tag: 댄스 챌린지는 'dance', 비-댄스 밈(재밌는 순간·말버릇·오디오·짤 등)은 'meme'.\n"
     "- hashtags: 실제 쓰이는 형식(#그룹명_곡명, #곡명 — 예: #HIIPE_Princess, #Stolen). "
     "'#XXXChallenge' 임의 조합은 넣지 말 것.\n"
     "- source_urls: 텍스트에 등장한 **http(s) 로 시작하는 실제 URL 만**. 기사 제목·"
@@ -673,7 +678,7 @@ CHALLENGE_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
-                    "tag": {"type": "string", "enum": ["kpop", "general"]},
+                    "tag": {"type": "string", "enum": ["dance", "meme"]},
                     "description": {"type": "string"},
                     "origin": {"type": "string"},
                     "hashtags": {"type": "array", "items": {"type": "string"}},

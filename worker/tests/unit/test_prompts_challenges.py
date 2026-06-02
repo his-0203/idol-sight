@@ -27,7 +27,7 @@ def test_discovery_prompt_recency_and_lifecycle():
 def test_structure_system_mentions_miiwan_and_tag():
     s = CHALLENGE_STRUCTURE_SYSTEM
     assert "MiiWAN" in s
-    assert "kpop" in s and "general" in s
+    assert "dance" in s and "meme" in s   # tag: 댄스/밈
     assert "example_urls" in s   # 챌린지 클립 URL 추출 지시
     assert "momentum" in s       # 생애주기 추출 지시
 
@@ -38,5 +38,5 @@ def test_challenge_schema_shape():
                 "example_urls", "started_around", "momentum", "valid_until",
                 "confidence", "miiwan_fit"):
         assert key in props
-    assert props["tag"]["enum"] == ["kpop", "general"]
+    assert props["tag"]["enum"] == ["dance", "meme"]
     assert props["momentum"]["enum"] == ["rising", "peaking", "declining", "unknown"]

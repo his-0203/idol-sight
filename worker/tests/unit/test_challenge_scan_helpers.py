@@ -8,19 +8,20 @@ from idol_sight.analysis.challenge_scan import (
 
 def test_parse_structured_challenges():
     payload = {"challenges": [
-        {"name": "A", "tag": "kpop", "description": "d", "origin": "o",
+        {"name": "A", "tag": "dance", "description": "d", "origin": "o",
          "hashtags": ["#a"],
          "source_urls": ["https://news.x/a", "[TF초점] 기사 제목 - Daum (2026)"],
          "confidence": "high", "miiwan_fit": "쉬움",
          "started_around": "2026-05-26경", "momentum": "rising",
          "valid_until": "~2026-06-12"},
-        {"name": "B", "tag": "general", "description": "", "hashtags": [],
+        {"name": "B", "tag": "garbage_tag", "description": "", "hashtags": [],
          "source_urls": [], "confidence": "low", "miiwan_fit": "",
          "momentum": "garbage"},
     ]}
     chs = parse_structured_challenges(payload)
     assert len(chs) == 2
-    assert chs[0].name == "A" and chs[0].tag == "kpop"
+    assert chs[0].name == "A" and chs[0].tag == "dance"
+    assert chs[1].tag == "dance"   # 알 수 없는 tag → dance 기본
     # source_urls: 실제 http URL 만, 기사 제목 문구는 버림 (깨진 링크 방지)
     assert chs[0].source_urls == ["https://news.x/a"]
     # 생애주기 파싱
@@ -66,7 +67,7 @@ def test_parse_extracts_example_urls_to_candidate_ids():
     assert chs[0].candidate_video_ids == ["abcdefghijk", "12345678901"]
     # example_urls 없으면 후보 빈 리스트
     assert parse_structured_challenges(
-        {"challenges": [{"name": "B", "tag": "general", "hashtags": [],
+        {"challenges": [{"name": "B", "tag": "meme", "hashtags": [],
                          "source_urls": [], "confidence": "low", "miiwan_fit": ""}]}
     )[0].candidate_video_ids == []
 
@@ -93,31 +94,39 @@ def _ch(name, tag, views, shorts):
     return c
 
 
-def test_select_and_rank_caps_per_tag_and_weights_kpop():
+def test_select_and_rank_guarantees_memes():
+    # 밈은 조회수 낮아도 min_meme 만큼 보장. 댄스가 나머지. 전체 score 순 랭크.
     chs = [
-        _ch("k1", "kpop", 100, 10),
-        _ch("k2", "kpop", 50, 5),
-        _ch("g1", "general", 100, 10),
-        _ch("g2", "general", 90, 9),
+        _ch("d1", "dance", 1000, 50),
+        _ch("d2", "dance", 800, 40),
+        _ch("d3", "dance", 600, 30),
+        _ch("m1", "meme", 10, 1),
+        _ch("m2", "meme", 5, 1),
     ]
-    sel = select_and_rank(chs, target_kpop=1, target_general=1)
-    names = [c.name for c in sel]
-    assert names == ["k1", "g1"]
-    assert sel[0].rank == 1 and sel[1].rank == 2
-    tie = select_and_rank([_ch("k", "kpop", 100, 10), _ch("g", "general", 100, 10)],
-                          target_kpop=1, target_general=1)
-    assert tie[0].name == "k"
+    sel = select_and_rank(chs, total=4, min_meme=2)
+    names = {c.name for c in sel}
+    assert len(sel) == 4
+    assert "m1" in names and "m2" in names      # 밈 2개 보장
+    assert "d1" in names                          # 상위 댄스 포함
+    assert sel[0].name == "d1"                    # 랭크는 score 순
+    assert sel[0].rank == 1 and sel[-1].rank == len(sel)
+
+
+def test_select_and_rank_total_cap_no_memes():
+    chs = [_ch(f"d{i}", "dance", 100 - i, 10) for i in range(8)]
+    sel = select_and_rank(chs, total=5, min_meme=3)   # 밈 없음 → 댄스 top5
+    assert [c.name for c in sel] == ["d0", "d1", "d2", "d3", "d4"]
 
 
 def test_select_and_rank_unmeasured_sinks():
-    measured = _ch("m", "general", 100, 10)
-    un = _ch("u", "general", None, None)
-    sel = select_and_rank([un, measured], target_kpop=5, target_general=5)
+    measured = _ch("m", "dance", 100, 10)
+    un = _ch("u", "dance", None, None)
+    sel = select_and_rank([un, measured], total=10, min_meme=3)
     assert sel[0].name == "m"
 
 
 def test_build_upsert_statements_leads_with_delete():
-    c = _ch("A", "kpop", 100, 10)
+    c = _ch("A", "dance", 100, 10)
     c.rank = 1
     c.example_video_ids = ["v1"]
     stmts = build_upsert_statements("2026-06-01", [c], "2026-06-01T00:00:00Z")
