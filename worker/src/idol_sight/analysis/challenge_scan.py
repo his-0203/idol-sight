@@ -9,6 +9,10 @@ import json
 import logging
 from dataclasses import dataclass, field
 
+from idol_sight.llm.prompts import (
+    CHALLENGE_DISCOVERY_PROMPT, CHALLENGE_STRUCTURE_SYSTEM, CHALLENGE_SCHEMA,
+)
+
 log = logging.getLogger(__name__)
 
 KPOP_WEIGHT = 1.3   # kpop 태그 랭크 가중
@@ -113,3 +117,49 @@ def build_upsert_statements(
             c.confidence, generated_at,
         ]))
     return stmts
+
+
+def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
+    """YouTube 키워드 검색으로 ch 의 측정 필드를 in-place 채움. 실패는 무시(미측정)."""
+    query = ch.hashtags[0] if ch.hashtags else ch.name
+    try:
+        ids = yt.search_shorts(query=query, published_after=published_after)
+        if not ids:
+            return
+        stats = yt.fetch_stats(ids[:10])
+        ch.yt_recent_shorts = len(ids)
+        ch.yt_total_views = sum((s.get("views") or 0) for s in stats)
+        ch.example_video_ids = [s["video_id"] for s in stats[:3] if s.get("video_id")]
+    except Exception as e:  # noqa: BLE001 — 후보별 측정 실패는 치명적이지 않음
+        log.warning("measure failed for %r: %s", ch.name, e)
+
+
+def run_challenge_scan(
+    gemini, yt, d1, *, now_epoch: float, target_kpop: int = 7, target_general: int = 3,
+) -> int:
+    """발굴→구조화→측정→랭크→UPSERT. 저장한 챌린지 수 반환.
+    발굴(grounded+structure) 실패는 비-치명: 로그 후 0 반환(기존 주차 보존)."""
+    try:
+        grounded = gemini.generate_grounded(prompt=CHALLENGE_DISCOVERY_PROMPT)
+        structured = gemini.generate(
+            system_prompt=CHALLENGE_STRUCTURE_SYSTEM,
+            context={"grounded_text": grounded.text, "sources": grounded.sources},
+            response_schema=CHALLENGE_SCHEMA,
+        )
+    except Exception as e:  # noqa: BLE001 — 발굴 실패는 비-치명(그 주 스킵)
+        log.warning("challenge-scan: discovery failed (%s); preserving prior week", e)
+        return 0
+    challenges = parse_structured_challenges(structured)
+    if not challenges:
+        log.warning("challenge-scan: no challenges discovered; preserving prior week")
+        return 0
+    published_after = iso_days_ago(now_epoch, 7)
+    for ch in challenges:
+        measure_challenge(yt, ch, published_after)
+    selected = select_and_rank(challenges, target_kpop=target_kpop,
+                               target_general=target_general)
+    week_start = week_start_kst(now_epoch)
+    generated_at = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc)\
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+    d1.batch(build_upsert_statements(week_start, selected, generated_at))
+    return len(selected)
