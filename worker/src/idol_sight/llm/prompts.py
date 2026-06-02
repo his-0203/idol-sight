@@ -688,6 +688,7 @@ CHALLENGE_SCHEMA = {
                     "hashtags": {"type": "array", "items": {"type": "string"}},
                     "source_urls": {"type": "array", "items": {"type": "string"}},
                     "example_urls": {"type": "array", "items": {"type": "string"}},
+                    "example_video_ids": {"type": "array", "items": {"type": "string"}},
                     "started_around": {"type": "string"},
                     "momentum": {"type": "string",
                                  "enum": ["rising", "peaking", "declining", "unknown"]},
@@ -696,10 +697,29 @@ CHALLENGE_SCHEMA = {
                     "miiwan_fit": {"type": "string"},
                 },
                 "required": ["name", "tag", "description", "hashtags",
-                             "source_urls", "example_urls", "momentum",
+                             "example_video_ids", "momentum",
                              "confidence", "miiwan_fit"],
             },
         }
     },
     "required": ["challenges"],
 }
+
+# ── 측정 기반 발굴(B): 실제 바이럴 숏츠 풀 → LLM 분류 ────────────────────────
+# generate() 로 호출. context 에 후보 영상 목록(title/views/channel/video_id)을 준다.
+CHALLENGE_CLASSIFY_SYSTEM = (
+    "context.videos 는 **최근 7일 YouTube 에서 조회수가 높은 K-POP 챌린지/숏폼 영상 "
+    "목록**(title, views, channel, video_id)이다. 이 목록에 실제로 나타난 것에만 근거해 "
+    "**지금 가장 바이럴 중인 K-POP 아이돌 챌린지·밈**을 식별·정리하라. 목록에 근거가 "
+    "없는 챌린지를 지어내지 말 것.\n"
+    "- 같은 곡/챌린지의 여러 영상을 하나로 묶어라. 조회수·영상 수가 많을수록 상위.\n"
+    "- name: 반드시 '가수(그룹)명 - 곡명' 포함 (예: 'MEOVV - Hands Up 챌린지').\n"
+    "- tag: 댄스 챌린지는 'dance', 비-댄스 밈(재밌는 순간·말버릇·오디오·짤)은 'meme'.\n"
+    "- example_video_ids: 그 챌린지에 해당하는 **context.videos 의 video_id 만** 1~3개. "
+    "**원곡 아티스트(그룹) 공식 채널·본인 클립을 맨 앞**에 두고 그 다음 다른 클립.\n"
+    "- 원곡이 약 1개월 이상 전(작년 등)에 나온 곡이면 제외 (오래된 곡의 재탕 영상 배제).\n"
+    "- hashtags(#그룹명_곡명 식), origin(원곡-아티스트), started_around, "
+    "momentum(rising/peaking/declining/unknown), valid_until, confidence, "
+    "miiwan_fit('MiiWAN'=2026-06 데뷔 버추얼 아이돌의 참여 난이도 한 줄) 도 채워라.\n"
+    "근거 있는 챌린지가 없으면 challenges: [] 를 반환하라."
+)

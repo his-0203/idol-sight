@@ -2,7 +2,7 @@ import json
 from idol_sight.analysis.challenge_scan import (
     Challenge, parse_structured_challenges, week_start_kst, iso_days_ago,
     select_and_rank, build_upsert_statements, extract_video_id,
-    build_discovery_prompt, search_query_for,
+    search_query_for,
 )
 
 
@@ -43,13 +43,15 @@ def test_parse_structured_challenges():
     assert parse_structured_challenges({"challenges": "nope"}) == []
 
 
-def test_build_discovery_prompt_injects_dates():
-    import datetime as dt
-    e = dt.datetime(2026, 6, 3, 5, 0, tzinfo=dt.timezone.utc).timestamp()  # KST 6/3
-    p = build_discovery_prompt(e)
-    assert "2026-06-03" in p        # 오늘
-    assert "2026-05-27" in p        # 일주일 전
-    assert "{today}" not in p       # 플레이스홀더가 모두 치환됨
+def test_parse_reads_example_video_ids():
+    # 분류(B)는 example_video_ids 로 raw id 를 준다 → candidate_video_ids.
+    payload = {"challenges": [{
+        "name": "G - S 챌린지", "tag": "dance", "hashtags": [], "source_urls": [],
+        "confidence": "high", "miiwan_fit": "",
+        "example_video_ids": ["abcdefghijk", "bad", "12345678901", "abcdefghijk"],
+    }]}
+    chs = parse_structured_challenges(payload)
+    assert chs[0].candidate_video_ids == ["abcdefghijk", "12345678901"]  # 11자만, 중복 제거
 
 
 def test_extract_video_id():

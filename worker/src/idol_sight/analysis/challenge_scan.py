@@ -11,12 +11,18 @@ import re
 from dataclasses import dataclass, field
 
 from idol_sight.llm.prompts import (
-    CHALLENGE_DISCOVERY_PROMPT, CHALLENGE_STRUCTURE_SYSTEM, CHALLENGE_SCHEMA,
+    CHALLENGE_CLASSIFY_SYSTEM, CHALLENGE_SCHEMA,
 )
 
 log = logging.getLogger(__name__)
 
 SHORT_MAX_SEC = 60  # 예시 영상 = 진짜 숏츠 상한(초). MV/일반영상 배제 (is_short 기준과 동일)
+# 측정 기반 발굴 시드 — 실제 바이럴 K-POP 챌린지/밈 숏츠를 폭넓게 끌어온다.
+SEED_QUERIES = (
+    "케이팝 챌린지", "아이돌 챌린지", "kpop dance challenge",
+    "아이돌 밈", "kpop idol meme",
+)
+POOL_CAP = 80  # LLM 분류에 넘길 후보 영상 상한(조회수 상위)
 
 # YouTube URL → 11자 video_id. shorts/ · watch?v= · youtu.be/ · live/ 지원.
 _YT_ID_RE = re.compile(
@@ -83,8 +89,13 @@ def parse_structured_challenges(payload: object) -> list[Challenge]:
         if not isinstance(it, dict) or not it.get("name"):
             continue
         tag = it.get("tag")
-        # example_urls(LLM 제시) → video_id 후보. 파싱 안 되는 URL 은 버림. 중복 제거.
+        # 챌린지 클립 후보(video_id). 분류(B)는 example_video_ids 로 raw id 를,
+        # 구버전/grounding 은 example_urls 로 URL 을 줄 수 있어 둘 다 흡수. 중복 제거.
         cand: list[str] = []
+        for v in (it.get("example_video_ids") or []):
+            vid = str(v).strip()
+            if re.fullmatch(r"[A-Za-z0-9_-]{11}", vid) and vid not in cand:
+                cand.append(vid)
         for u in (it.get("example_urls") or []):
             vid = extract_video_id(str(u))
             if vid and vid not in cand:
@@ -127,11 +138,24 @@ def _date_kst(now_epoch: float) -> str:
     return kst.date().isoformat()
 
 
-def build_discovery_prompt(now_epoch: float) -> str:
-    """오늘/일주일전 날짜를 주입한 발굴 프롬프트 — grounding 이 최신성 앵커를 잡게."""
-    return CHALLENGE_DISCOVERY_PROMPT.format(
-        today=_date_kst(now_epoch), week_ago=_date_kst(now_epoch - 7 * 86400),
-    )
+def discover_candidate_videos(yt, now_epoch: float, *, pool_cap: int = POOL_CAP) -> list[dict]:
+    """최근 7일 YouTube 에서 조회수 높은 K-POP 챌린지/밈 숏츠 풀을 수집한다.
+    실제 바이럴 데이터 → 여기 안 뜨는 니치는 자연 제외, 대형 신곡은 자동 포함.
+    반환: [{video_id, title, channel, views, duration_sec}, ...] 조회수 내림차순."""
+    published_after = iso_days_ago(now_epoch, 7)
+    seen: dict[str, dict] = {}
+    for q in SEED_QUERIES:
+        try:
+            ids = yt.search_shorts(query=q, published_after=published_after,
+                                   order="viewCount", max_results=50)
+            for s in yt.fetch_stats(ids):
+                vid = s.get("video_id")
+                if vid and vid not in seen:
+                    seen[vid] = s
+        except Exception as e:  # noqa: BLE001 — 시드별 실패는 비-치명
+            log.warning("discover seed %r failed: %s", q, e)
+    pool = sorted(seen.values(), key=lambda s: s.get("views") or 0, reverse=True)
+    return pool[:pool_cap]
 
 
 def select_and_rank(
@@ -188,13 +212,11 @@ def build_upsert_statements(
 
 
 def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
-    """ch 의 측정 필드를 in-place 채움. 두 가지를 분리한다:
-      ① 반응 규모 지표(yt_recent_shorts/yt_total_views) — 해시태그 블라인드 검색 표본.
-      ② 예시 영상(example_video_ids) — LLM 이 제시한 챌린지 클립 후보를 API 로 검증
-         (존재 + 0<길이<=60s 진짜 숏츠) 한 것만. LLM 순서 보존. 조회수 정렬 안 함
-         (view=인기≠관련성). 검증 통과가 없으면 링크 없음 (MV·무관 영상 절대 금지).
-    각 단계 실패는 비-치명(해당 필드만 비움)."""
-    # ① 반응 규모 지표 (블라인드 검색 — 링크가 아니라 '얼마나 활발한가'만)
+    """ch 의 측정/예시 필드를 in-place 보강. (예시 1차는 run 이 바이럴 풀에서 채움)
+      ① 반응 규모 지표(yt_recent_shorts/yt_total_views) — 해시태그 블라인드 검색.
+      ② 예시가 비어 있을 때만: LLM 후보 검증 → relevance 폴백 (모두 ≤60s 진짜 숏츠).
+    각 단계 실패는 비-치명."""
+    # ① 반응 규모 지표
     query = ch.hashtags[0] if ch.hashtags else ch.name
     try:
         ids = yt.search_shorts(query=query, published_after=published_after)
@@ -205,11 +227,13 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
     except Exception as e:  # noqa: BLE001
         log.warning("metric measure failed for %r: %s", ch.name, e)
 
-    # ② 예시 = LLM 제시 후보를 API 검증 (존재 + ≤60s 숏츠). LLM 순서 유지, view 정렬 X.
+    if ch.example_video_ids:        # 이미 풀에서 채워졌으면 끝.
+        return
+
+    # ②-a LLM 후보(풀 밖 포함) 검증 — 존재 + ≤60s. LLM 순서 유지, view 정렬 X.
     if ch.candidate_video_ids:
         try:
-            vstats = yt.fetch_stats(ch.candidate_video_ids[:8])
-            by_id = {s.get("video_id"): s for s in vstats}
+            by_id = {s.get("video_id"): s for s in yt.fetch_stats(ch.candidate_video_ids[:8])}
             ch.example_video_ids = [
                 vid for vid in ch.candidate_video_ids
                 if (s := by_id.get(vid)) and 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC
@@ -217,8 +241,7 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
         except Exception as e:  # noqa: BLE001
             log.warning("example verify failed for %r: %s", ch.name, e)
 
-    # ②-b LLM 후보로 못 채웠으면 relevance 검색 폴백. 'name 챌린지' 로 관련성순 검색 →
-    #     ≤60s 검증. order=relevance(조회수 아님)이라 해당 챌린지 클립일 확률이 높다.
+    # ②-b relevance 폴백: '가수명 곡명 챌린지' 평문 검색 → ≤60s 검증.
     if not ch.example_video_ids and ch.name:
         try:
             rel_ids = yt.search_shorts(
@@ -237,25 +260,41 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
 def run_challenge_scan(
     gemini, yt, d1, *, now_epoch: float, total: int = 10, min_meme: int = 3,
 ) -> int:
-    """발굴→구조화→측정→랭크→UPSERT. 저장한 챌린지 수 반환.
-    발굴(grounded+structure) 실패는 비-치명: 로그 후 0 반환(기존 주차 보존)."""
+    """측정 기반 발굴(B): YouTube 바이럴 풀 → LLM 분류 → 측정·랭크 → UPSERT.
+    저장한 챌린지 수 반환. 풀 없음/분류 실패/근거 없음은 비-치명(그 주 스킵)."""
+    pool = discover_candidate_videos(yt, now_epoch)
+    if not pool:
+        log.warning("challenge-scan: no candidate videos; preserving prior week")
+        return 0
+    brief = [{"video_id": v.get("video_id"), "title": v.get("title"),
+              "channel": v.get("channel"), "views": v.get("views")} for v in pool]
     try:
-        grounded = gemini.generate_grounded(prompt=build_discovery_prompt(now_epoch))
         structured = gemini.generate(
-            system_prompt=CHALLENGE_STRUCTURE_SYSTEM,
-            context={"grounded_text": grounded.text, "sources": grounded.sources},
+            system_prompt=CHALLENGE_CLASSIFY_SYSTEM,
+            context={"today": _date_kst(now_epoch), "videos": brief},
             response_schema=CHALLENGE_SCHEMA,
         )
-    except Exception as e:  # noqa: BLE001 — 발굴 실패는 비-치명(그 주 스킵)
-        log.warning("challenge-scan: discovery failed (%s); preserving prior week", e)
+    except Exception as e:  # noqa: BLE001
+        log.warning("challenge-scan: classify failed (%s); preserving prior week", e)
         return 0
-    challenges = parse_structured_challenges(structured)
+
+    poolmap = {v.get("video_id"): v for v in pool}
+    # 바이럴 풀에 근거(영상 1개+) 없는 분류는 버림 → 니치/환각 차단.
+    challenges = [c for c in parse_structured_challenges(structured)
+                  if any(vid in poolmap for vid in c.candidate_video_ids)]
     if not challenges:
-        log.warning("challenge-scan: no challenges discovered; preserving prior week")
+        log.warning("challenge-scan: no pool-grounded challenges; preserving prior week")
         return 0
+
     published_after = iso_days_ago(now_epoch, 7)
     for ch in challenges:
+        # 예시 1차 = 바이럴 풀에서 (LLM 순서=원곡자 우선) ≤60s 진짜 숏츠.
+        ch.example_video_ids = [
+            vid for vid in ch.candidate_video_ids
+            if (v := poolmap.get(vid)) and 0 < (v.get("duration_sec") or 0) <= SHORT_MAX_SEC
+        ][:3]
         measure_challenge(yt, ch, published_after)
+
     selected = select_and_rank(challenges, total=total, min_meme=min_meme)
     week_start = week_start_kst(now_epoch)
     generated_at = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc)\

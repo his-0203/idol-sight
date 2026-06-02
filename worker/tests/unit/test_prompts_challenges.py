@@ -1,8 +1,17 @@
 from idol_sight.llm.prompts import (
     CHALLENGE_DISCOVERY_PROMPT,
     CHALLENGE_STRUCTURE_SYSTEM,
+    CHALLENGE_CLASSIFY_SYSTEM,
     CHALLENGE_SCHEMA,
 )
+
+
+def test_classify_system_prompt():
+    s = CHALLENGE_CLASSIFY_SYSTEM
+    assert "video_id" in s              # 풀의 video_id 에서만 예시 선택
+    assert "example_video_ids" in s
+    assert "원곡 아티스트" in s          # 원곡자 본인 클립 우선
+    assert "dance" in s and "meme" in s
 
 
 def test_discovery_prompt_has_core_constraints():

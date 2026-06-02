@@ -437,6 +437,7 @@ class YouTubeCollector:
                 "likes": int(stats.get("likeCount") or 0),
                 "comments": int(stats.get("commentCount") or 0),
                 "title": snip.get("title"),
+                "channel": snip.get("channelTitle"),
                 "duration_sec": _iso8601_to_seconds(details.get("duration") or ""),
             })
         return out

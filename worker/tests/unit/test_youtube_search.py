@@ -38,7 +38,7 @@ def test_fetch_stats_parses_views_and_duration():
     yt = _collector(routes)
     stats = yt.fetch_stats(["a1"])
     assert stats == [{"video_id": "a1", "views": 1000, "likes": 10, "comments": 2,
-                      "title": "t", "duration_sec": 45}]
+                      "title": "t", "channel": None, "duration_sec": 45}]
 
 
 def test_fetch_stats_missing_duration_is_zero():

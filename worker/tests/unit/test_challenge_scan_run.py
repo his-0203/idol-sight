@@ -1,9 +1,9 @@
+import json
 from unittest.mock import MagicMock
 import datetime as dt
 from idol_sight.analysis.challenge_scan import (
     run_challenge_scan, measure_challenge, Challenge,
 )
-from idol_sight.llm.gemini import GroundedResult
 
 
 def _now():
@@ -63,71 +63,71 @@ def test_measure_challenge_empty_when_nothing_found():
     assert ch.example_video_ids == []        # 그래도 없으면 링크 없음(프런트가 검색링크 보장)
 
 
-def _gemini(challenges):
-    g = MagicMock()
-    g.generate_grounded.return_value = GroundedResult(text="리서치", sources=["http://s"])
-    g.generate.return_value = {"challenges": challenges}
-    return g
+_VID = "aaaaaaaaaaa"   # 실제 YouTube id 처럼 11자
 
 
-def _yt(ids, stats):
+def _pool_yt(pool_stats):
+    """discover 의 broad 검색 + 측정용 yt mock. fetch_stats 는 항상 pool_stats 반환."""
     y = MagicMock()
-    y.search_shorts.return_value = ids
-    y.fetch_stats.return_value = stats
+    y.search_shorts.return_value = [_VID]
+    y.fetch_stats.return_value = pool_stats
     return y
 
 
-def test_run_writes_ranked_challenges():
-    gemini = _gemini([
-        {"name": "K", "tag": "dance", "description": "d", "origin": "o",
-         "hashtags": ["#k"], "source_urls": ["http://s"], "confidence": "high",
-         "miiwan_fit": "쉬움"},
-    ])
-    yt = _yt(["v1", "v2"], [{"video_id": "v1", "views": 500, "likes": 1,
-                             "comments": 0, "title": "t"}])
+_POOL = [{"video_id": _VID, "title": "MEOVV - X 챌린지", "channel": "MEOVV",
+          "views": 100000, "duration_sec": 30}]
+
+
+def test_run_discovers_classifies_and_writes():
+    gemini = MagicMock()
+    gemini.generate.return_value = {"challenges": [
+        {"name": "MEOVV - X 챌린지", "tag": "dance", "description": "d", "hashtags": ["#m"],
+         "example_video_ids": [_VID], "confidence": "high", "miiwan_fit": "쉬움",
+         "momentum": "rising"},
+    ]}
+    yt = _pool_yt(_POOL)
     d1 = MagicMock()
-    n = run_challenge_scan(gemini, yt, d1, now_epoch=_now(),
-                           total=10, min_meme=3)
+    n = run_challenge_scan(gemini, yt, d1, now_epoch=_now())
     assert n == 1
-    gemini.generate_grounded.assert_called_once()
-    gemini.generate.assert_called_once()
-    assert yt.search_shorts.called   # 지표(+예시 폴백 가능) 검색 수행
+    gemini.generate.assert_called_once()            # 분류 1회
     stmts = d1.batch.call_args[0][0]
     assert stmts[0][0].strip().upper().startswith("DELETE")
-    assert any("INSERT INTO weekly_challenges" in s for s, _ in stmts)
+    ins = [p for s, p in stmts if "INSERT INTO weekly_challenges" in s][0]
+    assert json.loads(ins[7]) == [_VID]             # 예시는 바이럴 풀의 영상
 
 
-def test_run_skips_when_no_challenges():
-    gemini = _gemini([])
-    yt = _yt([], [])
+def test_run_skips_when_pool_empty():
+    gemini = MagicMock()
+    yt = MagicMock()
+    yt.search_shorts.return_value = []
+    yt.fetch_stats.return_value = []
     d1 = MagicMock()
-    n = run_challenge_scan(gemini, yt, d1, now_epoch=_now(),
-                           total=10, min_meme=3)
+    n = run_challenge_scan(gemini, yt, d1, now_epoch=_now())
+    assert n == 0
+    gemini.generate.assert_not_called()             # 풀 없으면 분류도 안 함
+    d1.batch.assert_not_called()
+
+
+def test_run_drops_challenge_not_grounded_in_pool():
+    # 분류가 풀에 없는 video_id 를 가리키면 버린다(니치/환각 차단).
+    gemini = MagicMock()
+    gemini.generate.return_value = {"challenges": [
+        {"name": "Fake - Y 챌린지", "tag": "dance", "hashtags": [],
+         "example_video_ids": ["zzzzzzzzzzz"], "confidence": "low",
+         "miiwan_fit": "", "momentum": "unknown"},
+    ]}
+    yt = _pool_yt(_POOL)
+    d1 = MagicMock()
+    n = run_challenge_scan(gemini, yt, d1, now_epoch=_now())
     assert n == 0
     d1.batch.assert_not_called()
 
 
-def test_run_tolerates_measure_failure():
-    gemini = _gemini([
-        {"name": "K", "tag": "dance", "description": "", "hashtags": ["#k"],
-         "source_urls": [], "confidence": "low", "miiwan_fit": ""},
-    ])
-    yt = MagicMock()
-    yt.search_shorts.side_effect = RuntimeError("quota")
-    d1 = MagicMock()
-    n = run_challenge_scan(gemini, yt, d1, now_epoch=_now(),
-                           total=10, min_meme=3)
-    assert n == 1
-    stmts = d1.batch.call_args[0][0]
-    assert any("INSERT INTO weekly_challenges" in s for s, _ in stmts)
-
-
-def test_run_skips_on_discovery_error():
-    # grounding/discovery 실패는 비-치명 — 0 반환, 기존 주차 보존(배치 호출 없음).
+def test_run_skips_on_classify_error():
     gemini = MagicMock()
-    gemini.generate_grounded.side_effect = RuntimeError("grounding down")
+    gemini.generate.side_effect = RuntimeError("classify boom")
+    yt = _pool_yt(_POOL)
     d1 = MagicMock()
-    n = run_challenge_scan(gemini, MagicMock(), d1, now_epoch=_now(),
-                           total=10, min_meme=3)
+    n = run_challenge_scan(gemini, yt, d1, now_epoch=_now())
     assert n == 0
     d1.batch.assert_not_called()
