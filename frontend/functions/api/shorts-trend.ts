@@ -59,11 +59,11 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const trend = trendRows.map((r) => ({ ...r, group_name_kr: nameByKey[r.group_key] ?? r.group_key }));
 
   // MiiWAN 숏폼 전체 (진단용 — 90일 제한 없음, 표본 확보).
-  // SELF_KEY 는 하드코딩 상수라 리터럴 인라인 (인젝션 위험 없음).
   const miiwanShorts = await d1Query<ShortRow>(env.DB,
     `SELECT v.video_id, v.title, v.published_at, v.viral_velocity_ratio, ${latestStat}
        FROM youtube_videos v
-      WHERE v.is_short = 1 AND v.group_key = '${SELF_KEY}'`);
+      WHERE v.is_short = 1 AND v.group_key = ?`,
+    [SELF_KEY]);
 
   const summaryNow = await d1Query<SummaryRow>(env.DB,
     `SELECT group_key, yt_subscribers, twitter_posts, naver_total_news, dc_total_posts

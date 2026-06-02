@@ -27,7 +27,7 @@ function baseEnv(over: Partial<Record<string, any[]>> = {}) {
           view_count_24h: 80000, viral_velocity_ratio: 4.2 },
       ];
     }
-    if (sql.includes("is_short = 1") && sql.includes("= 'miiwan'")) {
+    if (sql.includes("is_short = 1") && !sql.includes("!=")) {
       return over.miiwanShorts ?? [
         { video_id: "m1", title: "˚₊‧꒰ა 내부 별명", published_at: "2026-05-20T00:00:00Z",
           views: 1100, likes: 70, comments: 5, viral_velocity_ratio: 1.1 },
