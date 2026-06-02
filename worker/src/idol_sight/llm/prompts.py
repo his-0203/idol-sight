@@ -608,3 +608,56 @@ do NOT default to data-pipeline language ("수집 큐 검수", "채널 ID
 relevant signal. NEVER fall back to "데이터 부족 — 검토 필요" or any
 vague phrasing.
 """
+
+
+# ── 주간 바이럴 챌린지 (설계 2026-06-02-weekly-viral-challenges) ──────────────
+# grounded(google_search) 발굴용 프롬프트. 출처 URL 필수 + 최근 7일 + K-POP 가중.
+CHALLENGE_DISCOVERY_PROMPT = (
+    "당신은 K-POP/숏폼 트렌드 리서처다. Google 검색을 사용해 **최근 7일 이내** "
+    "바이럴 중인 숏폼 '챌린지'를 조사해 정리하라.\n\n"
+    "요구사항:\n"
+    "- K-POP 아이돌 챌린지(타이틀곡 안무·아이돌 포맷)를 약 7개로 우선·다수 포함.\n"
+    "- 그 외 일반 YouTube Shorts/숏폼 챌린지(밈·트렌드)를 약 3개 포함.\n"
+    "- 각 챌린지마다: 이름, 한 줄 설명(무슨 동작/포맷), 원곡/아티스트/사운드 출처, "
+    "대표 해시태그, 그리고 **반드시 검증 가능한 출처 URL**.\n"
+    "- 최근 7일 내 실제 활동이 확인되는 것만. 확실치 않으면 제외.\n"
+    "- 각 항목의 확신도(high/medium/low)를 함께 적어라.\n\n"
+    "한국어로, 챌린지마다 항목을 구분해 서술하라. (이후 단계에서 JSON 으로 구조화됨)"
+)
+
+# grounded 텍스트 → JSON 구조화 + MiiWAN 적합도. 비-grounded generate() 로 호출.
+CHALLENGE_STRUCTURE_SYSTEM = (
+    "아래 리서치 텍스트를 JSON 으로 구조화하라. 텍스트에 없는 챌린지를 지어내지 말 것.\n"
+    "- tag: K-POP 아이돌 챌린지는 'kpop', 그 외는 'general'.\n"
+    "- source_urls: 텍스트에 등장한 출처 URL 만. 없으면 빈 배열.\n"
+    "- confidence: 텍스트의 확신도(high/medium/low). 불명확하면 'low'.\n"
+    "- miiwan_fit: 각 챌린지를 'MiiWAN'(2026-06 데뷔 직후의 버추얼 아이돌 그룹) 이 "
+    "이번 주 따라 만들 때의 적합도·참여 난이도를 한 줄로. (예: '안무 단순, 즉시 가능' / "
+    "'원곡 라이선스 필요, 난이도 높음')\n"
+    "텍스트에 챌린지가 없으면 challenges: [] 를 반환하라."
+)
+
+CHALLENGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "challenges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "tag": {"type": "string", "enum": ["kpop", "general"]},
+                    "description": {"type": "string"},
+                    "origin": {"type": "string"},
+                    "hashtags": {"type": "array", "items": {"type": "string"}},
+                    "source_urls": {"type": "array", "items": {"type": "string"}},
+                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "miiwan_fit": {"type": "string"},
+                },
+                "required": ["name", "tag", "description", "hashtags",
+                             "source_urls", "confidence", "miiwan_fit"],
+            },
+        }
+    },
+    "required": ["challenges"],
+}
