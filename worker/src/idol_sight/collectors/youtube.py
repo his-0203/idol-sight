@@ -419,7 +419,7 @@ class YouTubeCollector:
                 params={
                     "key": self._key,
                     "id": ",".join(video_ids),
-                    "part": "statistics,snippet",
+                    "part": "statistics,snippet,contentDetails",
                 },
             )
             r.raise_for_status()
@@ -428,11 +428,13 @@ class YouTubeCollector:
         for it in items:
             stats = it.get("statistics") or {}
             snip = it.get("snippet") or {}
+            details = it.get("contentDetails") or {}
             out.append({
                 "video_id": it.get("id"),
                 "views": int(stats.get("viewCount") or 0),
                 "likes": int(stats.get("likeCount") or 0),
                 "comments": int(stats.get("commentCount") or 0),
                 "title": snip.get("title"),
+                "duration_sec": _iso8601_to_seconds(details.get("duration") or ""),
             })
         return out

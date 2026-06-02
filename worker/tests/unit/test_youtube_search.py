@@ -29,15 +29,24 @@ def test_search_shorts_returns_video_ids():
     assert ids == ["a1", "b2"]
 
 
-def test_fetch_stats_parses_views():
+def test_fetch_stats_parses_views_and_duration():
     routes = {"/videos": {"items": [
         {"id": "a1", "statistics": {"viewCount": "1000", "likeCount": "10",
                                     "commentCount": "2"},
-         "snippet": {"title": "t"}},
+         "snippet": {"title": "t"}, "contentDetails": {"duration": "PT45S"}},
     ]}}
     yt = _collector(routes)
     stats = yt.fetch_stats(["a1"])
-    assert stats == [{"video_id": "a1", "views": 1000, "likes": 10, "comments": 2, "title": "t"}]
+    assert stats == [{"video_id": "a1", "views": 1000, "likes": 10, "comments": 2,
+                      "title": "t", "duration_sec": 45}]
+
+
+def test_fetch_stats_missing_duration_is_zero():
+    routes = {"/videos": {"items": [
+        {"id": "a1", "statistics": {"viewCount": "5"}, "snippet": {"title": "t"}},
+    ]}}
+    yt = _collector(routes)
+    assert yt.fetch_stats(["a1"])[0]["duration_sec"] == 0
 
 
 def test_fetch_stats_empty_ids_no_call():

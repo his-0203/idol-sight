@@ -1,11 +1,42 @@
 from unittest.mock import MagicMock
 import datetime as dt
-from idol_sight.analysis.challenge_scan import run_challenge_scan
+from idol_sight.analysis.challenge_scan import (
+    run_challenge_scan, measure_challenge, Challenge,
+)
 from idol_sight.llm.gemini import GroundedResult
 
 
 def _now():
     return dt.datetime(2026, 6, 2, 5, 0, tzinfo=dt.timezone.utc).timestamp()
+
+
+def test_measure_challenge_examples_only_shorts():
+    # videoDuration=short(<4분) 결과에 MV(200s)·롱폼이 섞여 와도, 예시는 ≤60s 숏츠만.
+    yt = MagicMock()
+    yt.search_shorts.return_value = ["mv", "s1", "s2", "nodur"]
+    yt.fetch_stats.return_value = [
+        {"video_id": "mv", "views": 9999, "duration_sec": 200, "title": "공식 MV"},
+        {"video_id": "s1", "views": 500, "duration_sec": 30, "title": "챌린지"},
+        {"video_id": "s2", "views": 800, "duration_sec": 45, "title": "챌린지2"},
+        {"video_id": "nodur", "views": 7000, "duration_sec": 0, "title": "길이불명"},
+    ]
+    ch = Challenge(name="C", tag="kpop", description="", origin="", hashtags=["#c"],
+                   source_urls=[], confidence="high", miiwan_fit="")
+    measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
+    assert "mv" not in ch.example_video_ids       # MV(200s) 제외
+    assert "nodur" not in ch.example_video_ids     # 길이불명(0) 제외
+    assert ch.example_video_ids == ["s2", "s1"]    # 숏츠만, 조회수순
+    assert ch.yt_recent_shorts == 4                # 카운트는 검색 표본 전체
+
+
+def test_measure_challenge_no_shorts_leaves_empty():
+    yt = MagicMock()
+    yt.search_shorts.return_value = ["mv"]
+    yt.fetch_stats.return_value = [{"video_id": "mv", "views": 9, "duration_sec": 240}]
+    ch = Challenge(name="C", tag="kpop", description="", origin="", hashtags=["#c"],
+                   source_urls=[], confidence="low", miiwan_fit="")
+    measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
+    assert ch.example_video_ids == []              # 진짜 숏츠 없으면 링크 없음(MV 금지)
 
 
 def _gemini(challenges):

@@ -16,6 +16,7 @@ from idol_sight.llm.prompts import (
 log = logging.getLogger(__name__)
 
 KPOP_WEIGHT = 1.3   # kpop 태그 랭크 가중
+SHORT_MAX_SEC = 60  # 예시 영상 = 진짜 숏츠 상한(초). MV/일반영상 배제 (is_short 기준과 동일)
 
 
 @dataclass
@@ -130,7 +131,13 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
         stats = yt.fetch_stats(ids)
         ch.yt_recent_shorts = len(ids)
         ch.yt_total_views = sum((s.get("views") or 0) for s in stats)
-        ch.example_video_ids = [s["video_id"] for s in stats[:3] if s.get("video_id")]
+        # 예시 영상은 '진짜 숏츠'(0<dur<=60s) 만 — videoDuration=short 는 <4분이라
+        # MV·티저가 섞이고 조회수순 1위가 흔히 공식 MV다. 길이로 강하게 배제하고
+        # 그 안에서 조회수순 상위 3개를 챌린지 예시로 쓴다. 숏츠가 없으면 링크 없음.
+        shorts = [s for s in stats
+                  if 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC]
+        shorts.sort(key=lambda s: s.get("views") or 0, reverse=True)
+        ch.example_video_ids = [s["video_id"] for s in shorts[:3] if s.get("video_id")]
     except Exception as e:  # noqa: BLE001 — 후보별 측정 실패는 치명적이지 않음
         log.warning("measure failed for %r: %s", ch.name, e)
 
