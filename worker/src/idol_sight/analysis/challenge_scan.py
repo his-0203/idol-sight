@@ -126,7 +126,8 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
         ids = yt.search_shorts(query=query, published_after=published_after)
         if not ids:
             return
-        stats = yt.fetch_stats(ids[:10])
+        # 조회수 합산과 숏폼 수의 표본 윈도우를 일치시킨다 (videos.list 는 50개/콜).
+        stats = yt.fetch_stats(ids)
         ch.yt_recent_shorts = len(ids)
         ch.yt_total_views = sum((s.get("views") or 0) for s in stats)
         ch.example_video_ids = [s["video_id"] for s in stats[:3] if s.get("video_id")]

@@ -21,4 +21,7 @@ jobs:
           CF_API_TOKEN:    ${{ secrets.CF_API_TOKEN }}
           GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
           YT_API_KEY:      ${{ secrets.YT_API_KEY }}
+      - if: failure()
+        run: uv run python -m idol_sight notify-fail --job 'challenge-scan'
+        env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
