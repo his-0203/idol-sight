@@ -1,4 +1,5 @@
 import { useState } from "preact/hooks";
+import { Tooltip } from "./Tooltip";
 
 type Status = "good" | "warn" | "bad" | "na";
 interface Kpi {
@@ -47,14 +48,24 @@ function KpiCell({ k }: { k: Kpi }) {
       <div class="flex items-center justify-between">
         <span class="flex items-center gap-1 text-hint text-zinc-400">
           {k.label}
-          {/* 타이틀 옆 ? 아이콘 — 호버 시 설명(why)+처방(fix) 노출. */}
-          <span
-            class="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full
-                   border border-zinc-600 text-[9px] leading-none text-zinc-500
-                   hover:border-zinc-400 hover:text-zinc-200"
-            title={`${k.why}\n\n처방: ${k.fix}`}
-            aria-label={`${k.label} 설명: ${k.why} 처방: ${k.fix}`}
-          >?</span>
+          {/* 타이틀 옆 ? 아이콘 — 호버/포커스/클릭 시 설명(why)+처방(fix) popover.
+              native title 은 OS 지연·억제로 안 뜨는 체감이라 Tooltip 컴포넌트 사용. */}
+          <Tooltip
+            triggerClass="!no-underline"
+            placement="bottom"
+            content={
+              <span>
+                {k.why}
+                <span class="mt-1.5 block text-zinc-400">처방: {k.fix}</span>
+              </span>
+            }
+          >
+            <span
+              class="inline-flex h-4 w-4 items-center justify-center rounded-full
+                     border border-zinc-600 text-[10px] leading-none text-zinc-400"
+              aria-label={`${k.label} 설명`}
+            >?</span>
+          </Tooltip>
         </span>
         <span class="inline-block h-2 w-2 rounded-full" style={{ background: STATUS_COLOR[k.status] }} />
       </div>
