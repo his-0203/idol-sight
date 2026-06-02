@@ -43,6 +43,7 @@ import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from time import perf_counter
+from time import sleep as time_sleep
 from typing import Any
 
 import httpx
@@ -53,6 +54,9 @@ from idol_sight.config import GroupConfig
 log = logging.getLogger(__name__)
 
 API = "https://www.googleapis.com/youtube/v3"
+# 429(레이트리밋) 재시도 — search.list 는 short burst 시 자주 429. 지수 backoff.
+SEARCH_RETRY_MAX = 3
+SEARCH_RETRY_BACKOFF = 2.0   # sec; attempt n 은 BACKOFF * 2**n 만큼 대기
 SEARCH_LIST_MAX = 50         # max maxResults for search.list
 VIDEOS_LIST_MAX = 50         # max ids for videos.list
 PLAYLIST_ITEMS_MAX = 50      # max maxResults for playlistItems.list
@@ -164,9 +168,12 @@ class YouTubeCollector:
         api_key: str,
         http_factory: Callable[[], Any] | None = None,
         members_loader: Callable[[str], list[dict]] | None = None,
+        sleep: Callable[[float], None] | None = None,
     ):
         self._key = api_key
         self._http_factory = http_factory or (lambda: httpx.Client(timeout=60.0))
+        # 429(레이트리밋) backoff 용. 테스트는 no-op 주입.
+        self._sleep = sleep or time_sleep
         # Returns a list of {"yt_channel_id": "..."} for the group's
         # active members that have a solo channel. Default = no members,
         # which keeps unit tests and one-off invocations simple.
@@ -382,28 +389,41 @@ class YouTubeCollector:
             statements=statements, runtime_ms=runtime_ms,
         )
 
+    def _get_json_with_retry(self, path: str, params: dict) -> dict:
+        """GET → JSON. 429 면 지수 backoff 로 SEARCH_RETRY_MAX 회 재시도.
+        challenge-scan 의 broad 검색이 short burst 시 429 를 자주 맞아 도입.
+        재시도 소진 시 마지막 응답으로 raise_for_status (HTTPStatusError)."""
+        for attempt in range(SEARCH_RETRY_MAX + 1):
+            with self._http_factory() as client:
+                r = client.get(f"{API}{path}", params=params)
+            if r.status_code == 429 and attempt < SEARCH_RETRY_MAX:
+                self._sleep(SEARCH_RETRY_BACKOFF * (2 ** attempt))
+                continue
+            r.raise_for_status()
+            return r.json()
+        r.raise_for_status()  # 도달 불가(루프가 반환/raise) — 타입 안전용
+        return {}
+
     def search_shorts(
         self, *, query: str, published_after: str, max_results: int = 50,
         order: str = "viewCount",
     ) -> list[str]:
         """임의 키워드로 최근 숏폼을 검색해 video_id 목록 반환.
         order='viewCount'(반응 규모) | 'relevance'(예시 클립 찾기) 등."""
-        with self._http_factory() as client:
-            r = client.get(
-                f"{API}/search",
-                params={
-                    "key": self._key,
-                    "q": query,
-                    "type": "video",
-                    "videoDuration": "short",
-                    "order": order,
-                    "publishedAfter": published_after,
-                    "maxResults": max_results,
-                    "part": "id",
-                },
-            )
-            r.raise_for_status()
-            items = r.json().get("items", [])
+        data = self._get_json_with_retry(
+            "/search",
+            {
+                "key": self._key,
+                "q": query,
+                "type": "video",
+                "videoDuration": "short",
+                "order": order,
+                "publishedAfter": published_after,
+                "maxResults": max_results,
+                "part": "id",
+            },
+        )
+        items = data.get("items", [])
         ids: list[str] = []
         for it in items:
             vid = (it.get("id") or {}).get("videoId")
@@ -415,17 +435,15 @@ class YouTubeCollector:
         """video_id 목록의 통계(조회/좋아요/댓글)+제목 반환. 빈 입력은 호출 없이 []."""
         if not video_ids:
             return []
-        with self._http_factory() as client:
-            r = client.get(
-                f"{API}/videos",
-                params={
-                    "key": self._key,
-                    "id": ",".join(video_ids),
-                    "part": "statistics,snippet,contentDetails",
-                },
-            )
-            r.raise_for_status()
-            items = r.json().get("items", [])
+        data = self._get_json_with_retry(
+            "/videos",
+            {
+                "key": self._key,
+                "id": ",".join(video_ids),
+                "part": "statistics,snippet,contentDetails",
+            },
+        )
+        items = data.get("items", [])
         out: list[dict] = []
         for it in items:
             stats = it.get("statistics") or {}

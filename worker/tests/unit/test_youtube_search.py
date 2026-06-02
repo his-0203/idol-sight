@@ -1,4 +1,5 @@
 import httpx
+
 from idol_sight.collectors.youtube import YouTubeCollector
 
 
@@ -52,6 +53,65 @@ def test_fetch_stats_missing_duration_is_zero():
 def test_fetch_stats_empty_ids_no_call():
     yt = _collector({})
     assert yt.fetch_stats([]) == []
+
+
+class _FlakyHTTP:
+    """첫 fail_times 회는 429, 이후 200 — burst 레이트리밋 재현. calls 공유."""
+    def __init__(self, calls, *, fail_times, ok_payload):
+        self._calls = calls
+        self._fail_times = fail_times
+        self._ok = ok_payload
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def get(self, url, params=None):
+        self._calls["n"] += 1
+        if self._calls["n"] <= self._fail_times:
+            return httpx.Response(429, request=httpx.Request("GET", url))
+        return httpx.Response(200, json=self._ok, request=httpx.Request("GET", url))
+
+
+def test_search_shorts_retries_on_429():
+    calls = {"n": 0}
+    slept: list[float] = []
+    yt = YouTubeCollector(
+        api_key="k",
+        http_factory=lambda: _FlakyHTTP(
+            calls, fail_times=2,
+            ok_payload={"items": [{"id": {"videoId": "ok"}}]}),
+        sleep=slept.append,
+    )
+    ids = yt.search_shorts(query="q", published_after="2026-01-01T00:00:00Z")
+    assert ids == ["ok"]           # 429 두 번 후 성공
+    assert calls["n"] == 3
+    assert len(slept) == 2         # 재시도마다 backoff
+
+
+def test_fetch_stats_retries_on_429():
+    calls = {"n": 0}
+    slept: list[float] = []
+    payload = {"items": [{"id": "a1", "statistics": {"viewCount": "5"},
+                          "snippet": {"title": "t"}}]}
+    yt = YouTubeCollector(
+        api_key="k",
+        http_factory=lambda: _FlakyHTTP(calls, fail_times=1, ok_payload=payload),
+        sleep=slept.append,
+    )
+    stats = yt.fetch_stats(["a1"])
+    assert stats[0]["views"] == 5
+    assert calls["n"] == 2
+    assert len(slept) == 1
+
+
+def test_search_shorts_raises_after_retries_exhausted():
+    import pytest
+    calls = {"n": 0}
+    yt = YouTubeCollector(
+        api_key="k",
+        http_factory=lambda: _FlakyHTTP(calls, fail_times=99, ok_payload={}),
+        sleep=lambda _s: None,
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        yt.search_shorts(query="q", published_after="2026-01-01T00:00:00Z")
 
 
 def test_search_shorts_passes_order():

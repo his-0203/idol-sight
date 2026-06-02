@@ -1,13 +1,18 @@
+import datetime as dt
 import json
 from unittest.mock import MagicMock
-import datetime as dt
+
 from idol_sight.analysis.challenge_scan import (
-    run_challenge_scan, measure_challenge, Challenge,
+    SEED_QUERIES,
+    Challenge,
+    discover_candidate_videos,
+    measure_challenge,
+    run_challenge_scan,
 )
 
 
 def _now():
-    return dt.datetime(2026, 6, 2, 5, 0, tzinfo=dt.timezone.utc).timestamp()
+    return dt.datetime(2026, 6, 2, 5, 0, tzinfo=dt.UTC).timestamp()
 
 
 def test_measure_challenge_examples_from_verified_llm_candidates():
@@ -76,6 +81,16 @@ def _pool_yt(pool_stats):
 
 _POOL = [{"video_id": _VID, "title": "MEOVV - X 챌린지", "channel": "MEOVV",
           "views": 100000, "duration_sec": 30}]
+
+
+def test_discover_sleeps_between_seeds():
+    # burst 레이트리밋(429) 완화 — 시드 호출 사이에 간격을 둔다(마지막 제외).
+    yt = MagicMock()
+    yt.search_shorts.return_value = [_VID]
+    yt.fetch_stats.return_value = [{"video_id": _VID, "views": 1, "duration_sec": 30}]
+    slept: list[float] = []
+    discover_candidate_videos(yt, _now(), sleep=slept.append)
+    assert len(slept) == len(SEED_QUERIES) - 1
 
 
 def test_run_discovers_classifies_and_writes():

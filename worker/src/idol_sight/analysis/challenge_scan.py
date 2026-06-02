@@ -8,11 +8,11 @@ import datetime as _dt
 import json
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from time import sleep as _time_sleep
 
-from idol_sight.llm.prompts import (
-    CHALLENGE_CLASSIFY_SYSTEM, CHALLENGE_SCHEMA,
-)
+from idol_sight.llm.prompts import CHALLENGE_CLASSIFY_SYSTEM, CHALLENGE_SCHEMA
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ SEED_QUERIES = (
     "아이돌 밈", "kpop idol meme",
 )
 POOL_CAP = 80  # LLM 분류에 넘길 후보 영상 상한(조회수 상위)
+SEED_DELAY_SEC = 1.0  # 시드 검색 사이 간격 — 429 burst 레이트리밋 완화
 
 # YouTube URL → 11자 video_id. shorts/ · watch?v= · youtu.be/ · live/ 지원.
 _YT_ID_RE = re.compile(
@@ -121,30 +122,35 @@ def parse_structured_challenges(payload: object) -> list[Challenge]:
 
 def week_start_kst(now_epoch: float) -> str:
     """now(epoch sec) 가 속한 주의 KST 월요일 (YYYY-MM-DD)."""
-    kst = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc) + _dt.timedelta(hours=9)
+    kst = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.UTC) + _dt.timedelta(hours=9)
     monday = kst.date() - _dt.timedelta(days=kst.weekday())
     return monday.isoformat()
 
 
 def iso_days_ago(now_epoch: float, days: int) -> str:
     """RFC3339(UTC, Z) — YouTube publishedAfter 용."""
-    t = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc) - _dt.timedelta(days=days)
+    t = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.UTC) - _dt.timedelta(days=days)
     return t.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _date_kst(now_epoch: float) -> str:
     """KST 달력 날짜 (YYYY-MM-DD)."""
-    kst = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc) + _dt.timedelta(hours=9)
+    kst = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.UTC) + _dt.timedelta(hours=9)
     return kst.date().isoformat()
 
 
-def discover_candidate_videos(yt, now_epoch: float, *, pool_cap: int = POOL_CAP) -> list[dict]:
+def discover_candidate_videos(
+    yt, now_epoch: float, *, pool_cap: int = POOL_CAP,
+    sleep: Callable[[float], None] = _time_sleep,
+) -> list[dict]:
     """최근 7일 YouTube 에서 조회수 높은 K-POP 챌린지/밈 숏츠 풀을 수집한다.
     실제 바이럴 데이터 → 여기 안 뜨는 니치는 자연 제외, 대형 신곡은 자동 포함.
+    시드 검색 사이에 간격(SEED_DELAY_SEC)을 둬 429 burst 레이트리밋을 완화한다.
     반환: [{video_id, title, channel, views, duration_sec}, ...] 조회수 내림차순."""
     published_after = iso_days_ago(now_epoch, 7)
     seen: dict[str, dict] = {}
-    for q in SEED_QUERIES:
+    last = len(SEED_QUERIES) - 1
+    for i, q in enumerate(SEED_QUERIES):
         try:
             ids = yt.search_shorts(query=q, published_after=published_after,
                                    order="viewCount", max_results=50)
@@ -154,6 +160,8 @@ def discover_candidate_videos(yt, now_epoch: float, *, pool_cap: int = POOL_CAP)
                     seen[vid] = s
         except Exception as e:  # noqa: BLE001 — 시드별 실패는 비-치명
             log.warning("discover seed %r failed: %s", q, e)
+        if i < last:
+            sleep(SEED_DELAY_SEC)
     pool = sorted(seen.values(), key=lambda s: s.get("views") or 0, reverse=True)
     return pool[:pool_cap]
 
@@ -297,7 +305,7 @@ def run_challenge_scan(
 
     selected = select_and_rank(challenges, total=total, min_meme=min_meme)
     week_start = week_start_kst(now_epoch)
-    generated_at = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.timezone.utc)\
+    generated_at = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.UTC)\
         .strftime("%Y-%m-%dT%H:%M:%SZ")
     d1.batch(build_upsert_statements(week_start, selected, generated_at))
     return len(selected)
