@@ -147,3 +147,44 @@ CREATE INDEX idx_weekly_challenges_week ON weekly_challenges(week_start);
 - 챌린지 생애주기 추적(주차 간 등장/소멸/지속).
 - TikTok/Reels 신호 추가(가능 시).
 - 적합도 → 구체 기획(대본/캐스팅) 제안.
+
+---
+
+## 13. 풍부화 V2 (2026-06-03) — 분류 단계 집중 + 관측성
+
+### 배경 / 진단
+
+측정 기반 발굴(B) 전환 후 실제 cron 에서 **주당 3건**만 적재되는 문제. run 26835124659 로그 분석:
+
+- discover 5시드 전부 200 (429 없음 — 429 재시도+시드 딜레이 fix 이후 풀 수집은 정상).
+- 측정 search 가 정확히 3건(`#LE_SSERAFIM…`/`#XLOV…`/`#StrayKids…`)만 발생 → **최종 challenges = 3, 전부 dance, meme 0**.
+- 즉 병목은 **풀 수집이 아니라 LLM 분류**: `CHALLENGE_CLASSIFY_SYSTEM` 에 개수 목표가 없어 LLM 이 확신 높은 메가히트만 보수적으로 추출.
+
+목표(운영자): **양 7~10개 + 롱테일(중소·신생 그룹 신곡) 포착**. 밈/장르 균형은 이번 비목표.
+
+### 전략 — 단계적(Approach 1 먼저)
+
+추가 YouTube search 호출 **0**(429 무위험)으로 분류 단계만 손본 뒤, 카운트 로그로 효과를 측정하고 부족하면 풀 다양화(V3, 정렬 다양화+시드 확장)로.
+
+### 변경
+
+1. **`llm/prompts.py` — `CHALLENGE_CLASSIFY_SYSTEM`**
+   - 개수 목표: "근거 있는 한 **최대 10개**까지. 메가히트뿐 아니라 **떠오르는 중소·신생 그룹 챌린지**도 포함 — 조회수 절대값이 낮아도 풀에 있으면 후보."
+   - 최신성 게이트 완화: 기존 "약 1개월 이상 전 제외" → **"원곡이 약 3개월 이상 전이면 제외"**. 7일 윈도우가 최근성을 보장하므로 롱테일을 깎던 1개월 게이트를 3개월로 완화(분기 컴백곡은 살리고 작년 곡 재탕만 배제).
+
+2. **`analysis/challenge_scan.py`**
+   - `POOL_CAP` 80 → **150**: 이미 모은 풀을 더 많이 LLM 에 전달(brief = title/channel/views/id 만이라 토큰 부담 적음, 추가 API 호출 0).
+   - `run_challenge_scan` 카운트 로그 1줄: `pool=N classified=N pool_grounded=N selected=N`. 다음 run 에서 어느 단계가 깎는지 확정 — V3(풀 다양화) 필요 여부 판단 근거.
+
+3. **테스트**
+   - `test_prompts_challenges.py`: 개수목표("최대 10")·최신성("3개월") 토큰 회귀 가드.
+   - `test_challenge_scan_run.py`: `POOL_CAP == 150` + 카운트 로그 호출 확인.
+
+### 측정 루프 (수용 기준)
+
+적용 → push → dispatch → 카운트 로그 판독:
+
+- **selected 7~10** → 완료.
+- pool 큼 · classified 적음 → 프롬프트 추가 튜닝.
+- classified 많음 · pool_grounded 에서 급감 → pool-grounded 필터 완화(`example_video_ids` 정확도).
+- pool 자체 빈약 → **V3 풀 다양화**(각 시드 `viewCount`+`date` 2정렬, 신곡/컴백 시드 추가). search 호출↑ 이므로 429 효과 확인 후 진행.
