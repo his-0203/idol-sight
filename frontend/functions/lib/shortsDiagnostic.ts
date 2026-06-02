@@ -7,7 +7,7 @@ export function median(nums: number[]): number {
   if (nums.length === 0) return 0;
   const s = [...nums].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
 export function mean(nums: number[]): number {
@@ -53,7 +53,7 @@ export function cadenceDays(publishedAts: string[]): number {
   const ms = publishedAts.map(toMs).filter((n) => !Number.isNaN(n)).sort((a, b) => a - b);
   if (ms.length < 2) return 0;
   const gaps: number[] = [];
-  for (let i = 1; i < ms.length; i++) gaps.push((ms[i] - ms[i - 1]) / 86_400_000);
+  for (let i = 1; i < ms.length; i++) gaps.push((ms[i]! - ms[i - 1]!) / 86_400_000);
   return median(gaps);
 }
 
