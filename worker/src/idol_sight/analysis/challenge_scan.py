@@ -35,6 +35,20 @@ def _is_http_url(s: str) -> bool:
     return s.startswith("http://") or s.startswith("https://")
 
 
+# YouTube 검색 연산자/노이즈 문자 (-, 따옴표, 파이프, 괄호). '-' 는 제외 연산자라 치명적.
+_SEARCH_OP_RE = re.compile(r"""["'“”‘’|()\-]+""")
+
+
+def search_query_for(name: str, tag: str) -> str:
+    """'가수(그룹)명 곡명 챌린지' 평문 검색어. name 의 -·따옴표 등 연산자 제거.
+    name 에 가수명-곡명이 들어있다는 전제(프롬프트가 강제). 밈은 '챌린지' 미부착."""
+    clean = _SEARCH_OP_RE.sub(" ", name)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    if tag == "meme" or "챌린지" in clean:
+        return clean
+    return f"{clean} 챌린지"
+
+
 @dataclass
 class Challenge:
     name: str
@@ -206,11 +220,9 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
     # ②-b LLM 후보로 못 채웠으면 relevance 검색 폴백. 'name 챌린지' 로 관련성순 검색 →
     #     ≤60s 검증. order=relevance(조회수 아님)이라 해당 챌린지 클립일 확률이 높다.
     if not ch.example_video_ids and ch.name:
-        # 이름에 이미 '챌린지'가 있으면 중복 부착 금지 (밈은 그대로 검색).
-        q = ch.name if ("챌린지" in ch.name or ch.tag == "meme") else f"{ch.name} 챌린지"
         try:
             rel_ids = yt.search_shorts(
-                query=q, published_after=published_after,
+                query=search_query_for(ch.name, ch.tag), published_after=published_after,
                 order="relevance", max_results=10,
             )
             rby = {s.get("video_id"): s for s in yt.fetch_stats(rel_ids)}

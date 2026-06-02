@@ -22,6 +22,8 @@ def test_discovery_prompt_recency_and_lifecycle():
     assert "momentum" in p                          # 생애주기 추정 요구
     assert "발매일" in p                            # 원곡 발매일 게이트(옛 곡 배제)
     assert "그룹명_곡명" in p                        # 해시태그 실제 형식 지침
+    assert "원곡 아티스트" in p                       # 예시는 원곡자 본인 클립 우선
+    assert "곡명" in p                               # 이름에 가수명-곡명 포함 지침
 
 
 def test_structure_system_mentions_miiwan_and_tag():

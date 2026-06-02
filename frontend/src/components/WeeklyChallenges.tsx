@@ -22,9 +22,11 @@ export interface ChallengeItem {
 
 const TAG_LABEL: Record<string, string> = { dance: "댄스", meme: "밈" };
 
-// YouTube 검색어: 이름에 이미 '챌린지'가 있거나 밈이면 그대로, 아니면 '챌린지' 부착.
+// YouTube 검색어: '가수명 곡명 챌린지' 평문. 이름의 검색 연산자(-, 따옴표, 괄호 등)를
+// 제거 — '-' 는 제외 연산자, 따옴표는 구문 연산자라 그대로 두면 검색이 망가진다.
 function ytQuery(c: { name: string; tag: string }): string {
-  return c.name.includes("챌린지") || c.tag === "meme" ? c.name : `${c.name} 챌린지`;
+  const clean = c.name.replace(/["'“”‘’|()\-]+/g, " ").replace(/\s+/g, " ").trim();
+  return c.tag === "meme" || clean.includes("챌린지") ? clean : `${clean} 챌린지`;
 }
 const CONF_COLOR: Record<string, string> = {
   high: "#22c55e", medium: "#eab308", low: "#6b7280",
