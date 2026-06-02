@@ -179,30 +179,41 @@ class YouTubeCollector:
         # which keeps unit tests and one-off invocations simple.
         self._members_loader = members_loader or (lambda _: [])
 
-    def _fetch_recent(self, client: Any, channel_ids: list[str]) -> list[str]:
+    def _fetch_recent(self, channel_ids: list[str]) -> list[str]:
         """search.list per channel — fast, capped at 50 latest videos.
 
         Default daily-cron path. Cheap-but-shallow; covers MVs/teasers/
         community uploads from the last few weeks for typical k-pop
         cadence.
+
+        Per-channel try/except mirrors _fetch_all_uploads: a 429/timeout on
+        one member channel (ISEDOL/STELLIVE fan out to 6–10 solo channels)
+        must NOT abort the whole group — that left `youtube:stellive`
+        failing for 9 straight days (2026-05-23~28) and the group's debut-
+        window organicity stale. Each channel retries 429 with backoff
+        (_get_json_with_retry); on exhaustion it logs + continues so the
+        other channels' videos still land.
         """
         ids: list[str] = []
         for ch_id in channel_ids:
-            r = client.get(
-                f"{API}/search",
-                params={
-                    "key": self._key,
-                    "channelId": ch_id,
-                    "order": "date",
-                    "maxResults": SEARCH_LIST_MAX,
-                    "type": "video",
-                    "part": "id",
-                },
-            )
-            r.raise_for_status()
+            try:
+                data = self._get_json_with_retry(
+                    "/search",
+                    {
+                        "key": self._key,
+                        "channelId": ch_id,
+                        "order": "date",
+                        "maxResults": SEARCH_LIST_MAX,
+                        "type": "video",
+                        "part": "id",
+                    },
+                )
+            except (httpx.HTTPError, httpx.TimeoutException) as exc:
+                log.warning("recent skipping channel_id=%s on %s", ch_id, exc)
+                continue
             ids.extend(
                 item["id"]["videoId"]
-                for item in r.json().get("items", [])
+                for item in data.get("items", [])
                 if item.get("id", {}).get("videoId")
             )
         # Dedupe while preserving order — collabs can appear under
@@ -307,7 +318,7 @@ class YouTubeCollector:
             if full_history:
                 ids = self._fetch_all_uploads(client, channel_ids)
             else:
-                ids = self._fetch_recent(client, channel_ids)
+                ids = self._fetch_recent(channel_ids)
             if not ids:
                 return CollectionResult(0, 0, runtime_ms=int((perf_counter() - started) * 1000))
 

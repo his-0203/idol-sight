@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import httpx
+
 from idol_sight.collectors.youtube import YouTubeCollector, _extract_hashtags
 from idol_sight.config import GroupConfig
 
@@ -149,6 +151,59 @@ def test_youtube_collector_fans_out_across_member_channels():
     for sql, params in result.statements:
         if "youtube_videos" in sql and "stats" not in sql:
             assert params[1] == "isedol"
+
+
+def test_recent_isolates_failing_channel():
+    """한 멤버 채널이 429(재시도 소진)여도 나머지 채널 데이터는 수집되고 job 은
+    성공한다 (per-channel 격리). 한 채널 실패가 그룹 organicity 정체로 번지는
+    것을 막는다 — collect-daily stellive 429 만성 실패(2026-05) 대응."""
+    def _get(url, *, params=None, **_):
+        r = MagicMock()
+        params = params or {}
+        if "/search" in url:
+            if params.get("channelId") == "UC_BAD":
+                r.status_code = 429
+                req = httpx.Request("GET", "https://x/search")
+                r.raise_for_status.side_effect = httpx.HTTPStatusError(
+                    "429", request=req, response=httpx.Response(429, request=req))
+                r.json.return_value = {}
+            else:
+                r.status_code = 200
+                r.json.return_value = {"items": [{"id": {"videoId": "gA"}}]}
+                r.raise_for_status.return_value = None
+        elif "/videos" in url:
+            ids = (params.get("id") or "").split(",")
+            r.status_code = 200
+            r.json.return_value = {"items": [
+                {"id": vid, "snippet": {"title": f"V {vid}", "channelId": "UC_G"},
+                 "contentDetails": {"duration": "PT3M"},
+                 "statistics": {"viewCount": "100", "likeCount": "5", "commentCount": "1"}}
+                for vid in ids]}
+            r.raise_for_status.return_value = None
+        else:
+            r.status_code = 200
+            r.json.return_value = {}
+            r.raise_for_status.return_value = None
+        return r
+
+    http = MagicMock()
+    http.__enter__ = MagicMock(return_value=http)
+    http.__exit__ = MagicMock(return_value=False)
+    http.get = _get
+
+    g = GroupConfig(
+        key="isedol", name="ISEDOL", name_kr="이세계아이돌",
+        debut_date="2021-12-17", yt_channel_id="UC_GOOD",
+        dc_gallery_id="isekaidol", naver_query="이세계아이돌",
+        context_keywords=[], blacklist_phrases=[], twitter_handles=[],
+    )
+    c = YouTubeCollector(
+        api_key="fake", http_factory=lambda: http,
+        members_loader=lambda _: [{"yt_channel_id": "UC_BAD"}],
+        sleep=lambda _s: None,
+    )
+    result = c.collect(g)
+    assert result.rows_inserted == 1   # UC_GOOD 의 gA 수집, UC_BAD 는 격리
 
 
 def test_extract_hashtags_merges_snippet_tags_and_description():
