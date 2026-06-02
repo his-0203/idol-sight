@@ -8,9 +8,30 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class GroundedResult:
+    text: str
+    sources: list[str] = field(default_factory=list)
+
+
+def _extract_grounding_sources(resp: object) -> list[str]:
+    out: list[str] = []
+    cands = getattr(resp, "candidates", None) or []
+    for cand in cands:
+        gm = getattr(cand, "grounding_metadata", None)
+        chunks = getattr(gm, "grounding_chunks", None) or []
+        for ch in chunks:
+            web = getattr(ch, "web", None)
+            uri = getattr(web, "uri", None)
+            if uri:
+                out.append(uri)
+    return out
 
 
 # JSON Schema used by weekly insight generation. Frontend renders source_refs
@@ -114,6 +135,30 @@ class GeminiClient:
             config=config,
         )
         return json.loads(resp.text)
+
+    def generate_grounded(self, *, prompt: str) -> GroundedResult:
+        """Google Search grounding 으로 prompt 를 조사해 텍스트+출처를 반환."""
+        from google.genai.types import (
+            GenerateContentConfig, Tool, GoogleSearch,
+        )
+        config = GenerateContentConfig(
+            tools=[Tool(google_search=GoogleSearch())],
+            temperature=0.3,
+        )
+        last_err: Exception | None = None
+        for model in self._models:
+            try:
+                resp = self._client.models.generate_content(
+                    model=model, contents=prompt, config=config,
+                )
+                return GroundedResult(
+                    text=resp.text or "",
+                    sources=_extract_grounding_sources(resp),
+                )
+            except Exception as e:  # noqa: BLE001 — 모델 fallback
+                last_err = e
+                continue
+        raise RuntimeError(f"grounded generation failed: {last_err}")
 
     def _call_with_retry(self, *, contents: str, config: Any) -> Any:
         """Retry transient Gemini errors with backoff, then fall back to the
