@@ -19,7 +19,7 @@ def test_classify_system_count_and_longtail_target():
     s = CHALLENGE_CLASSIFY_SYSTEM
     assert "10" in s                    # 최대 10개 개수 목표
     assert "중소" in s or "신생" in s    # 롱테일(떠오르는 중소·신생) 포함 지시
-    assert "3개월" in s                  # 최신성 게이트 1개월 → 3개월 완화
+    assert "1.5개월" in s                # 최신성 게이트 1개월 → 1.5개월 완화
 
 
 def test_discovery_prompt_has_core_constraints():
