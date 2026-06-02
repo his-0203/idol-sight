@@ -22,7 +22,7 @@ SEED_QUERIES = (
     "케이팝 챌린지", "아이돌 챌린지", "kpop dance challenge",
     "아이돌 밈", "kpop idol meme",
 )
-POOL_CAP = 80  # LLM 분류에 넘길 후보 영상 상한(조회수 상위)
+POOL_CAP = 150  # LLM 분류에 넘길 후보 영상 상한(조회수 상위) — 롱테일 포착 위해 상향(V2)
 SEED_DELAY_SEC = 1.0  # 시드 검색 사이 간격 — 429 burst 레이트리밋 완화
 
 # YouTube URL → 11자 video_id. shorts/ · watch?v= · youtu.be/ · live/ 지원.
@@ -287,11 +287,15 @@ def run_challenge_scan(
         return 0
 
     poolmap = {v.get("video_id"): v for v in pool}
+    parsed = parse_structured_challenges(structured)
     # 바이럴 풀에 근거(영상 1개+) 없는 분류는 버림 → 니치/환각 차단.
-    challenges = [c for c in parse_structured_challenges(structured)
+    challenges = [c for c in parsed
                   if any(vid in poolmap for vid in c.candidate_video_ids)]
     if not challenges:
-        log.warning("challenge-scan: no pool-grounded challenges; preserving prior week")
+        log.warning(
+            "challenge-scan: no pool-grounded challenges (pool=%d classified=%d); "
+            "preserving prior week", len(pool), len(parsed),
+        )
         return 0
 
     published_after = iso_days_ago(now_epoch, 7)
@@ -308,4 +312,9 @@ def run_challenge_scan(
     generated_at = _dt.datetime.fromtimestamp(now_epoch, tz=_dt.UTC)\
         .strftime("%Y-%m-%dT%H:%M:%SZ")
     d1.batch(build_upsert_statements(week_start, selected, generated_at))
+    # V2 관측성 — 어느 단계가 깎는지 측정(다음 run 의 V3 풀 다양화 판단 근거).
+    log.info(
+        "challenge-scan funnel: pool=%d classified=%d pool_grounded=%d selected=%d",
+        len(pool), len(parsed), len(challenges), len(selected),
+    )
     return len(selected)

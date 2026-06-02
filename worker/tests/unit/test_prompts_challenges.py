@@ -14,6 +14,14 @@ def test_classify_system_prompt():
     assert "dance" in s and "meme" in s
 
 
+def test_classify_system_count_and_longtail_target():
+    # V2 풍부화 — 개수 목표(최대 10) + 중소·신생 그룹 롱테일 포함 + 최신성 3개월 완화.
+    s = CHALLENGE_CLASSIFY_SYSTEM
+    assert "10" in s                    # 최대 10개 개수 목표
+    assert "중소" in s or "신생" in s    # 롱테일(떠오르는 중소·신생) 포함 지시
+    assert "3개월" in s                  # 최신성 게이트 1개월 → 3개월 완화
+
+
 def test_discovery_prompt_has_core_constraints():
     p = CHALLENGE_DISCOVERY_PROMPT
     assert "7일" in p

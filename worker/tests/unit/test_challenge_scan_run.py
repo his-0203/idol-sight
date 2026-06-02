@@ -3,6 +3,7 @@ import json
 from unittest.mock import MagicMock
 
 from idol_sight.analysis.challenge_scan import (
+    POOL_CAP,
     SEED_QUERIES,
     Challenge,
     discover_candidate_videos,
@@ -91,6 +92,29 @@ def test_discover_sleeps_between_seeds():
     slept: list[float] = []
     discover_candidate_videos(yt, _now(), sleep=slept.append)
     assert len(slept) == len(SEED_QUERIES) - 1
+
+
+def test_pool_cap_raised_for_longtail():
+    # V2 — 이미 모은 풀을 더 많이 LLM 에 전달(추가 API 호출 0). 롱테일 포착.
+    assert POOL_CAP == 150
+
+
+def test_run_logs_funnel_counts(caplog):
+    # V2 관측성 — 어느 단계가 깎는지 다음 run 에서 확정하기 위한 카운트 로그.
+    import logging
+    gemini = MagicMock()
+    gemini.generate.return_value = {"challenges": [
+        {"name": "MEOVV - X 챌린지", "tag": "dance", "description": "d", "hashtags": ["#m"],
+         "example_video_ids": [_VID], "confidence": "high", "miiwan_fit": "쉬움",
+         "momentum": "rising"},
+    ]}
+    yt = _pool_yt(_POOL)
+    d1 = MagicMock()
+    with caplog.at_level(logging.INFO, logger="idol_sight.analysis.challenge_scan"):
+        run_challenge_scan(gemini, yt, d1, now_epoch=_now())
+    text = caplog.text
+    assert "pool=" in text and "classified=" in text
+    assert "pool_grounded=" in text and "selected=" in text
 
 
 def test_run_discovers_classifies_and_writes():
