@@ -691,7 +691,6 @@ CHALLENGE_SCHEMA = {
                     "example_video_ids": {"type": "array", "items": {"type": "string"}},
                     "momentum": {"type": "string",
                                  "enum": ["rising", "peaking", "declining", "unknown"]},
-                    "valid_until": {"type": "string"},
                     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
                     "miiwan_fit": {"type": "string"},
                 },
@@ -722,7 +721,7 @@ CHALLENGE_CLASSIFY_SYSTEM = (
     "- 원곡이 약 1.5개월 이상 전에 나온 곡이면 제외 (오래된 곡의 재탕 영상 배제). "
     "최근 신곡·컴백은 살려라.\n"
     "- hashtags(#그룹명_곡명 식), origin(원곡-아티스트), "
-    "momentum(rising/peaking/declining/unknown), valid_until, confidence, "
+    "momentum(rising/peaking/declining/unknown), confidence, "
     "miiwan_fit('MiiWAN'=2026-06 데뷔 버추얼 아이돌의 참여 난이도 한 줄) 도 채워라.\n"
     "근거 있는 챌린지가 없으면 challenges: [] 를 반환하라."
 )

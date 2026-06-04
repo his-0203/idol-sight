@@ -16,8 +16,7 @@ def test_parse_structured_challenges():
         {"name": "A", "tag": "dance", "description": "d", "origin": "o",
          "hashtags": ["#a"],
          "source_urls": ["https://news.x/a", "[TF초점] 기사 제목 - Daum (2026)"],
-         "confidence": "high", "miiwan_fit": "쉬움",
-         "momentum": "rising", "valid_until": "~2026-06-12"},
+         "confidence": "high", "miiwan_fit": "쉬움", "momentum": "rising"},
         {"name": "B", "tag": "garbage_tag", "description": "", "hashtags": [],
          "source_urls": [], "confidence": "low", "miiwan_fit": "",
          "momentum": "garbage"},
@@ -30,7 +29,6 @@ def test_parse_structured_challenges():
     assert chs[0].source_urls == ["https://news.x/a"]
     # 생애주기 파싱
     assert chs[0].momentum == "rising"
-    assert chs[0].valid_until == "~2026-06-12"
     # 잘못된 momentum 값은 unknown 으로 정규화
     assert chs[1].momentum == "unknown"
     assert chs[1].origin == ""

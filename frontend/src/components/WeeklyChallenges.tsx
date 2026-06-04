@@ -14,7 +14,6 @@ export interface ChallengeItem {
   source_urls: string[];
   confidence: string | null;
   momentum?: string | null;
-  valid_until?: string | null;
   week_start?: string;
   generated_at?: string;
 }
@@ -79,18 +78,15 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
                   : `숏폼 ${c.yt_recent_shorts}+ · 조회 ${fmt(c.yt_total_views)}`}
               </span>
             </div>
-            {/* 생애주기 (LLM 추정): 추세·유효기한 */}
-            {(c.momentum || c.valid_until) && (
+            {/* 생애주기 (LLM 추정): 확산 추세 */}
+            {c.momentum && MOMENTUM[c.momentum] && (
               <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-hint">
-                {c.momentum && MOMENTUM[c.momentum] && (
-                  <span class="inline-flex items-center gap-1"
-                    style={{ color: MOMENTUM[c.momentum]!.color }}>
-                    <span class="inline-block h-1.5 w-1.5 rounded-full"
-                      style={{ background: MOMENTUM[c.momentum]!.color }} />
-                    {MOMENTUM[c.momentum]!.label}
-                  </span>
-                )}
-                {c.valid_until && <span class="text-zinc-400">업로드 유효 {c.valid_until}</span>}
+                <span class="inline-flex items-center gap-1"
+                  style={{ color: MOMENTUM[c.momentum]!.color }}>
+                  <span class="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ background: MOMENTUM[c.momentum]!.color }} />
+                  {MOMENTUM[c.momentum]!.label}
+                </span>
               </div>
             )}
             {c.miiwan_fit && (
