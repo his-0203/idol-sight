@@ -16,7 +16,6 @@ from idol_sight.llm.prompts import CHALLENGE_CLASSIFY_SYSTEM, CHALLENGE_SCHEMA
 
 log = logging.getLogger(__name__)
 
-SHORT_MAX_SEC = 60  # 예시 영상 = 진짜 숏츠 상한(초). MV/일반영상 배제 (is_short 기준과 동일)
 # 측정 기반 발굴 시드 — 실제 바이럴 K-POP 챌린지/밈 숏츠를 폭넓게 끌어온다.
 SEED_QUERIES = (
     "케이팝 챌린지", "아이돌 챌린지", "kpop dance challenge",
@@ -40,20 +39,6 @@ def extract_video_id(url: str) -> str | None:
 def _is_http_url(s: str) -> bool:
     """실제 http(s) URL 인지 (기사 제목·설명 문구 배제용)."""
     return s.startswith("http://") or s.startswith("https://")
-
-
-# YouTube 검색 연산자/노이즈 문자 (-, 따옴표, 파이프, 괄호). '-' 는 제외 연산자라 치명적.
-_SEARCH_OP_RE = re.compile(r"""["'“”‘’|()\-]+""")
-
-
-def search_query_for(name: str, tag: str) -> str:
-    """'가수(그룹)명 곡명 챌린지' 평문 검색어. name 의 -·따옴표 등 연산자 제거.
-    name 에 가수명-곡명이 들어있다는 전제(프롬프트가 강제). 밈은 '챌린지' 미부착."""
-    clean = _SEARCH_OP_RE.sub(" ", name)
-    clean = re.sub(r"\s+", " ", clean).strip()
-    if tag == "meme" or "챌린지" in clean:
-        return clean
-    return f"{clean} 챌린지"
 
 
 @dataclass
@@ -220,11 +205,9 @@ def build_upsert_statements(
 
 
 def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
-    """ch 의 측정/예시 필드를 in-place 보강. (예시 1차는 run 이 바이럴 풀에서 채움)
-      ① 반응 규모 지표(yt_recent_shorts/yt_total_views) — 해시태그 블라인드 검색.
-      ② 예시가 비어 있을 때만: LLM 후보 검증 → relevance 폴백 (모두 ≤60s 진짜 숏츠).
-    각 단계 실패는 비-치명."""
-    # ① 반응 규모 지표
+    """ch 의 반응 규모 지표(yt_recent_shorts/yt_total_views)를 in-place 보강.
+    해시태그 블라인드 검색 표본. 실패는 비-치명.
+    (예시 영상은 수집하지 않는다 — 프런트는 'YouTube에서 보기' 검색 링크만 노출.)"""
     query = ch.hashtags[0] if ch.hashtags else ch.name
     try:
         ids = yt.search_shorts(query=query, published_after=published_after)
@@ -234,35 +217,6 @@ def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
             ch.yt_total_views = sum((s.get("views") or 0) for s in stats)
     except Exception as e:  # noqa: BLE001
         log.warning("metric measure failed for %r: %s", ch.name, e)
-
-    if ch.example_video_ids:        # 이미 풀에서 채워졌으면 끝.
-        return
-
-    # ②-a LLM 후보(풀 밖 포함) 검증 — 존재 + ≤60s. LLM 순서 유지, view 정렬 X.
-    if ch.candidate_video_ids:
-        try:
-            by_id = {s.get("video_id"): s for s in yt.fetch_stats(ch.candidate_video_ids[:8])}
-            ch.example_video_ids = [
-                vid for vid in ch.candidate_video_ids
-                if (s := by_id.get(vid)) and 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC
-            ][:3]
-        except Exception as e:  # noqa: BLE001
-            log.warning("example verify failed for %r: %s", ch.name, e)
-
-    # ②-b relevance 폴백: '가수명 곡명 챌린지' 평문 검색 → ≤60s 검증.
-    if not ch.example_video_ids and ch.name:
-        try:
-            rel_ids = yt.search_shorts(
-                query=search_query_for(ch.name, ch.tag), published_after=published_after,
-                order="relevance", max_results=10,
-            )
-            rby = {s.get("video_id"): s for s in yt.fetch_stats(rel_ids)}
-            ch.example_video_ids = [
-                vid for vid in rel_ids
-                if (s := rby.get(vid)) and 0 < (s.get("duration_sec") or 0) <= SHORT_MAX_SEC
-            ][:3]
-        except Exception as e:  # noqa: BLE001
-            log.warning("example fallback search failed for %r: %s", ch.name, e)
 
 
 def run_challenge_scan(
@@ -300,11 +254,6 @@ def run_challenge_scan(
 
     published_after = iso_days_ago(now_epoch, 7)
     for ch in challenges:
-        # 예시 1차 = 바이럴 풀에서 (LLM 순서=원곡자 우선) ≤60s 진짜 숏츠.
-        ch.example_video_ids = [
-            vid for vid in ch.candidate_video_ids
-            if (v := poolmap.get(vid)) and 0 < (v.get("duration_sec") or 0) <= SHORT_MAX_SEC
-        ][:3]
         measure_challenge(yt, ch, published_after)
 
     selected = select_and_rank(challenges, total=total, min_meme=min_meme)

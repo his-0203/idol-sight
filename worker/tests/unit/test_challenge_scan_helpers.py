@@ -6,18 +6,9 @@ from idol_sight.analysis.challenge_scan import (
     extract_video_id,
     iso_days_ago,
     parse_structured_challenges,
-    search_query_for,
     select_and_rank,
     week_start_kst,
 )
-
-
-def test_search_query_for_strips_operators():
-    # '-'(YouTube 제외 연산자)·따옴표·괄호 제거 → '가수명 곡명 챌린지' 평문
-    assert search_query_for('최예나 - "Catch Catch" 챌린지', "dance") == "최예나 Catch Catch 챌린지"
-    assert (search_query_for("tripleS (트리플에스) - 'Baby Flower'", "dance")
-            == "tripleS 트리플에스 Baby Flower 챌린지")
-    assert search_query_for("거제 야호", "meme") == "거제 야호"   # 밈은 챌린지 미부착
 
 
 def test_parse_structured_challenges():

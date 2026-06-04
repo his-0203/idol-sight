@@ -16,57 +16,35 @@ def _now():
     return dt.datetime(2026, 6, 2, 5, 0, tzinfo=dt.UTC).timestamp()
 
 
-def test_measure_challenge_examples_from_verified_llm_candidates():
-    # 예시 = LLM 제시 후보를 API 검증한 결과. MV(>60s)·미존재 제외, LLM 순서 보존,
-    # 조회수 정렬 안 함(view=인기≠관련성). 지표(yt_recent_shorts)는 별도 검색 표본.
+def test_measure_challenge_sets_metrics_only():
+    # 반응 규모 지표(yt_recent_shorts/yt_total_views)만 측정 — 예시 영상은
+    # 더 이상 수집하지 않는다(프런트는 'YouTube에서 보기' 검색 링크만 노출).
     ch = Challenge(name="C", tag="dance", description="", origin="", hashtags=["#c"],
                    source_urls=[], confidence="high", miiwan_fit="",
-                   candidate_video_ids=["mv", "s1", "ghost", "s2"])
+                   candidate_video_ids=["s1", "s2"])
     yt = MagicMock()
-    yt.search_shorts.return_value = ["x"]              # 지표용 블라인드 검색
-    table = {
-        "x":  {"video_id": "x", "views": 10, "duration_sec": 30},
-        "mv": {"video_id": "mv", "views": 9999, "duration_sec": 200},  # MV → 제외
-        "s1": {"video_id": "s1", "views": 5, "duration_sec": 30},
-        "s2": {"video_id": "s2", "views": 800, "duration_sec": 45},
-        # "ghost" 는 videos.list 미반환 → 제외
-    }
-    yt.fetch_stats.side_effect = lambda ids: [table[i] for i in ids if i in table]
+    yt.search_shorts.return_value = ["x", "y"]              # 지표용 블라인드 검색
+    yt.fetch_stats.return_value = [
+        {"video_id": "x", "views": 10}, {"video_id": "y", "views": 5},
+    ]
     measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
-    # s1(view 5) 이 s2(view 800) 보다 앞 → LLM 순서 보존, view 정렬 안 함
-    assert ch.example_video_ids == ["s1", "s2"]
-    assert ch.yt_recent_shorts == 1                    # 지표는 별도 검색 표본
+    assert ch.yt_recent_shorts == 2
+    assert ch.yt_total_views == 15
+    assert ch.example_video_ids == []                      # 예시 미수집
+    # 지표 검색 1회뿐 — 예시용 relevance 검색은 호출 안 함.
+    assert yt.search_shorts.call_count == 1
 
 
-def test_measure_challenge_relevance_fallback_when_no_candidates():
-    # LLM 후보 없음 → 'name 챌린지' relevance 검색 폴백 → ≤60s 검증분을 예시로.
-    ch = Challenge(name="Catch Catch", tag="dance", description="", origin="",
-                   hashtags=["#x"], source_urls=[], confidence="high", miiwan_fit="",
-                   candidate_video_ids=[])
-    yt = MagicMock()
-    # 1차=지표(viewCount), 2차=예시 폴백(relevance)
-    yt.search_shorts.side_effect = [["m1"], ["rel1", "mvlong", "rel2"]]
-    table = {
-        "m1":     {"video_id": "m1", "views": 100, "duration_sec": 30},
-        "rel1":   {"video_id": "rel1", "views": 5, "duration_sec": 30},
-        "mvlong": {"video_id": "mvlong", "views": 999, "duration_sec": 200},  # MV → 제외
-        "rel2":   {"video_id": "rel2", "views": 7, "duration_sec": 40},
-    }
-    yt.fetch_stats.side_effect = lambda ids: [table[i] for i in ids if i in table]
-    measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
-    assert ch.example_video_ids == ["rel1", "rel2"]       # 관련성 순서, MV 제외
-    assert yt.search_shorts.call_args_list[1].kwargs.get("order") == "relevance"
-
-
-def test_measure_challenge_empty_when_nothing_found():
+def test_measure_challenge_metric_failure_non_fatal():
     ch = Challenge(name="C", tag="dance", description="", origin="", hashtags=["#c"],
                    source_urls=[], confidence="low", miiwan_fit="",
                    candidate_video_ids=[])
     yt = MagicMock()
-    yt.search_shorts.return_value = []      # 지표·폴백 모두 빈 결과
+    yt.search_shorts.return_value = []      # 지표 빈 결과
     yt.fetch_stats.return_value = []
     measure_challenge(yt, ch, "2026-05-26T00:00:00Z")
-    assert ch.example_video_ids == []        # 그래도 없으면 링크 없음(프런트가 검색링크 보장)
+    assert ch.example_video_ids == []
+    assert ch.yt_recent_shorts is None
 
 
 _VID = "aaaaaaaaaaa"   # 실제 YouTube id 처럼 11자
@@ -132,7 +110,7 @@ def test_run_discovers_classifies_and_writes():
     stmts = d1.batch.call_args[0][0]
     assert stmts[0][0].strip().upper().startswith("DELETE")
     ins = [p for s, p in stmts if "INSERT INTO weekly_challenges" in s][0]
-    assert json.loads(ins[7]) == [_VID]             # 예시는 바이럴 풀의 영상
+    assert json.loads(ins[7]) == []                 # 예시 미수집(빈 배열)
 
 
 def test_run_skips_when_pool_empty():

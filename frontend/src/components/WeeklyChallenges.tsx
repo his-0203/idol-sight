@@ -36,7 +36,6 @@ const MOMENTUM: Record<string, { label: string; color: string }> = {
   peaking:   { label: "정점", color: "#eab308" },
   declining: { label: "하락 ↓", color: "#f87171" },
 };
-const isHttp = (u: string) => /^https?:\/\//.test(u);
 
 export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
   if (items.length === 0) {
@@ -100,19 +99,11 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
               <div class="mt-1 text-hint text-brand-fg">MiiWAN: {c.miiwan_fit}</div>
             )}
             <div class="mt-1 flex flex-wrap gap-3 text-hint">
-              {/* 항상 작동: 챌린지를 YouTube 에서 직접 검색 (검증된 예시가 없어도 버튼 보장) */}
+              {/* 챌린지를 YouTube 에서 직접 검색 — 항상 작동하는 단일 진입점. */}
               <a class="text-zinc-300 hover:underline" target="_blank" rel="noreferrer"
                 href={`https://www.youtube.com/results?search_query=${encodeURIComponent(ytQuery(c))}`}>
                 YouTube에서 보기 ↗
               </a>
-              {c.example_video_ids.map((v, i) => (
-                <a key={v} class="text-zinc-400 hover:underline" target="_blank" rel="noreferrer"
-                  href={`https://www.youtube.com/shorts/${v}`}>예시{c.example_video_ids.length > 1 ? i + 1 : ""} ↗</a>
-              ))}
-              {c.source_urls.filter(isHttp).map((u, i, arr) => (
-                <a key={u} class="text-zinc-600 hover:underline" target="_blank" rel="noreferrer"
-                  href={u}>출처{arr.length > 1 ? i + 1 : ""} ↗</a>
-              ))}
             </div>
           </li>
         ))}
