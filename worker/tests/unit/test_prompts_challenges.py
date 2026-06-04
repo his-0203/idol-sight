@@ -54,8 +54,9 @@ def test_structure_system_mentions_miiwan_and_tag():
 def test_challenge_schema_shape():
     props = CHALLENGE_SCHEMA["properties"]["challenges"]["items"]["properties"]
     for key in ("name", "tag", "description", "hashtags", "source_urls",
-                "example_urls", "started_around", "momentum", "valid_until",
+                "example_urls", "momentum", "valid_until",
                 "confidence", "miiwan_fit"):
         assert key in props
+    assert "started_around" not in props   # 근거 약해 제거(2026-06)
     assert props["tag"]["enum"] == ["dance", "meme"]
     assert props["momentum"]["enum"] == ["rising", "peaking", "declining", "unknown"]

@@ -51,8 +51,8 @@ class Challenge:
     source_urls: list[str]
     confidence: str
     miiwan_fit: str
-    # 생애주기 (LLM grounding 추정값 — 측정 아님)
-    started_around: str = ""
+    # 생애주기 (LLM 추정값 — 측정 아님). started_around 는 근거(날짜 데이터)가
+    # 없어 제거(2026-06): 풀이 최근 7일이라 변별력 없고 발매일과도 무관.
     momentum: str = "unknown"   # rising | peaking | declining | unknown
     valid_until: str = ""
     # LLM 이 제시한 챌린지 클립 후보 (URL→video_id, 검증 전). measure 에서 API 검증.
@@ -97,7 +97,6 @@ def parse_structured_challenges(payload: object) -> list[Challenge]:
             source_urls=[str(u) for u in (it.get("source_urls") or []) if _is_http_url(str(u))],
             confidence=str(it.get("confidence") or "low"),
             miiwan_fit=str(it.get("miiwan_fit") or ""),
-            started_around=str(it.get("started_around") or ""),
             momentum=mom if mom in ("rising", "peaking", "declining") else "unknown",
             valid_until=str(it.get("valid_until") or ""),
             candidate_video_ids=cand,
@@ -180,8 +179,8 @@ _INSERT_SQL = (
     " (week_start, rank, name, tag, description, origin, hashtags,"
     "  example_video_ids, yt_recent_shorts, yt_total_views, miiwan_fit,"
     "  source_urls, confidence, generated_at,"
-    "  started_around, momentum, valid_until)"
-    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "  momentum, valid_until)"
+    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 )
 
 
@@ -199,7 +198,7 @@ def build_upsert_statements(
             c.yt_recent_shorts, c.yt_total_views, c.miiwan_fit,
             json.dumps(c.source_urls, ensure_ascii=False),
             c.confidence, generated_at,
-            c.started_around, c.momentum, c.valid_until,
+            c.momentum, c.valid_until,
         ]))
     return stmts
 

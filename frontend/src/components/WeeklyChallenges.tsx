@@ -13,7 +13,6 @@ export interface ChallengeItem {
   miiwan_fit: string | null;
   source_urls: string[];
   confidence: string | null;
-  started_around?: string | null;
   momentum?: string | null;
   valid_until?: string | null;
   week_start?: string;
@@ -80,8 +79,8 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
                   : `숏폼 ${c.yt_recent_shorts}+ · 조회 ${fmt(c.yt_total_views)}`}
               </span>
             </div>
-            {/* 생애주기 (LLM 추정): 추세·시작·유효기한 */}
-            {(c.momentum || c.started_around || c.valid_until) && (
+            {/* 생애주기 (LLM 추정): 추세·유효기한 */}
+            {(c.momentum || c.valid_until) && (
               <div class="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-hint">
                 {c.momentum && MOMENTUM[c.momentum] && (
                   <span class="inline-flex items-center gap-1"
@@ -91,7 +90,6 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
                     {MOMENTUM[c.momentum]!.label}
                   </span>
                 )}
-                {c.started_around && <span class="text-zinc-500">시작 {c.started_around}</span>}
                 {c.valid_until && <span class="text-zinc-400">업로드 유효 {c.valid_until}</span>}
               </div>
             )}
