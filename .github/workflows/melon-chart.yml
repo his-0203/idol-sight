@@ -51,7 +51,15 @@ jobs:
           echo "chart_date=$(TZ=Asia/Seoul date -d 'yesterday' +%F)" >> "$GITHUB_OUTPUT"
 
       - name: Aggregate (creates today's snapshot, melon NULL on first pass)
-        run: uv run python -m idol_sight aggregate --snapshot-at ${{ steps.snap.outputs.snap }}
+        # --skip-derived: V3.1(2026-05-25) organicity 전영상 적용 후 full
+        # aggregate 가 25분 timeout 을 넘겨 5/25~ 매일 cancelled 됐다(첫
+        # aggregate 단독 ~25min, melon/2nd 는 skipped). melon-chart 의 목적은
+        # 멜론 fetch + health score 재계산이고, organicity/velocity/combined/
+        # reactivity 는 collect-daily(21:30 KST)가 이미 매일 갱신한다.
+        # melon-chart(06:00 KST, 익일) 사이 collect 가 없어 derived 재빌드는
+        # 같은 데이터의 중복일 뿐 — agg_summary(stage 1, melon UPDATE 대상)는
+        # skip-derived 와 무관하게 생성되므로 sandwich 는 온전하다.
+        run: uv run python -m idol_sight aggregate --snapshot-at ${{ steps.snap.outputs.snap }} --skip-derived
 
       - name: Run melon-chart (UPDATE today's snapshot with peak/depth + INSERT entries)
         # V2.24: --chart-date 명시. snap은 fetch 시각, chart_date는
