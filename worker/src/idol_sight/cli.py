@@ -426,7 +426,7 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
 )
 def health_check() -> None:
     from idol_sight.cli_health import audit_freshness
-    from idol_sight.notify import fmt_kst
+    from idol_sight.notify import fmt_kst, notify_alert
     settings = load_settings()
     client = _make_d1_client(settings)
     stale = audit_freshness(client)
@@ -434,14 +434,27 @@ def health_check() -> None:
         typer.echo("all jobs fresh")
         return
     webhook = settings.discord_webhook
-    for s in stale:
+    # 심각도 분리 — 정기 수집(crawl_meta) 정체만 job 실패(exit 1)로 알람.
+    # 일회성 backfill 누락은 warning 으로만(exit 0) → 알람 피로/오탐 제거.
+    critical = [s for s in stale if s.get("kind") != "backfill"]
+    warnings = [s for s in stale if s.get("kind") == "backfill"]
+
+    for s in warnings:
+        msg = f"{s['job']}: never backfilled (one-shot — run backfill-yt-videos)"
+        typer.echo(f"WARN: {msg}")
+        notify_alert(webhook_url=webhook, title="backfill missing",
+                     body=msg, severity="warn")
+
+    for s in critical:
         last = fmt_kst(s.get("last_success_at"))
         age = s.get("age_h")
         age_str = f"{age:.1f}h" if isinstance(age, (int, float)) else "?"
         msg = f"{s['job']}: last_success_at={last} (age={age_str})"
         typer.echo(f"STALE: {msg}", err=True)
         notify_failure(webhook_url=webhook, job=s["job"], error=msg)
-    raise typer.Exit(code=1)
+
+    if critical:
+        raise typer.Exit(code=1)
 
 
 def _filter_fresh_groups(

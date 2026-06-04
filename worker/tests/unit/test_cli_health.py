@@ -4,7 +4,7 @@ from idol_sight.cli_health import audit_freshness
 
 
 def test_audit_returns_stale_jobs():
-    """Existing crawl_meta freshness behavior unchanged."""
+    """crawl_meta freshness — 정기 job 정체는 kind='job'(critical)."""
     crawl_rows = [
         {"job": "naver:plave",   "last_success_at": "2026-05-04T07:00:00Z",
          "expected_interval_h": 1},
@@ -22,37 +22,37 @@ def test_audit_returns_stale_jobs():
     stale_jobs = {s["job"] for s in stale}
     # naver:plave is fresh (1h < 4h); dc:bdawn and instiz:miiwan stale.
     assert stale_jobs == {"dc:bdawn", "instiz:miiwan"}
+    # 심각도 분리 — 정기 수집 정체는 critical("job").
+    assert all(s["kind"] == "job" for s in stale)
 
 
-def test_audit_flags_backfill_stale_groups():
-    """Groups whose last_backfilled_at is None or older than 14 days
-    show up as 'backfill:<group>' stale entries."""
+def test_audit_flags_only_never_backfilled_groups():
+    """일회성 backfill: 한 번도 안 한(NULL) 그룹만 backfill 경고로 surface.
+    이미 backfill 한 그룹은 오래돼도 재알람 안 함(14일 재알람 폐지)."""
     crawl_rows = []  # no crawl jobs stale
-    # Three groups: one stale (20d ago), one never backfilled.
+    # SQL 이 last_backfilled_at IS NULL 만 SELECT — mock 도 NULL 만 반환.
     backfill_rows = [
-        {"key": "stellive", "last_backfilled_at": "2026-04-22T00:00:00Z"},  # 20d → stale
-        {"key": "bdawn",    "last_backfilled_at": None},                      # never → stale
+        {"key": "bdawn", "last_backfilled_at": None},   # never → warning
     ]
     client = MagicMock()
     client.execute.side_effect = [crawl_rows, backfill_rows]
     stale = audit_freshness(client, now_iso="2026-05-12T00:00:00Z")
-    stale_jobs = {s["job"] for s in stale}
-    assert stale_jobs == {"backfill:stellive", "backfill:bdawn"}
     by_job = {s["job"]: s for s in stale}
-    assert by_job["backfill:stellive"]["age_h"] is not None
-    assert by_job["backfill:stellive"]["age_h"] > 14 * 24
+    assert set(by_job) == {"backfill:bdawn"}
+    # 심각도 분리 — backfill 누락은 warning("backfill"), exit 1 아님.
+    assert by_job["backfill:bdawn"]["kind"] == "backfill"
     assert by_job["backfill:bdawn"]["age_h"] is None
 
 
 def test_audit_handles_non_utc_now_iso():
-    """now_iso with non-UTC offset still produces correct stale list."""
+    """now_iso with non-UTC offset still produces correct crawl_meta stale."""
     # 2026-05-12T09:00:00+09:00 == 2026-05-12T00:00:00Z (same instant)
-    crawl_rows = []
-    backfill_rows = [
-        # 20d before 2026-05-12T00:00Z UTC → stale (> 14d)
-        {"key": "stellive", "last_backfilled_at": "2026-04-22T00:00:00Z"},
+    crawl_rows = [
+        # 20d before 2026-05-12T00:00Z UTC, interval 6h → stale (> 24h).
+        {"job": "dc:stellive", "last_success_at": "2026-04-22T00:00:00Z",
+         "expected_interval_h": 6},
     ]
     client = MagicMock()
-    client.execute.side_effect = [crawl_rows, backfill_rows]
+    client.execute.side_effect = [crawl_rows, []]
     stale = audit_freshness(client, now_iso="2026-05-12T09:00:00+09:00")
-    assert any(s["job"] == "backfill:stellive" for s in stale)
+    assert any(s["job"] == "dc:stellive" for s in stale)

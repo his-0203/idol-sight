@@ -21,50 +21,39 @@ def audit_freshness(client: _Executor, *, now_iso: str | None = None) -> list[di
         if now_iso else datetime.now(UTC)
     )
 
+    # 심각도 분리 — 정기 수집(crawl_meta) 정체는 kind='job'(critical, exit 1).
     stale: list[dict[str, Any]] = []
     for r in rows:
         last = r.get("last_success_at")
         interval_h = r.get("expected_interval_h") or 24
         if not last:
-            stale.append({**r, "age_h": None})
+            stale.append({**r, "age_h": None, "kind": "job"})
             continue
         try:
             last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
         except ValueError:
-            stale.append({**r, "age_h": None})
+            stale.append({**r, "age_h": None, "kind": "job"})
             continue
         age_h = (now - last_dt).total_seconds() / 3600
         if age_h > interval_h * 4:
-            stale.append({**r, "age_h": age_h})
+            stale.append({**r, "age_h": age_h, "kind": "job"})
 
-    # V2.21: backfill staleness — groups whose last_backfilled_at is
-    # NULL or older than BACKFILL_ALERT_DAYS surface as 'backfill:<group>'
-    # entries so the operator gets the same Discord ping channel.
-    BACKFILL_ALERT_DAYS = 14
+    # backfill staleness — youtube 전체 히스토리 backfill 은 *일회성* 작업이라
+    # 14일 재알람은 false-positive(2026-05 health-check 만성 실패의 주원인).
+    # 한 번도 안 한(last_backfilled_at IS NULL) 그룹만 kind='backfill'(warning)
+    # 으로 surface — 신규 그룹 backfill 누락 신호. exit 1 안 시킴(cli 가 분기).
     backfill_rows = client.execute(
         "SELECT key, last_backfilled_at FROM groups "
         "WHERE COALESCE(is_active, 1) = 1 "
-        "  AND (last_backfilled_at IS NULL "
-        "       OR julianday(?) - julianday(last_backfilled_at) > ?)",
-        # now is always tz-aware (datetime.now(UTC) or fromisoformat with offset);
-        # normalize to UTC before stringifying with literal-Z suffix.
-        [now.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), BACKFILL_ALERT_DAYS],
+        "  AND last_backfilled_at IS NULL"
     )
     for r in backfill_rows:
-        last_bf = r.get("last_backfilled_at")
-        if not last_bf:
-            age_h_val: float | None = None
-        else:
-            try:
-                last_dt = datetime.fromisoformat(str(last_bf).replace("Z", "+00:00"))
-                age_h_val = (now - last_dt).total_seconds() / 3600
-            except ValueError:
-                age_h_val = None
         stale.append({
             "job": f"backfill:{r['key']}",
-            "last_success_at": last_bf,
-            "expected_interval_h": BACKFILL_ALERT_DAYS * 24,
-            "age_h": age_h_val,
+            "last_success_at": r.get("last_backfilled_at"),
+            "expected_interval_h": None,
+            "age_h": None,
+            "kind": "backfill",
         })
 
     return stale
