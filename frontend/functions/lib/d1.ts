@@ -7,6 +7,7 @@ export interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
   all<T = unknown>(): Promise<{ results: T[] }>;
   first<T = unknown>(): Promise<T | null>;
+  run(): Promise<unknown>;
 }
 
 export async function d1Query<T = Record<string, unknown>>(
