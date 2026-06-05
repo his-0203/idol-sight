@@ -52,24 +52,47 @@ function clampPct(n: number | null | undefined): number {
   if (n === null || n === undefined || Number.isNaN(n)) return 0;
   return Math.max(0, Math.min(100, n));
 }
+// V2.21 5-tier scale (kept in sync with DebutWindowVideoTable.verdictColor).
 function verdictColor(v: string | undefined): string {
-  if (v === "organic") return "#22c55e";
-  if (v === "suspect") return "#eab308";
-  if (v === "likely_paid") return "#ef4444";
+  if (v === "organic_strong") return "#16a34a";
+  if (v === "organic")        return "#22c55e";
+  if (v === "borderline")     return "#eab308";
+  if (v === "suspect")        return "#f97316";
+  if (v === "likely_paid")    return "#ef4444";
   return "#6b7280";
 }
 function verdictLabelKo(v: string | undefined): string {
-  if (v === "organic") return "Organic";
-  if (v === "suspect") return "Suspect";
-  if (v === "likely_paid") return "Likely Paid";
+  if (v === "organic_strong") return "Organic (Strong)";
+  if (v === "organic")        return "Organic";
+  if (v === "borderline")     return "Borderline";
+  if (v === "suspect")        return "Suspect";
+  if (v === "likely_paid")    return "Likely Paid";
   if (v === "insufficient_data") return "Insufficient Data";
   return v ?? "—";
 }
 function verdictEmoji(v: string | undefined): string {
-  if (v === "organic") return "🟢";
-  if (v === "suspect") return "🟡";
+  if (v === "organic_strong" || v === "organic") return "🟢";
+  if (v === "borderline") return "🟡";
+  if (v === "suspect")    return "🟠";
   if (v === "likely_paid") return "🔴";
   return "⚪";
+}
+
+// Cause chips distinguish "weak but clean" (engagement_weak) from genuine
+// manipulation signatures (farms / paid bursts). The note below makes the
+// distinction explicit so a borderline-from-weak-engagement Short isn't misread
+// as a paid accusation.
+const CAUSE_LABEL: Record<string, string> = {
+  viral_real:      "실제 바이럴",
+  engagement_weak: "engagement 약함",
+  comment_farm:    "댓글농장 의심",
+  like_farm:       "좋아요농장 의심",
+  paid_burst:      "유료 버스트 의심",
+};
+const MANIPULATION_CAUSES = new Set(["comment_farm", "like_farm", "paid_burst"]);
+function parseCauseList(parsed: ParsedBreakdown): string[] {
+  const c = (parsed as { causes?: unknown }).causes;
+  return Array.isArray(c) ? (c as string[]) : [];
 }
 function fmtWeightPct(w: number | undefined): string {
   if (w === null || w === undefined) return "—";
@@ -179,6 +202,27 @@ export function DebutWindowSignalPanel({ videoId, title, signalBreakdown, onClos
                 {verdictLabelKo(verdict)} {verdictEmoji(verdict)}
               </span>
             </div>
+            {(() => {
+              const causes = parseCauseList(parsed);
+              if (causes.length === 0) return null;
+              const hasManip = causes.some((c) => MANIPULATION_CAUSES.has(c));
+              return (
+                <div class="dw-signal-causes" style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {causes.map((c) => (
+                      <span key={c} class="dw-cause-chip" title={c}>
+                        {CAUSE_LABEL[c] ?? c}
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "#a1a1aa" }}>
+                    {hasManip
+                      ? "비정상 좋아요·댓글 균형 → 조작/유료 부스팅 의심."
+                      : "균형은 정상이나 engagement가 약함 → 콜드·패시브 도달 가능성 (유료 단정 아님)."}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </>
       )}

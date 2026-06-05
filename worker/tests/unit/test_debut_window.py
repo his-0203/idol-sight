@@ -91,18 +91,21 @@ def test_bucket_for_returns_correct_bucket(days, expected):
 
 
 @pytest.mark.parametrize("er,is_short,expected", [
-    # V2 long-form: 0pt at 1.0%, 100pt at 6.0%
+    # V2 long-form: 0pt at 1.0%, 100pt at 6.0% (unchanged)
     (0.000, False, 0),     # below floor
     (0.010, False, 0),     # exact floor
     (0.035, False, 50),    # midpoint (1.0+6.0)/2 = 3.5%
     (0.060, False, 100),   # exact ceiling
     (0.100, False, 100),   # above ceiling clamps
-    # V2 shorts: 0pt at 1.5%, 100pt at 8.0%
-    (0.000, True, 0),
-    (0.015, True, 0),
-    (0.0475, True, 50),    # midpoint (1.5+8.0)/2 = 4.75%
-    (0.080, True, 100),
-    (0.150, True, 100),
+    # V2.37 shorts: 0pt at 0.5%, 100pt at 9.0% (ER as a gentle *strength* curve,
+    # floor deliberately low so weak-but-alive engagement isn't auto-zeroed).
+    (0.000, True, 0),      # below floor
+    (0.005, True, 0),      # exact floor
+    (0.0008, True, 0),     # MV-teaser dead engagement → 0
+    (0.0091, True, 5),     # 꿍싯꿍싯 0.91% → weak but non-zero (was 0 under V2)
+    (0.0475, True, 50),    # midpoint (0.5+9.0)/2 = 4.75%
+    (0.090, True, 100),    # exact ceiling
+    (0.150, True, 100),    # above ceiling clamps
 ])
 def test_compute_engagement_score(er, is_short, expected):
     assert _compute_engagement_score(er, is_short) == expected
@@ -121,18 +124,18 @@ def test_compute_engagement_score(er, is_short, expected):
     (60.0, False, 95),    # 100 - 10*0.5 = 95
     (100.0, False, 75),   # 100 - 50*0.5 = 75
     (300.0, False, 0),    # 100 - 250*0.5 clamps to 0
-    # V2 shorts normal zone: 20-150 returns 100
-    (20.0,  True, 100),
-    (80.0,  True, 100),
-    (150.0, True, 100),
-    # Shorts below 20: -4/unit
-    (15.0, True, 80),     # 100 - (20-15)*4 = 80
-    (10.0, True, 60),
-    (0.0,  True, 20),     # 100 - 20*4 = 20
-    # Shorts above 150: -0.1/unit
-    (200.0, True, 95),    # 100 - 50*0.1 = 95
-    (500.0, True, 65),
-    (1500.0, True, 0),    # clamps to 0
+    # V2.37 shorts normal zone: 15-78 returns 100 (recalibrated to live p10-p90)
+    (15.0,  True, 100),
+    (41.0,  True, 100),   # live median
+    (78.0,  True, 100),
+    # Shorts below 15: -5/unit (comment-farm)
+    (10.0, True, 75),     # 100 - (15-10)*5 = 75
+    (4.0,  True, 45),     # 100 - (15-4)*5 = 45 (MV-teaser comment-heavy)
+    (0.0,  True, 25),     # 100 - 15*5 = 25
+    # Shorts above 78: -0.4/unit (like-farm)
+    (100.0, True, 91),    # 100 - (100-78)*0.4 = 91.2
+    (200.0, True, 51),    # 100 - (200-78)*0.4 = 51.2
+    (600.0, True, 0),     # clamps to 0
 ])
 def test_compute_balance_score(ratio, is_short, expected):
     assert _compute_balance_score(ratio, is_short) == expected
@@ -186,70 +189,88 @@ def test_compute_organic_score_insufficient_data_low_views():
     assert breakdown["verdict"] == "insufficient_data"
 
 
-def test_compute_organic_score_low_volume_short_is_insufficient_data():
-    """V2.36 (2026-06-05): a Short below SHORT_MIN_SCORABLE_VIEWS is held as
-    insufficient_data, not judged. Regression pin for the MiiWAN 꿍싯꿍싯 false
-    positive — a 38K-view *organic* Short scored likely_paid (31) because its
-    velocity_ratio exploded off a near-zero pre-debut baseline (18.5) while its
-    structurally-low Shorts ER (0.91%) zeroed the engagement signal. At this
-    scale the organic/paid signal is indistinguishable, so we decline to judge
-    rather than emit a false paid accusation (ethics §5)."""
+def test_short_organic_score_weak_engagement_normal_balance_is_borderline():
+    """V2.37 (2026-06-05) headline regression — the MiiWAN 꿍싯꿍싯 Short.
+
+    Real D1 values: 38,094 views / 328 likes / 19 comments → ER 0.91%,
+    like:comment 17.3. Engagement is weak (below the live p10 of 2.65%) but the
+    like:comment balance sits squarely inside the normal zone (15-78) — i.e.
+    cold/passive reach, NOT a manipulation signature. The V2.37 Shorts model
+    (balance-weighted 0.6, velocity dropped) lands it in borderline with only an
+    engagement_weak cause — it must NOT be accused of being paid, and must NOT be
+    excluded as insufficient_data (the V2.36 absolute-view gate is gone)."""
     video = {
         "is_short": True,
-        "view_count": 38_000,
+        "view_count": 38_094,
         "like_count": 328,
         "comment_count": 19,
-        "viral_velocity_ratio": 18.565,
+        "viral_velocity_ratio": 18.565,  # ignored for Shorts in V2.37
     }
     score, breakdown = compute_organic_score(video)
-    assert score is None
-    assert breakdown["verdict"] == "insufficient_data"
-    assert breakdown["reason"] == "low_volume_short"
-    # No paid accusation leaks through the breakdown.
-    assert "paid_burst" not in breakdown.get("causes", [])
+    # e=5 (ER 0.91%), b=100 (lcr 17.3 in zone) → 0.4*5 + 0.6*100 = 62
+    assert score == 62
+    assert breakdown["verdict"] == "borderline"
+    assert breakdown["velocity_coherence_score"] is None
+    assert dict(breakdown["weights"]) == {"engagement": 0.4, "balance": 0.6}
+    assert set(breakdown["causes"]) == {"engagement_weak"}
+    assert "paid_burst" not in breakdown["causes"]
 
 
-@pytest.mark.parametrize("view_count,expect_insufficient", [
-    (38_000, True),     # the reported case
-    (99_999, True),     # just below the gate
-    (100_000, False),   # at the gate → scored normally
-    (500_000, False),   # well above → scored
-])
-def test_short_scale_gate_boundary(view_count, expect_insufficient):
-    """V2.36: the Shorts scale gate fires strictly below SHORT_MIN_SCORABLE_VIEWS
-    (100K). At/above the threshold a Short is scored with the normal signals."""
+def test_short_organic_score_dead_engagement_is_likely_paid():
+    """V2.37: the MV-teaser pattern (operator-confirmed paid promotion on the
+    PLUMA teaser / Piece series). High views, near-dead engagement (ER ~0.08%),
+    comment-heavy balance (lcr ~4). This SHOULD be flagged — dead engagement +
+    abnormal balance is the genuine paid/cold-traffic signature."""
     video = {
         "is_short": True,
-        "view_count": view_count,
-        "like_count": 328,
-        "comment_count": 19,
-        "viral_velocity_ratio": 18.565,
-    }
-    score, breakdown = compute_organic_score(video)
-    if expect_insufficient:
-        assert score is None
-        assert breakdown["verdict"] == "insufficient_data"
-        assert breakdown["reason"] == "low_volume_short"
-    else:
-        assert score is not None
-        assert breakdown["verdict"] != "insufficient_data"
-
-
-def test_long_form_below_short_gate_is_still_scored():
-    """V2.36: the scale gate is Shorts-only. A long-form video below 100K views
-    keeps its normal scoring path (the velocity-artifact regime differs for
-    long-form, whose ER floor is lower and whose baselines are less degenerate
-    — kept out of scope to avoid regressing competitor long-form judgment)."""
-    video = {
-        "is_short": False,
-        "view_count": 38_000,
-        "like_count": 2_500,     # ER ~6.6% → healthy long-form
-        "comment_count": 100,    # ratio = 25 (long normal zone)
+        "view_count": 200_000,
+        "like_count": 120,       # ER 0.075% → e_score 0
+        "comment_count": 30,     # lcr 4.0 → comment-farm zone
         "viral_velocity_ratio": None,
     }
     score, breakdown = compute_organic_score(video)
-    assert score is not None
-    assert breakdown["verdict"] != "insufficient_data"
+    # e=0, b=100-(15-4)*5=45 → 0.4*0 + 0.6*45 = 27
+    assert score == 27
+    assert breakdown["verdict"] == "likely_paid"
+    assert set(breakdown["causes"]) == {"engagement_weak", "comment_farm"}
+
+
+def test_short_organic_score_small_healthy_short_is_organic_not_excluded():
+    """V2.37: a small Short with healthy ratios is scored organic, NOT excluded.
+    Under the V2.36 absolute-view gate every sub-100K Short was held as
+    insufficient_data — discarding good organic signal (the bulk of MiiWAN's
+    pre-debut Shorts sit at ER 3-9%, dead in the normal range)."""
+    video = {
+        "is_short": True,
+        "view_count": 1_796,     # well under the old 100K gate
+        "like_count": 105,       # ER 6.1%
+        "comment_count": 5,      # lcr 21 (in zone)
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    # e=66 (ER 6.1%), b=100 → 0.4*66 + 0.6*100 = 86
+    assert score == 86
+    assert breakdown["verdict"] == "organic_strong"
+
+
+def test_short_organic_score_like_farm_caught_despite_decent_er():
+    """V2.37: balance is the primary authenticity axis — a like-farm (extreme
+    like:comment) is flagged even with a decent engagement rate, because the
+    balance weight (0.6) dominates."""
+    video = {
+        "is_short": True,
+        "view_count": 100_000,
+        "like_count": 5_000,     # ER 5.0% → e_score 53
+        "comment_count": 5,      # lcr 1000 → like-farm, b_score 0
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    # e=53, b=0 → 0.4*53 + 0.6*0 = 21
+    assert score == 21
+    assert breakdown["verdict"] == "likely_paid"
+    assert "like_farm" in breakdown["causes"]
+    # engagement is fine here — the farm, not weak ER, is the signal
+    assert "engagement_weak" not in breakdown["causes"]
 
 
 def test_compute_organic_score_long_form_clearly_organic():

@@ -8,7 +8,28 @@
 
 ## Change Log
 
+### V2.37 (2026-06-05) — Shorts 비중(ratio) 기반 재설계 (V2.36 게이트 폐기)
+
+V2.36 의 절대 100K 게이트는 운영자 피드백("조회 적든 많든 좋아요·댓글 비중으로 organic/paid 판단 가능")과 실측으로 폐기. 라이브 6,258 Short 분포 + MiiWAN Short 직접 조사 결과:
+
+- 작은 MiiWAN Short(~60개, <100K)는 ER 3~9% / like:comment 정상대로 **건강한 오가닉** — 절대 게이트가 멀쩡한 신호를 버리고 있었음.
+- 반대로 고조회 Short(PLUMA 티저·Piece, 130~200K)는 ER **0.08~0.13%**(p10=2.65% 의 1/30) + 균형 붕괴 → 진짜 유료(운영자 confirm: 해당 콘텐츠 유료 프로모션 집행).
+- `꿍싯꿍싯`(ER 0.91%, like:comment 17.3)은 그 사이 "engagement 약하나 균형 정상" = 콜드/패시브, 조작 아님.
+
+**핵심 개념 수정**: 기존 모델은 "낮은 ER = paid" 로 단정 → engagement(가중치 0.5)가 낮으면 균형과 무관하게 likely_paid. V2.37 은 **ER=세기 신호 / like:comment=진정성(organic vs 조작) 신호** 로 역할 분리.
+
+Shorts 전용 변경 (long-form 미변경, 후속):
+- 절대 게이트 제거. base insufficient_data(`view<1000 AND eng<10`)만 유지.
+- **ER 재보정** floor/ceil `1.5%/8.0%` → **`0.5%/9.0%`** (floor 를 낮춰 약한-but-살아있는 engagement 가 auto-zero 안 되게; ER 0.1%대 dead 만 0).
+- **like:comment zone** `20/150` → **`15/78`** (실측 p10/p90), penalty slope `4/0.1` → `5/0.4`.
+- **velocity 신호 제거** (views/baseline 아티팩트가 paid_burst 오발 원인). `SHORT_WEIGHTS = engagement 0.4 / balance 0.6` — balance 를 위로 둬 "약하지만 균형 정상" Short 가 borderline 에 안착(paid 아님), farm/dead 만 paid 로.
+- verdict 의미: 낮은 점수가 farm(균형이상)이면 "조작/유료 의심", 균형 정상인데 ER 만 약하면 "engagement 약함(불확정)". 프런트 SignalPanel 이 cause 로 구분 표기.
+
+검증(회귀 fixture): `꿍싯꿍싯`→62 borderline(engagement_weak only) / 티저→27 likely_paid(comment_farm) / 소형 건강 Short→86 organic_strong(제외 안 됨) / like-farm→21 likely_paid(고 ER 무관, balance 지배).
+
 ### V2.36 (2026-06-05) — Shorts 저용량 scale gate (false-positive 차단)
+
+> ⚠️ **V2.37 에서 폐기됨** (절대 게이트 → 비중 기반 채점). 아래는 이력 보존.
 
 운영자 보고: MiiWAN `꿍싯꿍싯` Short(광고 미집행)가 `likely_paid`(score 31)로 오판. 실데이터 분해 결과 view 38K / like 328 / comment 19 / **velocity_ratio 18.565** → engagement_score 0(ER 0.91% < SHORT_ER_FLOOR 1.5%) + velocity_coherence 20(`paid_burst`)의 합으로 31점. 두 신호 모두 **오가닉 바이럴 Short의 정상 시그니처**다:
 
@@ -237,7 +258,7 @@ organic_score = round(
 
 | organic_score | verdict | 의미 |
 |---|---|---|
-| (sample 부족) | `insufficient_data` | 분석 제외. `view_count < 1000` **AND** `(likes + comments) < 10` (reason=`low_engagement`); **또는 (V2.36) Short 이면서 `view_count < SHORT_MIN_SCORABLE_VIEWS`(100K)** (reason=`low_volume_short`). organic_score는 NULL 처리 |
+| (sample 부족) | `insufficient_data` | 분석 제외. `view_count < 1000` **AND** `(likes + comments) < 10` (reason=`low_engagement`). organic_score는 NULL 처리. *(V2.36 의 절대 조회수 Short 게이트는 V2.37 에서 폐기 — 비중 기반 채점으로 대체)* |
 | ≥ 70 | `organic` | 자연 호응 |
 | 40–69 | `suspect` | 일부 신호 비정상, 검토 필요 |
 | < 40 | `likely_paid` | 유료 부스팅 강한 의심 |

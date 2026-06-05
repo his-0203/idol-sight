@@ -58,42 +58,30 @@ WINDOW_BUCKETS: list[tuple[str, int, int]] = [
     ("Post",      70, 999999),
 ]
 
-# Engagement-rate boundaries (V2 calibrated 2026-05-13 from 1125-video remote
-# D1 distribution: long p10=1.57% p90=6.69%, shorts p10≈2.0% p90=8.19%).
-# Below floor = 0pt, above ceiling = 100pt, linear interpolation between.
+# Engagement-rate boundaries. Long-form: V2 calibrated 2026-05-13 (long p10=1.57%
+# p90=6.69%). Below floor = 0pt, above ceiling = 100pt, linear interpolation.
 LONG_ER_FLOOR, LONG_ER_CEIL = 0.010, 0.060
-SHORT_ER_FLOOR, SHORT_ER_CEIL = 0.015, 0.080
+# Shorts: V2.37 recalibrated 2026-06-05 from the live 6,258-Short remote D1
+# distribution (ER p10=2.65% p50=4.81% p90=10.74%). The V2 shorts floor (1.5%)
+# was *below* the real p10 and the ceiling (8.0%) sat at ~p80, so the curve was
+# miscalibrated. V2.37 treats ER as a *strength* signal, not a paid signal: the
+# floor is set deliberately LOW (0.5%) so a merely-weak Short isn't auto-zeroed
+# the way 꿍싯꿍싯 (ER 0.91%) was — only genuinely dead engagement (the MV-teaser
+# pattern at ER ~0.1%) bottoms out. Authenticity is judged by balance, below.
+SHORT_ER_FLOOR, SHORT_ER_CEIL = 0.005, 0.090
 
-# Shorts scale gate (V2.36 2026-06-05). Below this absolute view volume a
-# Short's organic/paid signal is unreliable and we hold it as insufficient_data
-# rather than judge it. Two failure modes collapse an organic viral Short onto
-# the same signature as a paid burst at low volume:
-#   1. velocity_ratio is views-over-baseline, so a near-zero pre-debut channel
-#      baseline makes it explode (the MiiWAN 꿍싯꿍싯 Short showed velocity 18.5
-#      at only 38K views — a denominator artifact, not a bought spike), tripping
-#      the paid_burst signal.
-#   2. Shorts ER is structurally low (feed swipe-by views inflate the
-#      denominator), so a genuinely organic clip lands below SHORT_ER_FLOOR and
-#      zeroes the engagement signal.
-# Asserting "likely_paid" on a sub-100K Short is not credible at K-pop/vtuber
-# scale and risks a false accusation (ethics §7 / v2-roadmap: avoid false
-# positives / Streisand). Competitor Shorts worth judging clear this easily;
-# MiiWAN's own pre-debut Shorts fall below and read as 판정 보류 (the company
-# knows its own ad spend, and the planned YouTube Analytics traffic-source
-# integration gives ground truth there). First-pass value — recalibrate against
-# the real Short view distribution.
-SHORT_MIN_SCORABLE_VIEWS = 100_000
-
-# Like:comment ratio normal zone — type-split (V2). Long-form K-pop ratios
-# distribute much lower than shorts (long p90=27 vs shorts p90=94.2).
-# Outside zone penalizes asymmetric bot activity (comment-farm below,
-# like-farm above).
+# Like:comment ratio normal zone. Long-form: V2 (K-pop long ratios distribute
+# low). Shorts: V2.37 recalibrated to the live distribution (like:comment
+# p10=15.1 p50=41.0 p90=78.2) — the V2 shorts ceiling (150) was nearly double
+# the real p90, so like-farms above ~80 went unpenalized. Outside the zone
+# penalizes asymmetric activity (comment-farm below, like-farm above); for
+# Shorts this balance signal is the *primary* organic-vs-manipulated axis.
 BALANCE_NORMAL_LONG_LO, BALANCE_NORMAL_LONG_HI = 10.0, 50.0
-BALANCE_NORMAL_SHORT_LO, BALANCE_NORMAL_SHORT_HI = 20.0, 150.0
+BALANCE_NORMAL_SHORT_LO, BALANCE_NORMAL_SHORT_HI = 15.0, 78.0
 BALANCE_LONG_LOW_PENALTY_PER_UNIT = 8.0   # long ratio<10 → comment-farm slope
 BALANCE_LONG_HIGH_PENALTY_PER_UNIT = 0.5  # long ratio>50 → like-farm slope
-BALANCE_SHORT_LOW_PENALTY_PER_UNIT = 4.0  # short ratio<20 → comment-farm slope
-BALANCE_SHORT_HIGH_PENALTY_PER_UNIT = 0.1 # short ratio>150 → like-farm slope
+BALANCE_SHORT_LOW_PENALTY_PER_UNIT = 5.0  # short ratio<15 → comment-farm slope
+BALANCE_SHORT_HIGH_PENALTY_PER_UNIT = 0.4 # short ratio>78 → like-farm slope
 
 # Velocity-engagement coherence cross-check. NULL velocity is treated as a
 # missing signal (weight redistributed) — V2 calibration discovered ~91%
@@ -110,6 +98,17 @@ _WEIGHTS_RAW = {"engagement": 0.5, "balance": 0.3, "velocity": 0.2}
 _WEIGHTS_NO_VELOCITY_RAW = {"engagement": 0.625, "balance": 0.375}
 WEIGHTS: Mapping[str, float] = MappingProxyType(_WEIGHTS_RAW)
 WEIGHTS_NO_VELOCITY: Mapping[str, float] = MappingProxyType(_WEIGHTS_NO_VELOCITY_RAW)
+
+# Shorts (V2.37): velocity is dropped entirely — viral_velocity_ratio is
+# views-over-baseline, which explodes off a near-zero pre-debut channel baseline
+# (꿍싯꿍싯 showed 18.5 at only 38K views) and produced the paid_burst false
+# positive. Shorts are judged purely on the two scale-invariant ratio signals.
+# Balance is weighted ABOVE engagement (0.6 vs 0.4) so that a Short with weak
+# engagement but a *normal* like:comment balance (cold/passive reach, not
+# manipulation) lands in borderline rather than being condemned as paid — only
+# an abnormal balance (farm) or genuinely dead engagement drags it to paid.
+_SHORT_WEIGHTS_RAW = {"engagement": 0.4, "balance": 0.6}
+SHORT_WEIGHTS: Mapping[str, float] = MappingProxyType(_SHORT_WEIGHTS_RAW)
 
 
 def bucket_for(days_relative: int) -> str | None:
@@ -258,17 +257,6 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
             "reason": "low_engagement",
         }
 
-    # Shorts scale gate (V2.36) — see SHORT_MIN_SCORABLE_VIEWS. Below this view
-    # volume the organic/paid signal is dominated by baseline artifacts; hold
-    # rather than judge so an organic viral Short isn't accused of being paid.
-    if is_short and view_count < SHORT_MIN_SCORABLE_VIEWS:
-        return None, {
-            "view_count": view_count,
-            "engagement_total": engagement_total,
-            "verdict": "insufficient_data",
-            "reason": "low_volume_short",
-        }
-
     safe_views = max(view_count, 1)
     safe_comments = max(comment_count, 1)
     engagement_rate = engagement_total / safe_views
@@ -276,21 +264,33 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
 
     e_score = _compute_engagement_score(engagement_rate, is_short)
     b_score = _compute_balance_score(like_comment_ratio, is_short)
-    v_score = _compute_velocity_coherence(velocity_ratio, engagement_rate)
 
-    if v_score is None:
+    if is_short:
+        # V2.37: Shorts judged on scale-invariant ratios only — velocity is
+        # dropped (see SHORT_WEIGHTS). No absolute-view gate; a small Short with
+        # healthy ratios is scored, a high-view Short with dead engagement is
+        # flagged. Balance-weighted so weak-but-balanced reach ≠ paid.
+        v_score = None
         composite = round(
-            WEIGHTS_NO_VELOCITY["engagement"] * e_score
-            + WEIGHTS_NO_VELOCITY["balance"]   * b_score
+            SHORT_WEIGHTS["engagement"] * e_score
+            + SHORT_WEIGHTS["balance"]   * b_score
         )
-        weights_used = dict(WEIGHTS_NO_VELOCITY)
+        weights_used = dict(SHORT_WEIGHTS)
     else:
-        composite = round(
-            WEIGHTS["engagement"] * e_score
-            + WEIGHTS["balance"]    * b_score
-            + WEIGHTS["velocity"]   * v_score
-        )
-        weights_used = dict(WEIGHTS)
+        v_score = _compute_velocity_coherence(velocity_ratio, engagement_rate)
+        if v_score is None:
+            composite = round(
+                WEIGHTS_NO_VELOCITY["engagement"] * e_score
+                + WEIGHTS_NO_VELOCITY["balance"]   * b_score
+            )
+            weights_used = dict(WEIGHTS_NO_VELOCITY)
+        else:
+            composite = round(
+                WEIGHTS["engagement"] * e_score
+                + WEIGHTS["balance"]    * b_score
+                + WEIGHTS["velocity"]   * v_score
+            )
+            weights_used = dict(WEIGHTS)
     verdict = _classify_verdict(composite)
     causes = _compute_causes(
         e_score, b_score, v_score, like_comment_ratio, is_short, verdict,
