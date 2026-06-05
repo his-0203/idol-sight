@@ -7,7 +7,8 @@
 // frontend KPI 는 5 탭만 노출. 이 endpoint 가 9 → 5 union aggregate 를 SQL
 // GROUP BY 로 처리. 가중치:
 //   - organic_score_mean      : total_views 가중 평균
-//   - organic/suspect/likely_paid ratio : video_count 가중 평균
+//   - 5-tier ratio (organic_strong/organic/borderline/suspect/likely_paid)
+//                             : video_count 가중 평균
 //   - count/views/engagement  : SUM
 //   - computed_at             : MAX
 // videos.ts 와 같은 FRONTEND_BUCKET_MAP 을 공유 (lib/debutWindowBuckets).
@@ -23,7 +24,9 @@ interface SummaryRow {
   long_form_count: number;
   short_form_count: number;
   organic_score_mean: number | null;
+  organic_strong_ratio: number | null;
   organic_ratio: number | null;
+  borderline_ratio: number | null;
   suspect_ratio: number | null;
   likely_paid_ratio: number | null;
   total_views: number;
@@ -82,9 +85,17 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
              / SUM(total_views)
         ELSE NULL END        AS organic_score_mean,
       CASE WHEN SUM(video_count) > 0
+        THEN SUM(COALESCE(organic_strong_ratio, 0) * video_count) * 1.0
+             / SUM(video_count)
+        ELSE NULL END        AS organic_strong_ratio,
+      CASE WHEN SUM(video_count) > 0
         THEN SUM(COALESCE(organic_ratio, 0) * video_count) * 1.0
              / SUM(video_count)
         ELSE NULL END        AS organic_ratio,
+      CASE WHEN SUM(video_count) > 0
+        THEN SUM(COALESCE(borderline_ratio, 0) * video_count) * 1.0
+             / SUM(video_count)
+        ELSE NULL END        AS borderline_ratio,
       CASE WHEN SUM(video_count) > 0
         THEN SUM(COALESCE(suspect_ratio, 0) * video_count) * 1.0
              / SUM(video_count)

@@ -14,9 +14,16 @@ interface SummaryRow {
   window_bucket: string;
   video_count: number;
   organic_score_mean: number | null;
+  organic_strong_ratio: number | null;
   organic_ratio: number | null;
+  borderline_ratio: number | null;
   suspect_ratio: number | null;
   likely_paid_ratio: number | null;
+}
+
+// Compact "12%" from a 0-1 ratio (null → 0%).
+function pct(r: number | null | undefined): string {
+  return `${Math.round(100 * (r ?? 0))}%`;
 }
 
 interface Props {
@@ -61,7 +68,12 @@ export function DebutWindowKPI({ groupKey }: Props) {
           const score = row?.organic_score_mean ?? null;
           const display = score === null ? "—" : Math.round(score).toString();
           const tooltip = row
-            ? `${row.video_count} videos · organic ${(100 * (row.organic_ratio ?? 0)).toFixed(0)}% · likely_paid ${(100 * (row.likely_paid_ratio ?? 0)).toFixed(0)}%`
+            ? `${row.video_count} videos · `
+              + `strong ${pct(row.organic_strong_ratio)} · `
+              + `organic ${pct(row.organic_ratio)} · `
+              + `border ${pct(row.borderline_ratio)} · `
+              + `suspect ${pct(row.suspect_ratio)} · `
+              + `paid ${pct(row.likely_paid_ratio)}`
             : "no data";
           return (
             <div class="kpi-debutwin-cell" key={b} title={tooltip}>
