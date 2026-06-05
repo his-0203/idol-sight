@@ -157,3 +157,6 @@ idol-sight/
     ├── setup.sh                   # 최초 1회 프로비저닝
     └── gen-password-hash.mjs
 ```
+
+## SecondBrain 로그
+작업 로그는 프로젝트명 `idol-sight`로 기록한다 (전역 규칙 `~/.claude/SecondBrainLog.md` 참조).
