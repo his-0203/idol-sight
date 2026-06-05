@@ -8,6 +8,15 @@
 
 ## Change Log
 
+### V2.36 (2026-06-05) — Shorts 저용량 scale gate (false-positive 차단)
+
+운영자 보고: MiiWAN `꿍싯꿍싯` Short(광고 미집행)가 `likely_paid`(score 31)로 오판. 실데이터 분해 결과 view 38K / like 328 / comment 19 / **velocity_ratio 18.565** → engagement_score 0(ER 0.91% < SHORT_ER_FLOOR 1.5%) + velocity_coherence 20(`paid_burst`)의 합으로 31점. 두 신호 모두 **오가닉 바이럴 Short의 정상 시그니처**다:
+
+1. `velocity_ratio` = 조회/baseline 이라 데뷔 전 소형 채널의 0에 가까운 baseline 때문에 18.5배로 폭발(분모 아티팩트, 매수 스파이크 아님).
+2. Shorts ER은 피드 스와이프 노출로 분모가 부풀어 구조적으로 낮음 → 오가닉 클립도 ER floor 아래로 깔림.
+
+→ `compute_organic_score`에 **Shorts 한정 scale gate** 추가: `is_short AND view_count < SHORT_MIN_SCORABLE_VIEWS(100K)` 이면 `insufficient_data`(reason=`low_volume_short`, score=NULL) 반환. 기존 `insufficient_data` 플러밍 재사용 — 프런트 bar 회색, summary mean·*_ratio·weekly_diagnosis `organicity_paid_ratio` 분모에서 자동 제외. 거짓 paid 단정 대신 "판정 보류"(윤리 §7). 경쟁사 대형 채널 Short는 100K 쉽게 초과해 영향 없음. 임계값은 first-pass — 실 Short 분포로 calibrate 필요. long-form은 ER floor가 낮고 baseline 덜 degenerate해 scope 제외(후속). 자사 MiiWAN은 YouTube Analytics traffic-source(`insightTrafficSourceType=ADVERTISING`) ground-truth 연동이 본 해결책.
+
 ### V2.22 (2026-05-14) — 5-bucket → 7-bucket re-tiering
 
 이 문서의 §2 / §3 / §4 본문은 V2.20 의 5-bucket 정의 (D-60 / D-30 / D-Day /
@@ -228,7 +237,7 @@ organic_score = round(
 
 | organic_score | verdict | 의미 |
 |---|---|---|
-| (sample 부족) | `insufficient_data` | 분석 제외. `view_count < 1000` **AND** `(likes + comments) < 10`. organic_score는 NULL 처리 |
+| (sample 부족) | `insufficient_data` | 분석 제외. `view_count < 1000` **AND** `(likes + comments) < 10` (reason=`low_engagement`); **또는 (V2.36) Short 이면서 `view_count < SHORT_MIN_SCORABLE_VIEWS`(100K)** (reason=`low_volume_short`). organic_score는 NULL 처리 |
 | ≥ 70 | `organic` | 자연 호응 |
 | 40–69 | `suspect` | 일부 신호 비정상, 검토 필요 |
 | < 40 | `likely_paid` | 유료 부스팅 강한 의심 |

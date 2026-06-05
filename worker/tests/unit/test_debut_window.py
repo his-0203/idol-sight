@@ -186,6 +186,72 @@ def test_compute_organic_score_insufficient_data_low_views():
     assert breakdown["verdict"] == "insufficient_data"
 
 
+def test_compute_organic_score_low_volume_short_is_insufficient_data():
+    """V2.36 (2026-06-05): a Short below SHORT_MIN_SCORABLE_VIEWS is held as
+    insufficient_data, not judged. Regression pin for the MiiWAN 꿍싯꿍싯 false
+    positive — a 38K-view *organic* Short scored likely_paid (31) because its
+    velocity_ratio exploded off a near-zero pre-debut baseline (18.5) while its
+    structurally-low Shorts ER (0.91%) zeroed the engagement signal. At this
+    scale the organic/paid signal is indistinguishable, so we decline to judge
+    rather than emit a false paid accusation (ethics §5)."""
+    video = {
+        "is_short": True,
+        "view_count": 38_000,
+        "like_count": 328,
+        "comment_count": 19,
+        "viral_velocity_ratio": 18.565,
+    }
+    score, breakdown = compute_organic_score(video)
+    assert score is None
+    assert breakdown["verdict"] == "insufficient_data"
+    assert breakdown["reason"] == "low_volume_short"
+    # No paid accusation leaks through the breakdown.
+    assert "paid_burst" not in breakdown.get("causes", [])
+
+
+@pytest.mark.parametrize("view_count,expect_insufficient", [
+    (38_000, True),     # the reported case
+    (99_999, True),     # just below the gate
+    (100_000, False),   # at the gate → scored normally
+    (500_000, False),   # well above → scored
+])
+def test_short_scale_gate_boundary(view_count, expect_insufficient):
+    """V2.36: the Shorts scale gate fires strictly below SHORT_MIN_SCORABLE_VIEWS
+    (100K). At/above the threshold a Short is scored with the normal signals."""
+    video = {
+        "is_short": True,
+        "view_count": view_count,
+        "like_count": 328,
+        "comment_count": 19,
+        "viral_velocity_ratio": 18.565,
+    }
+    score, breakdown = compute_organic_score(video)
+    if expect_insufficient:
+        assert score is None
+        assert breakdown["verdict"] == "insufficient_data"
+        assert breakdown["reason"] == "low_volume_short"
+    else:
+        assert score is not None
+        assert breakdown["verdict"] != "insufficient_data"
+
+
+def test_long_form_below_short_gate_is_still_scored():
+    """V2.36: the scale gate is Shorts-only. A long-form video below 100K views
+    keeps its normal scoring path (the velocity-artifact regime differs for
+    long-form, whose ER floor is lower and whose baselines are less degenerate
+    — kept out of scope to avoid regressing competitor long-form judgment)."""
+    video = {
+        "is_short": False,
+        "view_count": 38_000,
+        "like_count": 2_500,     # ER ~6.6% → healthy long-form
+        "comment_count": 100,    # ratio = 25 (long normal zone)
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    assert score is not None
+    assert breakdown["verdict"] != "insufficient_data"
+
+
 def test_compute_organic_score_long_form_clearly_organic():
     """High engagement, balanced ratio, no velocity signal → score ≥ 70.
     V2: NULL velocity redistributes weights → engagement 0.625 + balance 0.375."""

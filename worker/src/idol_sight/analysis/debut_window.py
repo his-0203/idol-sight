@@ -64,6 +64,26 @@ WINDOW_BUCKETS: list[tuple[str, int, int]] = [
 LONG_ER_FLOOR, LONG_ER_CEIL = 0.010, 0.060
 SHORT_ER_FLOOR, SHORT_ER_CEIL = 0.015, 0.080
 
+# Shorts scale gate (V2.36 2026-06-05). Below this absolute view volume a
+# Short's organic/paid signal is unreliable and we hold it as insufficient_data
+# rather than judge it. Two failure modes collapse an organic viral Short onto
+# the same signature as a paid burst at low volume:
+#   1. velocity_ratio is views-over-baseline, so a near-zero pre-debut channel
+#      baseline makes it explode (the MiiWAN 꿍싯꿍싯 Short showed velocity 18.5
+#      at only 38K views — a denominator artifact, not a bought spike), tripping
+#      the paid_burst signal.
+#   2. Shorts ER is structurally low (feed swipe-by views inflate the
+#      denominator), so a genuinely organic clip lands below SHORT_ER_FLOOR and
+#      zeroes the engagement signal.
+# Asserting "likely_paid" on a sub-100K Short is not credible at K-pop/vtuber
+# scale and risks a false accusation (ethics §7 / v2-roadmap: avoid false
+# positives / Streisand). Competitor Shorts worth judging clear this easily;
+# MiiWAN's own pre-debut Shorts fall below and read as 판정 보류 (the company
+# knows its own ad spend, and the planned YouTube Analytics traffic-source
+# integration gives ground truth there). First-pass value — recalibrate against
+# the real Short view distribution.
+SHORT_MIN_SCORABLE_VIEWS = 100_000
+
 # Like:comment ratio normal zone — type-split (V2). Long-form K-pop ratios
 # distribute much lower than shorts (long p90=27 vs shorts p90=94.2).
 # Outside zone penalizes asymmetric bot activity (comment-farm below,
@@ -235,6 +255,18 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
             "view_count": view_count,
             "engagement_total": engagement_total,
             "verdict": "insufficient_data",
+            "reason": "low_engagement",
+        }
+
+    # Shorts scale gate (V2.36) — see SHORT_MIN_SCORABLE_VIEWS. Below this view
+    # volume the organic/paid signal is dominated by baseline artifacts; hold
+    # rather than judge so an organic viral Short isn't accused of being paid.
+    if is_short and view_count < SHORT_MIN_SCORABLE_VIEWS:
+        return None, {
+            "view_count": view_count,
+            "engagement_total": engagement_total,
+            "verdict": "insufficient_data",
+            "reason": "low_volume_short",
         }
 
     safe_views = max(view_count, 1)
