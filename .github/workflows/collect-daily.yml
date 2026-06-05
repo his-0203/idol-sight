@@ -73,12 +73,15 @@ jobs:
     # 정렬. 후속 최적화(2nd aggregate --skip-derived)는 별도 PR로.
     #
     # 25 → 90 min (V3.1, 2026-05-25): organicity 전 영상 적용 후
-    # build_video_organicity 가 1,231개 → 13,990개 (×11배) UPSERT.
-    # 첫 backfill 시 약 75분 추정 (PLAVE/STELLIVE/ISEDOL 의 5K+ 영상
-    # 각각 처리). 정상화 후 daily run 은 +1-2분 증가 정도지만 *대규모
-    # backfill 안전성* 위해 90분 여유. 후속 최적화는 별도 PR (D1 batch
-    # 사이즈 키우기 / organicity build 만 weekly cron 분리 등).
-    timeout-minutes: 90
+    # build_video_organicity 가 1,231개 → 13,990개 (×11배) UPSERT, 직렬
+    # D1 round-trip 으로 ~80분 소요라 90분 여유.
+    #
+    # 90 → 20 min (2026-06-06): d1.py batch() 진짜 chunked batch 도입 후
+    # organicity write 가 ~14.7k POST → ~150 요청으로 압축 → aggregate
+    # 가 9분(측정값, run 27024410564)으로 급감. 20분이면 sandwich 전체 +
+    # 향후 증가분 여유 + hang 조기 감지. (batch 형식 거부 시 sequential
+    # fallback 으로 ~80분 회귀 가능성은 있으나, prod 검증 완료라 정상 경로.)
+    timeout-minutes: 20
     defaults: { run: { working-directory: worker } }
     env:
       CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
