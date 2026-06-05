@@ -89,6 +89,7 @@ Cloudflare Pages dashboard → project `idol-sight` → Settings → Environment
 
 - `SITE_PASSWORD_HASH` = same value as the GitHub secret
 - `COOKIE_SECRET` = same value as the GitHub secret
+- `ADMIN_KEY` = 숨겨진 접속통계 페이지 `/admin/access?key=…` 보호용 랜덤 키 (Cloudflare Pages 전용, GitHub Secrets 불필요). 로컬 dev 로 보려면 `frontend/.dev.vars` 에 `ADMIN_KEY=...` 추가.
 
 Also under "Functions" → "D1 database bindings":
 - variable name `DB` → database `idol-sight`
