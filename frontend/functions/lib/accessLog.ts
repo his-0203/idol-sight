@@ -35,16 +35,25 @@ export function safeKeyEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
+/** HTML 텍스트 컨텍스트 이스케이프. cid 는 미검증 쿠키값일 수 있어 방어적으로 처리. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /** 관리자 페이지 HTML. 입력은 이미 집계·축약된 행들. */
 export function renderAdminHtml(
   weekly: { wk: string; visitors: number; hits: number }[],
   perPerson: { cid: string; hits: number }[],
 ): string {
   const wRows = weekly
-    .map((w) => `<tr><td>${w.wk}</td><td>${w.visitors}</td><td>${w.hits}</td></tr>`)
+    .map((w) => `<tr><td>${escapeHtml(w.wk)}</td><td>${w.visitors}</td><td>${w.hits}</td></tr>`)
     .join("");
   const pRows = perPerson
-    .map((p) => `<tr><td>${p.cid}</td><td>${p.hits}</td></tr>`)
+    .map((p) => `<tr><td>${escapeHtml(p.cid)}</td><td>${p.hits}</td></tr>`)
     .join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

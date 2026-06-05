@@ -68,5 +68,10 @@ describe("accessLog helpers", () => {
       const html = renderAdminHtml([], []);
       expect(html).toContain("데이터 없음");
     });
+    it("HTML-escapes a malicious cid value (untrusted cookie)", () => {
+      const html = renderAdminHtml([], [{ cid: '#</td><img src=x>', hits: 1 }]);
+      expect(html).not.toContain("<img");
+      expect(html).toContain("&lt;/td&gt;&lt;img src=x&gt;");
+    });
   });
 });
