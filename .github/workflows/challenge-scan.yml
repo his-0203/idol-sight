@@ -1,8 +1,8 @@
 name: challenge-scan
 on:
   schedule:
-    # 월요일 KST 10:00 (UTC 01:00) — 주초 트렌드 정리.
-    - cron: '0 1 * * 1'
+    # 월요일 KST 00:00(자정) = 일요일 UTC 15:00 — 주초 트렌드 정리.
+    - cron: '0 15 * * 0'
   workflow_dispatch:
 
 jobs:
