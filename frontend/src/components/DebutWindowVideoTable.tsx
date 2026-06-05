@@ -342,19 +342,20 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
                 <tr class="border-t border-zinc-800/60">
                   <td class="px-2 py-1.5">engagement_score</td>
                   <td class="px-2 py-1.5">(likes+comments)/views</td>
-                  <td class="px-2 py-1.5 text-right">0.5</td>
-                  <td class="px-2 py-1.5">≥6.0% (Long) / 8.0% (Shorts)</td>
-                  <td class="px-2 py-1.5">≤1.0% / 1.5%</td>
+                  <td class="px-2 py-1.5 text-right">L 0.5 / S 0.4</td>
+                  <td class="px-2 py-1.5">≥6.0% (Long) / 9.0% (Shorts)</td>
+                  <td class="px-2 py-1.5">≤1.0% (Long) / 0.5% (Shorts)</td>
                 </tr>
                 <tr class="border-t border-zinc-800/60">
                   <td class="px-2 py-1.5">balance_score</td>
                   <td class="px-2 py-1.5">likes/comments 비율</td>
-                  <td class="px-2 py-1.5 text-right">0.3</td>
-                  <td class="px-2 py-1.5">Long 10~50 / Shorts 20~150</td>
+                  <td class="px-2 py-1.5 text-right">L 0.3 / S 0.6</td>
+                  <td class="px-2 py-1.5">Long 10~50 / Shorts 15~78</td>
                   <td class="px-2 py-1.5">미만 댓글농장 / 초과 좋아요농장</td>
                 </tr>
                 <tr class="border-t border-zinc-800/60">
-                  <td class="px-2 py-1.5">velocity_coherence</td>
+                  <td class="px-2 py-1.5">velocity_coherence{" "}
+                    <span class="text-zinc-500">(Long only)</span></td>
                   <td class="px-2 py-1.5">viral_velocity × ER</td>
                   <td class="px-2 py-1.5 text-right">0.2 *</td>
                   <td class="px-2 py-1.5">폭발 + 정상 engagement</td>
@@ -398,13 +399,24 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-400 text-[11px]">
-            <span class="font-semibold text-zinc-200">* velocity_coherence</span>{" "}
-            데이터(viral_velocity_ratio)는 현재 약 91%의 영상에서 NULL.
-            NULL인 경우 weight 0.2가 engagement(0.625)/balance(0.375)로 재분배됨.
+            <span class="font-semibold text-zinc-200">Shorts (V2.37)</span>{" "}
+            는 velocity 를 쓰지 않는다 (조회/baseline 비율이 소형 채널에서 폭발하는
+            아티팩트 때문). engagement 0.4 / balance 0.6 의 비중(ratio)만으로 채점 —
+            ER 은 "세기", like:comment 균형은 "진정성(organic vs 조작)" 신호. 그래서
+            engagement 가 약해도 균형이 정상이면 borderline(약함)에 머물고 paid 로
+            단정하지 않는다. SignalPanel 에서 velocity 가 "데이터 없음"으로 보이는 건
+            정상.
+          </div>
+
+          <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-400 text-[11px]">
+            <span class="font-semibold text-zinc-200">* velocity_coherence (Long only)</span>{" "}
+            long-form 의 viral_velocity_ratio 는 상당수 NULL. NULL 인 경우 weight 0.2
+            가 engagement(0.625)/balance(0.375)로 재분배됨.
           </div>
 
           <p class="text-zinc-500 italic text-[11px]">
-            v2 calibration (2026-05-13, 9그룹 1125영상 분포 기반). verify manually before external use.
+            Long: v2 calibration (2026-05-13). Shorts: V2.37 recalibration
+            (2026-06-05, 라이브 6,258 Short 분포). verify manually before external use.
           </p>
         </div>
       </div>
