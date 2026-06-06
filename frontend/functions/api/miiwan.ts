@@ -141,91 +141,85 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const debutIso = group.debut_date;
   const daysToDebut = debutIso ? daysBetween(todayIso, debutIso) : null;
 
-  // 2) Latest summary + health for MiiWAN
-  const summary = await d1QueryOne<SummaryRow>(
-    env.DB,
-    `SELECT * FROM agg_summary
-      WHERE group_key=? AND snapshot_at = (
-        SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)`,
-    [TARGET, TARGET],
-  );
-  const prevSummary = await d1QueryOne<SummaryRow>(
-    env.DB,
-    `SELECT * FROM agg_summary
-      WHERE group_key=? AND snapshot_at <= datetime('now', '-7 days')
-      ORDER BY snapshot_at DESC LIMIT 1`,
-    [TARGET],
-  );
-  const summaryHistory = await d1Query<any>(
-    env.DB,
-    `SELECT snapshot_at, yt_total_views, yt_subscribers, yt_total_videos,
-            dc_total_posts, naver_total_news, twitter_posts
-       FROM agg_summary
-      WHERE group_key=? AND snapshot_at >= datetime('now', '-30 days')
-      ORDER BY snapshot_at ASC LIMIT 64`,
-    [TARGET],
-  );
-  const health = await d1QueryOne<HealthRow>(
-    env.DB,
-    `SELECT * FROM agg_health_scores
-      WHERE group_key=? AND snapshot_at = (
-        SELECT MAX(snapshot_at) FROM agg_health_scores WHERE group_key=?)`,
-    [TARGET, TARGET],
-  );
-
-  // 3) Members roster
-  const members = await d1Query<MemberRow>(
-    env.DB,
-    "SELECT id, name, name_en, yt_channel_id, active FROM members "
-    + "WHERE group_key=? AND active=1 ORDER BY id",
-    [TARGET],
-  );
-
-  // 4) MiiWAN-scoped insights. We pick anything explicitly scoped to
-  //    MiiWAN, plus the latest 5 ipx_actions (those are recommended-
-  //    actions that the strategy team should see even when Gemini
-  //    didn't pick MiiWAN as the scope literal).
-  // 7-day window: stale ipx_actions / market insights from prior cycles
-  // pile up if we don't bound the read. analyze-weekly runs Monday 09:00
-  // KST (00:00 UTC) so a 7-day cutoff always covers exactly one fresh
-  // cycle plus a small carry-over window for late-day reads. Matches
-  // operator mental model: "이번 주 권고만 보여줘."
-  const insights = await d1Query<InsightRow>(
-    env.DB,
-    `SELECT id, title, body, scope, type, source_refs_json,
-            ai_comment, generated_at
-       FROM insights
-      WHERE (scope=? OR type='ipx_action')
-        AND generated_at >= datetime('now','-7 days')
-      ORDER BY generated_at DESC LIMIT 30`,
-    [TARGET],
-  );
-
-  // Worker-emitted alerts scoped to MiiWAN. The strategic-analyst
-  // briefing surfaces these in a Risk Watch section instead of making
-  // the operator hop to PR/Risk and re-establish MiiWAN context.
-  const alerts = await d1Query<any>(env.DB,
-    `SELECT alert_key, rule, scope, severity, title, body, fired_at
-       FROM alerts
-      WHERE scope=? AND fired_at >= datetime('now', '-14 days')
-      ORDER BY fired_at DESC LIMIT 30`, [TARGET]);
-
-  // Controversy WoW trend — mirrors PRRisk's logic so the briefing
-  // can render an in-context risk badge without leaving the page.
-  const controversyTrend = await d1QueryOne<{ current: number; previous: number | null }>(
-    env.DB,
-    `SELECT
-        (SELECT controversy_count FROM agg_summary
-          WHERE group_key=? AND snapshot_at=(SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)
-        ) AS current,
-        (SELECT controversy_count FROM agg_summary
-          WHERE group_key=? AND snapshot_at=(
-            SELECT MAX(snapshot_at) FROM agg_summary
-             WHERE group_key=?
-               AND snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?))
-        ) AS previous`,
-    [TARGET, TARGET, TARGET, TARGET, TARGET],
-  );
+  // 2-4) Everything below is scoped to MiiWAN and independent of one another,
+  // so issue them concurrently instead of as ~8 serial D1 round-trips. (Each
+  // d1Query* is one binding round-trip; Promise.all collapses the wall-clock to
+  // a single round-trip's worth.)
+  //
+  // insights: MiiWAN-scoped + latest ipx_actions, 7-day window (analyze-weekly
+  //   runs Mon 09:00 KST so a 7-day cutoff = one fresh cycle; "이번 주 권고만").
+  // alerts: worker-emitted, surfaced in the briefing's Risk Watch.
+  // controversyTrend: mirrors PRRisk's WoW logic for an in-context risk badge.
+  const [
+    summary, prevSummary, summaryHistory, health, members, insights, alerts,
+    controversyTrend,
+  ] = await Promise.all([
+    d1QueryOne<SummaryRow>(
+      env.DB,
+      `SELECT * FROM agg_summary
+        WHERE group_key=? AND snapshot_at = (
+          SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)`,
+      [TARGET, TARGET],
+    ),
+    d1QueryOne<SummaryRow>(
+      env.DB,
+      `SELECT * FROM agg_summary
+        WHERE group_key=? AND snapshot_at <= datetime('now', '-7 days')
+        ORDER BY snapshot_at DESC LIMIT 1`,
+      [TARGET],
+    ),
+    d1Query<any>(
+      env.DB,
+      `SELECT snapshot_at, yt_total_views, yt_subscribers, yt_total_videos,
+              dc_total_posts, naver_total_news, twitter_posts
+         FROM agg_summary
+        WHERE group_key=? AND snapshot_at >= datetime('now', '-30 days')
+        ORDER BY snapshot_at ASC LIMIT 64`,
+      [TARGET],
+    ),
+    d1QueryOne<HealthRow>(
+      env.DB,
+      `SELECT * FROM agg_health_scores
+        WHERE group_key=? AND snapshot_at = (
+          SELECT MAX(snapshot_at) FROM agg_health_scores WHERE group_key=?)`,
+      [TARGET, TARGET],
+    ),
+    d1Query<MemberRow>(
+      env.DB,
+      "SELECT id, name, name_en, yt_channel_id, active FROM members "
+      + "WHERE group_key=? AND active=1 ORDER BY id",
+      [TARGET],
+    ),
+    d1Query<InsightRow>(
+      env.DB,
+      `SELECT id, title, body, scope, type, source_refs_json,
+              ai_comment, generated_at
+         FROM insights
+        WHERE (scope=? OR type='ipx_action')
+          AND generated_at >= datetime('now','-7 days')
+        ORDER BY generated_at DESC LIMIT 30`,
+      [TARGET],
+    ),
+    d1Query<any>(env.DB,
+      `SELECT alert_key, rule, scope, severity, title, body, fired_at
+         FROM alerts
+        WHERE scope=? AND fired_at >= datetime('now', '-14 days')
+        ORDER BY fired_at DESC LIMIT 30`, [TARGET]),
+    d1QueryOne<{ current: number; previous: number | null }>(
+      env.DB,
+      `SELECT
+          (SELECT controversy_count FROM agg_summary
+            WHERE group_key=? AND snapshot_at=(SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)
+          ) AS current,
+          (SELECT controversy_count FROM agg_summary
+            WHERE group_key=? AND snapshot_at=(
+              SELECT MAX(snapshot_at) FROM agg_summary
+               WHERE group_key=?
+                 AND snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?))
+          ) AS previous`,
+      [TARGET, TARGET, TARGET, TARGET, TARGET],
+    ),
+  ]);
 
   // 5) Cohort benchmarks anchored at seven points in the debut timeline:
   //    D-30 / D-20 / D-10 (approach), D-DAY (debut), D+10 / D+20 / D+30
@@ -287,81 +281,88 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     };
   }
 
-  for (const gk of BENCHMARK_GROUPS) {
-    const g = await d1QueryOne<GroupRow>(
-      env.DB,
-      "SELECT key, name, name_kr, debut_date, yt_channel_id FROM groups WHERE key=?",
-      [gk],
-    );
-    if (!g) continue;
+  // Fetch all benchmark groups in ONE query (was one lookup per group).
+  const benchPlaceholders = BENCHMARK_GROUPS.map(() => "?").join(",");
+  const benchGroups = await d1Query<GroupRow>(
+    env.DB,
+    `SELECT key, name, name_kr, debut_date, yt_channel_id FROM groups
+      WHERE key IN (${benchPlaceholders})`,
+    [...BENCHMARK_GROUPS],
+  );
+  const benchByKey = new Map(benchGroups.map((g) => [g.key, g]));
 
-    // Pre-debut peer: same latest snapshot for every anchor tab. The
-    // column intentionally repeats across tabs because the peer's
-    // current state is the only meaningful comparison we have.
-    let preDebutRow: SummaryRow | null = null;
+  // Build every anchor-row query up front and run them concurrently. This was
+  // 7 groups × (1 group lookup + 7 anchor queries) = ~56 SERIAL round-trips per
+  // briefing load; now it's one groups query + a single concurrent batch.
+  // A pre-debut peer (no debut_date) reuses ONE "latest snapshot" query across
+  // all its anchor tabs — its current state is the only meaningful comparison.
+  type AnchorTask = {
+    gk: string; anchor: AnchorKey; g: GroupRow; row: Promise<SummaryRow | null>;
+  };
+  const anchorTasks: AnchorTask[] = [];
+  for (const gk of BENCHMARK_GROUPS) {
+    const g = benchByKey.get(gk);
+    if (!g) continue;
     if (!g.debut_date) {
-      preDebutRow = await d1QueryOne<SummaryRow>(
+      const row = d1QueryOne<SummaryRow>(
         env.DB,
         `SELECT * FROM agg_summary
           WHERE group_key=? AND snapshot_at = (
             SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)`,
         [gk, gk],
       );
+      for (const anchor of ANCHORS) anchorTasks.push({ gk, anchor, g, row });
+      continue;
     }
-
     for (const anchor of ANCHORS) {
-      let row: SummaryRow | null;
-      if (g.debut_date) {
-        const { where, targetOffset } = anchorQuery(anchor);
-        // ORDER 우선순위:
-        //   1) yt_subscribers IS NOT NULL — 표에서 가장 가치 높은 단일
-        //      메트릭. 백필이 sparse 한 그룹에서 subs NULL 행이 anchor
-        //      에 더 가까워도, subs 살아있는 행을 무조건 우선.
-        //   2) 나머지 컬럼 충실도 (videos / views / news>0)
-        //   3) anchor 시점 근접도
-        //   4) snapshot_at 최신
-        const params: unknown[] = anchor === "d-day"
-          ? [gk, g.debut_date, g.debut_date, g.debut_date]
-          : [gk, g.debut_date, g.debut_date];
-        row = await d1QueryOne<SummaryRow>(
-          env.DB,
-          `SELECT * FROM agg_summary
-            WHERE group_key=? AND ${where}
-            ORDER BY
-              (yt_subscribers IS NOT NULL) DESC,
-              (
-                (yt_total_videos  IS NOT NULL) +
-                (yt_total_views   IS NOT NULL) +
-                (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
-              ) DESC,
-              ABS(julianday(date(snapshot_at)) - julianday(date(?, '${targetOffset}'))) ASC,
-              snapshot_at DESC
-            LIMIT 1`,
-          params,
-        );
-      } else {
-        row = preDebutRow;
-      }
-      benchmarksByAnchor[anchor].push({
-        group_key: gk,
-        name: g.name,
-        debut_date: g.debut_date,
-        snapshot_at: row?.snapshot_at ?? null,
-        data_source: row?.data_source ?? null,
-        summary: row ? {
-          yt_total_videos: row.yt_total_videos,
-          yt_total_views: row.yt_total_views,
-          yt_subscribers: row.yt_subscribers,
-          dc_total_posts: row.dc_total_posts,
-          theqoo_posts: row.theqoo_posts,
-          instiz_posts: row.instiz_posts,
-          naver_total_news: row.naver_total_news,
-          twitter_posts: row.twitter_posts,
-          controversy_count: row.controversy_count,
-          data_source: row.data_source,
-        } : null,
-      });
+      const { where, targetOffset } = anchorQuery(anchor);
+      // ORDER 우선순위: 1) yt_subscribers IS NOT NULL (sparse 백필에서도 subs
+      // 살아있는 행 우선) 2) 나머지 컬럼 충실도 3) anchor 근접도 4) 최신.
+      const params: unknown[] = anchor === "d-day"
+        ? [gk, g.debut_date, g.debut_date, g.debut_date]
+        : [gk, g.debut_date, g.debut_date];
+      const row = d1QueryOne<SummaryRow>(
+        env.DB,
+        `SELECT * FROM agg_summary
+          WHERE group_key=? AND ${where}
+          ORDER BY
+            (yt_subscribers IS NOT NULL) DESC,
+            (
+              (yt_total_videos  IS NOT NULL) +
+              (yt_total_views   IS NOT NULL) +
+              (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
+            ) DESC,
+            ABS(julianday(date(snapshot_at)) - julianday(date(?, '${targetOffset}'))) ASC,
+            snapshot_at DESC
+          LIMIT 1`,
+        params,
+      );
+      anchorTasks.push({ gk, anchor, g, row });
     }
+  }
+
+  await Promise.all(anchorTasks.map((t) => t.row));
+  for (const t of anchorTasks) {
+    const row = await t.row;
+    benchmarksByAnchor[t.anchor].push({
+      group_key: t.gk,
+      name: t.g.name,
+      debut_date: t.g.debut_date,
+      snapshot_at: row?.snapshot_at ?? null,
+      data_source: row?.data_source ?? null,
+      summary: row ? {
+        yt_total_videos: row.yt_total_videos,
+        yt_total_views: row.yt_total_views,
+        yt_subscribers: row.yt_subscribers,
+        dc_total_posts: row.dc_total_posts,
+        theqoo_posts: row.theqoo_posts,
+        instiz_posts: row.instiz_posts,
+        naver_total_news: row.naver_total_news,
+        twitter_posts: row.twitter_posts,
+        controversy_count: row.controversy_count,
+        data_source: row.data_source,
+      } : null,
+    });
   }
 
   return jsonResponse({
