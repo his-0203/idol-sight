@@ -132,6 +132,8 @@ cd frontend && wrangler pages deploy dist
 - **commit message는 conventional commits**: `feat:`, `fix:`, `chore:`, `ci:`, `docs:`, `refactor:`.
 - **PR 전 worker 테스트 실행**: `cd worker && uv run pytest`.
 - **Cloudflare D1 원격 변경**은 항상 사용자 확인 후 진행.
+- **배포 ↔ 마이그레이션 순서**: `frontend-deploy.yml` 은 main push 에 *자동*이지만 `migrate.yml` 은 *수동*(workflow_dispatch, D1 원격 apply 는 human-gated)이다. 따라서 새 컬럼/테이블을 읽는 코드는 마이그레이션이 운영자 손으로 적용되기 *전에* 먼저 배포될 수 있다. 두 가지로 방어한다: (1) 새 컬럼/테이블 읽는 코드를 push 하면 운영자가 **즉시 `gh workflow run migrate.yml` (또는 `wrangler d1 migrations apply --remote`)** 로 스키마부터 적용. (2) 새 스키마 의존 엔드포인트는 **graceful degradation** (테이블/컬럼 없으면 빈 결과 — 예: shorts-trend.ts 의 weekly_challenges try/catch) 로 작성해 적용 전 500 대신 빈 응답이 나가게 한다.
+- **groups 의 JSON 컬럼**(blacklist_phrases / context_keywords / *_supplemental_* / twitter_handles)은 반드시 **JSON 배열 리터럴**로 시드한다 (CSV `'a,b,c'` 금지 — SQL 은 통과하나 런타임 json.loads 가 죽음, 0034/0069/0075 에서 3번 재발). `tests/unit/test_migrations_groups_json.py` 가 전체 마이그레이션 적용 후 전수 가드한다.
 
 ## 디렉토리 트리 (요약)
 
