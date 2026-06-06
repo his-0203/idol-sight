@@ -13,7 +13,7 @@
 ## 데뷔 당일 (D-Day)
 - [ ] **위기 알림 대응 태세** — identity_leak/controversy_spike 가 발화 시 누가 인간 검증·대응하나(거버넌스 런북). 데뷔일 트래픽 급증 = 오탐·진성 둘 다 ↑.
 - [ ] **수집 cadence** — collect-hourly 가 데뷔 모먼트를 충분히 촘촘히 잡는지(필요 시 일시 상향 검토).
-- [ ] ⏳ **라이브 CCV/슈퍼챗 collector** — 데뷔 쇼케이스/라이브 반응 측정. **미구현(S급 백로그)** → 데뷔 전 우선순위 결정 필요.
+- [x] **라이브 CCV collector (YouTube)** — 구현됨(v1). collect-ccv 워크플로 KST 17:00–02:00 30분 cron; 데뷔 당일은 `gh workflow run collect-ccv.yml` 로 촘촘히. MiiWANBriefing "라이브 반응" 카드. 슈퍼챗 금액·치지직·티켓은 후속.
 - [ ] ⏳ **티켓 매진속도 collector** — 팬덤 동원력 핵심 지표. **미구현** → 동일.
 
 ## 데뷔 직후 (D+1 ~ D+30)
