@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
+import { scoreColor } from "../lib/organicity";
 
 // V2.34 (2026-05-27): worker WINDOW_BUCKETS 가 7 named bucket × 균등 20일
 // 폭으로 통일. V2.22 의 ±30 7탭 / V3 의 ±60 extended fallback hack 은 모두
@@ -71,15 +72,7 @@ function sampleCountFor(row: SummaryRow, mode: Mode): number {
   return row.video_count;
 }
 
-// V2.21 5-tier color scale (matches verdictColor in DebutWindowVideoTable).
-function colorForScore(score: number | null): string {
-  if (score === null) return "#6b7280";
-  if (score >= 85) return "#16a34a";
-  if (score >= 70) return "#22c55e";
-  if (score >= 55) return "#eab308";
-  if (score >= 40) return "#f97316";
-  return "#ef4444";
-}
+// score → color: see src/lib/organicity.ts (single source of truth).
 
 // Pick what to display for a single group under selected (bucket, mode).
 // - exact: the selected bucket has a non-null score for this mode.
@@ -211,7 +204,7 @@ export function CompetitorOrganicityBar() {
               <div class="cob-name">{r.group_key.toUpperCase()}</div>
               <div class="cob-bar-track">
                 <div class={fillClass}
-                     style={{ width: `${width}%`, background: colorForScore(r.score) }} />
+                     style={{ width: `${width}%`, background: scoreColor(r.score) }} />
               </div>
               <div class="cob-score">
                 <span class="cob-score-value">{label}</span>

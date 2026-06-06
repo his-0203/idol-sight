@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
+import { scoreColor } from "../lib/organicity";
 
 // V2.34 (2026-05-27): 균등 20일 폭 7 bucket. 이전 5탭 (D-60/D-30/D-Day/D+30/D+60)
 // 은 worker 의 비대칭 폭 (30/10/3일) 을 union 매핑으로 합쳐 가렸음.
@@ -30,15 +31,7 @@ interface Props {
   groupKey: string;
 }
 
-// V2.21 5-tier color scale (matches verdictColor in DebutWindowVideoTable).
-function colorForScore(score: number | null): string {
-  if (score === null) return "#6b7280";    // gray (no data)
-  if (score >= 85) return "#16a34a";        // organic_strong
-  if (score >= 70) return "#22c55e";        // organic
-  if (score >= 55) return "#eab308";        // borderline
-  if (score >= 40) return "#f97316";        // suspect
-  return "#ef4444";                          // likely_paid
-}
+// score → color: see src/lib/organicity.ts (single source of truth).
 
 export function DebutWindowKPI({ groupKey }: Props) {
   const [byBucket, setByBucket] = useState<Map<string, SummaryRow> | null>(null);
@@ -78,7 +71,7 @@ export function DebutWindowKPI({ groupKey }: Props) {
           return (
             <div class="kpi-debutwin-cell" key={b} title={tooltip}>
               <div class="kpi-debutwin-bucket">{b}</div>
-              <div class="kpi-debutwin-score" style={{ color: colorForScore(score) }}>
+              <div class="kpi-debutwin-score" style={{ color: scoreColor(score) }}>
                 {display}
               </div>
             </div>

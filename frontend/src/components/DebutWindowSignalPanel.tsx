@@ -4,6 +4,8 @@
 // 바 시각화 + 최종 verdict pill을 보여준다. insufficient_data인 경우
 // 점수 breakdown 대신 제외 사유를 안내한다.
 
+import { verdictColor } from "../lib/organicity";
+
 interface Props {
   videoId: string;
   title: string | null;
@@ -52,15 +54,7 @@ function clampPct(n: number | null | undefined): number {
   if (n === null || n === undefined || Number.isNaN(n)) return 0;
   return Math.max(0, Math.min(100, n));
 }
-// V2.21 5-tier scale (kept in sync with DebutWindowVideoTable.verdictColor).
-function verdictColor(v: string | undefined): string {
-  if (v === "organic_strong") return "#16a34a";
-  if (v === "organic")        return "#22c55e";
-  if (v === "borderline")     return "#eab308";
-  if (v === "suspect")        return "#f97316";
-  if (v === "likely_paid")    return "#ef4444";
-  return "#6b7280";
-}
+// verdict → color: see src/lib/organicity.ts (single source of truth).
 function verdictLabelKo(v: string | undefined): string {
   if (v === "organic_strong") return "Organic (Strong)";
   if (v === "organic")        return "Organic";

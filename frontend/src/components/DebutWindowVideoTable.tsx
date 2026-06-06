@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
+import { verdictColor } from "../lib/organicity";
 import { DebutWindowSignalPanel } from "./DebutWindowSignalPanel";
 
 // V2.34 (2026-05-27): 균등 20일 폭 7 bucket. worker WINDOW_BUCKETS 와 1:1.
@@ -34,15 +35,7 @@ interface Props {
   groupKey: string;
 }
 
-// V2.21 5-tier color scale.
-function verdictColor(v: string | null): string {
-  if (v === "organic_strong") return "#16a34a";
-  if (v === "organic")        return "#22c55e";
-  if (v === "borderline")     return "#eab308";
-  if (v === "suspect")        return "#f97316";
-  if (v === "likely_paid")    return "#ef4444";
-  return "#6b7280";  // insufficient_data / null
-}
+// verdict → color: see src/lib/organicity.ts (single source of truth).
 
 function verdictLabelShort(v: string | null): string {
   if (v === "organic_strong") return "Strong";
