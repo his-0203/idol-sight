@@ -34,6 +34,8 @@ def _stub_db():
         [],   # groups meta (rev 3)
         [],   # agg_summary history (rev 3)
         [],   # agg_market_share (2026-05-26 stub 활성화)
+        [],   # hanteo_weekly sales (comeback_boost)
+        [],   # youtube_videos weekly upload counts (comeback_boost)
     ]
     return db
 
@@ -254,6 +256,8 @@ def _stub_db_with_signals():
         [],   # groups meta (rev 3)
         [],   # agg_summary history (rev 3)
         [],   # agg_market_share (2026-05-26 stub 활성화)
+        [],   # hanteo_weekly sales (comeback_boost)
+        [],   # youtube_videos weekly upload counts (comeback_boost)
     ]
     return db
 

@@ -12,6 +12,7 @@ confidence → 메타가드 적용 → `GroupSignals` dataclass.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Any, Protocol
 
 from idol_sight.analysis import weekly_diagnosis_signals as _S
@@ -622,6 +623,28 @@ def compute_group_signals(
         ")",
         [week_end],
     )
+    # comeback_boost (2026-06): hanteo 초동 판매량 + 주간 영상 업로드 z.
+    # NOTE: appended last so the test side_effect ordering only needs two extra
+    # trailing entries (see test_weekly_diagnosis fixtures).
+    hanteo_sales_rows = db.execute(
+        "SELECT group_key, MAX(sales) AS sales FROM hanteo_weekly "
+        "WHERE week_start = ("
+        "  SELECT MAX(week_start) FROM hanteo_weekly WHERE week_start <= ?"
+        ") AND sales IS NOT NULL GROUP BY group_key",
+        [week_end],
+    )
+    # Per-group weekly upload counts over the temporal-history window (for the
+    # video_upload_z comeback signal). Weeks with zero uploads don't appear here;
+    # they're zero-filled in Python against the window's week list.
+    _upload_window_days = 7 * (_S.TEMPORAL_HISTORY_WEEKS + 1)
+    video_week_rows = db.execute(
+        "SELECT group_key, strftime('%Y-%W', published_at) AS wk, "
+        "       COUNT(*) AS n "
+        "FROM youtube_videos "
+        "WHERE published_at IS NOT NULL AND published_at >= datetime(?, ?) "
+        "GROUP BY group_key, wk",
+        [week_end, f"-{_upload_window_days} days"],
+    )
 
     # group_key → row 매핑. 같은 group_key 에 여러 snapshot 이 있으면
     # snapshot_at 가장 최근 row 만 남긴다 (정렬 후 last-wins).
@@ -720,6 +743,25 @@ def compute_group_signals(
     for r in member_pop_rows:
         member_pop_by.setdefault(r["group_key"], []).append(r)
 
+    # comeback_boost inputs.
+    hanteo_sales_by: dict[str, int] = {
+        r["group_key"]: int(r.get("sales") or 0)
+        for r in hanteo_sales_rows if r.get("group_key")
+    }
+    video_counts_by: dict[str, dict[str, int]] = {}
+    for r in video_week_rows:
+        gk, wk = r.get("group_key"), r.get("wk")
+        if gk is None or wk is None:
+            continue
+        video_counts_by.setdefault(gk, {})[wk] = int(r.get("n") or 0)
+    # Week buckets across the window (zero-fill basis for the upload z-score).
+    _end_d = date.fromisoformat(week_end[:10])
+    upload_window_weeks = sorted({
+        (_end_d - timedelta(days=d)).strftime("%Y-%W")
+        for d in range(_upload_window_days + 1)
+    })
+    current_upload_week = date.fromisoformat(week_start[:10]).strftime("%Y-%W")
+
     # V1 stub 활성화 (2026-05-26) — 전주 시점의 category cohort z.
     # broadcast_appearance / community_word_of_mouth 의 lag 패턴 (전주 spike +
     # 이번 주 후행) 활성화. prev_by 의 same-category cohort 로 계산.
@@ -797,9 +839,12 @@ def compute_group_signals(
                 ),
                 "music_streak":
                     _S.music_show_consecutive_wins(music_show_by.get(gk, []))["consecutive"],
-                "hanteo_sales":    0,    # V1: hanteo_weekly 별도 쿼리 — 후속
+                "hanteo_sales":    hanteo_sales_by.get(gk, 0),
                 "chart_peak":      now.get("melon_top100_peak"),
-                "video_upload_z":  0.0,   # V1: youtube_videos 별도 쿼리 — 후속
+                "video_upload_z":  _S.video_upload_z(
+                    video_counts_by.get(gk, {}),
+                    upload_window_weeks, current_upload_week,
+                ),
             },
             "controversy": {
                 "keyword_z":             _S.negative_keyword_z(

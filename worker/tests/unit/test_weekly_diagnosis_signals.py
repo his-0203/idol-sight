@@ -18,6 +18,7 @@ from idol_sight.analysis.weekly_diagnosis_signals import (
     organicity_paid_ratio,
     reactivity_dominant_platform,
     twitter_controversy_z,
+    video_upload_z,
     views_per_sub,
     views_per_sub_wow_drop,
     wow_ratio,
@@ -469,3 +470,29 @@ def test_thresholds_constants_present():
     assert COMMUNITY_WOW_LIT == 0.30
     assert TEMPORAL_HISTORY_WEEKS == 8
     assert CATEGORY_COHORT_MIN == 3
+
+
+def test_video_upload_z_spikes_on_burst_week():
+    # Realistic varied baseline (0/2/1) then a burst of 8 → strong positive z.
+    counts = {"2026-20": 0, "2026-21": 2, "2026-22": 1, "2026-23": 8}
+    weeks = ["2026-20", "2026-21", "2026-22", "2026-23"]
+    z = video_upload_z(counts, weeks, current_week="2026-23")
+    assert z > 2.0
+
+
+def test_video_upload_z_zero_fills_silent_weeks():
+    # Weeks absent from counts are treated as 0 uploads (not skipped) — that
+    # zero-fill creates the baseline variance a dormant→burst comeback needs.
+    counts = {"2026-21": 1, "2026-23": 5}   # weeks 20 & 22 absent → 0
+    weeks = ["2026-20", "2026-21", "2026-22", "2026-23"]
+    z = video_upload_z(counts, weeks, current_week="2026-23")
+    assert z > 2.0
+
+
+def test_video_upload_z_flat_history_is_zero():
+    # Documented limitation: a perfectly-regular uploader has zero baseline
+    # variance, so cohort_z_score returns 0 (z undefined) — this signal can't
+    # flag a burst there; other comeback signals (chart/hanteo/music) carry it.
+    counts = {"2026-20": 2, "2026-21": 2, "2026-22": 2, "2026-23": 2}
+    weeks = ["2026-20", "2026-21", "2026-22", "2026-23"]
+    assert video_upload_z(counts, weeks, current_week="2026-23") == 0.0

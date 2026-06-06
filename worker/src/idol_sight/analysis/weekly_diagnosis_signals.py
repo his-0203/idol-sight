@@ -34,6 +34,23 @@ def cohort_z_score(value: float, cohort: list[float]) -> float:
     return (value - mean(cohort)) / sd
 
 
+def video_upload_z(
+    counts_by_week: dict[str, int],
+    window_weeks: list[str],
+    current_week: str,
+) -> float:
+    """z-score of the current week's YouTube upload count vs the group's prior
+    weeks across ``window_weeks`` (zero-filled — weeks with no uploads count as
+    0 so a comeback upload burst stands out). 0.0 when history is too thin
+    (cohort_z_score returns 0 for <2 prior weeks or zero variance)."""
+    current = float(counts_by_week.get(current_week, 0))
+    prior = [
+        float(counts_by_week.get(wk, 0))
+        for wk in window_weeks if wk != current_week
+    ]
+    return cohort_z_score(current, prior)
+
+
 def wow_ratio(now: float | None, prev: float | None) -> float | None:
     """Week-over-week ratio = (now - prev) / max(prev, 1).
 
