@@ -124,7 +124,8 @@ def test_controversy_spike_fires_when_doubled_above_floor():
         "WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_summary)":
         [{"group_key": "isedol", "snapshot_at": "2026-05-04T00:00:00Z",
           "controversy_count": 12}],
-        "WHERE snapshot_at = (  SELECT MAX(snapshot_at) FROM agg_summary":
+        # per-group previous snapshot query
+        "WHERE b.group_key = a.group_key":
         [{"group_key": "isedol", "controversy_count": 5}],
     })
     alerts = rule_controversy_spike(client)
@@ -141,10 +142,40 @@ def test_controversy_spike_skips_below_floor():
         "WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_summary)":
         [{"group_key": "plave", "snapshot_at": "2026-05-04T00:00:00Z",
           "controversy_count": 2}],
-        "WHERE snapshot_at = (  SELECT MAX(snapshot_at) FROM agg_summary":
+        "WHERE b.group_key = a.group_key":
         [{"group_key": "plave", "controversy_count": 1}],
     })
     assert rule_controversy_spike(client) == []
+
+
+def test_controversy_spike_skips_group_absent_from_prior_snapshot():
+    """FP guard: a group with no prior-own snapshot (sparse / late-added) has no
+    WoW baseline. It must NOT fire an inf-ratio critical just because it's
+    missing from the previous snapshot."""
+    client = _client({
+        "WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_summary)":
+        [{"group_key": "uryael", "snapshot_at": "2026-05-04T00:00:00Z",
+          "controversy_count": 9}],
+        # prev query returns a DIFFERENT group only — uryael has no prior row.
+        "WHERE b.group_key = a.group_key":
+        [{"group_key": "plave", "controversy_count": 3}],
+    })
+    assert rule_controversy_spike(client) == []
+
+
+def test_controversy_spike_fires_on_genuine_zero_baseline():
+    """A tracked group present in the prior snapshot with a genuine 0 count that
+    jumps above the floor IS a real emergence and should fire."""
+    client = _client({
+        "WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_summary)":
+        [{"group_key": "plave", "snapshot_at": "2026-05-04T00:00:00Z",
+          "controversy_count": 6}],
+        "WHERE b.group_key = a.group_key":
+        [{"group_key": "plave", "controversy_count": 0}],
+    })
+    alerts = rule_controversy_spike(client)
+    assert len(alerts) == 1
+    assert alerts[0].severity == "critical"
 
 
 # ─── run_alerts (dedup + persistence) ───────────────────────────────────
@@ -199,10 +230,13 @@ def test_alert_dataclass_key_format():
 
 
 def test_identity_leak_fires_on_naver_keyword_match():
+    # The rule now fetches raw titles and aggregates/filters in Python.
     client = _client({
         "FROM naver_articles": [
             {"group_key": "plave", "day": "2026-05-04",
-             "n": 2, "sample": "[단독] PLAVE 본체 추정 인물 사진 유출"},
+             "title": "[단독] PLAVE 본체 추정 인물 사진 유출"},
+            {"group_key": "plave", "day": "2026-05-04",
+             "title": "PLAVE 본체 논란 후속"},
         ],
     })
     alerts = rule_identity_leak(client)
@@ -211,17 +245,17 @@ def test_identity_leak_fires_on_naver_keyword_match():
     assert a.rule == "identity_leak"
     assert a.severity == "critical"
     assert a.bucket == "2026-05-04"
-    # Bucket dedup format: each group/day fires once even if multiple
-    # articles match.
     assert a.scope == "plave"
+    assert "2건" in a.title  # both genuine hits counted
 
 
 def test_identity_leak_buckets_per_group_per_day():
     client = _client({
         "FROM naver_articles": [
-            {"group_key": "plave",  "day": "2026-05-04", "n": 2, "sample": "본체 기사"},
-            {"group_key": "plave",  "day": "2026-05-05", "n": 1, "sample": "후속 기사"},
-            {"group_key": "isedol", "day": "2026-05-04", "n": 1, "sample": "리얼페이스"},
+            {"group_key": "plave",  "day": "2026-05-04", "title": "본체 기사"},
+            {"group_key": "plave",  "day": "2026-05-04", "title": "본체 추가"},
+            {"group_key": "plave",  "day": "2026-05-05", "title": "후속 신상 유출"},
+            {"group_key": "isedol", "day": "2026-05-04", "title": "리얼페이스 공개"},
         ],
     })
     alerts = rule_identity_leak(client)
@@ -231,6 +265,32 @@ def test_identity_leak_buckets_per_group_per_day():
         "identity_leak:plave:2026-05-05",
         "identity_leak:isedol:2026-05-04",
     }
+
+
+def test_identity_leak_ignores_benign_substring_compounds():
+    """FP guard: titles where an identity keyword only appears inside a benign
+    compound (신상품, 교통정체, 정체성, …) must NOT fire a critical leak alert."""
+    client = _client({
+        "FROM naver_articles": [
+            {"group_key": "plave",  "day": "2026-05-04", "title": "PLAVE 신상품 굿즈 출시"},
+            {"group_key": "isedol", "day": "2026-05-04", "title": "ISEDOL 멤버 교통정체 지각 사과"},
+            {"group_key": "owis",   "day": "2026-05-04", "title": "OWIS 정체성 콘셉트 해석"},
+        ],
+    })
+    assert rule_identity_leak(client) == []
+
+
+def test_identity_leak_genuine_hit_survives_alongside_benign():
+    """A real '신상 유출' hit fires even though '신상품' would be masked."""
+    client = _client({
+        "FROM naver_articles": [
+            {"group_key": "plave", "day": "2026-05-04", "title": "PLAVE 신상품 굿즈"},
+            {"group_key": "plave", "day": "2026-05-04", "title": "PLAVE 멤버 신상 유출 의혹"},
+        ],
+    })
+    alerts = rule_identity_leak(client)
+    assert len(alerts) == 1
+    assert "1건" in alerts[0].title  # only the genuine one counted
 
 
 # ─── model_theft ───────────────────────────────────────────────────────
@@ -269,3 +329,27 @@ def test_model_theft_skips_when_ratio_below_3x():
         ],
     })
     assert rule_model_theft(client) == []
+
+
+def test_model_theft_skips_first_surge_without_baseline():
+    """FP guard: no prior baseline (prior_7d=0) + a small first-ever handful
+    (last_24h=6) must NOT fire an inf-ratio alert."""
+    client = _client({
+        "FROM community_posts": [
+            {"group_key": "plave", "last_24h": 6, "prior_7d": 0},
+        ],
+    })
+    assert rule_model_theft(client) == []
+
+
+def test_model_theft_fires_large_surge_without_baseline():
+    """No baseline but an unambiguous absolute surge (last_24h ≥ 10) still
+    fires."""
+    client = _client({
+        "FROM community_posts": [
+            {"group_key": "plave", "last_24h": 12, "prior_7d": 0},
+        ],
+    })
+    alerts = rule_model_theft(client)
+    assert len(alerts) == 1
+    assert alerts[0].rule == "model_theft"

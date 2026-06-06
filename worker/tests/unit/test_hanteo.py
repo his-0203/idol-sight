@@ -10,6 +10,33 @@ from unittest.mock import MagicMock
 from idol_sight.collectors.hanteo import HanteoCollector
 
 
+def test_match_group_does_not_steal_neighbour_sales_in_multi_group_text():
+    """Multi-group article: each group owns the span from its mention to the
+    next group's. The backward look-back must not read the previous group's
+    trailing 초동 sales as ours."""
+    text = ("플레이브가 정규 1집으로 판매량 50,000장 기록. "
+            "이세계아이돌은 미니앨범 판매량 30,000장.")
+    plave = {"key": "plave", "name": "PLAVE", "name_kr": "플레이브"}
+    isedol = {"key": "isedol", "name": "ISEDOL", "name_kr": "이세계아이돌"}
+
+    plave_hit = HanteoCollector._match_group(text, plave, ["ISEDOL", "이세계아이돌"])
+    isedol_hit = HanteoCollector._match_group(text, isedol, ["PLAVE", "플레이브"])
+
+    assert plave_hit is not None and plave_hit[2] == 50_000   # (album, rank, sales, index)
+    assert isedol_hit is not None and isedol_hit[2] == 30_000  # not 50,000
+
+
+def test_match_group_keeps_lookback_when_no_other_group_near():
+    """Single-group text still uses the backward window (e.g. '1위 PLAVE')."""
+    text = "이번 주 1위 PLAVE, 판매량 50,000장."
+    plave = {"key": "plave", "name": "PLAVE", "name_kr": "플레이브"}
+    hit = HanteoCollector._match_group(text, plave, [])
+    assert hit is not None
+    _album, rank, sales, _index = hit
+    assert sales == 50_000
+    assert rank == 1   # backward look-back captured "1위" before the name
+
+
 def _make_fetcher(html_by_url: dict[str, str]) -> MagicMock:
     """Stub fetcher whose .get(url) returns an object exposing
     .html_content matching the supplied URL → HTML map."""

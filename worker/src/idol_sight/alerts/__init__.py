@@ -55,13 +55,23 @@ CONTROVERSY_SPIKE_MIN_COUNT = 5             # baseline floor; ignore noise
 # is by definition critical), 5x weekly baseline for community boards
 # (which use the words colloquially in non-leak contexts).
 IDENTITY_LEAK_KEYWORDS = (
-    "본체", "중인", "신상", "정체", "리얼페이스", "real face", "doxx",
+    "본체", "신상", "정체", "리얼페이스", "real face", "doxx",
+)
+# Benign compounds that CONTAIN an identity keyword as a substring but are not
+# leaks — the SQL LIKE is a coarse prefilter, so these are masked out in Python
+# before counting. ("중인" was removed entirely: it's a substring of dozens of
+# common words — 진행중인/활동중인/출연중인 — and fired critical on all of them.)
+IDENTITY_BENIGN_COMPOUNDS = (
+    "신상품",          # 신상 ⊂ 신상품 (merch news)
+    "정체불명", "정체성", "교통정체", "정체기", "정체된", "정체 구간",  # 정체 ⊂ …
 )
 # Model theft / deepfake / unauthorized AI cover.
 MODEL_THEFT_KEYWORDS = (
     "AI cover", "AI커버", "딥페이크", "deepfake", "도용", "ai음성",
     "ai 음성", "음성 도용",
 )
+MODEL_THEFT_MIN_COUNT = 5          # absolute floor for last-24h mentions
+MODEL_THEFT_NO_BASELINE_MIN = 10   # higher floor when there's no prior baseline
 
 
 @dataclass
@@ -186,11 +196,16 @@ def rule_controversy_spike(
     )
     if not last:
         return []
+    # Each group's OWN most-recent strictly-older snapshot — NOT the global
+    # second-latest. A sparse or late-added group is often absent from the
+    # global previous snapshot, which made before=0 and fired a spurious
+    # critical "0→N spike". Keying on per-group prior fixes that.
     prev = client.execute(
-        "SELECT group_key, controversy_count FROM agg_summary "
-        "WHERE snapshot_at = ("
-        "  SELECT MAX(snapshot_at) FROM agg_summary "
-        "  WHERE snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary)"
+        "SELECT a.group_key, a.controversy_count FROM agg_summary a "
+        "WHERE a.snapshot_at = ("
+        "  SELECT MAX(b.snapshot_at) FROM agg_summary b "
+        "  WHERE b.group_key = a.group_key "
+        "    AND b.snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary)"
         ")"
     )
     prev_by = {r["group_key"]: r.get("controversy_count") or 0 for r in prev}
@@ -200,11 +215,15 @@ def rule_controversy_spike(
         cur = r.get("controversy_count") or 0
         if cur < min_count:
             continue
-        before = prev_by.get(gk, 0)
-        ratio = (
-            (float("inf") if cur > 0 else 0.0)
-            if before == 0 else cur / before
-        )
+        if gk not in prev_by:
+            # No prior snapshot for this group → no week-over-week baseline, so
+            # we can't claim a *spike*. Skip rather than treat absence as 0 and
+            # fire an inf-ratio critical (Streisand-sensitive false positive).
+            continue
+        before = prev_by[gk]
+        # before==0 here means a genuine prior count of 0 for a tracked group,
+        # so a jump to >= min_count is a real emergence worth flagging.
+        ratio = float("inf") if before == 0 else cur / before
         if ratio < multiplier:
             continue
         try:
@@ -228,14 +247,28 @@ def rule_controversy_spike(
     return out
 
 
+def _genuine_identity_hit(title: str | None) -> bool:
+    """True if an identity keyword appears in ``title`` outside a benign
+    compound. The SQL LIKE is a coarse prefilter (substring), so e.g. a
+    "PLAVE 신상품 굿즈" merch headline matches "신상" — mask the benign
+    compounds first, then re-check, so it doesn't fire a critical leak alert."""
+    t = title or ""
+    for benign in IDENTITY_BENIGN_COMPOUNDS:
+        t = t.replace(benign, " ")
+    return any(kw in t for kw in IDENTITY_LEAK_KEYWORDS)
+
+
 def rule_identity_leak(client: _Executor) -> list[Alert]:
-    """Fire when 본체/중인/신상 keywords appear in naver_articles.
+    """Fire when 본체/신상/정체 etc. keywords appear in naver_articles.
 
     Press picking up the human-behind-the-character is the most
     serious crisis class in the virtual idol playbook (Mary Douglas
     "pollution" of the sacred boundary). Even a single hit warrants a
     critical alert. Bucket = ``YYYY-MM-DD:<group>`` so we get one
     alert per group per day even if multiple matching articles land.
+
+    The SQL LIKE pulls candidate titles; ``_genuine_identity_hit`` then drops
+    substring false positives (신상품/교통정체/…) in Python before counting.
 
     We deliberately don't scan community_posts here — those use the
     same words colloquially in non-leak contexts (e.g. "본체 노출
@@ -248,27 +281,34 @@ def rule_identity_leak(client: _Executor) -> list[Alert]:
     rows = client.execute(
         "SELECT group_key, "
         "  date(published_at) AS day, "
-        "  COUNT(*) AS n, "
-        "  MIN(title) AS sample "
+        "  title "
         "FROM naver_articles "
         f"WHERE COALESCE(is_excluded,0)=0 AND ({likes}) "
-        "  AND published_at >= datetime('now', '-7 days') "
-        "GROUP BY group_key, day",
+        "  AND published_at >= datetime('now', '-7 days')",
         params,
     )
-    out: list[Alert] = []
+    # Aggregate genuine hits per (group, day) in Python after benign-masking.
+    agg: dict[tuple[str, str], dict[str, Any]] = {}
     for r in rows:
+        title = r.get("title") or ""
+        if not _genuine_identity_hit(title):
+            continue
         gk = r["group_key"]
         day = r.get("day") or ""
         if not day:
             continue
+        cell = agg.setdefault((gk, day), {"n": 0, "sample": title})
+        cell["n"] += 1
+
+    out: list[Alert] = []
+    for (gk, day), cell in agg.items():
         out.append(Alert(
             rule="identity_leak",
             scope=gk,
             bucket=f"{day}",
             severity="critical",
-            title=f"{gk} 본체 관련 기사 감지 ({r.get('n')}건)",
-            body=(f"날짜 {day}, 샘플 제목: {(r.get('sample') or '')[:120]}. "
+            title=f"{gk} 본체 관련 기사 감지 ({cell['n']}건)",
+            body=(f"날짜 {day}, 샘플 제목: {(cell['sample'] or '')[:120]}. "
                   f"기사 원문 검수 후 즉시 대응 절차로 이관하세요. "
                   f"※ 자동 알림 — false positive 시 Streisand effect 주의."),
         ))
@@ -303,10 +343,18 @@ def rule_model_theft(client: _Executor) -> list[Alert]:
     for r in rows:
         last = int(r.get("last_24h") or 0)
         prior = int(r.get("prior_7d") or 0)
-        if last < 5:
+        if last < MODEL_THEFT_MIN_COUNT:
             continue
         baseline = (prior / 7.0) if prior > 0 else 0.0
-        ratio = float("inf") if baseline <= 0 else last / baseline
+        if baseline <= 0:
+            # No prior baseline → can't compute a spike ratio. Only fire on an
+            # unambiguous absolute surge, not a first-ever handful, to avoid a
+            # false positive on this Streisand-sensitive rule.
+            if last < MODEL_THEFT_NO_BASELINE_MIN:
+                continue
+            ratio = float("inf")
+        else:
+            ratio = last / baseline
         if ratio < 3.0:
             continue
         gk = r["group_key"]

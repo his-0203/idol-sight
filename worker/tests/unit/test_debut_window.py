@@ -273,6 +273,25 @@ def test_short_organic_score_like_farm_caught_despite_decent_er():
     assert "engagement_weak" not in breakdown["causes"]
 
 
+def test_short_zero_comment_not_flagged_like_farm():
+    """V2.37: a healthy small Short with strong likes but 0 comments (normal for
+    Shorts — tap-like, no comment) must NOT read as a like-farm. Without the
+    guard, like_comment_ratio = likes/1 (degenerate) drives balance down and the
+    balance-dominant weighting flags it likely_paid."""
+    video = {
+        "is_short": True,
+        "view_count": 4_000,
+        "like_count": 300,      # ER 7.5%, healthy
+        "comment_count": 0,     # tap-likes, no comments
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    # e=82 (ER 7.5%), b forced to 100 (0-comment neutral) → 0.4*82 + 0.6*100 = 93
+    assert score == 93
+    assert breakdown["verdict"] == "organic_strong"
+    assert "like_farm" not in breakdown["causes"]
+
+
 def test_compute_organic_score_long_form_clearly_organic():
     """High engagement, balanced ratio, no velocity signal → score ≥ 70.
     V2: NULL velocity redistributes weights → engagement 0.625 + balance 0.375."""

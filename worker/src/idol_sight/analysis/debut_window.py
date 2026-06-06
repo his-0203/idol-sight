@@ -268,6 +268,16 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
     e_score = _compute_engagement_score(engagement_rate, is_short)
     b_score = _compute_balance_score(like_comment_ratio, is_short)
 
+    # V2.37 0-comment Shorts guard: a Short with 0 comments is normal (tap-like,
+    # no comment), but like_comment_ratio degenerates to the absolute like count
+    # (likes/1) — not scale-invariant — so a healthy, well-liked small Short
+    # reads as a like-farm under the balance-dominant Short weighting. We can't
+    # judge authenticity without comments, so treat balance as neutral (no farm)
+    # rather than emit a false paid flag. Long-form keeps its intentional
+    # like-only-as-farm behavior (comments are expected there).
+    if is_short and comment_count == 0:
+        b_score = 100
+
     if is_short:
         # V2.37: Shorts judged on scale-invariant ratios only — velocity is
         # dropped (see SHORT_WEIGHTS). No absolute-view gate; a small Short with

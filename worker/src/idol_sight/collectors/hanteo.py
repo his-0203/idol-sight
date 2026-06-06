@@ -122,7 +122,12 @@ class HanteoCollector:
             for g in seeded:
                 if g["key"] in matched_keys:
                     continue
-                hit = self._match_group(text, g)
+                other_names = [
+                    n for og in seeded if og["key"] != g["key"]
+                    for n in (og.get("name"), og.get("name_kr"))
+                    if n and len(n) >= 2
+                ]
+                hit = self._match_group(text, g, other_names)
                 if hit is None:
                     continue
                 album, rank, sales, index = hit
@@ -191,13 +196,19 @@ class HanteoCollector:
 
     @staticmethod
     def _match_group(
-        text: str, g: dict,
+        text: str, g: dict, other_names: list[str] | None = None,
     ) -> tuple[str | None, int | None, int | None, float | None] | None:
         """Search `text` for a mention of group `g`. If found, return
         (album, rank, sales_count, index_value) extracted from the local
         window. Any of the values may be None when not present.
 
-        Returns None entirely when the group name does not appear at all."""
+        Returns None entirely when the group name does not appear at all.
+
+        ``other_names`` are the names of the OTHER tracked groups. In a
+        multi-group article ("PLAVE 5만장 … ISEDOL 3만장") each group owns the
+        text from its mention up to the next group's mention, so we clamp the
+        extraction window to not cross another group's mention — otherwise the
+        backward look-back reads the neighbour's trailing sales as ours."""
         candidates = [g.get("name"), g.get("name_kr")]
         candidates = [c for c in candidates if c and len(c) >= 2]
         idx = -1
@@ -208,7 +219,21 @@ class HanteoCollector:
                 break
         if idx < 0:
             return None
-        win = text[max(0, idx - 100): idx + CONTEXT_WINDOW]
+        win_start = max(0, idx - 100)
+        win_end = idx + CONTEXT_WINDOW
+        for name in other_names or []:
+            if not name or len(name) < 2:
+                continue
+            pos = text.find(name)
+            while pos >= 0:
+                if win_start <= pos < idx:
+                    # Another group occupies our backward window — everything
+                    # from it up to us is theirs. Drop the look-back entirely.
+                    win_start = idx
+                elif idx < pos < win_end:
+                    win_end = pos       # stop before the next group's mention
+                pos = text.find(name, pos + 1)
+        win = text[win_start:win_end]
         sales_m = SALES_RE.search(win)
         index_m = INDEX_RE.search(win)
         album_m = ALBUM_RE.search(win)
