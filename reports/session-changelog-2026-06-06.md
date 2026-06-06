@@ -1,8 +1,7 @@
 # IDOL-SIGHT 세션 변경 요약 리포트 (2026-06-05 ~ 06-06)
 
-**상태: 세션 종료 (최종본)**
-**규모**: 25 커밋(24 작업 + 본 리포트) · 62 파일 · **+2,156 / −684** · 전부 `main` 직접 push
-**테스트**: worker 575 → **616** (+41), frontend 154 → **165** (+11) · 매 변경 회귀 테스트 동반, ruff/tsc clean
+**규모**: 28 커밋(27 작업 + 본 리포트) · 73 파일 · **+2,638 / −687** · 전부 `main` 직접 push
+**테스트**: worker 575 → **616** (+41), frontend 154 → **168** (+14) · 매 변경 회귀 테스트 동반, ruff/tsc clean
 **배포·데이터**: frontend 변경은 frontend-deploy 자동 배포 / worker는 cron 적용 / D1 원격 쓰기는 운영자 게이트(직접 안 함, recompute는 collect-daily dispatch로)
 
 커밋 범위: `57736a5` (세션 시작 직전) .. `9458d82` (HEAD)
@@ -77,6 +76,14 @@
 - organicity 설계 스펙 §3 본문을 V2.37 현 모델로 정비(옛 3-tier·구 ER/balance/가중치 → Long/Shorts 분리)
 - /api/search 사용자 q의 LIKE 와일드카드(%·_) 이스케이프 + ESCAPE 절
 
+## 4b. PM 운영 개선 (감사 이후 추가)
+
+PM 관점 개선 요청 → 6개 영역을 코드+문서로:
+- **시스템 상태판** (`/api/admin/status` + `⚙ 상태` 헤더 버튼 + SystemStatus 뷰, `1f7045b`) — crawl_meta 신선도(stale=interval×4)+마지막 집계+마지막 알림+데이터 누적을 ok/warn/critical 로 한 눈에. "조용한 실패"의 구조적 대응. 사이트 인증 뒤(/api).
+- **organicity "추정" 라벨** — KPI 에 "휴리스틱 추정(ground-truth 아님)" 명시.
+- **PM 플레이북 4종** (`b5e9360`): `docs/metric-dictionary.md`(지표 정의/윈도/신뢰도/한계), `group-onboarding-checklist.md`(이음매 사고 방지), `debut-readiness-checklist.md`(MiiWAN 데뷔 단계별 + PM 결정), `governance-runbook.md`(위기 알림 human-in-the-loop + 데이터 보존).
+- 자사 YouTube Analytics ground-truth 연동은 **운영자 결정으로 폐기**(휴리스틱 유지, 수집 축적으로 개선).
+
 ## 5. 주요 판단 (정직성)
 
 - **"틀린 것을 안 고침"**: viral 임계값 2.0 vs 1.5는 의도적 차이 → 합치지 않고 문서화 · negative_ratio 무윈도는 community 누적집계와 일관 → 단독 윈도 안 함(설계 결정 필요) · 상대시각은 이미 UTC 정확 → TZ skew는 절대시각만(저영향, 보류) · 자동 스키마-먼저-적용은 D1 human-gated 원칙과 충돌 → 문서 규약으로
@@ -97,6 +104,9 @@
 ## 부록 — 커밋 목록 (최신순)
 
 ```
+b5e9360 docs: add PM playbooks — metric dictionary, group onboarding, debut readiness, governance
+1f7045b feat(status): in-app system health page + header button; label organicity as estimate
+365eb9d docs(reports): finalize 2026-06-06 session changelog (session closed)
 9458d82 fix(search): escape LIKE wildcards in user query
 d50b11b docs(organicity): rewrite design spec §3 to the current V2.37 model
 0289523 fix(d1): make insights writes idempotent + tighten batch() partial-write contract
