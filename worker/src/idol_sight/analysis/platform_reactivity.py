@@ -27,7 +27,11 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-VIRAL_THRESHOLD = 2.0     # viral_velocity_ratio cutoff
+# viral_velocity_ratio cutoff for "is this video viral enough to SAMPLE for
+# platform reactivity". Intentionally distinct from debut_window's
+# VIRAL_VELOCITY_THRESHOLD (1.5), which gates the velocity-coherence *signal* in
+# the organicity score — a different purpose on the same column. Don't unify.
+VIRAL_THRESHOLD = 2.0
 WINDOW_DAYS = 30          # window of viral videos we look back
 WINDOW_HOURS = 24         # before/after window per video
 

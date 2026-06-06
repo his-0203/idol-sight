@@ -12,7 +12,16 @@ from idol_sight.collectors.music_show import (
     filter_cached,
     refresh_confirmation_status,
 )
-from idol_sight.llm.music_show import ExtractedWin
+from idol_sight.llm.music_show import GROUP_KEY_ENUM, ExtractedWin
+
+
+def test_query_aliases_match_llm_enum():
+    """The search alias keys (what we query for) must equal the LLM enum (what
+    can be emitted). If we search a group the LLM can't emit, its wins are
+    silently dropped; if the LLM enum has a group we never search, it's dead.
+    Guards the collectors ↔ llm music_show drift (e.g. UR:L)."""
+    assert set(ms._GROUP_QUERY_ALIASES) == set(GROUP_KEY_ENUM)
+
 
 # --- build_queries -------------------------------------------------------
 

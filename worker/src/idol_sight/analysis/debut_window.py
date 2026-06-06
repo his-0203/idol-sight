@@ -87,7 +87,10 @@ BALANCE_SHORT_HIGH_PENALTY_PER_UNIT = 0.4 # short ratio>78 → like-farm slope
 # missing signal (weight redistributed) — V2 calibration discovered ~91%
 # of videos have NULL viral_velocity_ratio so the V1 fixed-50 mid-point was
 # masking real signal weight.
-VIRAL_VELOCITY_THRESHOLD = 1.5           # below = neutral (50pt)
+# below = neutral (50pt). Intentionally distinct from platform_reactivity's
+# VIRAL_THRESHOLD (2.0): that one selects videos to sample for reactivity; this
+# gates the organicity velocity-coherence signal. Same column, different purpose.
+VIRAL_VELOCITY_THRESHOLD = 1.5
 VIRAL_ER_REAL = 0.03                     # ER above this with viral velocity = real
 VIRAL_ER_WEAK = 0.015                    # ER above this = weak suspicion
 

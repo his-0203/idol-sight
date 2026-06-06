@@ -414,19 +414,30 @@ def compute_dynamic_refs(
     return refs
 
 
-def _engagement_rate(agg: dict[str, Any]) -> float:
-    """(likes + 5·comments) / views across the group's recent videos.
+# Comment weight in the engagement-rate formula. Comments require strictly more
+# effort than a like, so they're a stronger fandom signal. Single source for the
+# (likes + COMMENT_WEIGHT·comments)/views formula — also used by
+# weekly_diagnosis_signals.engagement_rate_from_agg (different input keys, same
+# math), so keep the formula here and have both call engagement_rate().
+COMMENT_WEIGHT = 5
 
-    Comments weighted 5× because they require strictly more effort than
-    a like, so they're a stronger fandom signal. Returns 0.0 when views
-    are missing — a safer default than dividing by something tiny.
-    """
-    likes = int(agg.get("likes_total", 0) or 0)
-    comments = int(agg.get("comments_total", 0) or 0)
-    views = int(agg.get("yt_total_views", 0) or 0)
+
+def engagement_rate(likes: float, comments: float, views: float) -> float:
+    """(likes + COMMENT_WEIGHT·comments) / views. 0.0 when views<=0 — a safer
+    default than dividing by something tiny."""
     if views <= 0:
         return 0.0
-    return (likes + 5 * comments) / views
+    return (likes + COMMENT_WEIGHT * comments) / views
+
+
+def _engagement_rate(agg: dict[str, Any]) -> float:
+    """(likes + 5·comments) / views across the group's recent videos, from a
+    cli.py-rekeyed dict (likes_total / comments_total / yt_total_views)."""
+    return engagement_rate(
+        int(agg.get("likes_total", 0) or 0),
+        int(agg.get("comments_total", 0) or 0),
+        int(agg.get("yt_total_views", 0) or 0),
+    )
 
 
 def _quality_score_from_engagement(rate: float, ref: float) -> float:

@@ -16,6 +16,8 @@ from datetime import date, timedelta
 from statistics import mean, stdev
 from typing import Any
 
+from idol_sight.analysis.health_score import engagement_rate as _engagement_rate
+
 
 def cohort_z_score(value: float, cohort: list[float]) -> float:
     """Return z-score of `value` against cohort.
@@ -55,19 +57,17 @@ def metric_delta(now: dict[str, Any], prev: dict[str, Any], key: str) -> float:
 
 
 def engagement_rate_from_agg(agg: dict[str, Any]) -> float:
-    """(likes + 5·comments) / views — health_score._engagement_rate 와 *산식*은
-    같지만 입력 키가 다르다. 이 함수는 raw `agg_summary` row (DB column 명
-    `yt_likes_total`, `yt_comments_total`, `yt_total_views`) 를 그대로 받고,
-    health_score._engagement_rate 는 cli.py 가 미리 re-key 한 dict (`likes_total`,
-    `comments_total`) 를 받는다. 두 함수를 함께 호출할 때 같은 *값*을 보장하려면
-    입력 dict 를 적절히 변환해야 한다. views=0 일 때는 0.0 반환.
+    """(likes + 5·comments) / views from a raw `agg_summary` row (DB column names
+    `yt_likes_total`/`yt_comments_total`/`yt_total_views`). The formula + comment
+    weight live in health_score.engagement_rate (single source); this only adapts
+    the raw column keys (health_score._engagement_rate adapts cli.py's rekeyed
+    `likes_total`/`comments_total` instead). views=0 → 0.0.
     """
-    likes = float(agg.get("yt_likes_total") or 0)
-    comments = float(agg.get("yt_comments_total") or 0)
-    views = float(agg.get("yt_total_views") or 0)
-    if views <= 0:
-        return 0.0
-    return (likes + 5 * comments) / views
+    return _engagement_rate(
+        float(agg.get("yt_likes_total") or 0),
+        float(agg.get("yt_comments_total") or 0),
+        float(agg.get("yt_total_views") or 0),
+    )
 
 
 def engagement_rate_wow_drop(now: dict[str, Any], prev: dict[str, Any]) -> float | None:

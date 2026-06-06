@@ -58,6 +58,11 @@ LLM_BATCH_SIZE = 8
 # 음방 1위 검색 시 알리아스. 각 그룹 group_key 를 영문/한국어 표기
 # 모두로 검색해야 일부 매체의 표기 차이를 cover. canonical block 의
 # 한국어 표기 사용.
+#
+# 키 집합은 llm/music_show.GROUP_KEY_ENUM (LLM 이 emit 가능한 후보) 과
+# 정확히 일치해야 한다 — 검색만 하고 emit 못 하면 데이터가 조용히 버려짐.
+# test_music_show_collector.test_query_aliases_match_llm_enum 가 가드.
+# (UR:L 은 2026-06 운영자 결정으로 음방 추적 제외 → 검색에서도 제거.)
 _GROUP_QUERY_ALIASES: dict[str, list[str]] = {
     "plave":    ["PLAVE", "플레이브"],
     "skinz":    ["SKINZ", "스킨즈"],
@@ -65,7 +70,6 @@ _GROUP_QUERY_ALIASES: dict[str, list[str]] = {
     "wegosix":  ["WE GO-6", "위고식스"],
     "owis":     ["OWIS", "오위스"],
     "myrakl":   ["MY:RAKL", "미라클"],
-    "uryael":   ["UR:L", "유아렐"],
 }
 
 
