@@ -79,3 +79,23 @@ def test_rss_video_ids_parses_and_dedupes():
     client = _FakeClient(lambda url, params: _FakeResp(text=_RSS))
     ids = coll._rss_video_ids(client, "UC_test_channel_000000")
     assert ids == ["aaaaaaaaaaa", "bbbbbbbbbbb"]
+
+
+_VIDEOS_PAYLOAD = {
+    "items": [
+        {"id": "aaaaaaaaaaa",
+         "snippet": {"liveBroadcastContent": "live", "title": "MiiWAN 데뷔 라이브"},
+         "liveStreamingDetails": {"concurrentViewers": "1234"}},
+        {"id": "bbbbbbbbbbb",
+         "snippet": {"liveBroadcastContent": "none", "title": "지난 영상"},
+         "liveStreamingDetails": {}},
+    ]
+}
+
+
+def test_live_samples_extracts_only_live_with_ccv():
+    coll = LiveCcvCollector(api_key="k", groups_loader=lambda: [])
+    client = _FakeClient(lambda url, params: _FakeResp(payload=_VIDEOS_PAYLOAD))
+    live = coll._live_samples(client, ["aaaaaaaaaaa", "bbbbbbbbbbb"])
+    assert set(live) == {"aaaaaaaaaaa"}
+    assert live["aaaaaaaaaaa"] == {"ccv": 1234, "title": "MiiWAN 데뷔 라이브"}
