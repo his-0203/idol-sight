@@ -26,3 +26,56 @@ def test_migration_adds_ccv_tracked_and_samples_table():
         "SELECT name FROM sqlite_master WHERE type='index' "
         "AND tbl_name='live_ccv_samples'")}
     assert "idx_ccv_group_time" in indexes
+
+
+from idol_sight.collectors.live_ccv import LiveCcvCollector
+
+
+class _FakeResp:
+    def __init__(self, text="", payload=None, status=200):
+        self._text = text
+        self._payload = payload or {}
+        self.status_code = status
+
+    @property
+    def text(self):
+        return self._text
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            import httpx
+            raise httpx.HTTPStatusError("err", request=None, response=None)
+
+
+class _FakeClient:
+    """Routes .get() by URL/params to queued responses."""
+    def __init__(self, handler):
+        self._handler = handler
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def get(self, url, params=None):
+        return self._handler(url, params or {})
+
+
+_RSS = (
+    '<?xml version="1.0"?><feed>'
+    '<entry><yt:videoId>aaaaaaaaaaa</yt:videoId></entry>'
+    '<entry><yt:videoId>bbbbbbbbbbb</yt:videoId></entry>'
+    '<entry><yt:videoId>aaaaaaaaaaa</yt:videoId></entry>'
+    '</feed>'
+)
+
+
+def test_rss_video_ids_parses_and_dedupes():
+    coll = LiveCcvCollector(api_key="k", groups_loader=lambda: [])
+    client = _FakeClient(lambda url, params: _FakeResp(text=_RSS))
+    ids = coll._rss_video_ids(client, "UC_test_channel_000000")
+    assert ids == ["aaaaaaaaaaa", "bbbbbbbbbbb"]
