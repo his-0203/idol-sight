@@ -182,7 +182,18 @@ def generate_weekly(
     signals_for_cards: dict[str, dict] = ctx.get("signals_by_group", {}) or {}
 
     now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # Lead with a per-week DELETE so this is a rebuild, not a blind append:
+    # insights has no ON CONFLICT key, so a re-run (manual re-dispatch, or a
+    # retry after a partial batch write) would otherwise duplicate the week's
+    # cards. batch() preserves statement order, so the DELETE runs before the
+    # INSERTs. (Same rebuild pattern as challenge_scan's weekly_challenges.)
+    # Guard: only DELETE when there's something to insert, so an empty/failed
+    # LLM run doesn't wipe the week's existing insights.
     statements: list[tuple[str, list]] = []
+    if items:
+        statements.append(
+            ("DELETE FROM insights WHERE week_start = ?", [week_start]),
+        )
     for item in items:
         # ai_comment is optional in the schema (migration 0039) and in
         # the LLM response. Empty strings are treated as missing too —

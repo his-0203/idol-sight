@@ -3,6 +3,13 @@ from unittest.mock import MagicMock
 from idol_sight.llm.weekly import generate_weekly
 
 
+def _insert_stmts(result):
+    """INSERT INTO insights statements only — generate_weekly now leads with a
+    `DELETE FROM insights WHERE week_start=?` rebuild (idempotency), so tests
+    that assert on the inserts must skip that leading DELETE."""
+    return [(s, p) for s, p in result.statements if "INSERT INTO insights" in s]
+
+
 def _stub_db():
     db = MagicMock()
     # Stub out the five context queries used by build_context() PLUS the
@@ -58,9 +65,11 @@ def test_generate_weekly_calls_gemini_with_built_context():
     )
 
     gemini.generate.assert_called_once()
-    # The result is a list of statements ready for D1.batch().
-    assert len(result.statements) == 1
-    sql, params = result.statements[0]
+    # statements = [leading DELETE rebuild, INSERT...]. One item → one INSERT.
+    assert result.statements[0][0].startswith("DELETE FROM insights")
+    inserts = _insert_stmts(result)
+    assert len(inserts) == 1
+    sql, params = inserts[0]
     assert "INSERT INTO insights" in sql
     # ai_comment column must be present in the INSERT — frontend slot
     # depends on it. NULL is allowed but the column must be there.
@@ -87,7 +96,7 @@ def test_generate_weekly_inserts_null_ai_comment_when_absent():
         db=_stub_db(), gemini=gemini,
         week_start="2026-04-22", week_end="2026-04-28",
     )
-    sql, params = result.statements[0]
+    sql, params = _insert_stmts(result)[0]
     # ai_comment is the 8th bound param after migration 0039.
     assert params[7] is None
     # Sanity: the column appears in the column list of the INSERT.
@@ -111,7 +120,7 @@ def test_generate_weekly_inserts_null_ai_comment_when_empty_string():
         db=_stub_db(), gemini=gemini,
         week_start="2026-04-22", week_end="2026-04-28",
     )
-    _sql, params = result.statements[0]
+    _sql, params = _insert_stmts(result)[0]
     assert params[7] is None
 
 
@@ -148,12 +157,12 @@ def test_ipx_action_with_non_miiwan_scope_is_dropped():
         db=_stub_db(), gemini=gemini,
         week_start="2026-04-22", week_end="2026-04-28",
     )
-    titles = [params[4] for _sql, params in result.statements]
+    titles = [params[4] for _sql, params in _insert_stmts(result)]
     assert "MiiWAN ok" in titles
     assert "PLAVE ok" in titles
     assert "MyRAKL leak" not in titles
     assert "no scope" not in titles
-    assert len(result.statements) == 2
+    assert len(_insert_stmts(result)) == 2
 
 
 def test_generate_weekly_persists_ai_comment_when_present():
@@ -173,7 +182,7 @@ def test_generate_weekly_persists_ai_comment_when_present():
         db=_stub_db(), gemini=gemini,
         week_start="2026-04-22", week_end="2026-04-28",
     )
-    _sql, params = result.statements[0]
+    _sql, params = _insert_stmts(result)[0]
     assert params[7] == "운영 부담 분산 — 사전 제작본 5건 확보 권장."
 
 
@@ -321,7 +330,7 @@ def test_generate_weekly_serializes_signals_json_when_diagnosis():
             db=db, gemini=gemini,
             week_start="2026-04-22", week_end="2026-04-28",
         )
-    sql, params = result.statements[0]
+    sql, params = _insert_stmts(result)[0]
     # signals_json 컬럼이 INSERT 에 포함돼 있어야 함
     assert "signals_json" in sql
     # signals_json 은 마지막 bind param
@@ -351,6 +360,18 @@ def test_generate_weekly_signals_json_null_for_non_diagnosis():
         db=_stub_db_with_signals(), gemini=gemini,
         week_start="2026-04-22", week_end="2026-04-28",
     )
-    sql, params = result.statements[0]
+    sql, params = _insert_stmts(result)[0]
     assert "signals_json" in sql
     assert params[-1] is None
+
+
+def test_generate_weekly_empty_items_emits_no_statements():
+    """No accepted items → no DELETE, no INSERT, so an empty/failed LLM run
+    can't wipe the week's existing insights (the rebuild DELETE is guarded)."""
+    gemini = MagicMock()
+    gemini.generate.return_value = {"items": []}
+    result = generate_weekly(
+        db=_stub_db(), gemini=gemini,
+        week_start="2026-04-22", week_end="2026-04-28",
+    )
+    assert result.statements == []

@@ -213,3 +213,16 @@ def test_batch_retries_transient_per_chunk(
     assert summary.statements_executed == 2
     assert summary.total_changes == 3
     assert len(httpx_mock.get_requests()) == 2
+
+
+def test_batch_raises_on_result_undercount(client, httpx_mock: HTTPXMock):
+    # success:true but fewer results than statements sent → raise (the contract
+    # is "normal return == all applied"), not a silent under-count.
+    httpx_mock.add_response(json={"success": True, "result": [
+        {"results": [], "meta": {"changes": 1}},
+    ]})
+    with pytest.raises(D1Error, match="under-count"):
+        client.batch([
+            ("INSERT INTO t(x) VALUES(?)", [1]),
+            ("INSERT INTO t(x) VALUES(?)", [2]),
+        ])

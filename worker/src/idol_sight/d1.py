@@ -132,9 +132,20 @@ class D1Client:
         upserts) hold. A chunk that the API rejects with HTTP 400 — i.e. the
         batch body shape isn't accepted, so nothing was applied — degrades to
         per-statement POSTs (for that and all later chunks); SQL/constraint
-        errors instead surface as HTTP 200 + success:false and are raised, as
-        before. A failed chunk raises, leaving a partial write that the next
-        idempotent rebuild repairs."""
+        errors instead surface as HTTP 200 + success:false and are raised.
+
+        Contract: on success the returned BatchSummary always has
+        statements_executed == statements_sent — any failure (chunk error,
+        exhausted retry, or a successful response with fewer results than
+        statements sent) RAISES. So callers can treat a normal return as "all
+        applied"; the executed!=sent check at call sites is belt-and-suspenders.
+
+        NOT atomic across chunks: a statement list longer than _BATCH_CHUNK_SIZE
+        spans multiple requests, and an earlier chunk can commit before a later
+        one raises. Callers must therefore be idempotent (UPSERT, or a leading
+        DELETE rebuild) so a re-run / next cron heals any partial write. The only
+        plain-INSERT callers (challenge_scan, llm.weekly insights) lead with a
+        per-week DELETE for exactly this reason."""
         if not statements:
             return BatchSummary(0, 0, 0)
         executed = 0
@@ -157,6 +168,15 @@ class D1Client:
                         if not env.get("success"):
                             raise D1Error(_first_error(env))
                         results = env.get("result") or []
+                        if len(results) != len(chunk):
+                            # success:true but fewer results than statements —
+                            # an under-count we must not return silently (the
+                            # call-site executed!=sent guard would catch it, but
+                            # raising keeps the "return == all applied" contract).
+                            raise D1Error(
+                                f"batch under-count: {len(results)} results for "
+                                f"{len(chunk)} statements",
+                            )
                         executed += len(results)
                         for it in results:
                             total_changes += (it.get("meta") or {}).get("changes", 0)
