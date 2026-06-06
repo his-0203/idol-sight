@@ -26,6 +26,12 @@ import { EmptyState } from "../components/EmptyState";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { colorOf } from "../design/groups";
 import { formatKST, formatKSTDate } from "../lib/datetime";
+import {
+  ALERT_RULE_LABEL as RULE_LABEL,
+  ALERT_SEVERITY_TONE as SEVERITY_TONE,
+  CONTROVERSY_SPIKE_MIN_COUNT,
+  CONTROVERSY_SPIKE_MULTIPLIER,
+} from "../lib/alerts";
 import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
 import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
@@ -108,9 +114,7 @@ type MiiwanData = {
   controversy_trend: { current: number; previous: number | null } | null;
 };
 
-// Mirrors worker rule_controversy_spike thresholds. Keep in sync.
-const CONTROVERSY_SPIKE_MULTIPLIER = 2.0;
-const CONTROVERSY_SPIKE_MIN_COUNT = 5;
+// Controversy thresholds: see src/lib/alerts.ts.
 
 // Deterministic action playbook keyed by alert rule. Each step encodes
 // the V2.10 IPX action contract — verb-first / owner / due / measurable
@@ -259,19 +263,7 @@ function strategicDiagnosis(d: MiiwanData): { tone: "ok" | "warn" | "critical"; 
   };
 }
 
-const RULE_LABEL: Record<string, string> = {
-  controversy_spike:  "논란 급증",
-  identity_leak:      "본체 노출 가능성",
-  model_theft:        "AI 도용 / 딥페이크",
-  video_velocity_24h: "24h Viral",
-  debut_milestone:    "데뷔 마일스톤",
-};
-
-const SEVERITY_TONE: Record<AlertRow["severity"], string> = {
-  critical: "border-red-500/60 bg-red-500/10 text-red-200",
-  warn:     "border-amber-500/40 bg-amber-500/10 text-amber-200",
-  info:     "border-zinc-700 bg-zinc-900/40 text-zinc-300",
-};
+// Alert rule labels / severity tones: see src/lib/alerts.ts.
 
 const DIAGNOSIS_TONE: Record<"ok" | "warn" | "critical", string> = {
   ok:       "border-emerald-500/40 bg-emerald-500/5 text-emerald-200",

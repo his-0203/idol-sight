@@ -10,6 +10,10 @@ import { Sparkline } from "../components/Sparkline";
 import { DebutWindowVideoTable } from "../components/DebutWindowVideoTable";
 import { MelonChartHistory } from "../components/MelonChartHistory";
 import { formatKST, formatKSTDate, todayKST, daysBetweenKST } from "../lib/datetime";
+import {
+  ALERT_RULE_LABEL as GROUP_ALERT_RULE_LABEL,
+  ALERT_SEVERITY_TONE as GROUP_ALERT_TONE,
+} from "../lib/alerts";
 
 // WoW delta helper — null-safe so a missing prev_summary (group has
 // fewer than 7 days of history) renders nothing instead of "▲ NaN".
@@ -1101,21 +1105,9 @@ function DDayBadge({ debutDate }: { debutDate: string }) {
 }
 
 
-// Mirrors MiiWANBriefing.RiskWatch's tone palette + rule mapping so the
-// per-group detail page surfaces the worker's actual critical signals
-// instead of leaving the operator to hop to /pr-risk for context.
-const GROUP_ALERT_RULE_LABEL: Record<string, string> = {
-  controversy_spike:  "논란 급증",
-  identity_leak:      "본체 노출 가능성",
-  model_theft:        "AI 도용 / 딥페이크",
-  video_velocity_24h: "24h Viral",
-  debut_milestone:    "데뷔 마일스톤",
-};
-const GROUP_ALERT_TONE: Record<string, string> = {
-  critical: "border-red-500/60 bg-red-500/10 text-red-200",
-  warn:     "border-amber-500/40 bg-amber-500/10 text-amber-200",
-  info:     "border-zinc-700 bg-zinc-900/40 text-zinc-300",
-};
+// Alert rule labels / severity tones: see src/lib/alerts.ts (shared with
+// PRRisk and MiiWANBriefing so per-group detail surfaces the worker's actual
+// critical signals with identical labeling).
 
 function GroupAlertSection(props: {
   alerts: Array<{ alert_key: string; rule: string; severity: string;

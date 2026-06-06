@@ -4,6 +4,12 @@ import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
 import { GroupTabs } from "../components/GroupTabs";
 import { formatKST, formatKSTDate } from "../lib/datetime";
+import {
+  ALERT_RULE_LABEL as RULE_LABEL,
+  ALERT_SEVERITY_TONE as SEVERITY_TONE,
+  CONTROVERSY_SPIKE_MIN_COUNT,
+  CONTROVERSY_SPIKE_MULTIPLIER,
+} from "../lib/alerts";
 
 function wowDelta(curr: number | null | undefined, prev: number | null | undefined): number | null {
   if (curr == null || prev == null) return null;
@@ -15,12 +21,7 @@ function seriesOf(history: any[] | undefined, field: string): number[] | undefin
   return history.map((r) => Number(r[field] ?? 0));
 }
 
-// Mirrors worker/idol_sight/alerts/__init__.py thresholds. Keep both in
-// sync — drift between the BI Risk Level and the Discord webhook is
-// the fastest way to lose operator trust ("the dashboard says LOW but
-// the bot didn't fire").
-const CONTROVERSY_SPIKE_MULTIPLIER = 2.0;
-const CONTROVERSY_SPIKE_MIN_COUNT = 5;
+// Alert labels / tones / controversy thresholds: see src/lib/alerts.ts.
 
 type AlertRow = {
   alert_key: string;
@@ -31,20 +32,6 @@ type AlertRow = {
   title: string;
   body: string;
   fired_at: string;
-};
-
-const RULE_LABEL: Record<string, string> = {
-  controversy_spike:  "논란 급증",
-  identity_leak:      "본체 노출 가능성",
-  model_theft:        "AI 도용 / 딥페이크",
-  video_velocity_24h: "24h Viral",
-  debut_milestone:    "데뷔 마일스톤",
-};
-
-const SEVERITY_TONE: Record<AlertRow["severity"], string> = {
-  critical: "border-red-500/60 bg-red-500/10 text-red-200",
-  warn:     "border-amber-500/40 bg-amber-500/10 text-amber-200",
-  info:     "border-zinc-700 bg-zinc-900/40 text-zinc-300",
 };
 
 export function PRRisk({ groupKey }: { groupKey: string | null }) {
