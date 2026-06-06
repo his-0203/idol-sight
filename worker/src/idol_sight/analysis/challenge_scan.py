@@ -205,7 +205,7 @@ def build_upsert_statements(
 def measure_challenge(yt, ch: Challenge, published_after: str) -> None:
     """ch 의 반응 규모 지표(yt_recent_shorts/yt_total_views)를 in-place 보강.
     해시태그 블라인드 검색 표본. 실패는 비-치명.
-    (예시 영상은 수집하지 않는다 — 프런트는 'YouTube에서 보기' 검색 링크만 노출.)"""
+    (예시 영상 id 는 run_challenge_scan 이 pool-grounded candidate 에서 채운다.)"""
     query = ch.hashtags[0] if ch.hashtags else ch.name
     try:
         ids = yt.search_shorts(query=query, published_after=published_after)
@@ -252,6 +252,13 @@ def run_challenge_scan(
 
     published_after = iso_days_ago(now_epoch, 7)
     for ch in challenges:
+        # Surface up to 3 concrete example clips. candidate_video_ids that are
+        # in the viral pool are exactly the grounded videos the LLM cited for
+        # this challenge — promote them so the frontend shows real examples
+        # instead of only a "search on YouTube" link.
+        ch.example_video_ids = [
+            vid for vid in ch.candidate_video_ids if vid in poolmap
+        ][:3]
         measure_challenge(yt, ch, published_after)
 
     selected = select_and_rank(challenges, total=total, min_meme=min_meme)

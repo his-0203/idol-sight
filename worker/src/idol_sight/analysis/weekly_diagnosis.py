@@ -185,11 +185,13 @@ def _check_paid_youtube_ads(sig: dict) -> Hypothesis | None:
             "video_tags_paid_match", True,
             "광고성 영상 태그 패턴 매칭",
         ))
-        # video_tags 는 약신호 — score 에 0.5 만 (실제 구현 시 점등 보조)
+        # video_tags 약신호(+0.5)는 경쟁사 tags 수집 선행 후 활성화 예정 — 그때
+        # score 2~3 구간이 생겨 "medium" 밴드가 도달 가능해진다.
     if score < 3:
         return None
-    confidence = "high" if score >= 3 else "medium"
-    return Hypothesis(key="paid_youtube_ads", confidence=confidence, evidence=evidence)
+    # 현재는 score>=3 만 도달 → 항상 high (medium 분기는 video_tags 약신호 도입
+    # 전까지 unreachable 이므로 죽은 분기를 두지 않고 정직하게 high).
+    return Hypothesis(key="paid_youtube_ads", confidence="high", evidence=evidence)
 
 
 def _check_subscriber_purchase(sig: dict) -> Hypothesis | None:

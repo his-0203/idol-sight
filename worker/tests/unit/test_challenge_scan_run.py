@@ -110,7 +110,8 @@ def test_run_discovers_classifies_and_writes():
     stmts = d1.batch.call_args[0][0]
     assert stmts[0][0].strip().upper().startswith("DELETE")
     ins = [p for s, p in stmts if "INSERT INTO weekly_challenges" in s][0]
-    assert json.loads(ins[7]) == []                 # 예시 미수집(빈 배열)
+    # example_video_ids: pool-grounded candidate(s) promoted as concrete examples.
+    assert json.loads(ins[7]) == [_VID]
 
 
 def test_run_skips_when_pool_empty():
