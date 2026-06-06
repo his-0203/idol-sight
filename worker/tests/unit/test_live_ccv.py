@@ -1,4 +1,4 @@
-"""Live CCV collector + migration 0080."""
+"""Live CCV migration 0080 — smoke test."""
 import sqlite3
 from pathlib import Path
 
@@ -22,3 +22,7 @@ def test_migration_adds_ccv_tracked_and_samples_table():
     seeded = {r[0] for r in conn.execute(
         "SELECT key FROM groups WHERE ccv_tracked=1")}
     assert {"miiwan", "plave", "owis", "wegosix"} <= seeded
+    indexes = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' "
+        "AND tbl_name='live_ccv_samples'")}
+    assert "idx_ccv_group_time" in indexes
