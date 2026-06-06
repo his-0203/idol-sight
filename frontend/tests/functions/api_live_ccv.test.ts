@@ -32,6 +32,7 @@ describe("/api/live-ccv", () => {
     expect(b.groups).toHaveLength(1);
     expect(b.groups[0].video_id).toBe("v1");
     expect(b.groups[0].peak).toBe(1500);
+    expect(b.groups[0].avg).toBe(1200);            // 1200.4 → Math.round
     expect(b.groups[0].samples).toHaveLength(2);
   });
 
