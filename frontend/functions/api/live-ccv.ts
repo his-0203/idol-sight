@@ -17,7 +17,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     + "       MAX(concurrent_viewers) AS peak, AVG(concurrent_viewers) AS avg, "
     + "       COUNT(*) AS n, MAX(sampled_at) AS last_at "
     + "FROM live_ccv_samples GROUP BY group_key, video_id "
-    + "ORDER BY group_key, last_at DESC");
+    + "ORDER BY group_key, last_at DESC")
+    .catch(() => [] as AggRow[]);
 
   const latestByGroup = new Map<string, AggRow>();
   for (const r of aggs) {

@@ -41,4 +41,16 @@ describe("/api/live-ccv", () => {
     const b = await res.json() as any;
     expect(b.groups).toEqual([]);
   });
+
+  it("degrades to empty when the table is missing (pre-migration)", async () => {
+    const env = {
+      DB: { prepare: vi.fn(() => ({
+        bind: vi.fn().mockReturnThis(),
+        all: vi.fn(async () => { throw new Error("no such table: live_ccv_samples"); }),
+      })) },
+    } as any;
+    const res = await onRequestGet({ env } as any);
+    const b = await res.json() as any;
+    expect(b.groups).toEqual([]);
+  });
 });
