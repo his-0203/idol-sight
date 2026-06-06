@@ -11,7 +11,34 @@ cuts a ~5min run down to <30s, eliminating chronic 10-min timeouts.
 
 from unittest.mock import MagicMock, patch
 
-from idol_sight.cli import _run_aggregate
+from idol_sight.cli import _recompute_health_scores, _run_aggregate
+
+
+def _cohort_read_params(client):
+    """The params of the agg_summary cohort read inside _recompute_health_scores."""
+    for c in client.execute.call_args_list:
+        if "FROM agg_summary WHERE snapshot_at = ?" in c.args[0]:
+            return c.args[1]
+    return None
+
+
+def test_recompute_health_reads_cohort_at_passed_snap():
+    """Regression: the cohort must be read at the snapshot being written, not
+    MAX(snapshot_at) — otherwise a backfill/replay scores the historical snap
+    row with the latest cohort."""
+    client = MagicMock()
+    client.execute.return_value = []
+    _recompute_health_scores(client, "2026-01-01T00:00:00Z")
+    assert _cohort_read_params(client) == ["2026-01-01T00:00:00Z"]
+
+
+def test_recompute_health_read_snap_overrides_cohort_source():
+    """analyze_weekly writes at a fresh weekly snap but reads the latest daily
+    cohort — read_snap decouples the read snapshot from the write snapshot."""
+    client = MagicMock()
+    client.execute.return_value = []
+    _recompute_health_scores(client, "WRITE_SNAP", read_snap="READ_SNAP")
+    assert _cohort_read_params(client) == ["READ_SNAP"]
 
 
 def _stub_build_result(statements=None):

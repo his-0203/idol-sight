@@ -983,9 +983,12 @@ def analyze_weekly(
     # 2.5. Health Score per group (writes agg_health_scores).
     # V2.19.2: extracted to _recompute_health_scores so the daily
     # ``aggregate`` cmd can refresh on the same cadence. analyze_weekly
-    # still calls it here so the Monday recompute uses the same logic
-    # (dynamic refs from latest cohort + live-metrics + per-group score).
-    n_health = _recompute_health_scores(client, snap)
+    # writes at the fresh weekly ``snap`` but the cohort lives in the latest
+    # daily agg_summary snapshot, so we read that one explicitly (the daily
+    # path instead reads/writes the same pinned snapshot — see read_snap).
+    latest_agg = client.execute("SELECT MAX(snapshot_at) AS m FROM agg_summary")
+    read_snap = (latest_agg[0].get("m") if latest_agg else None) or snap
+    n_health = _recompute_health_scores(client, snap, read_snap=read_snap)
     typer.echo(f"health_scores: wrote {n_health} rows")
 
     # 3. Member popularity (one per active group)
@@ -1110,32 +1113,36 @@ def _load_active_groups(client) -> list[dict]:
     )
 
 
-def _recompute_health_scores(client, snap: str) -> int:
-    """Recompute agg_health_scores for every active group at ``snap``.
+def _recompute_health_scores(
+    client, snap: str, *, read_snap: str | None = None,
+) -> int:
+    """Recompute agg_health_scores for every active group, WRITTEN at ``snap``.
 
-    Reads the latest agg_summary snapshot (which carries any melon-chart
-    UPDATE that landed since the previous compute), derives dynamic refs
-    + live-metrics from the cohort, then writes one INSERT/UPSERT per
-    group keyed on (group_key, snap).
+    The cohort is read from the agg_summary snapshot ``read_snap`` (defaults to
+    ``snap``). The daily ``aggregate`` path writes and reads the same pinned
+    snapshot, so the default is correct — and reading at ``snap`` rather than
+    MAX(snapshot_at) keeps backfill/replay correct (a historical recompute used
+    to score the snap row with the *latest* cohort). analyze_weekly writes at a
+    fresh weekly ``snap`` while the cohort lives in the latest daily snapshot,
+    so it passes ``read_snap`` = that latest snapshot explicitly.
 
-    Extracted from analyze_weekly so the daily ``aggregate`` cmd can
-    refresh health scores on the same cadence as agg_summary —
-    previously analyze_weekly (Mondays) was the only writer, so daily
-    melon-chart UPDATEs took up to 6 days to surface on the dashboard.
+    Extracted from analyze_weekly so the daily ``aggregate`` cmd can refresh
+    health scores on the same cadence as agg_summary.
     """
     from idol_sight.analysis.health_score import (
         compute_dynamic_refs,
         compute_health_score,
         compute_live_metrics,
     )
+    cohort_snap = read_snap or snap
     cohort_rows = client.execute(
         "SELECT group_key, yt_subscribers, yt_total_views, "
         "  yt_likes_total, yt_comments_total, "
         "  dc_total_posts, theqoo_posts, instiz_posts, "
         "  naver_total_news, controversy_count, negative_ratio, "
         "  music_show_wins, melon_top100_peak, melon_top100_depth "
-        "FROM agg_summary WHERE snapshot_at = "
-        "  (SELECT MAX(snapshot_at) FROM agg_summary)"
+        "FROM agg_summary WHERE snapshot_at = ?",
+        [cohort_snap],
     )
     cohort = [
         {
