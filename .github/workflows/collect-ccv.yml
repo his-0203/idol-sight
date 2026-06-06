@@ -1,0 +1,33 @@
+name: collect-ccv
+on:
+  schedule:
+    - cron: "*/30 8-17 * * *"   # every 30 min, UTC 08–17 = KST 17:00–02:00
+  workflow_dispatch:
+
+concurrency:
+  group: collect-ccv
+  cancel-in-progress: false
+
+jobs:
+  ccv:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+        working-directory: worker
+      - name: collect-ccv
+        working-directory: worker
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:   ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
+          YT_API_KEY:    ${{ secrets.YT_API_KEY }}
+        run: uv run python -m idol_sight collect-ccv
+      - name: notify on failure
+        if: failure()
+        working-directory: worker
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: uv run python -m idol_sight notify-fail --job collect-ccv
