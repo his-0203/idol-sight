@@ -191,47 +191,51 @@ CREATE TABLE debut_window_organicity_summary (
 
 ## §3 Composite Score 알고리즘
 
-영상 1개당 0–100 점수. 3개 신호의 가중 평균.
+영상 1개당 0–100 점수. **현재 값은 코드(`debut_window.py`)가 단일 소스** — 아래는
+그 스냅샷(Long: V2 calibration / Shorts: V2.37). 본문 ↔ 코드 drift 시 코드가 정답.
 
-### 신호 1: Engagement Rate Score (가중치 0.5)
+**Long-form과 Shorts는 다른 모델**이다:
+- Long-form: engagement(0.5) + balance(0.3) + velocity(0.2) 3신호. velocity 가
+  NULL 이면 0.2 가 engagement(0.625)/balance(0.375) 로 재분배.
+- **Shorts (V2.37): velocity 제거** (조회/baseline 비율이 소형 채널에서 폭발하는
+  아티팩트가 paid_burst 오발 유발). engagement(0.4) + balance(0.6) 2신호만. balance
+  를 위로 둬 "engagement 약하나 균형 정상" = 콜드 도달을 paid 로 단정하지 않음.
+  ER 은 "세기" 신호, like:comment 균형이 "진정성(organic vs 조작)" 신호.
+
+### 신호 1: Engagement Rate Score
 
 ```
 engagement_rate = (like_count + comment_count) / max(view_count, 1)
 ```
 
-영상 종류별 baseline 분기:
-
-| 영상 | 0점 (paid 의심) | 100점 (organic 정상) | 식 |
+| 영상 | floor(0점) | ceil(100점) | 식 |
 |---|---|---|---|
-| Long-form | ≤ 0.5% | ≥ 5.5% | `clamp((er - 0.005) / 0.050 * 100, 0, 100)` |
-| Shorts | ≤ 0.3% | ≥ 3.3% | `clamp((er - 0.003) / 0.030 * 100, 0, 100)` |
+| Long-form | 1.0% | 6.0% | `clamp((er - 0.010) / 0.050 * 100, 0, 100)` |
+| Shorts (V2.37) | 0.5% | 9.0% | `clamp((er - 0.005) / 0.085 * 100, 0, 100)` |
 
-Shorts 기준이 낮은 이유: 자동재생/패시브 시청 비중이 높아 organic도 engagement가 낮게 나옴.
+Shorts floor 를 낮게 둔 이유: 피드 스와이프 노출로 ER 이 구조적으로 낮아, 약한-but-
+살아있는 engagement 가 auto-zero 되지 않게 (꿍싯꿍싯 false positive 교훈).
 
-### 신호 2: Like-Comment Balance Score (가중치 0.3)
+### 신호 2: Like-Comment Balance Score
 
 ```
 ratio = like_count / max(comment_count, 1)
 ```
 
-K-pop 영상 정상 ratio = 15 ~ 80. 밖이면 비대칭 봇 활동 의심.
+정상대(밖이면 farm 의심)와 페널티 기울기가 종류별로 다름 (실측 분포 기반):
 
-```python
-if 15 <= ratio <= 80:
-    return 100
-elif ratio < 15:                                # comment-farm 의심
-    return max(0, 100 - (15 - ratio) * 8)
-else:  # ratio > 80                             # like-farm 의심
-    return max(0, 100 - (ratio - 80) / 5)
-```
+| 영상 | 정상대 | comment-farm 기울기(<lo) | like-farm 기울기(>hi) |
+|---|---|---|---|
+| Long-form | 10 ~ 50 | −8/unit | −0.5/unit |
+| Shorts (V2.37) | 15 ~ 78 | −5/unit | −0.4/unit |
 
-- ratio = 5 → 20점
-- ratio = 200 → 76점
-- ratio = 500 → 16점
+V2.37 Shorts 0-comment 가드: 댓글 0 이면 ratio 가 절대 좋아요수로 degenerate(비-
+scale-invariant) → balance 를 중립 100 으로(0-comment 는 Short 정상, like-farm 오발 차단).
 
-### 신호 3: Velocity-Engagement Coherence Score (가중치 0.2)
+### 신호 3: Velocity-Engagement Coherence Score — **Long-form 전용**
 
-기존 `viral_velocity_ratio`(view_count_24h / 채널평균) 와 engagement_rate 교차 검증.
+`viral_velocity_ratio`(view_count_24h / 채널평균) × engagement_rate 교차 검증.
+Shorts 는 이 신호를 쓰지 않는다(위 참조).
 
 ```python
 if velocity_ratio is None or velocity_ratio < 1.5:
@@ -247,21 +251,26 @@ else:
 ### Composite
 
 ```python
-organic_score = round(
-    0.5 * engagement_score
-  + 0.3 * balance_score
-  + 0.2 * velocity_coherence_score
-)
+# Long-form (velocity 있음)
+organic_score = round(0.5*engagement + 0.3*balance + 0.2*velocity)
+# Long-form (velocity NULL) → 0.625*engagement + 0.375*balance
+# Shorts (V2.37, velocity 없음)
+organic_score = round(0.4*engagement + 0.6*balance)
 ```
 
-### Verdict 임계값
+### Verdict 임계값 (V2.21 5-tier)
 
 | organic_score | verdict | 의미 |
 |---|---|---|
-| (sample 부족) | `insufficient_data` | 분석 제외. `view_count < 1000` **AND** `(likes + comments) < 10` (reason=`low_engagement`). organic_score는 NULL 처리. *(V2.36 의 절대 조회수 Short 게이트는 V2.37 에서 폐기 — 비중 기반 채점으로 대체)* |
-| ≥ 70 | `organic` | 자연 호응 |
-| 40–69 | `suspect` | 일부 신호 비정상, 검토 필요 |
-| < 40 | `likely_paid` | 유료 부스팅 강한 의심 |
+| (sample 부족) | `insufficient_data` | 분석 제외. `view_count < 1000` **AND** `(likes + comments) < 10` (reason=`low_engagement`). organic_score는 NULL. *(V2.36 의 절대 조회수 Short 게이트는 V2.37 에서 폐기 — 비중 기반 채점으로 대체)* |
+| ≥ 85 | `organic_strong` | 강한 자연 호응 (viral 자주 동반) |
+| 70–84 | `organic` | 자연 호응 |
+| 55–69 | `borderline` | 검토 필요 (균형 정상 + ER 약함이면 "콜드 도달", paid 단정 아님) |
+| 40–54 | `suspect` | 의심 |
+| < 40 | `likely_paid` | 유료 부스팅 강한 의심 (farm/dead engagement) |
+
+5-tier 색/임계값은 frontend `src/lib/organicity.ts` 단일 소스 + cross-language 가드
+테스트(`tests/lib/organicity.test.ts`)가 worker 임계값과 동기 보장.
 
 `insufficient_data` 영상은 그룹 집계의 비율 계산에서 분모에서 빠짐 (false positive 방지). UI에서는 "데이터 부족" 회색 row로 표시 가능.
 
