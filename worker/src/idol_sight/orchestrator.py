@@ -65,31 +65,40 @@ def run_collector(
         expected_interval_h=expected_interval_h, now=_now_iso(),
     )
 
+    # The recovery boundary must cover the D1 write too: with chunked batch
+    # writes a failed chunk RAISES (D1Error / exhausted-retry HTTP error)
+    # instead of returning executed<sent, so client.batch() has to be inside
+    # this try or the exception escapes uncaught — record_failure never runs and
+    # crawl_meta stays status='running' with no alert.
     try:
         result = collector.collect(group)
+
+        if result.errors and result.rows_inserted == 0:
+            # Silent fail: collector swallowed an exception (fetch timeout,
+            # robot challenge, board moved, etc.) and returned an empty
+            # result. Without this guard the run would record status='ok' /
+            # error_msg=NULL and silently mask the problem.
+            runtime_ms = int((perf_counter() - started) * 1000)
+            msg = "; ".join(result.errors)[:1500]
+            record_failure(client, job=job, now=_now_iso(), runtime_ms=runtime_ms, error_msg=msg)
+            return RunSummary(job=job, status="failed", runtime_ms=runtime_ms, error_msg=msg)
+
+        if result.statements:
+            summary = client.batch(result.statements)
+            if summary.statements_executed != summary.statements_sent:
+                runtime_ms = int((perf_counter() - started) * 1000)
+                msg = f"partial: {summary.statements_executed}/{summary.statements_sent}"
+                record_failure(
+                    client, job=job, now=_now_iso(), runtime_ms=runtime_ms, error_msg=msg,
+                )
+                return RunSummary(
+                    job=job, status="failed", runtime_ms=runtime_ms, error_msg=msg,
+                )
     except Exception as exc:                     # noqa: BLE001 — orchestrator is the recovery boundary
         runtime_ms = int((perf_counter() - started) * 1000)
         msg = f"{type(exc).__name__}: {exc}"[:1500]
         record_failure(client, job=job, now=_now_iso(), runtime_ms=runtime_ms, error_msg=msg)
         return RunSummary(job=job, status="failed", runtime_ms=runtime_ms, error_msg=msg)
-
-    if result.errors and result.rows_inserted == 0:
-        # Silent fail: collector swallowed an exception (fetch timeout,
-        # robot challenge, board moved, etc.) and returned an empty
-        # result. Without this guard the run would record status='ok' /
-        # error_msg=NULL and silently mask the problem.
-        runtime_ms = int((perf_counter() - started) * 1000)
-        msg = "; ".join(result.errors)[:1500]
-        record_failure(client, job=job, now=_now_iso(), runtime_ms=runtime_ms, error_msg=msg)
-        return RunSummary(job=job, status="failed", runtime_ms=runtime_ms, error_msg=msg)
-
-    if result.statements:
-        summary = client.batch(result.statements)
-        if summary.statements_executed != summary.statements_sent:
-            runtime_ms = int((perf_counter() - started) * 1000)
-            msg = f"partial: {summary.statements_executed}/{summary.statements_sent}"
-            record_failure(client, job=job, now=_now_iso(), runtime_ms=runtime_ms, error_msg=msg)
-            return RunSummary(job=job, status="failed", runtime_ms=runtime_ms, error_msg=msg)
 
     runtime_ms = int((perf_counter() - started) * 1000)
     record_success(

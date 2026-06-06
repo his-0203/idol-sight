@@ -230,8 +230,14 @@ def test_upsert_log_row_has_pending_status_and_full_fields():
 
 def test_refresh_confirmation_status_calls_promote_sql():
     """db_client.batch 로 promote-to-confirmed SQL 한 번 실행."""
+    from idol_sight.d1 import BatchSummary
     db = MagicMock()
-    db.batch.return_value = MagicMock(rows_written=3)
+    # Use a real-shaped BatchSummary so the contract is enforced — the promotion
+    # count must come from total_changes, not a nonexistent rows_written attr
+    # (which a bare MagicMock would happily fabricate, masking the bug).
+    db.batch.return_value = BatchSummary(
+        statements_sent=1, statements_executed=1, total_changes=3,
+    )
     promoted = refresh_confirmation_status(
         db_client=db, now_iso="2026-05-07T00:00:00Z",
     )

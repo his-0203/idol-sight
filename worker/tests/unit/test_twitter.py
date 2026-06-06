@@ -2,12 +2,30 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from scrapling.parser import Adaptor
 
-from idol_sight.collectors.twitter import TwitterCollector
+from idol_sight.collectors.twitter import TwitterCollector, _extract_tweet_id
 from idol_sight.config import GroupConfig
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+@pytest.mark.parametrize("href,expected", [
+    ("/user/status/123456", "123456"),
+    ("https://nitter.net/user/status/123456", "123456"),
+    # trailing fragment / query / sub-path must be stripped (PK/dedup integrity)
+    ("/user/status/123456#m", "123456"),
+    ("/user/status/123456?ref_src=twsrc", "123456"),
+    ("/user/status/123456/photo/1", "123456"),
+    # non-status hrefs → None (skip)
+    ("/user/with_replies", None),
+    ("/user", None),
+    ("", None),
+    (None, None),
+])
+def test_extract_tweet_id(href, expected):
+    assert _extract_tweet_id(href) == expected
 
 
 def _plave() -> GroupConfig:

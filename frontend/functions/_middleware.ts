@@ -1,5 +1,5 @@
 import { hmacVerify } from "./lib/hmac";
-import { dayBucket, getCookie } from "./lib/cookies";
+import { AUTH_MESSAGE, getCookie } from "./lib/cookies";
 import { ACCESS_COOKIE, isDocumentLoad, newClientId } from "./lib/accessLog";
 import type { D1Database } from "./lib/d1";
 
@@ -20,7 +20,7 @@ export const onRequest: PagesFunction<Env> = async (ctx) => {
   let authed = false;
   if (isApi || docLoad) {
     const sig = getCookie(request, "idol_radar_auth");
-    if (sig) authed = await hmacVerify(env.COOKIE_SECRET, sig, `auth|${dayBucket()}`);
+    if (sig) authed = await hmacVerify(env.COOKIE_SECRET, sig, AUTH_MESSAGE);
   }
 
   // 기존 동작: 미인증 /api/* 는 401 (cid 쿠키 발급 전에 즉시 차단).

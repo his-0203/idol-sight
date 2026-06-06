@@ -16,7 +16,9 @@ const TYPE_LABEL: Record<string, string> = {
 
 export function WeeklyUpdate() {
   const [data, setData] = useState<any>(null);
-  useEffect(() => { api.weekly().then(setData); }, []);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { api.weekly().then(setData).catch((e) => setErr(String(e))); }, []);
+  if (err) return <div class="text-rose-400">불러오기 실패: {err}</div>;
   if (!data) return <div class="text-zinc-500">Loading…</div>;
   const weekStart = data.hanteo?.[0]?.week_start ?? data.insights?.[0]?.week_start ?? null;
   const weekEnd = data.hanteo?.[0]?.week_end ?? null;

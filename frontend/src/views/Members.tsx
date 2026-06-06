@@ -8,13 +8,15 @@ import { GroupTabs } from "../components/GroupTabs";
 
 export function Members({ groupKey }: { groupKey: string | null }) {
   const [data, setData] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const chart = useRef<Chart | null>(null);
 
   useEffect(() => {
     if (!groupKey) return;
     setData(null);
-    api.members(groupKey).then(setData);
+    setErr(null);
+    api.members(groupKey).then(setData).catch((e) => setErr(String(e)));
   }, [groupKey]);
 
   useEffect(() => {
@@ -63,6 +65,14 @@ export function Members({ groupKey }: { groupKey: string | null }) {
           hint="상단 시장 개요 카드 또는 Cmd+K 검색에서 그룹을 고르면 멤버 분포가 표시됩니다."
           icon="👆"
         />
+      </div>
+    );
+  }
+  if (err) {
+    return (
+      <div class="space-y-4">
+        <GroupTabs />
+        <div class="text-rose-400">불러오기 실패: {err}</div>
       </div>
     );
   }

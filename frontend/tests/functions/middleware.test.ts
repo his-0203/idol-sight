@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { onRequest } from "../../functions/_middleware";
 import { hmacSign } from "../../functions/lib/hmac";
-import { dayBucket } from "../../functions/lib/cookies";
+import { AUTH_MESSAGE } from "../../functions/lib/cookies";
 
 const ENV = { COOKIE_SECRET: "0123456789abcdef0123456789abcdef" } as any;
 
@@ -33,12 +33,31 @@ describe("_middleware", () => {
 
   it("allows /api/* with valid cookie", async () => {
     next.mockClear();
-    const sig = await hmacSign(ENV.COOKIE_SECRET, `auth|${dayBucket()}`);
+    const sig = await hmacSign(ENV.COOKIE_SECRET, AUTH_MESSAGE);
     const req = new Request("https://x/api/ping", {
       headers: { cookie: `idol_radar_auth=${sig}` },
     });
     const res = await onRequest({ request: req, next, env: ENV } as any);
     expect(next).toHaveBeenCalled();
+  });
+
+  it("keeps a cookie valid across day boundaries (no daily forced logout)", async () => {
+    // Regression: the auth message must be date-INDEPENDENT. Previously it was
+    // `auth|${dayBucket()}` verified against the current UTC day, so every
+    // cookie stopped verifying at the next UTC midnight (09:00 KST).
+    next.mockClear();
+    const sig = await hmacSign(ENV.COOKIE_SECRET, AUTH_MESSAGE);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2027-03-15T12:00:00Z")); // far-future day
+      const req = new Request("https://x/api/ping", {
+        headers: { cookie: `idol_radar_auth=${sig}` },
+      });
+      await onRequest({ request: req, next, env: ENV } as any);
+      expect(next).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects /api/* with forged cookie", async () => {
@@ -86,7 +105,7 @@ describe("_middleware access tracking", () => {
   it("logs a visit on authed document load", async () => {
     next.mockClear();
     const db = dbMock();
-    const sig = await hmacSign(ENV.COOKIE_SECRET, `auth|${dayBucket()}`);
+    const sig = await hmacSign(ENV.COOKIE_SECRET, AUTH_MESSAGE);
     const tasks: Promise<unknown>[] = [];
     await onRequest({
       request: new Request("https://x/", {
@@ -109,7 +128,7 @@ describe("_middleware access tracking", () => {
   it("does NOT log for /api requests", async () => {
     next.mockClear();
     const db = dbMock();
-    const sig = await hmacSign(ENV.COOKIE_SECRET, `auth|${dayBucket()}`);
+    const sig = await hmacSign(ENV.COOKIE_SECRET, AUTH_MESSAGE);
     await onRequest({
       request: new Request("https://x/api/ping", {
         headers: { cookie: `idol_radar_auth=${sig}; idol_radar_cid=abc-123` },

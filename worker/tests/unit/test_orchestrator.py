@@ -131,3 +131,31 @@ def test_run_collector_records_partial_when_batch_drops_rows():
     # Treated as failure because not all statements landed.
     assert summary.status == "failed"
     assert "partial" in (summary.error_msg or "").lower()
+
+
+def test_run_collector_records_failure_when_batch_raises():
+    # P0 regression: client.batch() must be inside the recovery boundary.
+    # With chunked batch writes a failed chunk RAISES (D1Error / exhausted
+    # retry) instead of returning executed<sent, so if batch() sat outside the
+    # try/except the exception would propagate uncaught, record_failure would
+    # never run, and crawl_meta would stay status='running' with no Discord
+    # alert — defeating the silent-fail guard this module exists to provide.
+    collector = MagicMock()
+    collector.source = "naver"
+    collector.collect.return_value = CollectionResult(
+        rows_inserted=10, rows_updated=0,
+        statements=[("INSERT", []), ("INSERT", [])],
+    )
+    client = MagicMock()
+    client.batch.side_effect = RuntimeError("D1Error: 500 internal")
+
+    summary = run_collector(client, collector, _group(), expected_interval_h=1)
+
+    # attempt + failure recorded (run not left stuck at 'running').
+    assert client.execute.call_count == 2
+    failure_sql = client.execute.call_args_list[1][0][0]
+    assert "failed" in failure_sql
+    failure_params = client.execute.call_args_list[1][0][1]
+    assert "D1Error" in str(failure_params)
+    assert summary.status == "failed"
+    assert "D1Error" in (summary.error_msg or "")

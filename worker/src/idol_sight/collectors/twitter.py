@@ -12,6 +12,7 @@ We never raise from collect(). Twitter is best-effort by design.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from time import perf_counter
@@ -24,6 +25,18 @@ from idol_sight.collectors.base import CollectionResult
 from idol_sight.config import GroupConfig
 
 log = logging.getLogger(__name__)
+
+# A tweet permalink is .../status/<digits>; trailing fragments (#m), query
+# params (?ref_src=…) and sub-paths (/photo/1) must be stripped or they corrupt
+# the tweet_id PRIMARY KEY and break ON CONFLICT dedup (same tweet → new id
+# every run, inflating row counts).
+_STATUS_RE = re.compile(r"/status/(\d+)")
+
+
+def _extract_tweet_id(href: str | None) -> str | None:
+    """Return the numeric tweet id from a nitter/twitter href, or None."""
+    m = _STATUS_RE.search(href or "")
+    return m.group(1) if m else None
 
 DEFAULT_NITTER_INSTANCES = [
     "https://nitter.net",
@@ -136,9 +149,9 @@ class TwitterCollector:
             if not link:
                 continue
             href = link[0].attrib.get("href", "")
-            if "/status/" not in href:
+            tid = _extract_tweet_id(href)
+            if not tid:
                 continue
-            tid = href.rsplit("/", 1)[-1]
             text = (content[0].get_all_text() if content else "").strip()
             posted_raw = date_node[0].attrib.get("title") if date_node else None
             url = f"https://twitter.com/{handle}/status/{tid}"

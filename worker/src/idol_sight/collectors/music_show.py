@@ -351,10 +351,10 @@ def refresh_confirmation_status(
     summary = db_client.batch([
         (_PROMOTE_TO_CONFIRMED_SQL, [now_iso]),
     ])
-    # D1Client.batch 는 BatchSummary 를 반환한다는 가정. 실제 attribute
-    # 는 d1.py 구현에 따라 다르지만 캐스팅하지 않고 raw 로 전달 — 호출자
-    # (cli.py) 가 자체 logging 한다.
-    affected = getattr(summary, "rows_written", 0) or 0
+    # BatchSummary exposes total_changes (rows affected). The old code read a
+    # nonexistent `rows_written` attr via getattr default, so the promotion
+    # count was permanently 0 regardless of how many rows were promoted.
+    affected = getattr(summary, "total_changes", 0) or 0
     log.info("music_show verification: promoted_pending_to_confirmed≈%d", affected)
     return int(affected)
 

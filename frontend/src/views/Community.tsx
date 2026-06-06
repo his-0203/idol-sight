@@ -35,6 +35,7 @@ const SENTIMENT_BADGE: Record<Exclude<Sentiment, null | undefined>, { label: str
 
 export function Community({ groupKey, period }: { groupKey: string | null; period: number | null }) {
   const [data, setData] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
   const [includeNotices, setIncludeNotices] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("views");
   // null = 전체. 플랫폼 필터는 URL state 미사용 — 그룹 전환 시
@@ -50,9 +51,10 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
   useEffect(() => {
     if (!groupKey) return;
     setData(null);
+    setErr(null);
     setFlagged({});
     setPlatform(null);
-    api.group(groupKey).then(setData);
+    api.group(groupKey).then(setData).catch((e) => setErr(String(e)));
   }, [groupKey]);
 
   // 데이터에 실제로 존재하는 플랫폼만 필터 버튼으로 노출 — 그룹마다
@@ -116,6 +118,12 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
       </div>
     );
   }
+  if (err) return (
+    <div class="space-y-4">
+      <GroupTabs />
+      <div class="text-rose-400">불러오기 실패: {err}</div>
+    </div>
+  );
   if (!data) return (
     <div class="space-y-4">
       <GroupTabs />

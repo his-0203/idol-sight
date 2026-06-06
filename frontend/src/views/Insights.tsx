@@ -18,6 +18,7 @@ const STORAGE_KEY = "idol-sight.insights.lastSeen";
 
 export function Insights() {
   const [data, setData] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [scopeFilter, setScopeFilter] = useState<string | null>(null);
   const [lastSeen, setLastSeen] = useState<string | null>(() => {
@@ -32,7 +33,7 @@ export function Insights() {
       if (latest) {
         try { localStorage.setItem(STORAGE_KEY, latest); } catch { /* ignore */ }
       }
-    });
+    }).catch((e) => setErr(String(e)));
   }, []);
 
   const types = useMemo(() => {
@@ -53,6 +54,7 @@ export function Insights() {
     );
   }, [data, typeFilter, scopeFilter]);
 
+  if (err) return <div class="text-rose-400">불러오기 실패: {err}</div>;
   if (!data) return <div class="text-zinc-500">Loading…</div>;
 
   return (

@@ -49,10 +49,12 @@ const SEVERITY_TONE: Record<AlertRow["severity"], string> = {
 
 export function PRRisk({ groupKey }: { groupKey: string | null }) {
   const [data, setData] = useState<any>(null);
+  const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     if (!groupKey) return;
     setData(null);
-    api.group(groupKey).then(setData);
+    setErr(null);
+    api.group(groupKey).then(setData).catch((e) => setErr(String(e)));
   }, [groupKey]);
 
   const news = data?.naver_articles ?? [];
@@ -105,6 +107,12 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
       </div>
     );
   }
+  if (err) return (
+    <div class="space-y-4">
+      <GroupTabs />
+      <div class="text-rose-400">불러오기 실패: {err}</div>
+    </div>
+  );
   if (!data) return (
     <div class="space-y-4">
       <GroupTabs />

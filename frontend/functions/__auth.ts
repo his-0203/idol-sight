@@ -1,5 +1,5 @@
 import { hmacSign, verifyPassword } from "./lib/hmac";
-import { dayBucket } from "./lib/cookies";
+import { AUTH_MESSAGE } from "./lib/cookies";
 
 export const onRequestPost: PagesFunction<{
   SITE_PASSWORD_HASH: string;
@@ -21,7 +21,7 @@ export const onRequestPost: PagesFunction<{
       return new Response(null, { status: 302, headers });
     }
 
-    const sig = await hmacSign(env.COOKIE_SECRET, `auth|${dayBucket()}`);
+    const sig = await hmacSign(env.COOKIE_SECRET, AUTH_MESSAGE);
     const headers = new Headers({
       Location: "/",
       "Set-Cookie": `idol_radar_auth=${sig}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
