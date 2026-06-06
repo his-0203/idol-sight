@@ -6,6 +6,7 @@ from idol_sight.analysis.weekly_diagnosis_signals import (
     IRRELEVANT_RATIO_THRESHOLD,
     NEGATIVE_KEYWORDS,
     cohort_z_score,
+    community_keyword_topic,
     data_source_warning,
     engagement_rate_from_agg,
     engagement_rate_wow_drop,
@@ -496,3 +497,24 @@ def test_video_upload_z_flat_history_is_zero():
     counts = {"2026-20": 2, "2026-21": 2, "2026-22": 2, "2026-23": 2}
     weeks = ["2026-20", "2026-21", "2026-22", "2026-23"]
     assert video_upload_z(counts, weeks, current_week="2026-23") == 0.0
+
+
+def test_community_keyword_topic_external_dominant():
+    titles = ["인기가요 1위 후보 떴다", "엠카 무대 직캠", "예능 출연 확정", "그냥 잡담"]
+    assert community_keyword_topic(titles) == "external"
+
+
+def test_community_keyword_topic_self_dominant():
+    titles = ["새 앨범 티저 공개", "컴백 신곡 좋다", "자컨 브이로그 봄"]
+    assert community_keyword_topic(titles) == "self"
+
+
+def test_community_keyword_topic_negative_wins_ties():
+    # 1 external + 1 negative → tie, negative takes priority (min_hits=1 here).
+    titles = ["음방 무대", "표절 논란 터짐"]
+    assert community_keyword_topic(titles, min_hits=1) == "negative"
+
+
+def test_community_keyword_topic_below_min_hits_is_neutral():
+    titles = ["앨범 얘기", "오늘 날씨 좋다"]   # only 1 self hit, min_hits=2
+    assert community_keyword_topic(titles) == "neutral"

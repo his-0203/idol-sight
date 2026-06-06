@@ -432,6 +432,8 @@ def test_compute_group_signals_organic_growth_e2e():
         [],
         # 15) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
         [],
+        # 16) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
+        [],
     ]
     result = compute_group_signals(db=db, week_start="2026-04-22", week_end="2026-04-28")
 
@@ -555,6 +557,8 @@ def test_compute_group_signals_deduplicates_multi_row():
         # 14) hanteo_weekly sales (comeback_boost) — 빈 결과 (hanteo_sales = 0)
         [],
         # 15) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
+        [],
+        # 16) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
         [],
     ]
     result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")
@@ -718,6 +722,8 @@ def test_compute_group_signals_subculture_falls_back_to_temporal():
         # 14) hanteo_weekly sales (comeback_boost) — 빈 결과 (hanteo_sales = 0)
         [],
         # 15) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
+        [],
+        # 16) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
         [],
     ]
     result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")

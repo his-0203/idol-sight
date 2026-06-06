@@ -36,6 +36,7 @@ def _stub_db():
         [],   # agg_market_share (2026-05-26 stub 활성화)
         [],   # hanteo_weekly sales (comeback_boost)
         [],   # youtube_videos weekly upload counts (comeback_boost)
+        [],   # community_posts titles (community_keywords_topic)
     ]
     return db
 
@@ -258,6 +259,7 @@ def _stub_db_with_signals():
         [],   # agg_market_share (2026-05-26 stub 활성화)
         [],   # hanteo_weekly sales (comeback_boost)
         [],   # youtube_videos weekly upload counts (comeback_boost)
+        [],   # community_posts titles (community_keywords_topic)
     ]
     return db
 

@@ -645,6 +645,15 @@ def compute_group_signals(
         "GROUP BY group_key, wk",
         [week_end, f"-{_upload_window_days} days"],
     )
+    # community_keywords_topic — recent community post titles per group, for the
+    # broadcast_appearance(external) vs community_word_of_mouth(self) topic
+    # classification. Appended last (one trailing side_effect entry).
+    community_title_rows = db.execute(
+        "SELECT group_key, title FROM community_posts "
+        "WHERE collected_at >= datetime(?, ?) "
+        "ORDER BY collected_at DESC LIMIT 3000",
+        [week_end, "-7 days"],
+    )
 
     # group_key → row 매핑. 같은 group_key 에 여러 snapshot 이 있으면
     # snapshot_at 가장 최근 row 만 남긴다 (정렬 후 last-wins).
@@ -762,6 +771,13 @@ def compute_group_signals(
     })
     current_upload_week = date.fromisoformat(week_start[:10]).strftime("%Y-%W")
 
+    community_titles_by: dict[str, list[str]] = {}
+    for r in community_title_rows:
+        gk = r.get("group_key")
+        if gk is None:
+            continue
+        community_titles_by.setdefault(gk, []).append(r.get("title") or "")
+
     # V1 stub 활성화 (2026-05-26) — 전주 시점의 category cohort z.
     # broadcast_appearance / community_word_of_mouth 의 lag 패턴 (전주 spike +
     # 이번 주 후행) 활성화. prev_by 의 same-category cohort 로 계산.
@@ -866,7 +882,8 @@ def compute_group_signals(
             },
             "news_z_prev_week":           _prev_z(gk, "naver_total_news"),
             "community_z_prev_week":      _prev_z(gk, "_community", comm=True),
-            "community_keywords_topic":   "neutral",   # V1: stub — 후속
+            "community_keywords_topic":
+                _S.community_keyword_topic(community_titles_by.get(gk, [])),
             "video_tags_paid_match":      False,        # V1: stub — 후속
         }
 

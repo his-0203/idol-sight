@@ -324,6 +324,41 @@ def negative_keyword_z(
     return cohort_z_score(value=now_total, cohort=past_weekly_neg_totals)
 
 
+# community_keywords_topic lexicon (first-pass, 2026-06 — operator-calibratable).
+# Title-substring match → the group's dominant community topic, used to
+# disambiguate broadcast_appearance(external) vs community_word_of_mouth(self).
+# negative reuses NEGATIVE_KEYWORDS.
+TOPIC_EXTERNAL_KEYWORDS: frozenset[str] = frozenset({
+    "음방", "음악방송", "뮤직뱅크", "뮤뱅", "인기가요", "엠카", "엠카운트다운",
+    "쇼챔", "쇼챔피언", "음악중심", "음중", "더쇼", "예능", "출연", "방송",
+    "라디오", "수상", "시상", "콜라보", "피처링", "합방", "게스트",
+})
+TOPIC_SELF_KEYWORDS: frozenset[str] = frozenset({
+    "앨범", "컴백", "신곡", "타이틀곡", "뮤비", "엠비", "티저", "자컨",
+    "자체콘텐츠", "브이로그", "비하인드", "챌린지", "커버", "직캠", "선공개",
+})
+
+
+def community_keyword_topic(titles: list[str], *, min_hits: int = 2) -> str:
+    """Dominant community topic from recent post titles:
+    external(방송/매체) / self(자체콘텐츠) / negative(논란) / neutral.
+
+    First-pass title-substring lexicon. Returns the highest-hit category once it
+    clears ``min_hits``, else 'neutral'. Ties resolve negative > external > self
+    so a controversy isn't masked by overlapping promo terms."""
+    counts = {"external": 0, "self": 0, "negative": 0}
+    for t in titles:
+        s = t or ""
+        if any(kw in s for kw in TOPIC_EXTERNAL_KEYWORDS):
+            counts["external"] += 1
+        if any(kw in s for kw in TOPIC_SELF_KEYWORDS):
+            counts["self"] += 1
+        if any(kw in s for kw in NEGATIVE_KEYWORDS):
+            counts["negative"] += 1
+    best = max(("negative", "external", "self"), key=lambda c: counts[c])
+    return best if counts[best] >= min_hits else "neutral"
+
+
 def twitter_controversy_z(now_count: int, cohort_counts: list[float]) -> float:
     """twitter_posts type='controversy' 의 주간 카운트 z-score.
 
