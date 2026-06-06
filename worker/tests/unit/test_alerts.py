@@ -96,6 +96,15 @@ def test_video_velocity_24h_fires_above_threshold():
     assert "1,500,000" in a.title
 
 
+def test_video_velocity_24h_join_has_lower_time_bound():
+    """The 24h join must exclude pre-publish snapshots (negative delta), or
+    clock-skewed rows inflate the peak."""
+    client = _client({"FROM youtube_videos v": []})
+    rule_video_velocity_24h(client)
+    sql = client.execute.call_args[0][0]
+    assert "BETWEEN 0 AND 1.0" in sql
+
+
 def test_video_velocity_24h_dedup_per_video():
     """Same video shouldn't generate two alerts even when the rule
     runs twice — dedup happens via the bucket = video_id."""

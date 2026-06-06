@@ -58,36 +58,31 @@ def test_pass1_emits_view_count_update_per_video():
 
 
 def test_pass2_emits_velocity_ratio_with_leave_one_out_mean():
-    """Channel mean (m, n)=(500K, 5). For a video with v24=1.5M:
-    leave-one-out mean = (500K*5 - 1.5M)/4 = (2.5M - 1.5M)/4 = 250K.
-    ratio = 1.5M / 250K = 6.0 (very viral).
-    """
+    """Channel UC_PLAVE: viral_one=1.5M + four others at 250K (n=5, sum=2.5M).
+    Leave-one-out mean for viral_one = (2.5M - 1.5M)/4 = 250K → ratio = 6.0.
+    Means are now computed in-memory from the persisted rows (no AVG query)."""
+    others = [
+        {"video_id": f"o{i}", "channel_id": "UC_PLAVE", "view_count_24h": 250_000}
+        for i in range(4)
+    ]
     client = _client({
         "WHERE published_at IS NOT NULL": [],
-        "AVG(view_count_24h)": [
-            {"channel_id": "UC_PLAVE", "m": 500_000.0, "n": 5},
-        ],
         "WHERE view_count_24h IS NOT NULL": [
             {"video_id": "viral_one", "channel_id": "UC_PLAVE",
              "view_count_24h": 1_500_000},
+            *others,
         ],
     })
     result = compute_velocity(client)
-    pass2 = [s for s in result.statements if "viral_velocity_ratio=" in s[0]]
-    assert len(pass2) == 1
-    sql, params = pass2[0]
-    # ratio = 1_500_000 / 250_000 = 6.0
-    assert abs(params[0] - 6.0) < 1e-3
-    assert params[1] == "viral_one"
+    pass2 = {s[1][1]: s[1][0] for s in result.statements
+             if "viral_velocity_ratio=" in s[0]}
+    assert abs(pass2["viral_one"] - 6.0) < 1e-3
 
 
 def test_pass2_skips_when_only_one_video_in_channel():
     """Single-video channel → leave-one-out mean is undefined → skip."""
     client = _client({
         "WHERE published_at IS NOT NULL": [],
-        "AVG(view_count_24h)": [
-            {"channel_id": "UC_PLAVE", "m": 500_000.0, "n": 1},
-        ],
         "WHERE view_count_24h IS NOT NULL": [
             {"video_id": "lonely", "channel_id": "UC_PLAVE",
              "view_count_24h": 500_000},
@@ -96,6 +91,35 @@ def test_pass2_skips_when_only_one_video_in_channel():
     result = compute_velocity(client)
     pass2 = [s for s in result.statements if "viral_velocity_ratio=" in s[0]]
     assert pass2 == []
+
+
+def test_pass2_uses_this_cycle_fresh_v24_not_stale_persisted():
+    """Staleness fix: a video's ratio must use the v24 computed THIS cycle
+    (Pass 1), not the stale persisted value. v_fresh's fresh v24=2M overrides a
+    persisted 100K: LOO mean = (2.1M-2M)/1 = 100K → ratio 20.0 (not 1.0)."""
+    by_param = {
+        ("FROM youtube_video_stats", "v_fresh"):
+            [{"views": 2_000_000, "delta": 0.05}],
+    }
+    client = _client(
+        rows_by_query={
+            "WHERE published_at IS NOT NULL": [
+                {"video_id": "v_fresh", "channel_id": "UC", "group_key": "plave",
+                 "published_at": "2026-05-01T10:00:00Z"},
+            ],
+            "WHERE view_count_24h IS NOT NULL": [
+                {"video_id": "v_fresh", "channel_id": "UC",
+                 "view_count_24h": 100_000},   # STALE persisted value
+                {"video_id": "other", "channel_id": "UC",
+                 "view_count_24h": 100_000},
+            ],
+        },
+        by_param=by_param,
+    )
+    result = compute_velocity(client)
+    pass2 = {s[1][1]: s[1][0] for s in result.statements
+             if "viral_velocity_ratio=" in s[0]}
+    assert abs(pass2["v_fresh"] - 20.0) < 1e-3   # 1.0 if it used stale 100K
 
 
 def test_skips_videos_with_no_close_snapshot():

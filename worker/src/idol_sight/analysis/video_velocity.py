@@ -26,6 +26,7 @@ cycle and stores the result.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any, Protocol
 
 from idol_sight.collectors.base import CollectionResult
@@ -55,6 +56,10 @@ def compute_velocity(client: _Executor) -> CollectionResult:
         "  AND published_at >= datetime('now', '-30 days')"
     )
     statements: list[tuple[str, list[Any]]] = []
+    # This cycle's freshly-computed v24 per video — fed straight into Pass 2 so
+    # ratios reflect the current cycle instead of lagging one (the Pass-1 UPDATEs
+    # haven't hit the DB yet when Pass 2 runs).
+    fresh: dict[str, tuple[Any, int]] = {}
     for v in videos:
         vid = v["video_id"]
         # Find the stats row whose snapshot_at is closest to
@@ -75,46 +80,47 @@ def compute_velocity(client: _Executor) -> CollectionResult:
             "UPDATE youtube_videos SET view_count_24h=? WHERE video_id=?",
             [v24, vid],
         ))
+        fresh[vid] = (v.get("channel_id"), v24)
 
-    # Pass 2: per-channel mean of view_count_24h, then UPDATE each
-    # video's viral_velocity_ratio = its v24 / channel_mean (skipping
-    # itself in the mean to avoid self-bias on tiny channels).
-    means = client.execute(
-        "SELECT channel_id, AVG(view_count_24h) AS m, COUNT(*) AS n "
-        "FROM youtube_videos "
-        "WHERE view_count_24h IS NOT NULL AND channel_id IS NOT NULL "
-        "GROUP BY channel_id"
-    )
-    mean_by = {
-        r["channel_id"]: (float(r.get("m") or 0), int(r.get("n") or 0))
-        for r in means
-    }
-    # We pull the freshly-known v24 values back instead of mutating
-    # the dict above, because pass-1 emits UPDATE statements that
-    # haven't hit the DB yet — the mean query above reads what's
-    # already persisted, which is fine for the *prior* mean. The
-    # ratio gets recomputed on the next aggregate cycle once all
-    # the new v24 values land.
-    rows_with_v24 = client.execute(
+    # Pass 2: per-channel mean of view_count_24h, then UPDATE each video's
+    # viral_velocity_ratio = its v24 / channel_mean (leave-one-out to avoid
+    # self-bias). We merge the persisted v24 values with THIS cycle's fresh ones
+    # (fresh wins) so the ratio reflects the current cycle — previously Pass 2
+    # read only persisted v24, leaving every ratio one aggregate cycle stale.
+    merged: dict[str, tuple[Any, int]] = {}
+    for r in client.execute(
         "SELECT video_id, channel_id, view_count_24h "
         "FROM youtube_videos WHERE view_count_24h IS NOT NULL"
-    )
-    for r in rows_with_v24:
-        ch = r.get("channel_id")
-        v24 = int(r.get("view_count_24h") or 0)
-        m, n = mean_by.get(ch, (0.0, 0))
-        if m <= 0 or n < 2:
+    ):
+        merged[r["video_id"]] = (
+            r.get("channel_id"), int(r.get("view_count_24h") or 0),
+        )
+    merged.update(fresh)  # this cycle's freshly-computed v24 overrides persisted
+
+    sums: dict[Any, float] = defaultdict(float)
+    counts: dict[Any, int] = defaultdict(int)
+    for ch, v24 in merged.values():
+        if ch is None:
             continue
-        # Leave-one-out mean so a single high-views video doesn't
-        # divide itself by itself and report 1.0.
-        adjusted_mean = (m * n - v24) / (n - 1) if n > 1 else m
+        sums[ch] += v24
+        counts[ch] += 1
+
+    for vid, (ch, v24) in merged.items():
+        if ch is None:
+            continue
+        n = counts[ch]
+        if n < 2:
+            continue
+        # Leave-one-out mean so a single high-views video doesn't divide itself
+        # by itself and report 1.0.
+        adjusted_mean = (sums[ch] - v24) / (n - 1)
         if adjusted_mean <= 0:
             continue
         ratio = round(v24 / adjusted_mean, 3)
         statements.append((
             "UPDATE youtube_videos SET viral_velocity_ratio=? "
             "WHERE video_id=?",
-            [ratio, r["video_id"]],
+            [ratio, vid],
         ))
 
     return CollectionResult(

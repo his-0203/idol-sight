@@ -154,7 +154,10 @@ def rule_video_velocity_24h(
         "FROM youtube_videos v "
         "JOIN youtube_video_stats s "
         "  ON s.video_id = v.video_id "
-        "  AND julianday(s.snapshot_at) - julianday(v.published_at) <= 1.0 "
+        # Lower bound too: a snapshot taken BEFORE publish (negative delta) must
+        # not count toward the 24h peak (data quirks / clock skew otherwise let
+        # pre-publish rows inflate it).
+        "  AND julianday(s.snapshot_at) - julianday(v.published_at) BETWEEN 0 AND 1.0 "
         "JOIN groups g ON g.key = v.group_key "
         "WHERE v.published_at >= datetime('now', '-7 days') "
         "GROUP BY v.video_id "
