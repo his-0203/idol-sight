@@ -69,7 +69,8 @@ class LiveCcvCollector:
                 sn = item.get("snippet") or {}
                 lsd = item.get("liveStreamingDetails") or {}
                 ccv = lsd.get("concurrentViewers")
-                if sn.get("liveBroadcastContent") == "live" and ccv is not None:
+                if (sn.get("liveBroadcastContent") == "live"
+                        and ccv is not None and str(ccv).isdigit()):
                     out[item["id"]] = {
                         "ccv": int(ccv),
                         "title": sn.get("title"),

@@ -137,3 +137,34 @@ def test_collect_global_all_rss_fail_returns_error():
     result = coll.collect_global(now_iso="2026-06-06T12:00:00Z")
     assert result.statements == []
     assert result.errors
+
+
+def test_live_samples_skips_non_digit_ccv():
+    coll = LiveCcvCollector(api_key="k", groups_loader=lambda: [])
+    payload = {"items": [
+        {"id": "ccccccccccc",
+         "snippet": {"liveBroadcastContent": "live", "title": "x"},
+         "liveStreamingDetails": {"concurrentViewers": "N/A"}},
+    ]}
+    client = _FakeClient(lambda url, params: _FakeResp(payload=payload))
+    assert coll._live_samples(client, ["ccccccccccc"]) == {}
+
+
+def test_collect_global_no_live_is_noop():
+    targets = [{"key": "miiwan", "yt_channel_id": "UCmiiwan0000000000000000"}]
+
+    def handler(url, params):
+        if "feeds/videos.xml" in url:
+            return _FakeResp(text="<feed><entry><yt:videoId>aaaaaaaaaaa</yt:videoId></entry></feed>")
+        # video exists but is not live
+        return _FakeResp(payload={"items": [
+            {"id": "aaaaaaaaaaa",
+             "snippet": {"liveBroadcastContent": "none", "title": "vod"},
+             "liveStreamingDetails": {}}]})
+
+    coll = LiveCcvCollector(api_key="k", groups_loader=lambda: targets,
+                            http_factory=lambda: _FakeClient(handler))
+    result = coll.collect_global(now_iso="2026-06-06T12:00:00Z")
+    assert result.statements == []
+    assert result.errors == []          # no errors — just nothing live
+    assert result.rows_inserted == 0
