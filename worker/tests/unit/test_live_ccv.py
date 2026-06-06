@@ -99,3 +99,41 @@ def test_live_samples_extracts_only_live_with_ccv():
     live = coll._live_samples(client, ["aaaaaaaaaaa", "bbbbbbbbbbb"])
     assert set(live) == {"aaaaaaaaaaa"}
     assert live["aaaaaaaaaaa"] == {"ccv": 1234, "title": "MiiWAN 데뷔 라이브"}
+
+
+def test_collect_global_maps_videos_to_groups_and_upserts():
+    targets = [
+        {"key": "miiwan", "yt_channel_id": "UCmiiwan0000000000000000"},
+        {"key": "owis", "yt_channel_id": "UCowis00000000000000000000"},
+    ]
+
+    def handler(url, params):
+        if "feeds/videos.xml" in url:
+            if "UCmiiwan" in url:
+                return _FakeResp(
+                    text="<feed><entry><yt:videoId>aaaaaaaaaaa</yt:videoId></entry></feed>")
+            return _FakeResp(
+                text="<feed><entry><yt:videoId>bbbbbbbbbbb</yt:videoId></entry></feed>")
+        return _FakeResp(payload=_VIDEOS_PAYLOAD)  # aaaa live, bbbb not
+
+    coll = LiveCcvCollector(
+        api_key="k", groups_loader=lambda: targets,
+        http_factory=lambda: _FakeClient(handler))
+    result = coll.collect_global(now_iso="2026-06-06T12:00:00Z")
+    assert result.rows_inserted == 1            # only aaaa is live
+    sql, params = result.statements[0]
+    assert "INSERT INTO live_ccv_samples" in sql
+    assert params == ["aaaaaaaaaaa", "miiwan", "2026-06-06T12:00:00Z", 1234,
+                      "MiiWAN 데뷔 라이브"]
+
+
+def test_collect_global_all_rss_fail_returns_error():
+    def handler(url, params):
+        return _FakeResp(status=500)
+    coll = LiveCcvCollector(
+        api_key="k",
+        groups_loader=lambda: [{"key": "miiwan", "yt_channel_id": "UCx"}],
+        http_factory=lambda: _FakeClient(handler))
+    result = coll.collect_global(now_iso="2026-06-06T12:00:00Z")
+    assert result.statements == []
+    assert result.errors
