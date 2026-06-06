@@ -1,10 +1,11 @@
 # IDOL-SIGHT 세션 변경 요약 리포트 (2026-06-05 ~ 06-06)
 
-**규모**: 20 커밋 · 58 파일 · **+1,900 / −637** · 전부 `main` 직접 push
-**테스트**: worker 575 → **614** (+39), frontend 154 → **164** (+10) · 매 변경 회귀 테스트 동반, ruff/tsc clean
+**상태: 세션 종료 (최종본)**
+**규모**: 25 커밋(24 작업 + 본 리포트) · 62 파일 · **+2,156 / −684** · 전부 `main` 직접 push
+**테스트**: worker 575 → **616** (+41), frontend 154 → **165** (+11) · 매 변경 회귀 테스트 동반, ruff/tsc clean
 **배포·데이터**: frontend 변경은 frontend-deploy 자동 배포 / worker는 cron 적용 / D1 원격 쓰기는 운영자 게이트(직접 안 함, recompute는 collect-daily dispatch로)
 
-커밋 범위: `57736a5` (세션 시작 직전) .. `db19a17` (HEAD)
+커밋 범위: `57736a5` (세션 시작 직전) .. `9458d82` (HEAD)
 
 ---
 
@@ -68,17 +69,27 @@
 - blacklist CSV-vs-JSON 시드 버그(0034/0069/0075 3회 재발) → 전체 마이그레이션 적용 후 groups JSON 컬럼 전수 가드(`test_migrations_groups_json`)
 - 배포↔마이그레이션 순서 규약 + JSON 배열 시드 규칙 CLAUDE.md 문서화
 
+### D1 batch 멱등성/계약 (`0289523`)
+- insights 가 순수 append → 재실행/부분쓰기 재시도 시 중복 → 선행 `DELETE FROM insights WHERE week_start=?` rebuild(items 있을 때만, 빈 LLM run wipe 방지). 전 INSERT 감사 결과 비-UPSERT는 challenge_scan(이미 DELETE)·insights 둘뿐
+- batch() 청크 간 비원자성 명시(caller 멱등 필수) + success-under-count 시 raise("정상 return=전량 적용" 보장)
+
+### 마무리 — 문서·검색 (`d50b11b`, `9458d82`)
+- organicity 설계 스펙 §3 본문을 V2.37 현 모델로 정비(옛 3-tier·구 ER/balance/가중치 → Long/Shorts 분리)
+- /api/search 사용자 q의 LIKE 와일드카드(%·_) 이스케이프 + ESCAPE 절
+
 ## 5. 주요 판단 (정직성)
 
 - **"틀린 것을 안 고침"**: viral 임계값 2.0 vs 1.5는 의도적 차이 → 합치지 않고 문서화 · negative_ratio 무윈도는 community 누적집계와 일관 → 단독 윈도 안 함(설계 결정 필요) · 상대시각은 이미 UTC 정확 → TZ skew는 절대시각만(저영향, 보류) · 자동 스키마-먼저-적용은 D1 human-gated 원칙과 충돌 → 문서 규약으로
 - **lexicon/heuristic은 지어내 ship 안 함** — video_tags는 운영자 결정으로 보류, community topic은 first-pass lexicon으로 명시 구현(calibratable)
 
-## 6. 남은 백로그 (저·중 가치)
+## 6. 남은 백로그 (저가치 / 차단 / 결정필요 — 세션 종료 시점)
 
-- D1 batch 비멱등 caller 안전성 · cli.py partial-check 도달 불가
-- video_tags_paid_match (tags 수집 후)
-- 누적-vs-윈도 결정(negative_ratio + community 집계) · 전용 TZ 패스
-- 인덱스 무력화 쿼리(access_log/melon) · P3 문서/long-tail
+- **video_tags_paid_match** — 차단: 경쟁사 youtube_videos.tags 수집 선행
+- **누적-vs-윈도 결정** (negative_ratio + community 집계가 둘 다 무윈도 누적) — 설계 결정 필요
+- **전용 TZ 패스** (절대 KST 타임스탬프) — worker↔frontend 결합 + 저영향(상대시각은 이미 정확), 실데이터 검증 동반
+- **news_filter substring** — relevance.py 경유 라우팅(중간 가치, 더 큰 변경)
+- **인덱스 무력화 쿼리**(access_log/melon) — 인덱스=migration(human-gated)+저영향
+- **P3 잔여 버전 스탬프**(HealthSpec/GroupContent 주석) — cosmetic
 - **자사 채널 YouTube Analytics traffic-source ground-truth 연동** — organicity 추정의 본 해결책(별도 spec)
 
 ---
@@ -86,6 +97,10 @@
 ## 부록 — 커밋 목록 (최신순)
 
 ```
+9458d82 fix(search): escape LIKE wildcards in user query
+d50b11b docs(organicity): rewrite design spec §3 to the current V2.37 model
+0289523 fix(d1): make insights writes idempotent + tighten batch() partial-write contract
+26d194a docs(reports): add 2026-06-06 session changelog
 db19a17 test(migrations): guard groups JSON columns; document deploy↔migrate ordering
 aea8343 feat(diagnosis): implement community_keywords_topic (first-pass lexicon)
 b18f778 feat(diagnosis): wire comeback_boost signals (hanteo_sales + video_upload_z)
