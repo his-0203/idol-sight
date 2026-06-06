@@ -50,8 +50,19 @@ export function Header({ state }: { state: RouterState }) {
         )}
         {/* Light-mode toggle disabled in Phase 1 — most components still
             hard-code zinc shades. Reactivate once tokens cover all surfaces. */}
+        {/* 시스템 상태 — 파이프라인이 조용히 멈추는 걸 한 눈에. */}
         <button
-          class="ml-auto rounded-ctrl border border-zinc-800 px-2 py-1 text-hint
+          class={
+            "ml-auto rounded-ctrl border border-zinc-800 px-2 py-1 text-hint transition-colors "
+            + (state.tab === "status"
+              ? "bg-brand-weak text-brand-fg"
+              : "text-zinc-400 hover:bg-zinc-800/60")
+          }
+          onClick={() => writeState({ tab: "status" })}
+          title="시스템 상태 (수집·집계·알림 헬스)"
+        >⚙ 상태</button>
+        <button
+          class="rounded-ctrl border border-zinc-800 px-2 py-1 text-hint
                  text-zinc-600 cursor-not-allowed opacity-60"
           disabled
           title="다크 전용 (라이트 모드는 Phase 2 예정)"

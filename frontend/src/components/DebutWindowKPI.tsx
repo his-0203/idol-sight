@@ -71,7 +71,9 @@ export function DebutWindowKPI({ groupKey }: Props) {
           );
         })}
       </div>
-      <div class="kpi-debutwin-note">view-weighted mean per bucket</div>
+      <div class="kpi-debutwin-note">
+        view-weighted mean per bucket · 휴리스틱 <strong>추정</strong>(ground-truth 아님)
+      </div>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { PRRisk } from "./views/PRRisk";
 import { Insights } from "./views/Insights";
 import { MiiWANBriefing } from "./views/MiiWANBriefing";
 import { ShortsTrend } from "./views/ShortsTrend";
+import { SystemStatus } from "./views/SystemStatus";
 import { SearchPalette } from "./components/SearchPalette";
 
 export function App() {
@@ -49,6 +50,7 @@ export function App() {
         {state.tab === "insights"  && <Insights />}
         {state.tab === "miiwan"    && <MiiWANBriefing />}
         {state.tab === "shorts"    && <ShortsTrend />}
+        {state.tab === "status"    && <SystemStatus />}
       </main>
     </div>
   );
