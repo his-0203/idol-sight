@@ -32,4 +32,27 @@ describe("/api/search", () => {
     expect(b.naver).toHaveLength(1);
     expect(b.community).toHaveLength(1);
   });
+
+  it("escapes LIKE wildcards in user input and uses ESCAPE clauses", async () => {
+    const seenSql: string[] = [];
+    const seenParams: unknown[][] = [];
+    const env = {
+      DB: { prepare: vi.fn((sql: string) => {
+        seenSql.push(sql);
+        return {
+          bind: vi.fn((...p: unknown[]) => {
+            seenParams.push(p);
+            return { all: vi.fn(async () => ({ results: [] })) };
+          }),
+        };
+      }) },
+    } as any;
+    await onRequestGet({
+      env, request: new Request("https://x/api/search?q=" + encodeURIComponent("100%_a")),
+    } as any);
+    // % and _ escaped with backslash; wrapped in %...%
+    expect(seenParams.every((p) => p[0] === "%100\\%\\_a%")).toBe(true);
+    // every LIKE is paired with ESCAPE '\'
+    expect(seenSql.every((s) => s.includes("ESCAPE '\\'"))).toBe(true);
+  });
 });
