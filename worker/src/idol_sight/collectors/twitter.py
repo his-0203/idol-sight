@@ -1,9 +1,8 @@
-"""Twitter collector with nitter pool + syndication oembed fallback.
+"""Twitter collector via a nitter instance pool.
 
 Order of attempts:
 1. nitter_instances (round-robin). First one that returns >0 tweets wins.
-2. syndication.twitter.com oembed (lightweight, public).
-3. Give up: return CollectionResult with errors=['all_twitter_paths_blocked'].
+2. Give up: return CollectionResult with errors=['all_twitter_paths_blocked'].
    Orchestrator translates that into crawl_meta status='failed'.
 
 We never raise from collect(). Twitter is best-effort by design.
@@ -13,12 +12,10 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Callable
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
-import httpx
 from scrapling import Fetcher
 
 from idol_sight.collectors.base import CollectionResult
@@ -45,7 +42,6 @@ DEFAULT_NITTER_INSTANCES = [
     "https://nitter.cz",
     "https://nitter.unixfox.eu",
 ]
-OEMBED_URL = "https://publish.twitter.com/oembed"
 
 
 class TwitterCollector:
@@ -55,11 +51,9 @@ class TwitterCollector:
         self,
         nitter_instances: list[str] | None = None,
         fetcher: Any | None = None,
-        http_factory: Callable[[], Any] | None = None,
     ):
         self._instances = nitter_instances or DEFAULT_NITTER_INSTANCES
         self._fetcher = fetcher or Fetcher
-        self._http_factory = http_factory or (lambda: httpx.Client(timeout=15.0))
 
     def collect(self, group: GroupConfig, since: str | None = None) -> CollectionResult:
         if not group.twitter_handles:
@@ -72,8 +66,6 @@ class TwitterCollector:
 
         for handle in group.twitter_handles:
             tweets = self._try_nitter(handle)
-            if not tweets:
-                tweets = self._try_oembed(handle)
             for t in tweets:
                 statements.append((
                     """
@@ -116,28 +108,6 @@ class TwitterCollector:
             except Exception as e:           # noqa: BLE001
                 log.warning("nitter %s failed: %s", base, e)
         return []
-
-    def _try_oembed(self, handle: str) -> list[dict[str, Any]]:
-        # oembed needs a tweet URL — without that we can't enumerate. Best-
-        # effort: hit the user's profile and parse for any tweet ids in the
-        # public-facing redirect chain. Often returns nothing useful in 2026,
-        # but we attempt before giving up.
-        try:
-            with self._http_factory() as client:
-                # We don't know a specific tweet URL, but oembed accepts
-                # profile URLs in some clients. Use it as a liveness check.
-                r = client.get(
-                    OEMBED_URL,
-                    params={"url": f"https://twitter.com/{handle}"},
-                )
-                r.raise_for_status()
-                _ = r.json()
-                # If we got 200 + JSON the handle is public, but oembed of a
-                # profile URL doesn't yield tweet rows. Return empty.
-                return []
-        except Exception as e:                # noqa: BLE001
-            log.warning("oembed fallback failed: %s", e)
-            return []
 
     @staticmethod
     def _parse_nitter(page: Any, handle: str) -> list[dict[str, Any]]:

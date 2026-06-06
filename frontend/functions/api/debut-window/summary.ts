@@ -24,6 +24,9 @@ interface SummaryRow {
   long_form_count: number;
   short_form_count: number;
   organic_score_mean: number | null;
+  organic_score_mean_long: number | null;
+  organic_score_mean_short: number | null;
+  organic_score_mean_simple: number | null;
   organic_strong_ratio: number | null;
   organic_ratio: number | null;
   borderline_ratio: number | null;
@@ -84,6 +87,22 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
         THEN SUM(COALESCE(organic_score_mean, 0) * total_views) * 1.0
              / SUM(total_views)
         ELSE NULL END        AS organic_score_mean,
+      -- Type-split means (CompetitorOrganicityBar long/short/all_simple modes).
+      -- Weighted by the matching count so a bucket with no long (or no short)
+      -- videos yields NULL rather than a fake 0. V2.34 buckets are 1:1 so this
+      -- is a passthrough in practice.
+      CASE WHEN SUM(long_form_count) > 0
+        THEN SUM(COALESCE(organic_score_mean_long, 0) * long_form_count) * 1.0
+             / SUM(long_form_count)
+        ELSE NULL END        AS organic_score_mean_long,
+      CASE WHEN SUM(short_form_count) > 0
+        THEN SUM(COALESCE(organic_score_mean_short, 0) * short_form_count) * 1.0
+             / SUM(short_form_count)
+        ELSE NULL END        AS organic_score_mean_short,
+      CASE WHEN SUM(video_count) > 0
+        THEN SUM(COALESCE(organic_score_mean_simple, 0) * video_count) * 1.0
+             / SUM(video_count)
+        ELSE NULL END        AS organic_score_mean_simple,
       CASE WHEN SUM(video_count) > 0
         THEN SUM(COALESCE(organic_strong_ratio, 0) * video_count) * 1.0
              / SUM(video_count)

@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -73,29 +72,21 @@ def test_round_robins_through_nitter_pool():
     assert result.rows_inserted == 2
 
 
-def test_falls_back_to_oembed_when_all_nitter_fail():
+def test_records_blocked_error_when_all_nitter_fail():
+    # The oembed fallback was dead code (always returned []); now when every
+    # nitter instance yields nothing the collector records the sentinel error
+    # and no rows, which the orchestrator turns into status='failed'.
     empty_page = Adaptor(content="<html><body></body></html>", url="https://x")
     fetcher = MagicMock()
     fetcher.get.return_value = empty_page
 
-    oembed = json.loads((FIXTURES / "twitter_oembed.json").read_text())
-    oembed_resp = MagicMock()
-    oembed_resp.json.return_value = oembed
-    oembed_resp.raise_for_status.return_value = None
-    http = MagicMock()
-    http.__enter__ = MagicMock(return_value=http)
-    http.__exit__ = MagicMock(return_value=False)
-    http.get = MagicMock(return_value=oembed_resp)
-
     c = TwitterCollector(
         nitter_instances=["https://a", "https://b"],
         fetcher=fetcher,
-        http_factory=lambda: http,
     )
     result = c.collect(_plave())
-    # No rows inserted but no exception either — sentinel error_msg recorded.
     assert result.rows_inserted == 0
-    assert any("all_twitter_paths_blocked" in e or "oembed" in e for e in result.errors)
+    assert any("all_twitter_paths_blocked" in e for e in result.errors)
 
 
 def test_no_handles_returns_empty():
