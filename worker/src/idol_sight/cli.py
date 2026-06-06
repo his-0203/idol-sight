@@ -778,6 +778,32 @@ def melon_chart_backfill_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("collect-ccv",
+             help="Sample YouTube live concurrent viewers for ccv_tracked groups.")
+def collect_ccv(
+    now: str | None = typer.Option(
+        None, "--now", help="ISO8601 UTC sample time; default = current UTC."),
+) -> None:
+    from idol_sight.collectors.live_ccv import LiveCcvCollector
+    settings = load_settings()
+    if not settings.yt_api_key:
+        typer.echo("YT_API_KEY unset", err=True)
+        raise typer.Exit(code=2)
+    client = _make_d1_client(settings)
+    now_iso = now or datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    coll = LiveCcvCollector(
+        api_key=settings.yt_api_key,
+        groups_loader=lambda: _load_ccv_targets(client),
+    )
+    result = coll.collect_global(now_iso=now_iso)
+    for e in result.errors:
+        typer.echo(f"WARN: {e}", err=True)
+    if result.statements:
+        client.batch(result.statements)
+    typer.echo(f"collect-ccv: {result.rows_inserted} live samples @ {now_iso}")
+    raise typer.Exit(code=0 if result.statements or not result.errors else 1)
+
+
 @app.command(
     "backfill-music-show-wins",
     help=(
@@ -1110,6 +1136,13 @@ def analyze_weekly(
 def _load_active_groups(client) -> list[dict]:
     return client.execute(
         "SELECT key, name, name_kr FROM groups WHERE is_active=1"
+    )
+
+
+def _load_ccv_targets(client) -> list[dict]:
+    return client.execute(
+        "SELECT key, yt_channel_id FROM groups "
+        "WHERE ccv_tracked=1 AND yt_channel_id IS NOT NULL"
     )
 
 

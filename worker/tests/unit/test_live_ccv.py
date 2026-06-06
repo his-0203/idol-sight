@@ -168,3 +168,18 @@ def test_collect_global_no_live_is_noop():
     assert result.statements == []
     assert result.errors == []          # no errors — just nothing live
     assert result.rows_inserted == 0
+
+
+from unittest.mock import MagicMock
+
+from idol_sight import cli
+
+
+def test_load_ccv_targets_queries_tracked_groups():
+    client = MagicMock()
+    client.execute.return_value = [{"key": "miiwan", "yt_channel_id": "UCx"}]
+    out = cli._load_ccv_targets(client)
+    assert out == [{"key": "miiwan", "yt_channel_id": "UCx"}]
+    sql = client.execute.call_args[0][0]
+    assert "ccv_tracked=1" in sql.replace(" ", "")
+    assert "yt_channel_id IS NOT NULL" in sql
