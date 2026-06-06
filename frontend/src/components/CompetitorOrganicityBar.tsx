@@ -1,16 +1,10 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { scoreColor } from "../lib/organicity";
+import { DISPLAY_BUCKETS as BUCKETS } from "../lib/debutWindow";
 
-// V2.34 (2026-05-27): worker WINDOW_BUCKETS 가 7 named bucket × 균등 20일
-// 폭으로 통일. V2.22 의 ±30 7탭 / V3 의 ±60 extended fallback hack 은 모두
-// 폭 비대칭 우회였고 균등 폭 통일 후 단일 7탭 picker 로 단순화.
-//
-// 모든 탭이 동일한 표본 단위 (20일 윈도) → 그룹 간 점수 비교 시 sample
-// size warp 없음. extended/legacy stripe 도 폐기.
-const BUCKETS = [
-  "D-60", "D-40", "D-20", "D-Day", "D+20", "D+40", "D+60",
-] as const;
+// Display tabs: see src/lib/debutWindow.ts (single source of truth). All tabs
+// are the same 20-day window unit → no sample-size warp across groups.
 type Bucket = typeof BUCKETS[number];
 type AnyBucket = Bucket;
 const ALL_BUCKETS = BUCKETS as readonly AnyBucket[];

@@ -1,13 +1,10 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { verdictColor } from "../lib/organicity";
+import { DISPLAY_BUCKETS as BUCKETS } from "../lib/debutWindow";
 import { DebutWindowSignalPanel } from "./DebutWindowSignalPanel";
 
-// V2.34 (2026-05-27): 균등 20일 폭 7 bucket. worker WINDOW_BUCKETS 와 1:1.
-// 이전 5탭 (D-60/D-30/D-Day/D+30/D+60) 은 비대칭 폭의 union 매핑이었음.
-const BUCKETS = [
-  "D-60", "D-40", "D-20", "D-Day", "D+20", "D+40", "D+60",
-] as const;
+// Display tabs: see src/lib/debutWindow.ts (single source of truth).
 type Bucket = typeof BUCKETS[number];
 type FilterType = "all" | "long" | "short";
 type ViewMode = "debut" | "all";

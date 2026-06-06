@@ -1,14 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { scoreColor } from "../lib/organicity";
-
-// V2.34 (2026-05-27): 균등 20일 폭 7 bucket. 이전 5탭 (D-60/D-30/D-Day/D+30/D+60)
-// 은 worker 의 비대칭 폭 (30/10/3일) 을 union 매핑으로 합쳐 가렸음.
-// 균등 폭 통일 후 worker bucket 과 1:1 매핑 → 7 탭 모두 노출하여
-// 연속 데뷔 windowing 비교 가능.
-const BUCKETS = [
-  "D-60", "D-40", "D-20", "D-Day", "D+20", "D+40", "D+60",
-] as const;
+import { DISPLAY_BUCKETS as BUCKETS } from "../lib/debutWindow";
 
 interface SummaryRow {
   group_key: string;
