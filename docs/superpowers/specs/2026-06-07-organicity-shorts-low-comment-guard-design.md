@@ -100,5 +100,10 @@ fixture 를 보존):
 - **paid 탐지망이 balance 비대칭에만 의존** (dead-ER + 정상비율, 또는
   comment==0 + 고조회 paid 가 composite ≥60 으로 미탐지): V2.37 부터의
   트레이드오프. 본 변경이 악화시키지 않음. 별도 작업.
-- **요약 view-weighted mean 이 단일 티저에 지배**: 요약/프런트 표시 이슈. 별도.
+- **요약 view-weighted mean 이 단일 티저에 지배** (Finding 3): 요약/프런트 표시
+  이슈. → **V2.40 (2026-06-07) 에서 처리** — 기본 렌즈를 count 기반 simple mean
+  으로 전환 (`DEFAULT_ORGANICITY_MODE`/`headlineOrganicScore`). view-weighted 는
+  토글로 보존.
+- **paid 탐지망 협소** (Finding 2): 운영자 결정으로 미변경 — false positive 재발
+  리스크 + 휴리스틱-only 유지. backlog 문서화만.
 - long-form 미변경.
