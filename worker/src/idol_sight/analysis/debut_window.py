@@ -83,6 +83,18 @@ BALANCE_LONG_HIGH_PENALTY_PER_UNIT = 0.5  # long ratio>50 → like-farm slope
 BALANCE_SHORT_LOW_PENALTY_PER_UNIT = 5.0  # short ratio<15 → comment-farm slope
 BALANCE_SHORT_HIGH_PENALTY_PER_UNIT = 0.4 # short ratio>78 → like-farm slope
 
+# V2.39 (2026-06-07) Shorts low-comment balance guard. like_comment_ratio
+# (likes/max(comments,1)) is dominated by ±1-comment noise when comments are
+# few, so a healthy small Short with 1-2 comments explodes past the p90 ceiling
+# (78) and trips a spurious like-farm penalty — the "댓글 1개 절벽" (0 comments
+# scored 93, 1 comment scored 39). Below MIN comments the ratio is not a
+# trustworthy authenticity signal, so balance is neutralized (b=100) — UNLESS
+# the Short is high-view: high views + few comments + the resulting near-dead ER
+# is the genuine cold-traffic/paid signature, where farm detection must stay
+# live. See docs/superpowers/specs/2026-06-07-organicity-shorts-low-comment-guard-design.md.
+BALANCE_MIN_COMMENTS_SHORT = 10
+BALANCE_LOW_VIEW_CEIL_SHORT = 50_000
+
 # Velocity-engagement coherence cross-check. NULL velocity is treated as a
 # missing signal (weight redistributed) — V2 calibration discovered ~91%
 # of videos have NULL viral_velocity_ratio so the V1 fixed-50 mid-point was
@@ -267,6 +279,7 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
 
     e_score = _compute_engagement_score(engagement_rate, is_short)
     b_score = _compute_balance_score(like_comment_ratio, is_short)
+    balance_basis = "ratio"
 
     # V2.37 0-comment Shorts guard: a Short with 0 comments is normal (tap-like,
     # no comment), but like_comment_ratio degenerates to the absolute like count
@@ -275,8 +288,21 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
     # judge authenticity without comments, so treat balance as neutral (no farm)
     # rather than emit a false paid flag. Long-form keeps its intentional
     # like-only-as-farm behavior (comments are expected there).
+    #
+    # V2.39 low-comment guard (see constants above): generalize the 0-comment
+    # case — below BALANCE_MIN_COMMENTS_SHORT the ratio is too noisy to trust, so
+    # neutralize balance. The high-view exception keeps farm detection live where
+    # few comments is a cold-traffic signal, not just small-sample.
     if is_short and comment_count == 0:
         b_score = 100
+        balance_basis = "zero_comment"
+    elif (
+        is_short
+        and comment_count < BALANCE_MIN_COMMENTS_SHORT
+        and view_count < BALANCE_LOW_VIEW_CEIL_SHORT
+    ):
+        b_score = 100
+        balance_basis = "insufficient_comments"
 
     if is_short:
         # V2.37: Shorts judged on scale-invariant ratios only — velocity is
@@ -314,6 +340,7 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
         "engagement_score": e_score,
         "like_comment_ratio": round(like_comment_ratio, 2),
         "balance_score": b_score,
+        "balance_basis": balance_basis,
         "velocity_ratio": velocity_ratio,
         "velocity_coherence_score": v_score,
         "weights": weights_used,

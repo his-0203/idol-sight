@@ -290,6 +290,96 @@ def test_short_zero_comment_not_flagged_like_farm():
     assert score == 93
     assert breakdown["verdict"] == "organic_strong"
     assert "like_farm" not in breakdown["causes"]
+    assert breakdown["balance_basis"] == "zero_comment"
+
+
+def test_short_low_comment_low_view_balance_neutralized_fixes_cliff():
+    """V2.39 (2026-06-07) headline regression — the '댓글 1개 절벽'.
+
+    A healthy small Short (4K views / 300 likes) with just 1 comment had its
+    like_comment_ratio explode to 300, tripping the like-farm penalty and
+    cratering the balance-dominant score to 39 (likely_paid) — even though the
+    same Short with 0 comments scored 93 (organic_strong). Ground-truth: every
+    MiiWAN Short except the PLUMA teaser is organic, so this was a pure false
+    positive. The low-comment guard neutralizes balance below
+    BALANCE_MIN_COMMENTS_SHORT when the Short is also low-view, so it scores on
+    engagement alone: e=82 (ER ~7.5%), b=100 → 0.4*82 + 0.6*100 = 93."""
+    video = {
+        "is_short": True,
+        "view_count": 4_000,
+        "like_count": 300,
+        "comment_count": 1,     # was ratio 300 → like-farm cliff under V2.37
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    assert score == 93
+    assert breakdown["verdict"] == "organic_strong"
+    assert breakdown["balance_basis"] == "insufficient_comments"
+    assert "like_farm" not in breakdown["causes"]
+
+
+def test_short_high_view_low_comment_balance_still_judged():
+    """V2.39: the low-comment guard must NOT protect high-view Shorts —
+    high views + few comments + the resulting near-dead ER is the genuine
+    cold-traffic/paid signature, so balance (farm) detection stays live. The
+    existing like_farm fixture (100K / 5000 likes / 5 comments) is exactly this
+    case: above BALANCE_LOW_VIEW_CEIL_SHORT, so balance is judged on the ratio
+    (1000 → b=0) and it stays likely_paid at 21, NOT rescued by the guard."""
+    video = {
+        "is_short": True,
+        "view_count": 100_000,
+        "like_count": 5_000,
+        "comment_count": 5,     # < MIN comments, but high-view → not protected
+        "viral_velocity_ratio": None,
+    }
+    score, breakdown = compute_organic_score(video)
+    assert score == 21
+    assert breakdown["verdict"] == "likely_paid"
+    assert breakdown["balance_basis"] == "ratio"
+    assert "like_farm" in breakdown["causes"]
+
+
+@pytest.mark.parametrize(
+    "view_count,comment_count,expect_protected",
+    [
+        (49_999, 1, True),    # below view ceil → protected
+        (50_000, 1, False),   # at view ceil → not protected (boundary)
+        (4_000,  9, True),    # below comment min → protected
+        (4_000, 10, False),   # at comment min → not protected (boundary)
+    ],
+)
+def test_short_low_comment_guard_boundaries(view_count, comment_count, expect_protected):
+    """V2.39 boundary pins: guard fires for comment_count <
+    BALANCE_MIN_COMMENTS_SHORT (10) AND view_count < BALANCE_LOW_VIEW_CEIL_SHORT
+    (50_000). Both are strict-less-than, so the threshold value itself is NOT
+    protected. Use a like-heavy short (lcr well above the p90 ceiling) so the
+    protected/unprotected split is visible in balance_basis."""
+    video = {
+        "is_short": True,
+        "view_count": view_count,
+        "like_count": 600,       # lcr 600/comment → far above the 78 ceiling
+        "comment_count": comment_count,
+        "viral_velocity_ratio": None,
+    }
+    _, breakdown = compute_organic_score(video)
+    if expect_protected:
+        assert breakdown["balance_basis"] == "insufficient_comments"
+    else:
+        assert breakdown["balance_basis"] == "ratio"
+
+
+def test_short_normal_comment_count_balance_basis_is_ratio():
+    """V2.39: a Short with enough comments is judged on the ratio as before —
+    balance_basis defaults to 'ratio'."""
+    video = {
+        "is_short": True,
+        "view_count": 10_000,
+        "like_count": 500,       # ER 5.1%, lcr 25 (in zone)
+        "comment_count": 20,     # >= MIN comments
+        "viral_velocity_ratio": None,
+    }
+    _, breakdown = compute_organic_score(video)
+    assert breakdown["balance_basis"] == "ratio"
 
 
 def test_compute_organic_score_long_form_clearly_organic():
