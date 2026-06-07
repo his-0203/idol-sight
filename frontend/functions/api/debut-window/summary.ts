@@ -39,6 +39,11 @@ interface SummaryRow {
 
 // SQL CASE 식 — worker bucket → frontend bucket 매핑.
 // (FRONTEND_BUCKET_MAP 을 역인덱스로 전개해 CASE WHEN 생성.)
+// V2.42: 데뷔일 없는 그룹(BTHD 등)의 영상은 worker 가 'Undated' 버킷으로
+// 채점한다. FRONTEND_BUCKET_MAP 에는 넣지 않아 UI 탭으로는 노출되지 않고,
+// 카드의 unfiltered fetch 에서만 passthrough 로 반환 → KPI pre-debut 배지용.
+const UNDATED_BUCKET = "Undated";
+
 function buildBucketCase(): string {
   const lines: string[] = [];
   for (const [frontendBucket, workerBuckets] of Object.entries(FRONTEND_BUCKET_MAP)) {
@@ -49,6 +54,8 @@ function buildBucketCase(): string {
       lines.push(`    WHEN window_bucket = '${safeWb}' THEN '${safeFb}'`);
     }
   }
+  // V2.42: Undated → Undated passthrough (IN 목록에 포함될 때만 매칭됨).
+  lines.push(`    WHEN window_bucket = '${UNDATED_BUCKET}' THEN '${UNDATED_BUCKET}'`);
   return `CASE\n${lines.join("\n")}\n  END`;
 }
 
@@ -66,7 +73,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
     }
     targetWorkerBuckets = FRONTEND_BUCKET_MAP[bucket]!;
   } else {
-    targetWorkerBuckets = ALL_WORKER_BUCKETS;
+    // 카드 fetch (필터 없음): named 버킷 + Undated passthrough.
+    targetWorkerBuckets = [...ALL_WORKER_BUCKETS, UNDATED_BUCKET];
   }
 
   const placeholders = targetWorkerBuckets.map(() => "?").join(",");

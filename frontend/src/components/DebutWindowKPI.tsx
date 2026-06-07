@@ -74,11 +74,22 @@ export function DebutWindowKPI({ groupKey }: Props) {
           );
         })}
       </div>
-      <div class="kpi-debutwin-note">
-        simple(count) mean per bucket · 툴팁에 reach-weighted 병기 · 휴리스틱 <strong>추정</strong>(ground-truth 아님)
-        <br />
-        organicity = 진정성(비율) 신호 · 조회수 규모와 <strong>무관</strong>(작아도 비율 정상이면 높음)
-      </div>
+      {(() => {
+        // V2.42: groups with no announced debut_date have no windowed buckets,
+        // but their videos are scored into the 'Undated' bucket. Surface that
+        // here as a pre-debut posture line (anchor-independent).
+        const u = byBucket.get("Undated");
+        if (!u) return null;
+        const s = headlineOrganicScore(u);
+        return (
+          <div class="kpi-debutwin-note" title={`${u.video_count} videos · pre-debut (데뷔일 미설정)`}>
+            pre-debut · {u.video_count}개 영상 · 평균{" "}
+            {s === null
+              ? <span>판정 보류</span>
+              : <strong style={{ color: scoreColor(s) }}>{Math.round(s)}점</strong>}
+          </div>
+        );
+      })()}
     </div>
   );
 }

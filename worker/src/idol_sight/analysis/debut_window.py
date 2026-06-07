@@ -126,6 +126,15 @@ _SHORT_WEIGHTS_RAW = {"engagement": 0.4, "balance": 0.6}
 SHORT_WEIGHTS: Mapping[str, float] = MappingProxyType(_SHORT_WEIGHTS_RAW)
 
 
+# V2.42: groups without an announced debut_date can't be windowed (no anchor
+# for days_relative_to_debut), but the organic score itself is anchor-
+# independent — compute_organic_score reads only view/like/comment/velocity.
+# Their videos are scored into this synthetic bucket so the KPI card can show a
+# pre-debut posture. days_relative is stored as 0 (placeholder, never rendered:
+# the table's "전체 기간" view shows the published date, not the day offset).
+UNDATED_BUCKET = "Undated"
+
+
 def bucket_for(days_relative: int) -> str | None:
     """Map a signed day offset to its bucket label, or None if out of window.
 
@@ -369,8 +378,7 @@ LEFT JOIN youtube_video_stats s
             SELECT MAX(snapshot_at) FROM youtube_video_stats s2
              WHERE s2.video_id = v.video_id
           )
-WHERE g.debut_date IS NOT NULL
-  AND v.published_at IS NOT NULL
+WHERE v.published_at IS NOT NULL
 """
 
 
@@ -419,10 +427,16 @@ def build_video_organicity(client: _Executor) -> CollectionResult:
     statements: list[tuple[str, list[Any]]] = []
 
     for r in rows:
-        days_rel = _days_between(r["debut_date"], r["published_at"])
-        bucket = bucket_for(days_rel)
-        if bucket is None:
-            continue  # defensive — Pre/Post catch all post-V3.1, should not trip
+        debut_date = r.get("debut_date")
+        if debut_date:
+            days_rel = _days_between(debut_date, r["published_at"])
+            bucket = bucket_for(days_rel)
+            if bucket is None:
+                continue  # defensive — Pre/Post catch all post-V3.1
+        else:
+            # V2.42: no announced debut → score anyway, park in Undated.
+            days_rel = 0
+            bucket = UNDATED_BUCKET
 
         video = {
             "is_short": r.get("is_short") or 0,

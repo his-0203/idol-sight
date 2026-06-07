@@ -550,6 +550,52 @@ def test_build_video_organicity_scores_all_videos_emits_upserts():
         assert "engagement_score" in parsed
 
 
+def test_build_video_organicity_scores_undated_group_into_undated_bucket():
+    """V2.42: a group with NULL debut_date is no longer skipped. The organic
+    score is anchor-independent (compute_organic_score ignores debut_date), so
+    its videos are scored and parked in the synthetic 'Undated' bucket with a
+    placeholder days_relative of 0."""
+    client = _client({
+        "FROM youtube_videos": [
+            {
+                "video_id": "bthd_vid",
+                "group_key": "bthd",
+                "is_short": 1,
+                "published_at": "2026-06-01T00:00:00Z",
+                "view_count": 106_031,
+                "like_count": 126,
+                "comment_count": 28,
+                "viral_velocity_ratio": None,
+                "debut_date": None,  # no announced debut
+            },
+        ],
+    })
+    result = build_video_organicity(client)
+
+    assert len(result.statements) == 1
+    params = result.statements[0][1]
+    # _UPSERT_VIDEO_SQL column order: video_id(0) … days_relative(4) bucket(5)
+    assert params[0] == "bthd_vid"
+    assert params[4] == 0             # placeholder days_relative (no anchor)
+    assert params[5] == "Undated"     # synthetic bucket
+
+    # Still produces a real, non-insufficient score (anchor-independent).
+    breakdown_json = next(
+        p for p in params if isinstance(p, str) and p.startswith("{")
+    )
+    parsed = json.loads(breakdown_json)
+    assert "engagement_score" in parsed
+    assert parsed["verdict"] != "insufficient_data"
+
+
+def test_fetch_sql_no_longer_gates_on_debut_date():
+    """V2.42: NULL-debut groups must be scored (Undated bucket), so the fetch
+    SQL must not filter them out on debut_date."""
+    from idol_sight.analysis.debut_window import _FETCH_VIDEOS_SQL
+    assert "debut_date IS NOT NULL" not in _FETCH_VIDEOS_SQL
+    assert "v.published_at IS NOT NULL" in _FETCH_VIDEOS_SQL
+
+
 def test_fetch_sql_uses_real_youtube_video_stats_columns():
     """The fetch SQL must alias the real youtube_video_stats column names
     (views/likes/comments) to view_count/like_count/comment_count so the
