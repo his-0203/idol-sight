@@ -17,7 +17,10 @@ const ALL_BUCKETS = BUCKETS as readonly AnyBucket[];
 // MarketOverview / GroupContent / DebutCurve subculture gating
 // established in V2.15 / V2.21 (the bar was previously the only place
 // they showed up).
-const EXCLUDED_GROUPS = new Set<string>(["isedol", "stellive"]);
+// V2.41.1 (2026-06-08): uryael (UR:L / 유아렐) added — it is the same
+// subculture case (group_model='segmentary', V2.33 subculture cohort)
+// and was simply never gated here when introduced.
+const EXCLUDED_GROUPS = new Set<string>(["isedol", "stellive", "uryael"]);
 
 // Score mode = which mean column to render. V2 (migration 0054) adds
 // type-split and simple variants so users can defuse Shorts-vs-Long mix
