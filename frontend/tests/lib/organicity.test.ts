@@ -3,9 +3,11 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_ORGANICITY_MODE,
   ORGANIC_NEUTRAL_COLOR,
   VERDICT_COLOR,
   VERDICT_THRESHOLDS,
+  headlineOrganicScore,
   scoreColor,
   scoreToVerdict,
   verdictColor,
@@ -39,6 +41,33 @@ describe("organicity shared scale", () => {
     expect(verdictColor("insufficient_data")).toBe(ORGANIC_NEUTRAL_COLOR);
     expect(verdictColor(null)).toBe(ORGANIC_NEUTRAL_COLOR);
     expect(verdictColor("garbage")).toBe(ORGANIC_NEUTRAL_COLOR);
+  });
+
+  // V2.40 Finding 3: the default organicity lens is the count-based simple
+  // mean, NOT the view-weighted mean — a single high-view paid outlier (the
+  // PLUMA teaser) must not dominate a bucket whose catalog is otherwise organic.
+  it("DEFAULT_ORGANICITY_MODE is the count-based simple mean", () => {
+    expect(DEFAULT_ORGANICITY_MODE).toBe("all_simple");
+  });
+
+  it("headlineOrganicScore returns the simple (count-based) mean, not weighted", () => {
+    // A teaser-dominated bucket: weighted is dragged down by the outlier, but
+    // the catalog (simple mean) is healthy. Headline must reflect the catalog.
+    expect(
+      headlineOrganicScore({
+        organic_score_mean: 35,         // view-weighted, teaser-dominated
+        organic_score_mean_simple: 82,  // count-based, healthy catalog
+      }),
+    ).toBe(82);
+  });
+
+  it("headlineOrganicScore is null when the bucket has no scored videos", () => {
+    expect(
+      headlineOrganicScore({
+        organic_score_mean: null,
+        organic_score_mean_simple: null,
+      }),
+    ).toBeNull();
   });
 
   // Cross-language drift guard: the frontend thresholds must match the worker's

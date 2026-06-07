@@ -49,3 +49,29 @@ export function verdictColor(v: string | null | undefined): string {
   if (v && v in VERDICT_COLOR) return VERDICT_COLOR[v as Verdict];
   return ORGANIC_NEUTRAL_COLOR;
 }
+
+// V2.40 Finding 3: the default organicity lens is the COUNT-BASED simple mean,
+// not the view-weighted mean. View-weighting lets one high-view outlier — e.g.
+// the operator-confirmed paid PLUMA MV teaser — dominate a bucket whose catalog
+// is otherwise organic, overstating paid-ness. The simple mean answers "how
+// organic is the content?" (the defensible question for MiiWAN's dual-track
+// reporting); the view-weighted mean ("how organic is the reach?") stays
+// available as an explicit toggle in CompetitorOrganicityBar. Centralized here
+// so the two consumers (DebutWindowKPI headline + the bar's default mode) can't
+// silently desync — the same hazard this file's header warns about.
+export const DEFAULT_ORGANICITY_MODE = "all_simple" as const;
+
+/** The two per-bucket mean variants returned by /api/debut-window/summary. */
+export interface OrganicityMeans {
+  organic_score_mean: number | null;        // view-weighted (reach lens)
+  organic_score_mean_simple: number | null; // count-based (catalog lens, default)
+}
+
+/**
+ * Headline organic score for a summary row: the count-based simple mean.
+ * Both variants are null together (computed from the same scored set), so no
+ * fallback is needed — a null here means the bucket has no scored videos.
+ */
+export function headlineOrganicScore(row: OrganicityMeans): number | null {
+  return row.organic_score_mean_simple ?? null;
+}

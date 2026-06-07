@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
-import { scoreColor } from "../lib/organicity";
+import { DEFAULT_ORGANICITY_MODE, scoreColor } from "../lib/organicity";
 import { DISPLAY_BUCKETS as BUCKETS } from "../lib/debutWindow";
 
 // Display tabs: see src/lib/debutWindow.ts (single source of truth). All tabs
@@ -118,7 +118,10 @@ export function CompetitorOrganicityBar() {
   // V2.34: 기본 D-Day (균등 20일 폭 7탭 의 중앙). 데뷔 모먼트 기준 비교가
   // posture bar 의 가장 자주 쓰이는 view 라 첫 진입 시 즉시 정보 노출.
   const [bucket, setBucket] = useState<Bucket>("D-Day");
-  const [mode, setMode] = useState<Mode>("all_weighted");
+  // V2.40 Finding 3: default to the count-based simple mean so one high-view
+  // paid outlier (the PLUMA teaser) can't dominate a bucket. view-weighted
+  // stays one click away. See src/lib/organicity.DEFAULT_ORGANICITY_MODE.
+  const [mode, setMode] = useState<Mode>(DEFAULT_ORGANICITY_MODE);
   const [allRows, setAllRows] = useState<SummaryRow[] | null>(null);
 
   useEffect(() => {

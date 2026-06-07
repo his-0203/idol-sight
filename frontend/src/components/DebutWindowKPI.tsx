@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
-import { scoreColor } from "../lib/organicity";
+import { headlineOrganicScore, scoreColor } from "../lib/organicity";
 import { DISPLAY_BUCKETS as BUCKETS } from "../lib/debutWindow";
 
 interface SummaryRow {
@@ -8,6 +8,7 @@ interface SummaryRow {
   window_bucket: string;
   video_count: number;
   organic_score_mean: number | null;
+  organic_score_mean_simple: number | null;
   organic_strong_ratio: number | null;
   organic_ratio: number | null;
   borderline_ratio: number | null;
@@ -51,15 +52,17 @@ export function DebutWindowKPI({ groupKey }: Props) {
       <div class="kpi-debutwin-row">
         {BUCKETS.map((b) => {
           const row = byBucket.get(b);
-          const score = row?.organic_score_mean ?? null;
+          const score = row ? headlineOrganicScore(row) : null;
           const display = score === null ? "—" : Math.round(score).toString();
+          const weighted = row?.organic_score_mean;
           const tooltip = row
             ? `${row.video_count} videos · `
               + `strong ${pct(row.organic_strong_ratio)} · `
               + `organic ${pct(row.organic_ratio)} · `
               + `border ${pct(row.borderline_ratio)} · `
               + `suspect ${pct(row.suspect_ratio)} · `
-              + `paid ${pct(row.likely_paid_ratio)}`
+              + `paid ${pct(row.likely_paid_ratio)} · `
+              + `reach-wtd ${weighted === null || weighted === undefined ? "—" : Math.round(weighted)}`
             : "no data";
           return (
             <div class="kpi-debutwin-cell" key={b} title={tooltip}>
@@ -72,7 +75,7 @@ export function DebutWindowKPI({ groupKey }: Props) {
         })}
       </div>
       <div class="kpi-debutwin-note">
-        view-weighted mean per bucket · 휴리스틱 <strong>추정</strong>(ground-truth 아님)
+        simple(count) mean per bucket · 툴팁에 reach-weighted 병기 · 휴리스틱 <strong>추정</strong>(ground-truth 아님)
       </div>
     </div>
   );
