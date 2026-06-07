@@ -221,6 +221,8 @@ export function CompetitorOrganicityBar() {
             {fallbackCount}개 그룹은 해당 버킷 데이터 없어 현재 시점 점수로 표시 (@버킷)
           </span></>
         )}
+        <br />
+        organicity = 진정성(비율) 신호 · 조회수 규모와 무관 — 막대 길이는 "진짜인가"지 "큰가"가 아님.
       </div>
     </section>
   );

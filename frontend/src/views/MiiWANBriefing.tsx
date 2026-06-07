@@ -605,7 +605,18 @@ export function MiiWANBriefing() {
           유기적 시그널이 강한가" 한 눈에 비교. bucket picker 로 D-60 ~
           D+60 윈도 전환 가능. */}
       <section class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+        <p class="mb-2 text-[11px] leading-relaxed text-zinc-500">
+          이 막대 = <strong class="text-zinc-300">'진짜인가'</strong>(진정성, 규모 무관) ·
+          위 표의 조회·구독 = <strong class="text-zinc-300">'충분한가'</strong>(규모) ·
+          두 축은 별개 — 진정성이 높아도 규모가 충분하다는 뜻은 아님.
+        </p>
         <CompetitorOrganicityBar />
+        <p class="mt-2 text-[11px] leading-relaxed text-zinc-500">
+          데뷔 후 유료 축소로 조회수가 피크 대비 떨어지는 건 정상일 수 있음.
+          건강은 '피크 대비 하락'이 아니라 <strong class="text-zinc-300">organic 도달의 floor</strong>가
+          데뷔 전 baseline 위에서 유지/상승하는가로 판단 —
+          organicity 정상 = '진짜'지만 '충분·지속'의 증거는 아님.
+        </p>
       </section>
 
       {/* 6) STRATEGIC INSIGHT — LLM weekly insights, MiiWAN-scoped first. */}

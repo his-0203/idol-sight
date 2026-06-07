@@ -76,6 +76,8 @@ export function DebutWindowKPI({ groupKey }: Props) {
       </div>
       <div class="kpi-debutwin-note">
         simple(count) mean per bucket · 툴팁에 reach-weighted 병기 · 휴리스틱 <strong>추정</strong>(ground-truth 아님)
+        <br />
+        organicity = 진정성(비율) 신호 · 조회수 규모와 <strong>무관</strong>(작아도 비율 정상이면 높음)
       </div>
     </div>
   );

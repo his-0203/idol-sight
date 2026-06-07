@@ -196,6 +196,9 @@ export function DebutWindowSignalPanel({ videoId, title, signalBreakdown, onClos
                 {verdictLabelKo(verdict)} {verdictEmoji(verdict)}
               </span>
             </div>
+            <div style={{ marginTop: 6, fontSize: 11, lineHeight: 1.5, color: "#71717a" }}>
+              초록 = 조작 신호 없음(진짜)일 뿐 인기·규모·건강 보장 아님 · 비율 기반이라 작은 채널도 비율 깨끗하면 Strong.
+            </div>
             {(() => {
               const causes = parseCauseList(parsed);
               if (causes.length === 0) return null;

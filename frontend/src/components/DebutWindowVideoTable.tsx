@@ -367,6 +367,11 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
                 (view &lt; 1000 AND likes+comments &lt; 10)
               </li>
             </ul>
+            <p class="mt-1.5 text-[10px] leading-relaxed text-zinc-500">
+              초록(Strong/Organic) = 조작 신호 없음(<strong class="text-zinc-300">진짜</strong>)일 뿐
+              인기·규모·건강을 보장하지 않음. 빨강(Suspect/Paid) = 좋아요·댓글 균형 이상(조작/유료 의심).
+              점수는 비율 기반이라 <strong class="text-zinc-300">작은 채널도 비율이 깨끗하면 Strong</strong>이 나옴.
+            </p>
           </div>
 
           <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2">
