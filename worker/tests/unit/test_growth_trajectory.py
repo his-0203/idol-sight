@@ -6,6 +6,7 @@ import pytest
 from idol_sight.analysis.growth_trajectory import classify_accel, classify_direction
 from idol_sight.analysis.growth_trajectory import incremental_er
 from idol_sight.analysis.growth_trajectory import compute_pillars
+from idol_sight.analysis.growth_trajectory import synthesize_posture
 
 
 def test_kst_day_shifts_utc_into_kst():
@@ -128,3 +129,31 @@ def test_compute_pillars_returns_four_keyed_pillars_climbing():
     for p in pillars:
         assert set(p) >= {"key", "level", "wow_growth", "slope_4w", "accel",
                           "direction", "accel_dir"}
+
+
+def _pillar(key, direction, accel_dir, slope=0.1, accel=1.0):
+    return {"key": key, "direction": direction, "accel_dir": accel_dir,
+            "slope_4w": slope, "accel": accel}
+
+
+def test_posture_rising_accelerating_and_weakest_is_declining():
+    pillars = [
+        _pillar("reach", "climbing", "accelerating", 0.3, 5.0),
+        _pillar("engagement", "climbing", "flat", 0.1, 0.0),
+        _pillar("community", "declining", "decelerating", -0.2, -3.0),
+        _pillar("sentiment", "plateau", "flat", 0.0, 0.0),
+    ]
+    label, weakest = synthesize_posture(pillars)
+    assert label == "상승·가속"
+    assert weakest == "community"
+
+
+def test_posture_declining_label():
+    pillars = [
+        _pillar("reach", "declining", "decelerating", -0.3, -5.0),
+        _pillar("engagement", "declining", "decelerating", -0.2, -3.0),
+        _pillar("community", "plateau", "flat", 0.0, 0.0),
+        _pillar("sentiment", "plateau", "flat", 0.0, 0.0),
+    ]
+    label, _ = synthesize_posture(pillars)
+    assert label.startswith("하락")

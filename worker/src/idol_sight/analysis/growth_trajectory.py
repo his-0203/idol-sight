@@ -202,3 +202,39 @@ def compute_pillars(daily: list[dict]) -> list[dict]:
         _pillar_from_levels("community", _community_series(daily)),
         _pillar_from_values("sentiment", _series(daily, "negative_ratio"), invert=True),
     ]
+
+
+PILLAR_WEIGHTS = {"reach": 0.4, "engagement": 0.3, "community": 0.2, "sentiment": 0.1}
+
+_DIR_SCORE = {"climbing": 1, "plateau": 0, "declining": -1, "unknown": 0}
+_ACCEL_SCORE = {"accelerating": 1, "flat": 0, "decelerating": -1}
+
+
+def synthesize_posture(pillars: list[dict]) -> tuple[str, str | None]:
+    """Weighted direction → 상승/정체/하락, weighted accel → 가속/감속.
+    weakest = pillar with the lowest (direction + accel) combined score.
+    """
+    dir_sum = sum(PILLAR_WEIGHTS[p["key"]] * _DIR_SCORE[p["direction"]] for p in pillars)
+    acc_sum = sum(PILLAR_WEIGHTS[p["key"]] * _ACCEL_SCORE[p["accel_dir"]] for p in pillars)
+
+    if dir_sum > 0.15:
+        direction = "상승"
+    elif dir_sum < -0.15:
+        direction = "하락"
+    else:
+        direction = "정체"
+
+    accel = "가속" if acc_sum > 0.15 else "감속" if acc_sum < -0.15 else None
+
+    if direction == "정체":
+        label = "정체"
+    elif direction == "상승":
+        label = "상승·가속" if accel == "가속" else "상승·감속(정점 징후)" if accel == "감속" else "상승"
+    else:
+        label = "하락·가속(악화)" if accel == "가속" else "하락·감속" if accel == "감속" else "하락"
+
+    weakest = min(
+        pillars,
+        key=lambda p: _DIR_SCORE[p["direction"]] + _ACCEL_SCORE[p["accel_dir"]],
+    )["key"]
+    return label, weakest
