@@ -100,6 +100,11 @@ export function Insights() {
                 <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] uppercase tracking-wider text-zinc-400">
                   {TYPE_LABEL[i.type] ?? i.type}
                 </span>
+                {i.report_kind === "interim" && (
+                  <span class="rounded bg-amber-500/15 px-1.5 py-[1px] text-[10px] tracking-wider text-amber-300">
+                    중간점검
+                  </span>
+                )}
                 <span class="text-zinc-600">·</span>
                 <span>{i.scope}</span>
                 <span class="text-zinc-600">·</span>
