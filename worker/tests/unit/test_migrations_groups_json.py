@@ -61,3 +61,20 @@ def test_every_group_json_column_parses_as_list():
             if not isinstance(v, list):
                 bad.append(f"{key}.{col} JSON but not a list: {raw!r}")
     assert not bad, "groups JSON columns must be JSON arrays:\n" + "\n".join(bad)
+
+
+def test_insights_has_report_kind_column():
+    """0083: insights.report_kind 컬럼이 전 마이그레이션 적용 후 존재하고
+    기존 행 기본값이 'final' 이어야 한다 (주 2회 보고 interim/final 구분)."""
+    conn = _apply_all_migrations()
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(insights)").fetchall()]
+    assert "report_kind" in cols, f"report_kind 누락: {cols}"
+    # DEFAULT 'final' 검증 — 컬럼 추가 후 INSERT 시 명시 안 하면 final.
+    conn.execute(
+        "INSERT INTO insights (generated_at, week_start, scope, type, title, body) "
+        "VALUES ('2026-06-08T00:00:00Z', '2026-06-01', 'market', 'weekly', 'T', 'B')"
+    )
+    kind = conn.execute(
+        "SELECT report_kind FROM insights WHERE week_start='2026-06-01'"
+    ).fetchone()[0]
+    assert kind == "final"
