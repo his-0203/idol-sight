@@ -60,3 +60,23 @@ def relative_slope(values: list[float], window_days: int = 28) -> float | None:
     if mean == 0:
         return None
     return _ols_slope(w) * 7.0 / abs(mean)
+
+
+def weekly_flow(levels: list[float], lag: int = 7) -> list[float]:
+    """7-day first difference of a cumulative level series (contiguous days).
+
+    Entries without a d-lag counterpart are dropped, so the result has
+    len(levels) - lag elements.
+    """
+    if len(levels) <= lag:
+        return []
+    return [levels[i] - levels[i - lag] for i in range(lag, len(levels))]
+
+
+def acceleration(series: list[float], half: int = 14) -> float:
+    """mean(last `half`) − mean(prior `half`). 0.0 when either window empty."""
+    recent = series[-half:]
+    prior = series[-2 * half:-half]
+    if not recent or not prior:
+        return 0.0
+    return sum(recent) / len(recent) - sum(prior) / len(prior)

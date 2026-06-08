@@ -1,6 +1,7 @@
 """Tests for growth trajectory analysis module."""
 from idol_sight.analysis.growth_trajectory import _kst_day, resample_daily
 from idol_sight.analysis.growth_trajectory import relative_slope
+from idol_sight.analysis.growth_trajectory import acceleration, weekly_flow
 
 
 def test_kst_day_shifts_utc_into_kst():
@@ -37,3 +38,21 @@ def test_relative_slope_zero_for_flat_series():
 def test_relative_slope_none_when_too_short_or_zero_mean():
     assert relative_slope([1.0], window_days=28) is None
     assert relative_slope([0.0, 0.0], window_days=28) is None
+
+
+def test_weekly_flow_is_7day_first_difference():
+    # contiguous daily levels rising +5/day → 7-day flow = 35 once d-7 exists
+    levels = [float(100 + 5 * i) for i in range(14)]
+    flows = weekly_flow(levels, lag=7)
+    # first 7 entries have no d-7 counterpart → dropped; rest are 35
+    assert flows == [35.0] * 7
+
+
+def test_acceleration_positive_when_recent_flow_exceeds_prior():
+    # prior 14 ≈ 10, recent 14 ≈ 20 → accel ≈ +10
+    series = [10.0] * 14 + [20.0] * 14
+    assert acceleration(series, half=14) == 10.0
+
+
+def test_acceleration_zero_when_insufficient():
+    assert acceleration([1.0, 2.0], half=14) == 0.0
