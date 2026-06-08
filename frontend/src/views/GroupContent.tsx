@@ -6,6 +6,7 @@ import { ExportMenu } from "../components/ExportMenu";
 import { HealthSpec } from "../components/HealthSpec";
 import { EmptyState } from "../components/EmptyState";
 import { GroupTabs } from "../components/GroupTabs";
+import { FanLoyaltyCard } from "../components/FanLoyaltyCard";
 import { Sparkline } from "../components/Sparkline";
 import { DebutWindowVideoTable } from "../components/DebutWindowVideoTable";
 import { MelonChartHistory } from "../components/MelonChartHistory";
@@ -239,6 +240,8 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
               sparkline={seriesOf(summaryHistory, "naver_total_news")}
             />
           </section>
+
+          {data.fan_loyalty && <FanLoyaltyCard loyalty={data.fan_loyalty} />}
 
           <PlatformReactivity summary={data.summary} />
 
