@@ -144,6 +144,11 @@ def incremental_er(daily: list[dict], window: int = 7) -> float | None:
 
 ACCEL_DEADBAND_FRAC = 0.02   # |accel| below 2% of |mean recent| → flat
 
+# Calibrated against the live group distribution (2026-06-08 audit).
+REACH_NOISE_FLOOR = 0.02         # reach 4-week move < 2% → 유지 (quantized/frozen subs)
+MIN_COMMUNITY_VOLUME = 5         # current 7-day posting volume < 5 → too quiet to judge
+MIN_COMMUNITY_ACTIVE_DAYS = 14   # < 14 days with any posting → onset/too-short → unknown
+
 
 def _series(daily: list[dict], col: str) -> list[float]:
     return [float(r.get(col) or 0) for r in daily]
@@ -191,8 +196,16 @@ def _change_4w(series: list[float], relative: bool) -> float | None:
     return series[-1] - base
 
 
-def _pillar_from_levels(key: str, levels: list[float], invert: bool = False) -> dict:
-    """Cumulative pillar: trajectory on the weekly-flow series."""
+def _pillar_from_levels(
+    key: str, levels: list[float], invert: bool = False, noise_floor: float | None = None,
+) -> dict:
+    """Cumulative pillar: trajectory on the weekly-flow series.
+
+    ``noise_floor`` guards against quantized/frozen level data — YouTube rounds
+    large-channel subscriber counts, so the series barely moves and
+    relative_slope amplifies the residual into a spurious climbing/declining.
+    When the real 4-week move is below the floor, the level is effectively flat →
+    force 유지 (plateau / flat)."""
     flows = weekly_flow(levels, lag=7)
     rs = relative_slope(flows, window_days=28)
     if rs is not None and invert:
@@ -202,17 +215,23 @@ def _pillar_from_levels(key: str, levels: list[float], invert: bool = False) -> 
         acc = -acc
     recent_mean = abs(sum(flows[-14:]) / len(flows[-14:])) if flows[-14:] else 0.0
     deadband = max(recent_mean * ACCEL_DEADBAND_FRAC, 1e-9)
+    change = _change_4w(levels, relative=True)
+    direction = classify_direction(rs)
+    accel_dir = classify_accel(acc, deadband)
+    if noise_floor is not None and change is not None and abs(change) < noise_floor:
+        direction = "plateau"
+        accel_dir = "flat"
     return {
         "key": key,
         "level": levels[-1] if levels else None,
         # wow_growth is a relative ratio (e.g. +0.10 = +10%) for cumulative-level
         # pillars. Consumers must render per pillar type (not the same as ratio pillars).
         "wow_growth": _wow(levels),
-        "change_4w": _change_4w(levels, relative=True),
+        "change_4w": change,
         "slope_4w": rs,
         "accel": acc,
-        "direction": classify_direction(rs),
-        "accel_dir": classify_accel(acc, deadband),
+        "direction": direction,
+        "accel_dir": accel_dir,
     }
 
 
@@ -261,10 +280,24 @@ def compute_pillars(daily: list[dict], community_series: list[float]) -> list[di
     # as their own weakest pillar.
     if sentiment["direction"] == "unknown" and (not neg_series or max(neg_series) < 1e-9):
         sentiment["direction"] = "plateau"
+
+    community = _pillar_from_values("community", community_series)
+    # Community guards (2026-06-08 audit): a near-silent gallery (bdawn) or one
+    # whose collection just started (a burst from a near-zero base, e.g. uryael)
+    # can't yield a trustworthy trend — mark unknown so it isn't read as activity
+    # nor flagged as a weak/strong pillar.
+    active_days = sum(1 for v in community_series if v > 0)
+    if (not community_series
+            or community_series[-1] < MIN_COMMUNITY_VOLUME
+            or active_days < MIN_COMMUNITY_ACTIVE_DAYS):
+        community["direction"] = "unknown"
+        community["accel_dir"] = "flat"
+
     return [
-        _pillar_from_levels("reach", _series(daily, "yt_subscribers")),
+        _pillar_from_levels("reach", _series(daily, "yt_subscribers"),
+                            noise_floor=REACH_NOISE_FLOOR),
         _pillar_from_values("engagement", er_series),
-        _pillar_from_values("community", community_series),
+        community,
         sentiment,
     ]
 

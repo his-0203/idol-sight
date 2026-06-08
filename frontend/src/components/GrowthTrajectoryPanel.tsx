@@ -41,7 +41,7 @@ const TONE_COLOR: Record<Tone, string> = {
 // carries the read, avoiding the number-vs-arrow contradiction of the old design.
 const STATUS: Record<string, Record<string, [string, Tone]>> = {
   reach: {
-    climbing: ["빠른 증가", "good"], plateau: ["꾸준", "good"],
+    climbing: ["빠른 증가", "good"], plateau: ["유지", "neutral"],
     declining: ["증가 둔화", "watch"], unknown: ["—", "muted"],
   },
   community: {

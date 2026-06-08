@@ -134,6 +134,49 @@ def _rising_series(n=40):
     return [float(i + 1) for i in range(n)]
 
 
+def test_reach_noise_floor_forces_plateau_on_frozen_quantized_data():
+    from idol_sight.analysis.growth_trajectory import _pillar_from_levels
+    # YouTube rounds large-channel subs → frozen series. Tiny/zero 4-week move
+    # must read 유지, not an amplified climbing/declining.
+    p = _pillar_from_levels("reach", [1_180_000.0] * 40, noise_floor=0.02)
+    assert p["direction"] == "plateau"
+    assert p["accel_dir"] == "flat"
+
+
+def test_reach_noise_floor_allows_real_accelerating_growth():
+    from idol_sight.analysis.growth_trajectory import _pillar_from_levels
+    levels = [10_000.0 + 50 * i * i for i in range(40)]   # rising flow → climbing
+    p = _pillar_from_levels("reach", levels, noise_floor=0.02)
+    assert p["direction"] == "climbing"
+
+
+def test_reach_without_noise_floor_keeps_slope_classification():
+    from idol_sight.analysis.growth_trajectory import _pillar_from_levels
+    p = _pillar_from_levels("reach", [1_180_000.0] * 40)   # no floor → unmodified
+    assert p["direction"] == "unknown"   # frozen flow → slope None → unknown
+
+
+def test_community_low_volume_marks_unknown():
+    daily = _rising_daily()
+    low = [2.0] * len(daily)   # current 7-day volume 2 < MIN_COMMUNITY_VOLUME
+    community = next(p for p in compute_pillars(daily, low) if p["key"] == "community")
+    assert community["direction"] == "unknown"
+
+
+def test_community_short_active_history_marks_unknown():
+    daily = _rising_daily()   # 40-day timeline
+    series = [0.0] * 30 + [float(i) for i in range(1, 11)]   # activity only last 10 days
+    community = next(p for p in compute_pillars(daily, series) if p["key"] == "community")
+    assert community["direction"] == "unknown"
+
+
+def test_community_healthy_volume_not_suppressed():
+    daily = _rising_daily()
+    series = [float(10 + i) for i in range(len(daily))]   # ample volume, full history
+    community = next(p for p in compute_pillars(daily, series) if p["key"] == "community")
+    assert community["direction"] != "unknown"
+
+
 def test_compute_pillars_returns_four_keyed_pillars_climbing():
     pillars = compute_pillars(_rising_daily(), _rising_series())
     keys = {p["key"] for p in pillars}
