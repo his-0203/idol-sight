@@ -258,6 +258,28 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
   albumLifecycles.sort((a, b) =>
     (b.release_week_start ?? "").localeCompare(a.release_week_start ?? ""));
 
+  // V2.46: 팬 충성도 (ccv_tracked 그룹만 row 존재). 테이블 미적용 시 graceful.
+  const [fanLoyalty, loyaltyBroadcasts] = await Promise.all([
+    d1QueryOne<{
+      conversion_rate: number | null; peak_ccv_median: number | null;
+      broadcast_count: number; subscribers: number | null;
+      score: number | null; basis: "scored" | "low_confidence" | "insufficient";
+      ccv_trend_pct: number | null;
+      trend_basis: "rising" | "falling" | "flat" | "unknown";
+      window_days: number; snapshot_at: string;
+    }>(env.DB,
+      "SELECT conversion_rate, peak_ccv_median, broadcast_count, subscribers, "
+      + "score, basis, ccv_trend_pct, trend_basis, window_days, snapshot_at "
+      + "FROM agg_fan_loyalty WHERE group_key=?", [key])
+      .catch(() => null),
+    d1Query<{ video_id: string; peak: number; last_at: string }>(env.DB,
+      "SELECT video_id, MAX(concurrent_viewers) AS peak, MAX(sampled_at) AS last_at "
+      + "FROM live_ccv_samples WHERE group_key=? "
+      + "AND sampled_at >= datetime('now','-90 days') "
+      + "GROUP BY video_id ORDER BY last_at DESC LIMIT 12", [key])
+      .catch(() => [] as { video_id: string; peak: number; last_at: string }[]),
+  ]);
+
   return jsonResponse({
     group_key: group.key,
     name: group.name, name_kr: group.name_kr, debut_date: group.debut_date,
@@ -287,5 +309,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     prev_summary: prevSummary,          // 7-day-ago WoW baseline
     health_history: healthHistory,      // 30d sparkline points
     summary_history: summaryHistory,    // 30d KPI sparkline points
+    fan_loyalty: fanLoyalty
+      ? { ...fanLoyalty, broadcasts: [...loyaltyBroadcasts].reverse() }  // 오래된→최신
+      : null,
   });
 };
