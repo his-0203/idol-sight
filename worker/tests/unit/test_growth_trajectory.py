@@ -1,18 +1,22 @@
 """Tests for growth trajectory analysis module."""
-from idol_sight.analysis.growth_trajectory import _kst_day, resample_daily
-from idol_sight.analysis.growth_trajectory import relative_slope
-from idol_sight.analysis.growth_trajectory import acceleration, weekly_flow
+import json
 import pytest
-from idol_sight.analysis.growth_trajectory import classify_accel, classify_direction
-from idol_sight.analysis.growth_trajectory import incremental_er
-from idol_sight.analysis.growth_trajectory import compute_pillars
-from idol_sight.analysis.growth_trajectory import synthesize_posture
 from unittest.mock import MagicMock
+
 from idol_sight.analysis.growth_trajectory import (
     MIN_HISTORY_DAYS,
+    _kst_day,
+    acceleration,
     build_growth_trajectory,
+    classify_accel,
+    classify_direction,
+    compute_pillars,
+    incremental_er,
+    relative_slope,
+    resample_daily,
+    synthesize_posture,
+    weekly_flow,
 )
-import json
 
 
 def test_kst_day_shifts_utc_into_kst():
@@ -214,7 +218,7 @@ def test_build_marks_thin_history_insufficient():
     assert params[4] is None and params[5] is None
 
 
-def test_build_marks_ok_and_climbing_for_rich_history():
+def test_build_marks_ok_status_and_emits_posture_for_rich_history():
     rows = _fetch_rows_for("miiwan", 40)
     result = build_growth_trajectory(_client(rows))
     upsert = next(s for s in result.statements if "INSERT INTO" in s[0])

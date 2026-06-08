@@ -12,11 +12,27 @@ from typing import Any, Protocol
 
 from idol_sight.collectors.base import CollectionResult
 
+__all__ = [
+    "resample_daily",
+    "relative_slope",
+    "weekly_flow",
+    "acceleration",
+    "classify_direction",
+    "classify_accel",
+    "incremental_er",
+    "compute_pillars",
+    "synthesize_posture",
+    "build_growth_trajectory",
+    "CLIMB_THRESHOLD",
+    "PILLAR_WEIGHTS",
+    "MIN_HISTORY_DAYS",
+]
+
 
 def _kst_day(snapshot_at: str) -> str:
     """KST (UTC+9) calendar day of a UTC ISO8601 timestamp, as YYYY-MM-DD."""
     iso = snapshot_at.replace("Z", "+00:00")
-    dt = datetime.fromisoformat(iso).astimezone(UTC) + timedelta(hours=9)
+    dt = datetime.fromisoformat(iso) + timedelta(hours=9)
     return dt.strftime("%Y-%m-%d")
 
 
@@ -107,7 +123,9 @@ def incremental_er(daily: list[dict], window: int = 7) -> float | None:
     """Δ(likes+comments)/Δviews over the trailing `window` days.
 
     Captures engagement quality on *new* reach (anchor-independent). None when
-    fewer than 2 points or non-positive Δviews.
+    fewer than 2 points or non-positive Δviews. If cumulative likes/comments
+    decrease (e.g. due to moderation or data correction) d_eng can be negative,
+    yielding a negative ER; downstream handles this safely.
     """
     if len(daily) < 2:
         return None
@@ -157,6 +175,8 @@ def _pillar_from_levels(key: str, levels: list[float], invert: bool = False) -> 
     return {
         "key": key,
         "level": levels[-1] if levels else None,
+        # wow_growth is a relative ratio (e.g. +0.10 = +10%) for cumulative-level
+        # pillars. Consumers must render per pillar type (not the same as ratio pillars).
         "wow_growth": _wow(levels),
         "slope_4w": rs,
         "accel": acc,
@@ -178,6 +198,9 @@ def _pillar_from_values(key: str, values: list[float], invert: bool = False) -> 
     return {
         "key": key,
         "level": values[-1] if values else None,
+        # wow_growth is an absolute delta (e.g. ER 3%→5% = +0.02 = +2 pp) for
+        # ratio/value pillars — a relative % change would be misleading here.
+        # Consumers must render per pillar type (not the same as level pillars).
         "wow_growth": (values[-1] - values[-8]) if len(values) >= 8 else None,
         "slope_4w": rs,
         "accel": acc,
@@ -192,10 +215,8 @@ def compute_pillars(daily: list[dict]) -> list[dict]:
     sentiment uses invert=True so 'climbing' always means *healthier* (falling
     negative_ratio), keeping direction semantics uniform across pillars.
     """
-    er_series = []
-    for i in range(len(daily)):
-        er = incremental_er(daily[: i + 1], window=7)
-        er_series.append(er if er is not None else 0.0)
+    er_raw = [incremental_er(daily[: i + 1], window=7) for i in range(len(daily))]
+    er_series = [v for v in er_raw if v is not None]
     return [
         _pillar_from_levels("reach", _series(daily, "yt_subscribers")),
         _pillar_from_values("engagement", er_series),
@@ -284,8 +305,8 @@ def build_growth_trajectory(client: _Executor) -> CollectionResult:
         by_group.setdefault(r["group_key"], []).append(r)
 
     statements: list[tuple[str, list[Any]]] = [(_CLEAR_SQL, [])]
-    for group_key, grows in by_group.items():
-        daily = resample_daily(grows)
+    for group_key, group_rows in by_group.items():
+        daily = resample_daily(group_rows)
         history_days = len(daily)
         if history_days < MIN_HISTORY_DAYS:
             statements.append((_UPSERT_SQL, [
