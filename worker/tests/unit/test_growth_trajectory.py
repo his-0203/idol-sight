@@ -4,6 +4,7 @@ from idol_sight.analysis.growth_trajectory import relative_slope
 from idol_sight.analysis.growth_trajectory import acceleration, weekly_flow
 import pytest
 from idol_sight.analysis.growth_trajectory import classify_accel, classify_direction
+from idol_sight.analysis.growth_trajectory import incremental_er
 
 
 def test_kst_day_shifts_utc_into_kst():
@@ -74,3 +75,21 @@ def test_classify_direction(rs, expected):
 ])
 def test_classify_accel(a, expected):
     assert classify_accel(a, deadband=1.0) == expected
+
+
+def test_incremental_er_uses_deltas_over_window():
+    # views +100000, likes+comments +5000 over window → ER = 0.05
+    daily = [
+        {"yt_total_views": 1_000_000, "yt_likes_total": 40_000, "yt_comments_total": 5_000},
+        {"yt_total_views": 1_100_000, "yt_likes_total": 44_000, "yt_comments_total": 6_000},
+    ]
+    er = incremental_er(daily, window=1)
+    assert er is not None and abs(er - 0.05) < 1e-9
+
+
+def test_incremental_er_none_when_no_new_views():
+    daily = [
+        {"yt_total_views": 1_000_000, "yt_likes_total": 40_000, "yt_comments_total": 5_000},
+        {"yt_total_views": 1_000_000, "yt_likes_total": 40_010, "yt_comments_total": 5_000},
+    ]
+    assert incremental_er(daily, window=1) is None

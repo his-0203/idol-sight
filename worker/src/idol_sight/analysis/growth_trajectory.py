@@ -101,3 +101,23 @@ def classify_accel(accel: float, deadband: float) -> str:
     if accel < -deadband:
         return "decelerating"
     return "flat"
+
+
+def incremental_er(daily: list[dict], window: int = 7) -> float | None:
+    """Δ(likes+comments)/Δviews over the trailing `window` days.
+
+    Captures engagement quality on *new* reach (anchor-independent). None when
+    fewer than 2 points or non-positive Δviews.
+    """
+    if len(daily) < 2:
+        return None
+    last = daily[-1]
+    base = daily[-1 - window] if len(daily) > window else daily[0]
+    d_views = (last.get("yt_total_views") or 0) - (base.get("yt_total_views") or 0)
+    if d_views <= 0:
+        return None
+    d_eng = (
+        (last.get("yt_likes_total") or 0) + (last.get("yt_comments_total") or 0)
+        - (base.get("yt_likes_total") or 0) - (base.get("yt_comments_total") or 0)
+    )
+    return d_eng / d_views
