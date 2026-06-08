@@ -1,6 +1,7 @@
 import pytest
 from idol_sight.analysis.loyalty import (
     median, score_from_conversion, ccv_trend, compute_loyalty,
+    build_fan_loyalty,
     WINDOW_DAYS, TREND_FLAT_BAND, MIN_BROADCASTS_FOR_TREND,
 )
 
@@ -48,6 +49,12 @@ def test_ccv_trend_rising_falling_flat():
     assert pct == pytest.approx(0.05) and basis == "flat"
 
 
+def test_ccv_trend_odd_broadcasts_split():
+    # 5개: 전반 [100,100] median 100, 후반 [100,300,300] median 300 → +200% rising
+    pct, basis = ccv_trend([100.0, 100.0, 100.0, 300.0, 300.0])
+    assert pct == pytest.approx(2.0) and basis == "rising"
+
+
 def test_compute_loyalty_scored():
     # 2개 방송, peak 1000/2000 (median 1500), 구독자 100k → 1.5% → 50점
     samples = [
@@ -86,3 +93,61 @@ def test_compute_loyalty_insufficient_bad_subscribers():
     ]
     assert compute_loyalty(samples, subscribers=0)["basis"] == "insufficient"
     assert compute_loyalty(samples, subscribers=None)["basis"] == "insufficient"
+
+
+class _FakeClient:
+    """execute()는 SQL 키워드로 분기해 고정 행 반환."""
+    def __init__(self, tracked, samples, subs):
+        self._tracked = tracked      # [{"key":...}]
+        self._samples = samples      # [{group_key, video_id, sampled_at, concurrent_viewers}]
+        self._subs = subs            # [{group_key, yt_subscribers, snapshot_at}]
+
+    def execute(self, sql, params=None):
+        if "ccv_tracked" in sql:
+            return self._tracked
+        if "live_ccv_samples" in sql:
+            return self._samples
+        if "yt_subscribers" in sql:
+            return self._subs
+        return []
+
+
+def test_build_fan_loyalty_produces_row_per_tracked_group():
+    client = _FakeClient(
+        tracked=[{"key": "miiwan"}, {"key": "plave"}],
+        samples=[
+            {"group_key": "miiwan", "video_id": "a",
+             "sampled_at": "2026-06-01T10:00:00Z", "concurrent_viewers": 1500},
+            {"group_key": "miiwan", "video_id": "b",
+             "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 1500},
+        ],
+        subs=[
+            {"group_key": "miiwan", "yt_subscribers": 100_000, "snapshot_at": "2026-06-07T00:00:00Z"},
+            {"group_key": "plave", "yt_subscribers": 1_000_000, "snapshot_at": "2026-06-07T00:00:00Z"},
+        ],
+    )
+    res = build_fan_loyalty(client)
+    # CLEAR 1 + 그룹 2 = 3 statements
+    assert len(res.statements) == 3
+    assert res.statements[0][0].strip().upper().startswith("DELETE")
+    # plave 는 샘플 없음 → insufficient row 도 적재 (8그룹 카드 일관성)
+    params_by_group = {st[1][0]: st[1] for st in res.statements[1:]}
+    assert set(params_by_group) == {"miiwan", "plave"}
+
+
+def test_build_fan_loyalty_picks_latest_nonnull_subscribers():
+    client = _FakeClient(
+        tracked=[{"key": "miiwan"}],
+        samples=[{"group_key": "miiwan", "video_id": "a",
+                  "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 1500}],
+        subs=[
+            {"group_key": "miiwan", "yt_subscribers": 50_000, "snapshot_at": "2026-06-01T00:00:00Z"},
+            {"group_key": "miiwan", "yt_subscribers": 100_000, "snapshot_at": "2026-06-07T00:00:00Z"},
+        ],
+    )
+    res = build_fan_loyalty(client)
+    miiwan = res.statements[1][1]
+    # INSERT 컬럼: group_key, conversion_rate, peak_ccv_median, broadcast_count,
+    #   subscribers, score, basis, ccv_trend_pct, trend_basis, window_days, snapshot_at
+    assert miiwan[1] == pytest.approx(0.015)   # conversion_rate (1500/100000)
+    assert miiwan[4] == 100_000                 # subscribers (최신 non-null)

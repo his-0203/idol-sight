@@ -132,3 +132,76 @@ def compute_loyalty(
     base["ccv_trend_pct"] = (round(pct, 4) if pct is not None else None)
     base["trend_basis"] = tbasis
     return base
+
+
+class _Executor(Protocol):
+    def execute(self, sql: str, params: list | None = ...) -> list[dict]: ...
+
+
+_CLEAR_SQL = "DELETE FROM agg_fan_loyalty"
+
+_TRACKED_SQL = "SELECT key FROM groups WHERE ccv_tracked=1"
+
+_SUBS_SQL = (
+    "SELECT group_key, yt_subscribers, snapshot_at FROM agg_summary "
+    "WHERE yt_subscribers IS NOT NULL"
+)
+
+_INSERT_SQL = """
+INSERT INTO agg_fan_loyalty
+  (group_key, conversion_rate, peak_ccv_median, broadcast_count,
+   subscribers, score, basis, ccv_trend_pct, trend_basis,
+   window_days, snapshot_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+def build_fan_loyalty(client: _Executor) -> CollectionResult:
+    """ccv_tracked 그룹별 충성도 스냅샷. full DELETE+rebuild.
+
+    insufficient(라이브 없음/구독자 결측) 그룹도 row를 남겨 8그룹 카드가
+    '데이터 축적 중'을 표시할 수 있게 한다.
+    """
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cutoff = (datetime.now(UTC) - timedelta(days=WINDOW_DAYS)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+
+    tracked = [r["key"] for r in client.execute(_TRACKED_SQL)]
+
+    sample_rows = client.execute(
+        "SELECT group_key, video_id, sampled_at, concurrent_viewers "
+        "FROM live_ccv_samples "
+        "WHERE sampled_at >= ? AND concurrent_viewers IS NOT NULL",
+        [cutoff],
+    )
+    samples_by_group: dict[str, list[dict]] = {}
+    for r in sample_rows:
+        samples_by_group.setdefault(r["group_key"], []).append(r)
+
+    # 그룹별 최신 non-null 구독자 (snapshot_at DESC 첫 행).
+    subs_by_group: dict[str, int] = {}
+    latest_at: dict[str, str] = {}
+    for r in client.execute(_SUBS_SQL):
+        gk, at = r["group_key"], r["snapshot_at"]
+        if gk not in latest_at or at > latest_at[gk]:
+            latest_at[gk] = at
+            subs_by_group[gk] = r["yt_subscribers"]
+
+    statements: list[tuple[str, list[Any]]] = [(_CLEAR_SQL, [])]
+    for gk in tracked:
+        out = compute_loyalty(
+            samples_by_group.get(gk, []), subs_by_group.get(gk),
+        )
+        statements.append((_INSERT_SQL, [
+            gk, out["conversion_rate"], out["peak_ccv_median"],
+            out["broadcast_count"], out["subscribers"], out["score"],
+            out["basis"], out["ccv_trend_pct"], out["trend_basis"],
+            WINDOW_DAYS, now,
+        ]))
+
+    return CollectionResult(
+        rows_inserted=0,
+        rows_updated=len(statements),
+        statements=statements,
+    )

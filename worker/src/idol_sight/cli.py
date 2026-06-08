@@ -419,6 +419,19 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
                            f"{bs.statements_executed}/{bs.statements_sent}", err=True)
                 raise typer.Exit(code=1)
         typer.echo(f"growth_trajectory: wrote {len(gt.statements)} rows")
+
+        # V2.46: 라이브 CCV 기반 팬 충성도. live_ccv_samples + 구독자로
+        # 전환율 점수화. melon 미참조라 skip_derived 블록에 위치. health
+        # score보다 먼저 실행되어 _recompute_health_scores가 읽는다.
+        from idol_sight.analysis.loyalty import build_fan_loyalty
+        fl = build_fan_loyalty(client)
+        if fl.statements:
+            bs = client.batch(fl.statements)
+            if bs.statements_executed != bs.statements_sent:
+                typer.echo(f"partial fan_loyalty write: "
+                           f"{bs.statements_executed}/{bs.statements_sent}", err=True)
+                raise typer.Exit(code=1)
+        typer.echo(f"fan_loyalty: wrote {len(fl.statements)} rows")
     else:
         typer.echo("skip-derived: agg_group_combined / velocity / reactivity skipped")
 
