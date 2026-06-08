@@ -1,11 +1,12 @@
 name: analyze-weekly
 on:
   schedule:
-    - cron: '0 0 * * 1'        # Monday 00:00 UTC = Monday 09:00 KST
+    - cron: '0 14 * * 0,3'     # Sun & Wed 14:00 UTC = Sun & Wed 23:00 KST
   workflow_dispatch:
     inputs:
       week_start: {description: 'YYYY-MM-DD (Sunday)', required: false}
-      week_end:   {description: 'YYYY-MM-DD (Saturday)', required: false}
+      week_end:   {description: 'YYYY-MM-DD (Saturday=final / Wed=interim)', required: false}
+      kind:       {description: 'final | interim (auto by weekday if blank)', required: false}
 
 jobs:
   analyze:
@@ -18,32 +19,44 @@ jobs:
         working-directory: worker
       - run: uv run scrapling install
         working-directory: worker
-      - name: Compute week bounds (if not provided)
+      - name: Compute week bounds + kind (if not provided)
         id: bounds
         run: |
           if [[ -n "${{ inputs.week_start }}" && -n "${{ inputs.week_end }}" ]]; then
             echo "ws=${{ inputs.week_start }}" >> "$GITHUB_OUTPUT"
             echo "we=${{ inputs.week_end }}"   >> "$GITHUB_OUTPUT"
+            kind="${{ inputs.kind }}"
+            echo "kind=${kind:-final}" >> "$GITHUB_OUTPUT"
           else
-            # Most recent Sunday-to-Saturday strictly before today.
-            we=$(python3 -c "
+            # 요일로 모드 결정 (cron 은 일=0, 수=3 에만 발사):
+            #   일요일(weekday 6) → final: 직전 완결 일~토.
+            #   그 외(수요일)     → interim: 이번 주 일 ~ 오늘(수).
+            # out=$(...) 는 set -eo pipefail 하에서 python 실패 시 step 을
+            # 중단시킨다(process substitution 은 안 그래서 here-string 사용).
+            out=$(python3 -c "
           import datetime as d
-          t = d.date.today()
-          end = t - d.timedelta(days=((t.weekday() + 1) % 7) + 1)
-          print(end.isoformat())
+          t = d.date.today()                      # runner 는 UTC
+          wd = t.weekday()                         # Mon=0 .. Sun=6
+          if wd == 6:                              # 일요일 → final
+              end = t - d.timedelta(days=1)        # 직전 토요일
+              start = end - d.timedelta(days=6)    # 그 주 일요일
+              kind = 'final'
+          else:                                    # 수요일 → interim
+              start = t - d.timedelta(days=(wd + 1) % 7)  # 이번 주 일요일
+              end = t                              # 오늘(수)
+              kind = 'interim'
+          print(start.isoformat(), end.isoformat(), kind)
           ")
-            ws=$(python3 -c "
-          import datetime as d
-          end = d.date.fromisoformat('$we')
-          print((end - d.timedelta(days=6)).isoformat())
-          ")
-            echo "ws=$ws" >> "$GITHUB_OUTPUT"
-            echo "we=$we" >> "$GITHUB_OUTPUT"
+            read -r ws we kind <<< "$out"
+            echo "ws=$ws"     >> "$GITHUB_OUTPUT"
+            echo "we=$we"     >> "$GITHUB_OUTPUT"
+            echo "kind=$kind" >> "$GITHUB_OUTPUT"
           fi
       - run: |
           uv run python -m idol_sight analyze-weekly \
             --week-start ${{ steps.bounds.outputs.ws }} \
-            --week-end   ${{ steps.bounds.outputs.we }}
+            --week-end   ${{ steps.bounds.outputs.we }} \
+            --kind       ${{ steps.bounds.outputs.kind }}
         working-directory: worker
         env:
           CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
