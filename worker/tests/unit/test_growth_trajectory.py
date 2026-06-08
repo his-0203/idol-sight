@@ -203,6 +203,9 @@ def test_posture_weakest_excludes_unknown_pillars():
     (["plateau"] * 4, ["flat"] * 4, "성장 유지"),
     (["declining"] * 4, ["flat"] * 4, "성장 둔화"),
     (["declining"] * 4, ["decelerating"] * 4, "성장 둔화 심화"),
+    # slowing but deceleration reversing → stays 둔화 (not 심화), shares the
+    # acc>=−0.15 branch with the flat case; guard that distinction.
+    (["declining"] * 4, ["accelerating"] * 4, "성장 둔화"),
 ])
 def test_posture_label_vocabulary(dirs, accs, expected):
     keys = ["reach", "engagement", "community", "sentiment"]

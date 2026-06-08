@@ -1,4 +1,5 @@
 // frontend/src/components/GrowthTrajectoryPanel.tsx
+import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 
@@ -89,7 +90,7 @@ const WEAKEST_REASON: Record<string, string> = {
   sentiment: "부정 여론이 늘고 있음",
 };
 
-function MessageBox({ children }: { children: preact.ComponentChildren }) {
+function MessageBox({ children }: { children: ComponentChildren }) {
   return (
     <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
       {children}
