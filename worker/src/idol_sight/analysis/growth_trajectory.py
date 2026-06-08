@@ -293,13 +293,21 @@ def compute_pillars(daily: list[dict], community_series: list[float]) -> list[di
         community["direction"] = "unknown"
         community["accel_dir"] = "flat"
 
-    return [
-        _pillar_from_levels("reach", _series(daily, "yt_subscribers"),
-                            noise_floor=REACH_NOISE_FLOOR),
-        _pillar_from_values("engagement", er_series),
-        community,
-        sentiment,
-    ]
+    # Reach: subscribers are the headline (audience size), but YouTube ROUNDS
+    # large-channel subscriber counts, so the series freezes/quantizes and its
+    # trajectory is noise. When the 4-week subscriber move is below the floor
+    # (quantized or genuinely flat), fall back to the EXACT cumulative-view
+    # velocity as a reach proxy — consumption growth still carries signal.
+    subs = _series(daily, "yt_subscribers")
+    subs_change = _change_4w(subs, relative=True)
+    if subs_change is None or abs(subs_change) < REACH_NOISE_FLOOR:
+        reach = _pillar_from_levels("reach", _series(daily, "yt_total_views"))
+        reach["source"] = "views"
+    else:
+        reach = _pillar_from_levels("reach", subs, noise_floor=REACH_NOISE_FLOOR)
+        reach["source"] = "subscribers"
+
+    return [reach, _pillar_from_values("engagement", er_series), community, sentiment]
 
 
 PILLAR_WEIGHTS = {"reach": 0.4, "engagement": 0.3, "community": 0.2, "sentiment": 0.1}

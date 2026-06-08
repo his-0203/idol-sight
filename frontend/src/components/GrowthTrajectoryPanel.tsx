@@ -12,6 +12,7 @@ interface Pillar {
   accel: number;              // retained from worker contract (tooltip/future use)
   direction: string;          // climbing | plateau | declining | unknown
   accel_dir: string;          // accelerating | flat | decelerating (not surfaced)
+  source?: string;            // reach only: "subscribers" | "views" (views = quantized-subs fallback)
 }
 interface Trajectory {
   status: string;             // ok | insufficient_history | no_data
@@ -73,7 +74,9 @@ function fmtMetric(p: Pillar): string {
     if (p.change_4w === null || p.change_4w === undefined) return "";
     const v = p.change_4w * 100;
     const dec = Math.abs(v) < 1 ? 1 : 0;   // don't round a small-but-real % to 0
-    return `최근 4주 ${v >= 0 ? "+" : ""}${v.toFixed(dec)}%`;
+    const base = `최근 4주 ${v >= 0 ? "+" : ""}${v.toFixed(dec)}%`;
+    // views fallback (subscriber count was quantized/rounded) — flag the basis.
+    return p.source === "views" ? `${base} · 조회 기준` : base;
   }
   if (p.key === "community") {
     // level = posts actually posted in the trailing window (real recent volume).

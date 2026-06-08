@@ -156,6 +156,29 @@ def test_reach_without_noise_floor_keeps_slope_classification():
     assert p["direction"] == "unknown"   # frozen flow → slope None → unknown
 
 
+def _frozen_subs_growing_views(n=40):
+    """Quantized/frozen subscriber count (YouTube rounds large channels) while
+    cumulative views keep accelerating — the reach-views-fallback fixture."""
+    return [{
+        "yt_subscribers": 1_180_000,                       # frozen
+        "yt_total_views": 800_000_000 + 5_000_000 * i * i,  # accelerating
+        "yt_likes_total": 0, "yt_comments_total": 0, "negative_ratio": 0.0,
+    } for i in range(n)]
+
+
+def test_reach_falls_back_to_views_when_subs_quantized():
+    reach = next(p for p in compute_pillars(_frozen_subs_growing_views(), [0.0] * 40)
+                 if p["key"] == "reach")
+    assert reach["source"] == "views"
+    assert reach["direction"] == "climbing"   # exact view velocity still has signal
+
+
+def test_reach_uses_subscribers_when_subs_reliable():
+    reach = next(p for p in compute_pillars(_rising_daily(), _rising_series())
+                 if p["key"] == "reach")
+    assert reach["source"] == "subscribers"
+
+
 def test_community_low_volume_marks_unknown():
     daily = _rising_daily()
     low = [2.0] * len(daily)   # current 7-day volume 2 < MIN_COMMUNITY_VOLUME
