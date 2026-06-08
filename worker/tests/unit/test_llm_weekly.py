@@ -333,8 +333,8 @@ def test_generate_weekly_serializes_signals_json_when_diagnosis():
     sql, params = _insert_stmts(result)[0]
     # signals_json 컬럼이 INSERT 에 포함돼 있어야 함
     assert "signals_json" in sql
-    # signals_json 은 마지막 bind param
-    signals_json_value = params[-1]
+    # signals_json 은 9번째 bind param (index 8); 마지막(index 9)은 report_kind.
+    signals_json_value = params[8]
     assert signals_json_value is not None
     import json
     payload = json.loads(signals_json_value)
@@ -362,7 +362,7 @@ def test_generate_weekly_signals_json_null_for_non_diagnosis():
     )
     sql, params = _insert_stmts(result)[0]
     assert "signals_json" in sql
-    assert params[-1] is None
+    assert params[8] is None  # signals_json at index 8; report_kind is index 9
 
 
 def test_generate_weekly_empty_items_emits_no_statements():
@@ -375,3 +375,52 @@ def test_generate_weekly_empty_items_emits_no_statements():
         week_start="2026-04-22", week_end="2026-04-28",
     )
     assert result.statements == []
+
+
+def test_generate_weekly_interim_kind_threads_to_delete_and_insert():
+    """report_kind='interim' 이면 DELETE 가 kind 스코프이고 INSERT 의
+    report_kind 컬럼 값이 'interim' 이어야 한다 (수=중간점검 / 일=결산 공존)."""
+    gemini = MagicMock()
+    gemini.generate.return_value = {
+        "items": [{
+            "scope": "miiwan", "type": "weekly",
+            "title": "T", "body": "B",
+            "source_refs": [{"table": "agg_summary", "pk": "miiwan|w", "label": "L"}],
+        }],
+    }
+    result = generate_weekly(
+        db=_stub_db(), gemini=gemini,
+        week_start="2026-06-07", week_end="2026-06-10",
+        report_kind="interim",
+    )
+    # 1) DELETE 는 kind 스코프 — 같은 week_start 의 final 카드를 안 지운다.
+    del_sql, del_params = result.statements[0]
+    assert del_sql.startswith("DELETE FROM insights")
+    assert "report_kind" in del_sql
+    assert del_params == ["2026-06-07", "interim"]
+    # 2) INSERT 의 report_kind 값 = 'interim' (마지막 바인드 파라미터).
+    sql, params = _insert_stmts(result)[0]
+    assert "report_kind" in sql
+    assert params[-1] == "interim"
+    # 3) 컨텍스트에 report_kind 가 주입돼 LLM 이 프레이밍할 수 있다.
+    ctx = gemini.generate.call_args.kwargs["context"]
+    assert ctx["report_kind"] == "interim"
+
+
+def test_generate_weekly_defaults_to_final_kind():
+    """report_kind 미지정(수동 dispatch / 일요일 결산 기본) → 'final'."""
+    gemini = MagicMock()
+    gemini.generate.return_value = {
+        "items": [{
+            "scope": "market", "type": "weekly", "title": "T", "body": "B",
+            "source_refs": [{"table": "agg_summary", "pk": "plave|w", "label": "L"}],
+        }],
+    }
+    result = generate_weekly(
+        db=_stub_db(), gemini=gemini,
+        week_start="2026-04-22", week_end="2026-04-28",
+    )
+    del_sql, del_params = result.statements[0]
+    assert del_params == ["2026-04-22", "final"]
+    sql, params = _insert_stmts(result)[0]
+    assert params[-1] == "final"

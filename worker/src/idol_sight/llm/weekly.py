@@ -32,6 +32,7 @@ def build_context(
     week_start: str,
     week_end: str,
     signals_by_group: dict[str, GroupSignals] | None = None,
+    report_kind: str = "final",
 ) -> dict[str, Any]:
     """Weekly LLM 컨텍스트 빌더.
 
@@ -85,6 +86,7 @@ def build_context(
     )
     return {
         "week": {"start": week_start, "end": week_end},
+        "report_kind": report_kind,
         "agg_summary_last_7d": last_7d,
         "agg_summary_prev_7d": prev_7d,
         "hanteo": hanteo,
@@ -138,6 +140,7 @@ def generate_weekly(
     week_start: str,
     week_end: str,
     signals_by_group: dict[str, GroupSignals] | None = None,
+    report_kind: str = "final",
 ) -> CollectionResult:
     """signals_by_group:
       None 이면 build_context 안에서 compute_group_signals 호출 (기존 동작).
@@ -147,6 +150,7 @@ def generate_weekly(
         week_start=week_start,
         week_end=week_end,
         signals_by_group=signals_by_group,
+        report_kind=report_kind,
     )
     parsed = gemini.generate(
         system_prompt=PROMPT_WEEKLY,
@@ -192,7 +196,8 @@ def generate_weekly(
     statements: list[tuple[str, list]] = []
     if items:
         statements.append(
-            ("DELETE FROM insights WHERE week_start = ?", [week_start]),
+            ("DELETE FROM insights WHERE week_start = ? AND report_kind = ?",
+             [week_start, report_kind]),
         )
     for item in items:
         # ai_comment is optional in the schema (migration 0039) and in
@@ -230,8 +235,8 @@ def generate_weekly(
             """
             INSERT INTO insights
               (generated_at, week_start, scope, type, title, body,
-               source_refs_json, ai_comment, signals_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               source_refs_json, ai_comment, signals_json, report_kind)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.strip(),
             [
                 now_iso, week_start,
@@ -242,6 +247,7 @@ def generate_weekly(
                 json.dumps(item.get("source_refs") or [], ensure_ascii=False),
                 ai_comment,
                 signals_json,
+                report_kind,
             ],
         ))
 
