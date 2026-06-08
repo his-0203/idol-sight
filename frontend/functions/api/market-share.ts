@@ -12,6 +12,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   const rows = await d1Query<ShareRow>(env.DB,
     `SELECT * FROM agg_market_share
       WHERE week_end >= date('now', ?)
+        -- 토요일('6')=완결주 final 행만. interim(수='3') 부분주 행은 트렌드에서 제외 (V2 주2회 보고).
         AND strftime('%w', week_end) = '6'
       ORDER BY week_start ASC, group_key ASC`,
     [`-${weeks * 7} days`]);
