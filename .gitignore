@@ -39,3 +39,6 @@ dist/
 # 생성 산출물(migration sql) 만 repo 에 저장. 입력 파일은 추적 안 함.
 scripts/historical_backfill/bigkinds/*.xlsx
 !scripts/historical_backfill/bigkinds/.gitkeep
+
+# 스케줄러 런타임 락 (로컬 상태, 추적 안 함)
+.claude/scheduled_tasks.lock

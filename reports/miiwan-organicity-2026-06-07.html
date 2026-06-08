@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiiWAN Organicity 점검 · 2026-06-07 (D-9)</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#141821; --panel2:#1b2230; --ink:#eef2f8; --mut:#94a3b8;
+    --line:#27303f; --brand:#7c8cff; --good:#34d399; --warn:#fbbf24; --bad:#f87171;
+    --paid:#60a5fa; --org:#34d399; --accent:#7c8cff; --mw:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",-apple-system,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+  .deck{scroll-snap-type:y mandatory;height:100vh;overflow-y:scroll}
+  section.slide{scroll-snap-align:start;min-height:100vh;padding:5vh 6vw 7vh;
+    display:flex;flex-direction:column;justify-content:center;position:relative;
+    border-bottom:1px solid var(--line)}
+  .kicker{color:var(--brand);font-weight:700;letter-spacing:.14em;font-size:13px;text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:clamp(34px,5.2vw,62px);line-height:1.08;margin:0 0 18px;font-weight:800;letter-spacing:-.02em}
+  h2{font-size:clamp(24px,3.4vw,40px);line-height:1.15;margin:0 0 22px;font-weight:800;letter-spacing:-.01em}
+  h2 .num{color:var(--brand);margin-right:14px}
+  p.lead{font-size:clamp(16px,1.7vw,21px);color:var(--mut);max-width:64ch;line-height:1.6;margin:0 0 10px}
+  .pagefoot{position:absolute;bottom:18px;left:6vw;right:6vw;display:flex;justify-content:space-between;
+    color:#5b667a;font-size:12px;letter-spacing:.04em}
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:860px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+  .card.hl{background:linear-gradient(160deg,#1a2030,#141821);border-color:#2b3650}
+  .stat{font-size:clamp(28px,3.8vw,44px);font-weight:850;letter-spacing:-.02em;line-height:1}
+  .stat.good{color:var(--good)}.stat.bad{color:var(--bad)}.stat.brand{color:var(--brand)}
+  .stat.warn{color:var(--warn)}.stat.paid{color:var(--paid)}.stat.mw{color:var(--mw)}
+  .stat small{font-size:.42em;font-weight:700;color:var(--mut);margin-left:6px}
+  .lbl{color:var(--mut);font-size:14px;margin-top:8px;line-height:1.45}
+  .chip{display:inline-block;padding:4px 11px;border-radius:999px;font-size:12.5px;font-weight:700;margin:0 6px 6px 0}
+  .chip.g{background:rgba(52,211,153,.14);color:#6ee7b7;border:1px solid rgba(52,211,153,.3)}
+  .chip.r{background:rgba(248,113,113,.13);color:#fca5a5;border:1px solid rgba(248,113,113,.3)}
+  .chip.b{background:rgba(124,140,255,.14);color:#aeb8ff;border:1px solid rgba(124,140,255,.3)}
+  .chip.y{background:rgba(251,191,36,.13);color:#fcd34d;border:1px solid rgba(251,191,36,.3)}
+  .chip.c{background:rgba(96,165,250,.14);color:#93c5fd;border:1px solid rgba(96,165,250,.3)}
+  ul.clean{margin:6px 0 0;padding:0;list-style:none}
+  ul.clean li{padding:11px 0 11px 26px;position:relative;border-top:1px solid var(--line);font-size:15.5px;line-height:1.55;color:#d7deea}
+  ul.clean li:first-child{border-top:none}
+  ul.clean li::before{content:"";position:absolute;left:4px;top:18px;width:8px;height:8px;border-radius:2px;background:var(--brand)}
+  ul.clean li.g::before{background:var(--good)} ul.clean li.r::before{background:var(--bad)}
+  ul.clean li.y::before{background:var(--warn)} ul.clean li.b::before{background:var(--paid)}
+  b.k{color:#fff;font-weight:800}
+  .barrow{display:grid;grid-template-columns:118px 1fr 56px;align-items:center;gap:12px;margin:9px 0;font-size:14px}
+  .barrow .nm{color:#cdd6e4;font-weight:600;text-align:right}
+  .barrow .nm.mw{color:var(--mw);font-weight:800}
+  .bartrk{background:#0e131c;border:1px solid var(--line);border-radius:8px;height:22px;overflow:hidden;position:relative}
+  .barfill{height:100%;border-radius:7px 0 0 7px}
+  .barrow .v{color:#aeb8ff;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
+  table.t{width:100%;border-collapse:collapse;font-size:14.5px;margin-top:6px}
+  table.t th,table.t td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:right}
+  table.t th:first-child,table.t td:first-child{text-align:left}
+  table.t th{color:var(--mut);font-weight:700;font-size:12.5px;letter-spacing:.03em;text-transform:uppercase}
+  table.t tr.mw td{background:rgba(167,139,250,.09);color:#fff;font-weight:700}
+  table.t td.gd{color:var(--good)} table.t td.bd{color:var(--bad)} table.t td.pd{color:var(--paid)}
+  .note{color:#6b7689;font-size:13px;line-height:1.5;margin-top:14px;border-left:2px solid var(--line);padding-left:12px}
+  .split{display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:4px 0 2px}
+  .split>div{display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;color:#0b0d12}
+  .navhint{position:fixed;bottom:16px;right:18px;color:#465063;font-size:11px;z-index:9}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- 1 · 표지 -->
+<section class="slide">
+  <div class="kicker">내부 BI 점검 보고 · ABYSS COMPANY</div>
+  <h1>MiiWAN 데뷔 전<br>Organicity 분류 점검</h1>
+  <p class="lead">자사 BI(IDOL-SIGHT)의 유료/오가닉 자동 분류가 데뷔 직전 시점에 신뢰할 만한지 전수 점검하고, MiiWAN의 콘텐츠 성격을 데이터로 재확인했습니다.</p>
+  <div style="margin-top:10px">
+    <span class="chip b">2026-06-07 · D-9</span>
+    <span class="chip g">분류 신뢰성 검증 완료</span>
+    <span class="chip c">라이브 D1 실측</span>
+  </div>
+  <div class="pagefoot"><span>MiiWAN Organicity 점검</span><span>D-9 · 데뷔 2026-06-16</span></div>
+</section>
+
+<!-- 2 · 핵심 요약 -->
+<section class="slide">
+  <h2><span class="num">01</span>핵심 요약</h2>
+  <div class="grid g2">
+    <div class="card hl">
+      <div class="stat good">신뢰 가능</div>
+      <div class="lbl">BI의 organicity 분류가 MiiWAN ground-truth(실제 광고 집행 내역)와 정확히 일치함을 확인. 유료 콘텐츠 11/11 정확 식별.</div>
+    </div>
+    <div class="card hl">
+      <div class="stat mw">ER 6.8%</div>
+      <div class="lbl">MiiWAN 오가닉 콘텐츠(라이브 방송)의 engagement rate — 아이돌 장르 최상위권. 찐팬 관여는 건강함.</div>
+    </div>
+  </div>
+  <ul class="clean" style="margin-top:18px">
+    <li class="g"><b class="k">분류는 믿을 수 있다.</b> Shorts·롱폼 전수 검토 + MiiWAN 실제 집행 내역 대조 → 유료(인터뷰·MV·Live Ver·Piece)와 오가닉(라이브 방송)을 정확히 분리.</li>
+    <li class="b"><b class="k">"낮은 수치"는 의도된 유료 도달분이다.</b> MiiWAN 롱폼의 36%가 paid로 분류되지만, 이는 데뷔 전 인지도 확보용 광고 집행 그 자체 — 적신호가 아니라 계획대로.</li>
+    <li class="g"><b class="k">오가닉 engagement는 최상위권.</b> 광고 없는 라이브 방송은 ER 6.8%·organic_strong 대역. 광고는 도달을, 찐팬 관여는 오가닉이 따로 만든다는 듀얼 트랙이 독립 분류로 확증됨.</li>
+    <li class="y"><b class="k">경쟁 비교는 동일 장르 기준으로.</b> VTuber 그룹(STELLIVE·ISEGYE)은 engagement 규범이 달라 직접 비교 부적합 — 아이돌 장르(PLAVE·WE GO-6·OWIS)가 공정한 잣대.</li>
+  </ul>
+  <div class="pagefoot"><span>핵심 요약</span><span>02</span></div>
+</section>
+
+<!-- 3 · 무엇을 점검했나 -->
+<section class="slide">
+  <h2><span class="num">02</span>무엇을 점검했고, 얼마나 믿을 수 있나</h2>
+  <p class="lead">"유료 부스팅 대비 관여가 낮다"는 우려에 답하려면, 먼저 BI가 유료와 오가닉을 제대로 구분하는지부터 검증해야 했습니다.</p>
+  <div class="grid g3" style="margin-top:8px">
+    <div class="card"><div class="stat brand">14,734</div><div class="lbl">전 그룹 채점된 영상 수 (롱폼 8,388 + Shorts 6,346)</div></div>
+    <div class="card"><div class="stat mw">44 + 81</div><div class="lbl">MiiWAN 롱폼 44 · Shorts 81개를 실제 광고 집행 내역과 1:1 대조</div></div>
+    <div class="card"><div class="stat good">11 / 11</div><div class="lbl">MiiWAN 유료 집행 롱폼(인터뷰5·MV·Live Ver5)을 빠짐없이 paid로 분류</div></div>
+  </div>
+  <ul class="clean" style="margin-top:18px">
+    <li class="g">자동 분류 결과를 <b class="k">운영자가 아는 실제 광고 집행 내역</b>과 대조 → 오분류 없음 확인.</li>
+    <li class="g">검토 중 Shorts의 소형 오가닉 영상 오탐 1건을 발견·수정, 요약 지표 기본값도 더 정직하게 개선(상세 6p).</li>
+    <li class="b">롱폼은 전수 검증 결과 <b class="k">정확히 작동</b> → 변경 없이 그대로 사용.</li>
+  </ul>
+  <div class="note">organicity는 공개 지표(조회·좋아요·댓글) 기반 <b>휴리스틱 추정</b>입니다. 내부 광고비 원장 같은 ground-truth가 아니라, 외형 신호로 "유료성"을 추정하는 보조 지표로 해석하십시오.</div>
+  <div class="pagefoot"><span>점검 범위 · 신뢰도</span><span>03</span></div>
+</section>
+
+<!-- 4 · MiiWAN 유료 vs 오가닉 -->
+<section class="slide">
+  <h2><span class="num">03</span>MiiWAN: 유료와 오가닉이 깔끔히 갈린다</h2>
+  <p class="lead">같은 채널 안에서도 콘텐츠 성격이 분명히 나뉩니다 — 광고 집행분은 짧고 도달 위주, 오가닉 방송은 길고 관여가 깊습니다. BI가 이 둘을 정확히 분리합니다.</p>
+  <div class="grid g3" style="margin-top:6px">
+    <div class="card">
+      <span class="chip g">오가닉 · 라이브 방송</span>
+      <div class="stat good" style="margin-top:6px">76–100<small>organic</small></div>
+      <div class="lbl">중앙 길이 <b class="k">65분</b> · ER <b class="k">6.80%</b> · n=28<br>찐팬 관여가 깊은 콘텐츠. 점수 최상위 대역.</div>
+    </div>
+    <div class="card">
+      <span class="chip c">유료(소량) · 솔로곡 일반</span>
+      <div class="stat warn" style="margin-top:6px">42–52<small>suspect</small></div>
+      <div class="lbl">중앙 길이 <b class="k">2.7분</b> · ER <b class="k">2.77%</b> · n=5<br>소액 집행분 → 중간(suspect)으로 정확히 분류.</div>
+    </div>
+    <div class="card">
+      <span class="chip b">유료(집중) · 인터뷰·MV·Live Ver</span>
+      <div class="stat paid" style="margin-top:6px">24–37<small>paid</small></div>
+      <div class="lbl">중앙 길이 <b class="k">3.0분</b> · ER <b class="k">0.82%</b> · n=11<br>TrueView 집행분 → likely_paid로 정확히 식별.</div>
+    </div>
+  </div>
+  <ul class="clean" style="margin-top:16px">
+    <li class="g"><b class="k">광고는 좋아요·댓글을 만들지 않는다 — 조회·도달을 산다.</b> 그래서 유료 영상의 낮은 ER(0.8%)은 "관여 저하"가 아니라 광고 트래픽의 구조적 특성. CPV·도달로 평가하면 고효율.</li>
+    <li class="g"><b class="k">관여는 오가닉 트랙(ER 6.8%)에서 따로, 건강하게 형성 중.</b> 분류기가 두 트랙을 독립적으로 구분 → 듀얼 트랙 전략이 데이터로 확증됨.</li>
+  </ul>
+  <div class="pagefoot"><span>MiiWAN 유료 vs 오가닉</span><span>04</span></div>
+</section>
+
+<!-- 5 · 경쟁 벤치마크 -->
+<section class="slide">
+  <h2><span class="num">04</span>경쟁 벤치마크 — 동일 장르로 보라</h2>
+  <p class="lead">롱폼 organic 비율(영상 수 기준). 단, VTuber 그룹은 팬덤 engagement 규범이 달라 직접 비교가 부적합합니다.</p>
+  <div class="grid g2">
+    <div class="card">
+      <div style="color:var(--mut);font-size:13px;font-weight:700;margin-bottom:10px">아이돌 장르 (공정한 비교군)</div>
+      <div class="barrow"><div class="nm">WE GO-6</div><div class="bartrk"><div class="barfill" style="width:97%;background:var(--org)"></div></div><div class="v">97%</div></div>
+      <div class="barrow"><div class="nm">PLAVE</div><div class="bartrk"><div class="barfill" style="width:83%;background:var(--org)"></div></div><div class="v">83%</div></div>
+      <div class="barrow"><div class="nm">OWIS</div><div class="bartrk"><div class="barfill" style="width:81%;background:var(--org)"></div></div><div class="v">81%</div></div>
+      <div class="barrow"><div class="nm">MY:RAKL</div><div class="bartrk"><div class="barfill" style="width:79%;background:var(--org)"></div></div><div class="v">79%</div></div>
+      <div class="barrow"><div class="nm">B:DAWN</div><div class="bartrk"><div class="barfill" style="width:73%;background:var(--org)"></div></div><div class="v">73%</div></div>
+      <div class="barrow"><div class="nm">SKINZ</div><div class="bartrk"><div class="barfill" style="width:71%;background:var(--org)"></div></div><div class="v">71%</div></div>
+      <div class="barrow"><div class="nm mw">MiiWAN</div><div class="bartrk"><div class="barfill" style="width:64%;background:var(--mw)"></div></div><div class="v">64%</div></div>
+    </div>
+    <div class="card">
+      <div style="color:var(--mut);font-size:13px;font-weight:700;margin-bottom:10px">VTuber 장르 (직접 비교 ✕)</div>
+      <div class="barrow"><div class="nm">UR:L</div><div class="bartrk"><div class="barfill" style="width:43%;background:#5b667a"></div></div><div class="v">43%</div></div>
+      <div class="barrow"><div class="nm">ISEGYE</div><div class="bartrk"><div class="barfill" style="width:33%;background:#5b667a"></div></div><div class="v">33%</div></div>
+      <div class="barrow"><div class="nm">STELLIVE</div><div class="bartrk"><div class="barfill" style="width:21%;background:#5b667a"></div></div><div class="v">21%</div></div>
+      <div class="note" style="margin-top:14px">이들의 낮은 수치는 <b style="color:#cdd6e4">유료가 아니라 장르 특성</b>입니다. VTuber 클립 팬덤은 좋아요·댓글 비율(ER 2.8~3.2%)이 아이돌(6~7%)의 절반.<br><br>결정적 증거: 같은 ISEGYE의 <b style="color:#cdd6e4">Shorts는 organic 91%</b>인데 롱폼만 33% — 그룹이 유료라서가 아니라 롱폼 콘텐츠 형태가 ER 기준에 안 맞는 것.</div>
+    </div>
+  </div>
+  <div class="note">MiiWAN 64%는 <b style="color:#cdd6e4">데뷔 전 의도된 광고 집행</b>으로 낮아진 값. 광고가 빠진 라이브 방송만 보면 이미 76~100점(아이돌 상위권)대입니다.</div>
+  <div class="pagefoot"><span>경쟁 벤치마크</span><span>05</span></div>
+</section>
+
+<!-- 6 · 신뢰성 개선 -->
+<section class="slide">
+  <h2><span class="num">05</span>이번 점검으로 개선된 분류 신뢰성</h2>
+  <p class="lead">검토 과정에서 발견한 오차를 수정해, 데뷔 후 organicity 지표를 더 안심하고 쓸 수 있게 했습니다. (Shorts 한정 — 롱폼은 무변경)</p>
+  <div class="grid g3">
+    <div class="card">
+      <span class="chip g">수정</span>
+      <div class="lbl" style="margin-top:8px"><b class="k">소형 Short 오탐 제거</b><br>댓글이 1~2개뿐인 건강한 소형 오가닉 Short가 유료로 잘못 분류되던 결함을 수정. 데뷔 초 소형 콘텐츠가 많을 시기에 중요.</div>
+    </div>
+    <div class="card">
+      <span class="chip g">개선</span>
+      <div class="lbl" style="margin-top:8px"><b class="k">요약 지표 정직화</b><br>고조회 유료 영상 1개가 버킷 전체 점수를 끌어내리던 가중 방식을, 영상 수 기준 평균으로 전환. "콘텐츠가 얼마나 오가닉한가"를 왜곡 없이 표시.</div>
+    </div>
+    <div class="card">
+      <span class="chip b">검증</span>
+      <div class="lbl" style="margin-top:8px"><b class="k">롱폼 무변경</b><br>전수 검증 결과 정확히 작동하여 그대로 유지. 추측 기반 수정은 의도적으로 배제(과교정 방지).</div>
+    </div>
+  </div>
+  <div class="note">분류는 외형 추정이라 위기성 단정에는 항상 인간 검증을 거칩니다(BI 윤리 가이드). 본 점검도 false positive를 줄이는 방향으로만 조정했습니다.</div>
+  <div class="pagefoot"><span>신뢰성 개선</span><span>06</span></div>
+</section>
+
+<!-- 7 · 데뷔 권고 -->
+<section class="slide">
+  <h2><span class="num">06</span>데뷔 권고</h2>
+  <div class="grid g3">
+    <div class="card hl">
+      <span class="chip b">유료 트랙</span>
+      <div class="lbl" style="margin-top:8px">광고는 <b class="k">도달 KPI(CPV·트루뷰·노출)</b>로 평가·지속. ER 잣대를 광고 영상에 적용하지 말 것 — 구조적으로 낮은 게 정상.</div>
+    </div>
+    <div class="card hl">
+      <span class="chip g">오가닉 트랙</span>
+      <div class="lbl" style="margin-top:8px">라이브 방송 ER <b class="k">6.8%</b>(상위권)를 핵심 지표로 부각. 데뷔 후 팬 콘텐츠·방송이 쌓이며 organic 비율이 자연 상승.</div>
+    </div>
+    <div class="card hl">
+      <span class="chip y">비교 기준</span>
+      <div class="lbl" style="margin-top:8px">경쟁 비교는 <b class="k">아이돌 장르(PLAVE·WE GO-6·OWIS)</b>로. VTuber 그룹 organicity와 직접 대조 금지.</div>
+    </div>
+  </div>
+  <ul class="clean" style="margin-top:18px">
+    <li class="g">결론: <b class="k">BI organicity 분류는 데뷔 모니터링에 신뢰 가능</b>. 유료/오가닉을 정확히 분리하며, MiiWAN의 오가닉 engagement는 건강함.</li>
+    <li class="b">데뷔 당일·직후 organic 비율 상승 추이를 본 지표로 추적 → 듀얼 트랙 전략의 성과를 정량 보고 가능.</li>
+  </ul>
+  <div class="pagefoot"><span>데뷔 권고 · 끝</span><span>07</span></div>
+</section>
+
+</div>
+<div class="navhint">↑ ↓ · 스크롤 · <span id="pg">01 / 07</span></div>
+<script>
+const slides=[...document.querySelectorAll("section.slide")];
+const pg=document.getElementById("pg");
+function cur(){let i=0,min=1e9;slides.forEach((s,idx)=>{const d=Math.abs(s.getBoundingClientRect().top);if(d<min){min=d;i=idx;}});return i;}
+function upd(){const i=cur();pg.textContent=String(i+1).padStart(2,"0")+" / "+String(slides.length).padStart(2,"0");}
+function go(i){i=Math.max(0,Math.min(slides.length-1,i));slides[i].scrollIntoView({behavior:"smooth"});}
+document.getElementById("deck").addEventListener("scroll",()=>{requestAnimationFrame(upd);},{passive:true});
+addEventListener("keydown",e=>{if(e.key==="ArrowDown"||e.key==="PageDown"){e.preventDefault();go(cur()+1);}
+  else if(e.key==="ArrowUp"||e.key==="PageUp"){e.preventDefault();go(cur()-1);}});
+upd();
+</script>
+</body>
+</html>

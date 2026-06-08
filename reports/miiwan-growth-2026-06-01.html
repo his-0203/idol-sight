@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiiWAN 성장 진단 · 2026-06-01 (D-15)</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#141821; --panel2:#1b2230; --ink:#eef2f8; --mut:#94a3b8;
+    --line:#27303f; --brand:#7c8cff; --good:#34d399; --warn:#fbbf24; --bad:#f87171;
+    --paid:#60a5fa; --org:#34d399; --accent:#7c8cff; --mw:#a78bfa;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",-apple-system,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+  .deck{scroll-snap-type:y mandatory;height:100vh;overflow-y:scroll}
+  section.slide{scroll-snap-align:start;min-height:100vh;padding:5vh 6vw 7vh;
+    display:flex;flex-direction:column;justify-content:center;position:relative;
+    border-bottom:1px solid var(--line)}
+  .kicker{color:var(--brand);font-weight:700;letter-spacing:.14em;font-size:13px;text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:clamp(34px,5.2vw,64px);line-height:1.08;margin:0 0 18px;font-weight:800;letter-spacing:-.02em}
+  h2{font-size:clamp(24px,3.4vw,40px);line-height:1.15;margin:0 0 22px;font-weight:800;letter-spacing:-.01em}
+  h2 .num{color:var(--brand);margin-right:14px}
+  p.lead{font-size:clamp(16px,1.7vw,21px);color:var(--mut);max-width:62ch;line-height:1.6;margin:0 0 10px}
+  .pagefoot{position:absolute;bottom:18px;left:6vw;right:6vw;display:flex;justify-content:space-between;
+    color:#5b667a;font-size:12px;letter-spacing:.04em}
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:860px){.g2,.g3,.g4{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+  .card.hl{background:linear-gradient(160deg,#1a2030,#141821);border-color:#2b3650}
+  .stat{font-size:clamp(28px,3.8vw,44px);font-weight:850;letter-spacing:-.02em;line-height:1}
+  .stat.good{color:var(--good)}.stat.bad{color:var(--bad)}.stat.brand{color:var(--brand)}.stat.warn{color:var(--warn)}.stat.paid{color:var(--paid)}
+  .stat small{font-size:.42em;font-weight:700;color:var(--mut);margin-left:6px}
+  .lbl{color:var(--mut);font-size:14px;margin-top:8px;line-height:1.45}
+  .chip{display:inline-block;padding:4px 11px;border-radius:999px;font-size:12.5px;font-weight:700;margin:0 6px 6px 0}
+  .chip.g{background:rgba(52,211,153,.14);color:#6ee7b7;border:1px solid rgba(52,211,153,.3)}
+  .chip.r{background:rgba(248,113,113,.13);color:#fca5a5;border:1px solid rgba(248,113,113,.3)}
+  .chip.b{background:rgba(124,140,255,.14);color:#aeb8ff;border:1px solid rgba(124,140,255,.3)}
+  .chip.y{background:rgba(251,191,36,.13);color:#fcd34d;border:1px solid rgba(251,191,36,.3)}
+  .chip.c{background:rgba(96,165,250,.14);color:#93c5fd;border:1px solid rgba(96,165,250,.3)}
+  ul.clean{margin:6px 0 0;padding:0;list-style:none}
+  ul.clean li{padding:10px 0 10px 26px;position:relative;border-top:1px solid var(--line);font-size:15.5px;line-height:1.55;color:#d7deea}
+  ul.clean li:first-child{border-top:none}
+  ul.clean li::before{content:"";position:absolute;left:4px;top:18px;width:7px;height:7px;border-radius:2px;background:var(--brand)}
+  ul.clean li.good::before{background:var(--good)}ul.clean li.bad::before{background:var(--bad)}ul.clean li.warn::before{background:var(--warn)}ul.clean li.paid::before{background:var(--paid)}
+  b.hi{color:#fff}
+  .em{color:var(--good);font-weight:800}.emb{color:var(--paid);font-weight:800}
+  svg{width:100%;height:auto;display:block;overflow:visible}
+  .gl{stroke:#1e2533;stroke-width:1}
+  .tk{fill:var(--mut);font-size:12px}
+  .vlab{fill:var(--ink);font-size:12.5px;font-weight:700}
+  table.t{width:100%;border-collapse:collapse;font-size:14.5px}
+  table.t th,table.t td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  table.t th{color:var(--mut);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em}
+  table.t td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+  .nav{position:fixed;right:16px;bottom:14px;z-index:30;display:flex;gap:7px;align-items:center;
+    background:rgba(20,24,33,.82);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:999px;padding:7px 12px}
+  .nav button{background:none;border:none;color:var(--ink);cursor:pointer;font-size:17px;line-height:1;padding:3px 6px;border-radius:8px}
+  .nav button:hover{background:var(--panel2)}
+  .nav .pg{color:var(--mut);font-size:12.5px;font-variant-numeric:tabular-nums;min-width:52px;text-align:center}
+  .progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--brand),var(--good));z-index:40;width:0}
+  .note{font-size:12.5px;color:#6b7689;margin-top:14px;line-height:1.5}
+  .big2{display:flex;gap:26px;align-items:flex-end;flex-wrap:wrap}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--mut)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .quote{border-left:3px solid var(--brand);padding:6px 0 6px 18px;color:#cbd5e6;font-size:16px;line-height:1.6;margin:4px 0 18px}
+  .arrow{color:var(--brand);font-weight:800}
+  .ex{background:#0e1219;border:1px solid var(--line);border-radius:10px;padding:11px 13px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:#cbd5e6;line-height:1.6;margin-top:8px}
+  .ex .c{color:#6b7689}
+  .step{counter-reset:st;list-style:none;margin:6px 0 0;padding:0}
+  .step li{position:relative;padding:10px 0 10px 40px;border-top:1px solid var(--line);font-size:14.5px;line-height:1.5;color:#d7deea}
+  .step li:first-child{border-top:none}
+  .step li::before{counter-increment:st;content:counter(st);position:absolute;left:0;top:11px;
+    width:24px;height:24px;border-radius:8px;background:var(--brand);color:#0b0d12;font-weight:800;font-size:13px;
+    display:flex;align-items:center;justify-content:center}
+  .kv{font-size:13.5px;color:#cbd5e6;line-height:1.7;margin-top:6px}
+  .kv b{color:#fff;font-weight:700}
+  .tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+    padding:1px 7px;font-size:12px;color:#aeb8ff;font-family:ui-monospace,monospace;margin:0 2px}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div class="deck" id="deck">
+
+<!-- 1 TITLE -->
+<section class="slide">
+  <div class="kicker">ABYSS COMPANY · IDOL-SIGHT BI · 내부 보고</div>
+  <h1>미완소년(MiiWAN)<br>성장 진단 & 데뷔 전략</h1>
+  <p class="lead">“소액 광고는 집행 중인데 댓글·좋아요 효율이 낮다”는 마케팅팀 우려에 대한 데이터 검증.<br>
+  결론부터: <b class="hi">광고는 ‘도달’을 효율적으로 사고 있고(CPV ₩3), 찐팬 ‘관여’는 organic에서 최상위로 따로 형성 중</b>입니다. 두 트랙은 의도대로 작동합니다.</p>
+  <div class="big2" style="margin-top:18px">
+    <div><div class="stat brand">D-15</div><div class="lbl">데뷔 D-Day · 2026-06-16 (타이틀곡 ‘PLUMA’)</div></div>
+    <div><div class="stat paid">CPV ₩3</div><div class="lbl">유료 광고 단가 · 트루뷰(시청완료) 56%</div></div>
+    <div><div class="stat good">6.2%</div><div class="lbl">organic 콘텐츠 실제 ER · 전 그룹 1위급</div></div>
+  </div>
+  <div class="pagefoot"><span>기준일 2026-06-01 · 데이터 출처 IDOL-SIGHT(D1) + Google Ads 리포트(5/31)</span><span>01 / 15</span></div>
+</section>
+
+<!-- 2 EXEC SUMMARY -->
+<section class="slide">
+  <div class="kicker">한 장 요약 · 결론 먼저</div>
+  <h2>“광고는 도달을 산다. 좋아요·댓글은 광고로 못 산다 — 둘을 섞어 본 게 착시”</h2>
+  <div class="grid g2">
+    <div class="card hl">
+      <div class="chip g">근거 1</div><div class="chip g">근거 2</div><div class="chip g">근거 3</div>
+      <ul class="clean">
+        <li class="good"><b class="hi">광고 ≠ 좋아요·댓글.</b> YouTube 광고는 조회·트루뷰·도달을 사는 상품. 광고 유입 영상의 like/comment ER이 낮은 건 효율 저하가 아니라 <b class="hi">광고 트래픽의 구조적 특성</b>.</li>
+        <li class="paid"><b class="hi">광고는 고효율로 집행 중.</b> 약 <span class="emb">₩105만</span>으로 조회 35.1만·트루뷰 19.6만(<span class="emb">56%</span>)·CPV <span class="emb">₩3</span>. ‘큰 비용 아닌데’ 도달 효율 우수.</li>
+        <li class="good"><b class="hi">찐팬 관여는 organic에서 최상위.</b> 광고가 못 사는 쇼츠·라이브 ER <span class="em">6.22%</span>(전 그룹 1위급), 구독자 ×10, 디시 갤러리 0→38.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="chip r">현실 인정</div>
+      <ul class="clean">
+        <li class="warn"><b class="hi">절대 규모(Reach)는 작다.</b> 구독자 9,140 — 오위스 88K·유아렐 31K 대비 열위. 단순 수치 비교에서 지는 건 사실(데뷔 후 스케일업 과제).</li>
+        <li class="warn">경쟁사(미라클·스킨즈)는 데뷔 때 <span class="emb">190만~990만뷰 대규모 살포</span> — 그러나 전부 Health <b class="hi">D등급</b>. 도달만으론 체력이 안 만들어짐.</li>
+        <li class="warn"><b class="hi">측정 오류가 핵심 리스크.</b> 광고(상단 퍼널) 산출물에 관여(하단 퍼널) 잣대를 대면 “효율 저하” 오진이 반복됨.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">→ 권고: 광고는 현 효율로 <b style="color:#cbd5e6">지속</b>하되 평가 KPI를 도달(CPV·트루뷰)로, 좋아요·댓글은 organic 트랙으로 <b style="color:#cbd5e6">분리 평가</b>. 데뷔일(06-16) 타이틀곡 도달은 증액. (10·12p)</p>
+  <div class="pagefoot"><span>Executive Summary</span><span>02 / 15</span></div>
+</section>
+
+<!-- 3 SITUATION -->
+<section class="slide">
+  <div class="kicker">상황 정의</div>
+  <h2>마케팅팀이 본 것 vs 데이터가 말하는 것</h2>
+  <div class="quote">“금요일에 조회수·구독자 돈 써서 올리는 거 대비, 댓글·좋아요가 너무 낮다. 돈은 쓰는데 효율이 떨어진다. 방향을 다시 고민해야 할 것 같다.”</div>
+  <table class="t">
+    <thead><tr><th>마케팅팀 우려</th><th>측정 함정</th><th>IDOL-SIGHT / 광고리포트 반증</th></tr></thead>
+    <tbody>
+      <tr><td>광고 쓰는데 댓글·좋아요 낮다 = 효율 저하</td><td>광고는 <b class="hi">도달</b>을 사지 좋아요·댓글을 안 만듦</td><td>광고 KPI는 우수: CPV <span class="emb">₩3</span>·트루뷰 <span class="emb">56%</span></td></tr>
+      <tr><td>댓글·좋아요(관여)가 안 붙는다</td><td>광고 트래픽에 관여 잣대 적용</td><td>관여는 organic에서 ER <span class="em">6.2%</span>로 따로 우수</td></tr>
+      <tr><td>구독자·조회수에서 경쟁사에 밀린다</td><td>절대 규모 ≠ 팬덤 질</td><td>Organicity·찐팬 ER로 본 질적 우위</td></tr>
+      <tr><td>마케팅 방향 재검토 필요</td><td>—</td><td>방향 전환이 아니라 <b class="hi">평가 KPI 분리 + 집행 타이밍</b> 문제</td></tr>
+    </tbody>
+  </table>
+  <p class="note">핵심: 마케팅팀의 관찰은 정확하다. 단, 원인은 ‘콘텐츠가 약해서’가 아니라 <b style="color:#cbd5e6">광고로 들어온 도달 트래픽이 본래 좋아요·댓글을 남기지 않기 때문</b>이다. 다음 두 장에서 증명.</p>
+  <div class="pagefoot"><span>Situation</span><span>03 / 15</span></div>
+</section>
+
+<!-- 4 AD SPEND REALITY (NEW) -->
+<section class="slide">
+  <h2><span class="num">실태</span>유료 광고는 ‘소액·고효율’로 집행 중</h2>
+  <div class="grid g2" style="align-items:center">
+    <div>
+      <div id="chartAds"></div>
+      <div class="legend">
+        <span><i style="background:var(--paid)"></i>조회(Views)</span>
+        <span><i style="background:#1e3a5f"></i>트루뷰(시청완료)</span>
+      </div>
+    </div>
+    <div>
+      <div class="grid g2" style="margin-bottom:0">
+        <div class="card hl"><div class="stat paid">₩105만</div><div class="lbl">5/31 기준 총 집행(대표 일자). ‘큰 비용 아님’과 일치</div></div>
+        <div class="card"><div class="stat paid">₩3<small>평균 CPV</small></div><div class="lbl">조회 1건당 단가. 매우 저렴</div></div>
+        <div class="card"><div class="stat">35.1만<small>조회</small></div><div class="lbl">노출 66.7만 → 조회 35.1만</div></div>
+        <div class="card"><div class="stat good">56%<small>트루뷰율</small></div><div class="lbl">조회 중 19.6만이 시청완료(스킵 안 함)</div></div>
+      </div>
+      <p class="note"><span class="arrow">⇒</span> 광고 상품 = 멤버 인터뷰 5종·MV 티저·MV (한국/일본/동남아 타겟). <b style="color:#cbd5e6">CPV ₩3·트루뷰 56%는 광고 KPI 기준 우수.</b> 단, 이 상품은 좋아요·댓글을 만드는 상품이 아니다 → 다음 장.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Ad Spend · Google Ads 5/31</span><span>04 / 15</span></div>
+</section>
+
+<!-- 5 FINDING 1: ER illusion -->
+<section class="slide">
+  <h2><span class="num">발견 1</span>광고는 도달을 샀다 — 좋아요·댓글은 organic 몫</h2>
+  <div class="grid g2" style="align-items:center">
+    <div>
+      <div id="chartER"></div>
+      <div class="legend">
+        <span><i style="background:var(--org)"></i>organic 콘텐츠 (쇼츠·라이브)</span>
+        <span><i style="background:var(--paid)"></i>광고 집행 영상 (티저·인터뷰·MV)</span>
+      </div>
+    </div>
+    <div>
+      <div class="card hl" style="margin-bottom:14px">
+        <div class="stat good">6.22% <small>organic 좋아요·댓글 ER</small></div>
+        <div class="lbl">쇼츠·라이브 19개 가중평균. <b class="hi">이 값만으로 전 그룹 채널 ER 1위</b> (웨고식스 4.5%·플레이브 3.7%·이세돌 3.3% 상회).</div>
+      </div>
+      <div class="card">
+        <div class="stat paid">0.40% <small>광고 영상 좋아요·댓글 ER</small></div>
+        <div class="lbl">티저 13.0만뷰 ER 0.12%, 인터뷰 0.25~0.88%. <b class="hi">광고는 좋아요·댓글을 만드는 상품이 아니므로 당연한 결과</b> — 효율 저하가 아니다.</div>
+      </div>
+      <p class="note"><span class="arrow">⇒</span> 채널 평균 0.85%는 두 트랙의 혼합. <b style="color:#cbd5e6">광고는 CPV·트루뷰로, 관여는 organic ER로</b> 평가해야 진짜 그림이 보인다.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Finding 1 · 퍼널 분리</span><span>05 / 15</span></div>
+</section>
+
+<!-- 6 FINDING 1b: scatter -->
+<section class="slide">
+  <h2><span class="num">발견 1-b</span>영상별 분포 — 광고 영상과 organic이 두 무리로 갈린다</h2>
+  <p class="lead">각 점은 MiiWAN 영상 1개. 가로축 조회수(로그), 세로축 좋아요·댓글 ER. <b class="hi">우하단(고조회·저ER)이 광고 집행 영상, 좌상단(저조회·고ER)이 찐팬 콘텐츠.</b></p>
+  <div id="chartScatter"></div>
+  <div class="legend">
+    <span><i style="background:var(--org)"></i>organic (쇼츠·라이브)</span>
+    <span><i style="background:var(--paid)"></i>광고 집행 (티저·인터뷰·MV)</span>
+  </div>
+  <p class="note">티저(13.0만뷰·0.12%)·인터뷰는 우하단에 고립 — 광고가 도달을 키운 흔적이지 ‘콘텐츠 부진’이 아니다. <b style="color:#cbd5e6">이 점들의 KPI는 좋아요·댓글이 아니라 CPV·트루뷰(56%)로 읽어야 한다.</b></p>
+  <div class="pagefoot"><span>Finding 1b · Per-video</span><span>06 / 15</span></div>
+</section>
+
+<!-- 7 FINDING 2: subs -->
+<section class="slide">
+  <h2><span class="num">발견 2</span>소액 광고 + organic으로 구독자 ×10 — MV 이후 가속</h2>
+  <div class="grid g2" style="align-items:center">
+    <div id="chartSubs"></div>
+    <div>
+      <div class="card hl" style="margin-bottom:14px">
+        <div class="stat good">+8,191</div><div class="lbl">19일간 순증 (949 → 9,140, <b class="hi">×9.6</b>)</div>
+      </div>
+      <div class="grid g2">
+        <div class="card"><div class="stat brand">+790<small>/일</small></div><div class="lbl">최근 4일 평균 (MV 이후), 둔화 아닌 <b class="hi">가속</b></div></div>
+        <div class="card"><div class="stat paid">₩105만</div><div class="lbl">소액 광고로 도달 보조 — 폭증의 토대</div></div>
+      </div>
+      <p class="note"><span class="arrow">⇒</span> 소액 광고가 인지를 넓히고, organic 콘텐츠가 그 유입을 구독·팬으로 전환. MV(5/27) 기점으로 곡선이 가팔라짐 — 두 트랙의 합작.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Finding 2 · Subscriber trajectory</span><span>07 / 15</span></div>
+</section>
+
+<!-- 8 FINDING 3: DC -->
+<section class="slide">
+  <h2><span class="num">발견 3</span>찐팬 자생 신호 — 디시 갤러리 점화</h2>
+  <div class="grid g2" style="align-items:center">
+    <div id="chartDC"></div>
+    <div>
+      <p class="lead">커뮤니티 자발적 게시글은 <b class="hi">광고로 만들 수 없는 지표</b>다. 팬이 ‘직접 글을 쓰는’ 행위라 도달·조회와 질이 다르다.</p>
+      <div class="card hl">
+        <div class="stat good">0 → 38</div>
+        <div class="lbl">미완소년 갤러리 일일 누적 글 (5/21 개설 → 5/31). <b class="hi">데뷔 15일 전부터 자체 담론장 형성.</b></div>
+      </div>
+      <p class="note">참고: 구독자가 정체된 5/22~5/26 구간에도 <b style="color:#cbd5e6">갤러리 글은 18→25로 증가</b> — 수면 아래에서 코어가 다져지던 시기. ‘찐팬은 더 잘 생기고 있다’는 진단과 일치.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Finding 3 · Community ignition</span><span>08 / 15</span></div>
+</section>
+
+<!-- 9 FINDING 4: competitor paid dump -->
+<section class="slide">
+  <h2><span class="num">발견 4</span>경쟁사는 ‘조회수’를 대규모로 샀지만 체력은 못 샀다</h2>
+  <div class="grid g2" style="align-items:center">
+    <div id="chartPaid"></div>
+    <div>
+      <p class="lead">데뷔 직전(D-20) 영상의 <b class="hi">유료 의심 비중</b>. 막대가 길수록 도달을 대규모로 산 것.</p>
+      <table class="t">
+        <thead><tr><th>그룹</th><th class="n">유료비중</th><th class="n">Health</th></tr></thead>
+        <tbody>
+          <tr><td><b class="hi" style="color:var(--mw)">미완소년</b></td><td class="n" style="color:var(--good)">0.14</td><td class="n">데뷔전</td></tr>
+          <tr><td>미라클</td><td class="n" style="color:var(--paid)">1.00</td><td class="n">D</td></tr>
+          <tr><td>스킨즈</td><td class="n" style="color:var(--paid)">1.00</td><td class="n">D</td></tr>
+          <tr><td>비던</td><td class="n" style="color:var(--paid)">0.56</td><td class="n">D</td></tr>
+          <tr><td>오위스</td><td class="n">0.14<small style="color:var(--mut)"> (단 184만뷰)</small></td><td class="n">D</td></tr>
+        </tbody>
+      </table>
+      <p class="note"><span class="arrow">⇒</span> 미라클은 D-Day에 190만뷰, 스킨즈는 397만뷰를 살포했지만 <b style="color:#cbd5e6">셋 다 Health D등급</b>. MiiWAN은 소액·소수 영상에 집중(유료비중 0.14)하고 organic을 키운 차별화 — <b class="hi">도달만 사는 경쟁사와 반대 전략.</b></p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Finding 4 · Organicity benchmark</span><span>09 / 15</span></div>
+</section>
+
+<!-- 10 Conversion leak (NEW) -->
+<section class="slide">
+  <h2><span class="num">발견 5</span>도달은 거대한데 ‘팬 전환’ 깔때기가 좁다</h2>
+  <div class="grid g2" style="align-items:center">
+    <div>
+      <div id="chartFunnel"></div>
+      <p class="note" style="margin-top:6px">5/31 기준. 트루뷰 19.6만 명이 끝까지 봤지만 그날 구독은 +800 — <b style="color:#cbd5e6">전환 0.41%</b>. 광고 시청자가 ER 6% organic 쇼츠로 내려오는 비율은 트루뷰의 약 2%.</p>
+    </div>
+    <div>
+      <div class="card hl" style="margin-bottom:14px">
+        <div class="chip y">진단</div>
+        <div class="lbl" style="margin-top:4px;font-size:15px;color:#d7deea">윗단(인지)은 뚫렸으나 <b class="hi">도달 → 구독 → 관여</b>로 내리는 중간 장치가 비어 있다. <b class="hi">CPV(도달 단가 ₩3)는 우수, CPA(전환 단가)가 진짜 문제.</b></div>
+      </div>
+      <ul class="clean">
+        <li class="warn"><b class="hi">타겟 지리 ↔ 팬덤 그릇 불일치.</b> 광고는 동남아+일본 비중 큰데 DC갤·네이버는 한국 전용 — 해외 도달이 갈 동선이 없음.</li>
+        <li class="warn"><b class="hi">광고 소재에 다음 동선(CTA) 부재.</b> 인터뷰·MV는 ‘보고 끝’ — 구독·커뮤니티 연결 없음.</li>
+        <li class="warn"><b class="hi">전환 목적지가 데뷔 전이라 부실.</b> 음원·위버스·멤버십 부재 → 지금 ‘팬이 되면 할 것’이 없음.</li>
+        <li class="warn"><b class="hi">X(트위터) = 0.</b> 글로벌·버추얼 팬덤 1차 전환 채널이 통째로 비어 있음.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="grid g4" style="margin-top:18px">
+    <div class="card"><div class="chip g">해결 ①</div><div class="lbl"><b class="hi">리마케팅 브리지.</b> 트루뷰 본 19.6만에 ER 6% 쇼츠 재노출 — 새 도달보다 CPA 저렴 (즉효)</div></div>
+    <div class="card"><div class="chip g">해결 ②</div><div class="lbl"><b class="hi">CPV→CPA 타겟 정합.</b> 지역별 구독 전환율로 예산 재배분, 안 되는 ‘싼 도달’ 정리</div></div>
+    <div class="card"><div class="chip g">해결 ③</div><div class="lbl"><b class="hi">전환 목적지 구축.</b> X 활성화·‘데뷔 알림 신청’으로 도달을 명단으로 전환</div></div>
+    <div class="card"><div class="chip g">해결 ④</div><div class="lbl"><b class="hi">전환 KPI 신설.</b> 트루뷰→구독 전환율·CPA·재방문율을 BI에 추가</div></div>
+  </div>
+  <p class="note"><span class="arrow">⇒</span> 데뷔(6/16)에 음원·위버스가 첫 ‘전환 그릇’이 됨. <b style="color:#cbd5e6">지금 데워둔 도달(트루뷰 수십만)을 데뷔일에 한꺼번에 전환</b>시키는 게 핵심 — 광고 데뷔일 증액 근거.</p>
+  <div class="pagefoot"><span>Finding 5 · Conversion leak</span><span>10 / 15</span></div>
+</section>
+
+<!-- 11 Playbook 1: remarketing bridge (NEW) -->
+<section class="slide">
+  <div class="kicker">실행 플레이북 ① · 이번 주 세팅</div>
+  <h2>트루뷰 리마케팅 브리지 — 그대로 따라하기</h2>
+  <div class="grid g2">
+    <div class="card">
+      <div class="chip b">Google Ads 5단계</div>
+      <ol class="step">
+        <li><b class="hi">잠재고객 리스트 생성.</b> 잠재고객 관리자 → 데이터 세그먼트 → YouTube 사용자 → <span class="tag">채널 동영상을 조회</span> · 기간 540일. (= 인터뷰·티저·MV 시청자 19.6만)</li>
+        <li><b class="hi">새 캠페인.</b> 캠페인 목표 ‘구독·웹사이트 트래픽’ → <span class="tag">동영상·조회수</span> 또는 <span class="tag">Demand Gen</span></li>
+        <li><b class="hi">소재 교체가 핵심.</b> 인터뷰 말고 <b class="hi">ER 높은 organic 쇼츠 Top3</b>를 광고로. (예: ER 13%·10%·9% 쇼츠)</li>
+        <li><b class="hi">타겟 = 위 리스트만.</b> 신규 도달 끄기. ‘이미 본 사람에게 다른 콘텐츠’만 노출.</li>
+        <li><b class="hi">소재에 구독 엔드카드</b> + 채널 구독 링크 삽입.</li>
+      </ol>
+    </div>
+    <div>
+      <div class="card hl" style="margin-bottom:14px">
+        <div class="chip g">설정값 예시</div>
+        <div class="kv">
+          예산 <b>일 ₩15,000</b> (소액 테스트)<br>
+          입찰 <b>최대 CPV ₩10</b> 목표<br>
+          소재 <b>organic 쇼츠 3종</b> (인터뷰·MV 금지)<br>
+          타겟 <b>트루뷰 리마케팅 리스트</b> 단독<br>
+          제외 <b>이미 구독자</b> (중복 방지)
+        </div>
+      </div>
+      <div class="card">
+        <div class="chip y">측정 (1주 후 판정)</div>
+        <div class="kv">
+          YouTube Studio → 콘텐츠 → 트래픽 소스 → <b>‘광고’ 유입 구독</b><br>
+          판정 지표: <b>이 리스트의 트루뷰→구독 전환율</b><br>
+          목표 <b>0.4% → 1%+</b> · 안 오르면 소재 교체 A/B
+        </div>
+      </div>
+      <p class="note"><span class="arrow">⇒</span> 새 도달을 또 사는 것보다 <b style="color:#cbd5e6">이미 본 19.6만을 내리는 게 CPA가 싸다.</b> 빠진 중간 단계를 정확히 메우는 액션.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Playbook 1 · Remarketing</span><span>11 / 15</span></div>
+</section>
+
+<!-- 12 Playbook 2: CTA / destination / KPI (NEW) -->
+<section class="slide">
+  <div class="kicker">실행 플레이북 ② · 전환 동선·목적지·계측</div>
+  <h2>도달을 ‘행동’으로 — CTA·목적지·KPI 예시</h2>
+  <div class="grid g3">
+    <div class="card">
+      <div class="chip c">A. 광고 영상 CTA</div>
+      <div class="kv">모든 광고 영상 끝 5초 <b>구독 엔드스크린</b> + 고정 댓글:</div>
+      <div class="ex"><span class="c"># 고정 댓글 예시</span><br>📌 6/16 데뷔 ‘PLUMA’ 🔔<br>구독+알림 설정하고<br>데뷔 소식 받기 →<br>공식 X @miiwan_official<br>멤버별 영상 ▶ 재생목록</div>
+    </div>
+    <div class="card">
+      <div class="chip c">B. 전환 목적지</div>
+      <div class="kv"><b>X(@miiwan_official)</b> 활성화 · 핀 트윗(한·영 병기):</div>
+      <div class="ex"><span class="c"># 핀 트윗 예시</span><br>🐦 미완소년 공식 X OPEN<br>D-15 · 6/16 데뷔<br>멤버 5인 소개 스레드 ↓<br>🔔 알림 ON / EN subs soon<br><span class="c">#미완소년 #MiiWAN #PLUMA</span></div>
+      <div class="kv" style="margin-top:8px"><b>‘데뷔 알림 신청’</b> = 카톡채널 추가 / Discord 초대 / 멤버십 — 광고 클릭 목적지</div>
+    </div>
+    <div class="card">
+      <div class="chip c">C. 전환 KPI (BI)</div>
+      <div class="kv">기존 도달 지표 옆에 <b>전환 funnel</b> 신설:</div>
+      <div class="ex"><span class="c"># 신규 지표</span><br>전환율 = 광고기여구독 / 트루뷰<br>CPA = 일광고비 / 광고기여구독<br>재방문율 = 광고시청자 재유입<br><span class="c"># 소스</span><br>Studio 트래픽소스 + Ads 전환</div>
+      <div class="kv" style="margin-top:8px">주간 리포트에 <b>funnel 카드</b> 1개 추가</div>
+    </div>
+  </div>
+  <div class="grid g4" style="margin-top:16px">
+    <div class="card"><div class="chip g">해외 도달 살리기</div><div class="lbl">동남아·일본 트루뷰가 큰 만큼 <b class="hi">영어 자막 + 글로벌 X</b>로 동선 제공. 안 되면 예산을 한국으로 재배분.</div></div>
+    <div class="card"><div class="chip g">설명란 상단 3줄</div><div class="lbl">광고 영상 설명 맨 위에 <b class="hi">구독·X·Discord 링크</b> 고정.</div></div>
+    <div class="card"><div class="chip g">A/B 1주 사이클</div><div class="lbl">쇼츠 소재 2~3종 돌려 <b class="hi">전환율 높은 것</b>만 남김.</div></div>
+    <div class="card"><div class="chip g">데뷔일 스위치</div><div class="lbl">6/16 음원·위버스 오픈 시 알림 명단에 <b class="hi">일괄 푸시</b>.</div></div>
+  </div>
+  <p class="note">원칙: <b style="color:#cbd5e6">광고는 ‘보여주기’에서 끝내지 말고, 매 영상에 다음 클릭(구독·X·알림)을 심는다.</b> 도달 1회 = 동선 1개.</p>
+  <div class="pagefoot"><span>Playbook 2 · CTA · Destination · KPI</span><span>12 / 15</span></div>
+</section>
+
+<!-- 13 Decision -->
+<section class="slide">
+  <div class="kicker">의사결정</div>
+  <h2>금요일 광고 — 멈출 게 아니라, 올바른 KPI로 보고 데뷔일에 증액</h2>
+  <div class="grid g3">
+    <div class="card"><div class="chip r">측정 오류 교정</div>
+      <ul class="clean">
+        <li class="bad">광고(도달)에 <b class="hi">좋아요·댓글 잣대</b>를 대는 평가 중단</li>
+        <li class="bad">blended ER 단일 지표로 의사결정 금지</li>
+        <li class="bad">“광고 멈추자”는 도달 엔진을 끄는 것 — 역효과</li>
+      </ul>
+    </div>
+    <div class="card hl"><div class="chip g">올바른 평가</div>
+      <ul class="clean">
+        <li class="paid"><b class="hi">광고 = CPV·트루뷰·도달</b> (현재 ₩3·56% 우수 → 유지)</li>
+        <li class="good"><b class="hi">관여 = organic 좋아요·댓글 ER</b> (현재 6.2% 우수)</li>
+        <li class="good">두 KPI를 <b class="hi">분리</b>해 각각 추적·보고</li>
+      </ul>
+    </div>
+    <div class="card"><div class="chip c">집행 전략</div>
+      <ul class="clean">
+        <li>현 소액 광고 <b class="hi">효율 유지하며 지속</b></li>
+        <li>데뷔일(06-16) <b class="hi">타이틀곡 도달 증액</b> — 가장 잘 터지는 시점</li>
+        <li>organic 쇼츠·라이브 cadence <b class="hi">그대로</b> (ER 엔진)</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">경영진 한 줄: <b style="color:#cbd5e6">“광고는 도달을 효율적으로 사고 있고(CPV ₩3), 관여는 organic에서 따로 1위급으로 큰다. 멈출 게 아니라 KPI를 분리하고 데뷔일에 더 쓰자.”</b></p>
+  <div class="pagefoot"><span>Decision · Ad strategy</span><span>13 / 15</span></div>
+</section>
+
+<!-- 11 Problems honest -->
+<section class="slide">
+  <div class="kicker">정직한 리스크</div>
+  <h2>그래도 짚어야 할 약점 4가지</h2>
+  <div class="grid g4">
+    <div class="card"><div class="stat warn">PRE</div><div class="lbl"><b class="hi">Health 미산출.</b> 데뷔 전이라 점수 없음. Mobilization(초동·콘서트) 미검증 — 데뷔로만 활성화 가능.</div></div>
+    <div class="card"><div class="stat warn">9.1K</div><div class="lbl"><b class="hi">절대 Reach 작음.</b> 오위스 88K·유아렐 31K 대비 열위. 데뷔 후 빠른 스케일업 필요.</div></div>
+    <div class="card"><div class="stat warn">13</div><div class="lbl"><b class="hi">뉴스 정체.</b> 네이버 기사 13건에서 2주째 멈춤. 데뷔 PR 픽업 약함.</div></div>
+    <div class="card"><div class="stat warn">X = 0</div><div class="lbl"><b class="hi">트위터 미포착.</b> 버추얼 팬덤 핵심 채널 부재/미수집. 데뷔 전 활성화 시급.</div></div>
+  </div>
+  <p class="note" style="margin-top:22px">참고(긍정): 멤버 인기 집중도 <b style="color:#cbd5e6">HHI 0.29 · 균등도 0.88</b>로 균형적 — 1인 의존 없는 건강한 구조이나, 아직 <b style="color:#cbd5e6">바이럴 ‘대표 멤버 한 방’은 부재</b>. 데뷔 쇼츠에서 만들 여지.</p>
+  <div class="pagefoot"><span>Risks</span><span>14 / 15</span></div>
+</section>
+
+<!-- 12 Action plan -->
+<section class="slide">
+  <div class="kicker">실행</div>
+  <h2>액션 플랜 — D-15 ~ 데뷔 후 D+20</h2>
+  <table class="t">
+    <thead><tr><th>#</th><th>액션</th><th>담당/시점</th><th>성공 지표(KPI)</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><b class="hi">KPI 분리 대시보드</b> — 광고(CPV·트루뷰·도달)와 관여(organic 좋아요·댓글 ER)를 별도 지표로 경영진 보고 표준화</td><td>BI · 이번 주</td><td>blended ER 단독 보고 폐지</td></tr>
+      <tr><td>2</td><td><b class="hi">광고 지속</b> — 현 효율(CPV ₩3·트루뷰 56%) 유지. like/comment로 평가하지 말 것. 데뷔일 타이틀곡 도달 증액</td><td>마케팅 · 즉시~D-Day</td><td>CPV ≤ ₩5·트루뷰율 ≥ 50% 유지</td></tr>
+      <tr><td>3</td><td><b class="hi">트루뷰 리마케팅 브리지</b> — 광고 시청자(트루뷰)에게 ER 6% organic 쇼츠 재노출로 도달→팬 전환 (누수 즉효)</td><td>마케팅 · 이번 주</td><td>트루뷰→구독 전환율 0.4%→1%+</td></tr>
+      <tr><td>4</td><td><b class="hi">organic 쇼츠·라이브 cadence 유지</b> (현재 ER 6%+ 관여 엔진)</td><td>콘텐츠 · 상시</td><td>주간 organic ER ≥ 5%</td></tr>
+      <tr><td>5</td><td><b class="hi">X 활성화 + 전환 목적지 구축</b> — ‘데뷔 알림 신청’으로 해외 도달을 명단으로 + 네이버 PR 드라이브</td><td>마케팅 · D-15~</td><td>X 운영 개시 · 알림 명단 확보 · 뉴스 13→30+</td></tr>
+      <tr><td>6</td><td><b class="hi">전환·데뷔 KPI 게이트 신설</b> — CPA·트루뷰→구독 전환율을 BI에 추가 + Health 활성화 추적</td><td>BI · 즉시~D+20</td><td>CPA 추적 · D+20 Health ≥ C · organic_ratio peer 우위</td></tr>
+    </tbody>
+  </table>
+  <div class="grid g3" style="margin-top:18px">
+    <div class="card"><div class="chip b">즉시(이번 주)</div><div class="lbl">#1 KPI 분리 리포팅 · #2 광고 평가지표 교정</div></div>
+    <div class="card"><div class="chip y">데뷔 전(D-15~D-1)</div><div class="lbl">#4 X·PR 활성화 · 데뷔일 도달 증액 세팅</div></div>
+    <div class="card"><div class="chip g">데뷔~D+20</div><div class="lbl">#5 Health 활성화 추적 · organic 우위 방어</div></div>
+  </div>
+  <p class="note">데이터 출처: IDOL-SIGHT(Cloudflare D1) 2026-06-01 03:00 UTC 스냅샷 + Google Ads 리포트(5/31). 지표 정의 — 좋아요·댓글 ER=(좋아요+댓글)/조회수, CPV=조회 1건당 비용, 트루뷰=스킵 없이 시청완료, Organicity=데뷔±윈도우 영상의 유료/유기 판별, Health=4-factor(Reach·RitualVictory·Mobilization·Intimacy).</p>
+  <div class="pagefoot"><span>Action Plan</span><span>15 / 15</span></div>
+</section>
+
+</div>
+
+<div class="nav">
+  <button id="prev" aria-label="이전">◀</button>
+  <span class="pg" id="pg">01 / 15</span>
+  <button id="next" aria-label="다음">▶</button>
+</div>
+
+<script>
+const NS="http://www.w3.org/2000/svg";
+function el(t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function svg(w,h){const s=el("svg",{viewBox:`0 0 ${w} ${h}`});s.setAttribute("width","100%");return s;}
+
+// NEW) Ad: views vs trueview grouped bars per content + CPV label
+function chartAds(){
+  const data=[
+    {k:"멤버 인터뷰",v:81563,tv:40785,cpv:2.9},
+    {k:"뮤비 티저",v:130226,tv:74792,cpv:2.2},
+    {k:"뮤비",v:139230,tv:80811,cpv:3.8},
+  ];
+  const W=560,H=360,pad={l:60,r:20,t:30,b:54};
+  const s=svg(W,H);const plotW=W-pad.l-pad.r,plotH=H-pad.t-pad.b,maxv=150000;
+  for(let g=0;g<=150000;g+=50000){const y=pad.t+plotH-(g/maxv)*plotH;s.appendChild(el("line",{x1:pad.l,y1:y,x2:W-pad.r,y2:y,class:"gl"}));
+    s.appendChild(el("text",{x:pad.l-10,y:y+4,class:"tk","text-anchor":"end"})).textContent=(g/1000)+"K";}
+  const grp=plotW/data.length, bw=44;
+  data.forEach((d,i)=>{
+    const cx=pad.l+grp*i+grp/2;
+    const x1=cx-bw-4, x2=cx+4;
+    const h1=(d.v/maxv)*plotH, h2=(d.tv/maxv)*plotH;
+    s.appendChild(el("rect",{x:x1,y:pad.t+plotH-h1,width:bw,height:h1,rx:6,fill:"var(--paid)"}));
+    s.appendChild(el("rect",{x:x2,y:pad.t+plotH-h2,width:bw,height:h2,rx:6,fill:"#1e3a5f"}));
+    const cl=el("text",{x:cx,y:pad.t+plotH-h1-10,class:"vlab","text-anchor":"middle",fill:"var(--paid)"});cl.style.fontSize="12px";cl.textContent="CPV ₩"+d.cpv;s.appendChild(cl);
+    s.appendChild(el("text",{x:cx,y:H-pad.b+24,class:"tk","text-anchor":"middle"})).textContent=d.k;
+  });
+  const an=el("text",{x:pad.l+plotW/2,y:pad.t-8,class:"vlab","text-anchor":"middle",fill:"var(--good)"});an.style.fontSize="13px";an.textContent="시청완료율 50~58%";s.appendChild(an);
+  document.getElementById("chartAds").appendChild(s);
+}
+
+// NEW) Conversion funnel
+function chartFunnel(){
+  const steps=[
+    {k:"노출",v:667458,c:"#1e3a5f",disp:"66.7만"},
+    {k:"조회",v:351019,c:"var(--paid)",disp:"35.1만"},
+    {k:"트루뷰",v:196388,c:"#2563eb",disp:"19.6만"},
+    {k:"구독(일)",v:800,c:"var(--bad)",disp:"+800"},
+  ];
+  const conv=["53%","56%","0.41%"];
+  const W=560,H=360,pad={l:70,r:70,t:18,b:18};
+  const s=svg(W,H);const plotW=W-pad.l-pad.r,plotH=H-pad.t-pad.b,maxv=667458;
+  const cx=pad.l+plotW/2, gap=plotH/steps.length, bh=gap*0.6;
+  steps.forEach((d,i)=>{
+    const w=Math.max((d.v/maxv)*plotW,5);
+    const y=pad.t+i*gap+(gap-bh)/2;
+    s.appendChild(el("rect",{x:cx-w/2,y,width:w,height:bh,rx:6,fill:d.c}));
+    s.appendChild(el("text",{x:pad.l-14,y:y+bh/2+4,class:"tk","text-anchor":"end"})).textContent=d.k;
+    const t=el("text",{x:W-pad.r+12,y:y+bh/2+4,class:"vlab"});t.style.fontSize="13px";t.textContent=d.disp;
+    if(i===3)t.setAttribute("fill","var(--bad)");s.appendChild(t);
+    if(i<3){const yy=pad.t+(i+1)*gap-(gap-bh)/2+ (gap*0.4)/2 -2;
+      const cv=el("text",{x:cx,y:y+bh+ (gap-bh)/2 +4,class:"tk","text-anchor":"middle"});
+      cv.style.fontSize="11.5px";cv.setAttribute("fill", i===2?"var(--bad)":"var(--mut)");
+      cv.textContent="↓ "+conv[i];s.appendChild(cv);}
+  });
+  document.getElementById("chartFunnel").appendChild(s);
+}
+
+// 1) Grouped bar: organic vs paid ER
+function chartER(){
+  const W=560,H=360,pad={l:64,r:20,t:24,b:54};
+  const s=svg(W,H);
+  const data=[{k:"organic",v:6.22,c:"var(--org)"},{k:"광고 영상",v:0.40,c:"var(--paid)"}];
+  const maxv=7, plotH=H-pad.t-pad.b, plotW=W-pad.l-pad.r;
+  for(let g=0;g<=7;g++){const y=pad.t+plotH-(g/maxv)*plotH;
+    s.appendChild(el("line",{x1:pad.l,y1:y,x2:W-pad.r,y2:y,class:"gl"}));
+    s.appendChild(el("text",{x:pad.l-10,y:y+4,class:"tk","text-anchor":"end"})).textContent=g+"%";}
+  const bw=120, gap=(plotW-bw*2)/3;
+  data.forEach((d,i)=>{
+    const x=pad.l+gap+i*(bw+gap);
+    const h=(d.v/maxv)*plotH, y=pad.t+plotH-h;
+    s.appendChild(el("rect",{x,y,width:bw,height:h,rx:8,fill:d.c}));
+    const t=el("text",{x:x+bw/2,y:y-12,class:"vlab","text-anchor":"middle"});t.style.fontSize="20px";t.textContent=d.v.toFixed(2)+"%";s.appendChild(t);
+    s.appendChild(el("text",{x:x+bw/2,y:H-pad.b+24,class:"tk","text-anchor":"middle"})).textContent=d.k;
+  });
+  const an=el("text",{x:pad.l+plotW/2,y:pad.t+18,class:"vlab","text-anchor":"middle",fill:"var(--brand)"});an.style.fontSize="15px";an.textContent="좋아요·댓글 ER 격차 15.6×";s.appendChild(an);
+  document.getElementById("chartER").appendChild(s);
+}
+
+// 2) Scatter
+function chartScatter(){
+  const pts=[
+    [740,12.97,1],[1519,10.2,1],[2259,9.07,1],[1205,6.06,1],[2309,6.41,1],[1403,4.92,1],[1334,4.27,1],[1321,3.86,1],[1098,4.01,1],[912,4.71,1],[1303,4.45,1],[1128,4.26,1],[866,5.54,1],[902,4.77,1],[698,5.87,1],[577,5.37,1],[969,5.88,1],[623,7.54,1],[781,6.79,1],
+    [128136,0.66,0],[130505,0.12,0],[19850,0.25,0],[20072,0.33,0],[11628,0.88,0],[19003,0.50,0]
+  ];
+  const W=900,H=380,pad={l:60,r:24,t:24,b:56};
+  const s=svg(W,H);
+  const plotW=W-pad.l-pad.r,plotH=H-pad.t-pad.b;
+  const lminx=Math.log10(500),lmaxx=Math.log10(200000);
+  const maxy=14;
+  const X=v=>pad.l+((Math.log10(v)-lminx)/(lmaxx-lminx))*plotW;
+  const Y=v=>pad.t+plotH-(v/maxy)*plotH;
+  for(let g=0;g<=14;g+=2){const y=Y(g);s.appendChild(el("line",{x1:pad.l,y1:y,x2:W-pad.r,y2:y,class:"gl"}));
+    s.appendChild(el("text",{x:pad.l-10,y:y+4,class:"tk","text-anchor":"end"})).textContent=g+"%";}
+  [1000,5000,20000,100000].forEach(v=>{const x=X(v);
+    s.appendChild(el("line",{x1:x,y1:pad.t,x2:x,y2:pad.t+plotH,class:"gl"}));
+    s.appendChild(el("text",{x,y:H-pad.b+22,class:"tk","text-anchor":"middle"})).textContent=(v>=1000?(v/1000)+"K":v);});
+  s.appendChild(el("text",{x:pad.l+plotW/2,y:H-12,class:"tk","text-anchor":"middle"})).textContent="조회수 (로그 스케일)";
+  pts.forEach(p=>{const[v,er,org]=p;
+    s.appendChild(el("circle",{cx:X(v),cy:Y(er),r:org?7:8,fill:org?"var(--org)":"var(--paid)","fill-opacity":.85,stroke:"#0b0d12","stroke-width":1.5}));});
+  const tx=X(130505),ty=Y(0.12);
+  const cl=el("text",{x:tx-10,y:ty-12,class:"tk","text-anchor":"end",fill:"var(--paid)"});cl.style.fontSize="12px";cl.textContent="티저 13.0만뷰 · ER 0.12% (광고 도달)";s.appendChild(cl);
+  document.getElementById("chartScatter").appendChild(s);
+}
+
+// 3) Subscriber line
+function chartSubs(){
+  const days=["5/12","5/13","5/14","5/15","5/16","5/17","5/18","5/19","5/20","5/21","5/22","5/23","5/24","5/25","5/26","5/27","5/28","5/29","5/30","5/31"];
+  const subs=[949,1060,1450,1840,1820,1910,2510,3290,4230,5130,6120,6090,6090,6100,6110,6220,6940,7640,8340,9140];
+  const W=560,H=360,pad={l:58,r:18,t:24,b:46};
+  const s=svg(W,H);const plotW=W-pad.l-pad.r,plotH=H-pad.t-pad.b,maxv=10000;
+  for(let g=0;g<=10;g+=2){const y=pad.t+plotH-(g*1000/maxv)*plotH;s.appendChild(el("line",{x1:pad.l,y1:y,x2:W-pad.r,y2:y,class:"gl"}));
+    s.appendChild(el("text",{x:pad.l-10,y:y+4,class:"tk","text-anchor":"end"})).textContent=g+"K";}
+  const X=i=>pad.l+(i/(subs.length-1))*plotW,Y=v=>pad.t+plotH-(v/maxv)*plotH;
+  const mvx=X(15);
+  s.appendChild(el("line",{x1:mvx,y1:pad.t,x2:mvx,y2:pad.t+plotH,stroke:"var(--mw)","stroke-dasharray":"4 4","stroke-width":1.4,"stroke-opacity":.7}));
+  const mvt=el("text",{x:mvx+6,y:pad.t+14,fill:"var(--mw)"});mvt.style.fontSize="12px";mvt.style.fontWeight="700";mvt.textContent="MV 5/27";s.appendChild(mvt);
+  let dpath=`M ${X(0)} ${Y(subs[0])}`;subs.forEach((v,i)=>dpath+=` L ${X(i)} ${Y(v)}`);
+  const ap=dpath+` L ${X(subs.length-1)} ${pad.t+plotH} L ${X(0)} ${pad.t+plotH} Z`;
+  s.appendChild(el("path",{d:ap,fill:"var(--good)","fill-opacity":.12}));
+  s.appendChild(el("path",{d:dpath,fill:"none",stroke:"var(--good)","stroke-width":2.6}));
+  subs.forEach((v,i)=>{if(i%3===0||i===subs.length-1)s.appendChild(el("circle",{cx:X(i),cy:Y(v),r:3.5,fill:"var(--good)"}));});
+  const et=el("text",{x:X(19)-6,y:Y(9140)-12,class:"vlab","text-anchor":"end"});et.textContent="9,140";s.appendChild(et);
+  [0,5,9,15,19].forEach(i=>s.appendChild(el("text",{x:X(i),y:H-pad.b+22,class:"tk","text-anchor":"middle"})).textContent=days[i]);
+  document.getElementById("chartSubs").appendChild(s);
+}
+
+// 4) DC posts
+function chartDC(){
+  const days=["5/20","5/21","5/22","5/23","5/24","5/25","5/26","5/27","5/28","5/29","5/30","5/31"];
+  const dc=[0,18,18,18,18,19,25,31,31,36,36,38];
+  const W=560,H=340,pad={l:48,r:18,t:24,b:46};
+  const s=svg(W,H);const plotW=W-pad.l-pad.r,plotH=H-pad.t-pad.b,maxv=40;
+  for(let g=0;g<=40;g+=10){const y=pad.t+plotH-(g/maxv)*plotH;s.appendChild(el("line",{x1:pad.l,y1:y,x2:W-pad.r,y2:y,class:"gl"}));
+    s.appendChild(el("text",{x:pad.l-10,y:y+4,class:"tk","text-anchor":"end"})).textContent=g;}
+  const X=i=>pad.l+(i/(dc.length-1))*plotW,Y=v=>pad.t+plotH-(v/maxv)*plotH;
+  const bw=plotW/dc.length*0.62;
+  dc.forEach((v,i)=>{const x=X(i)-bw/2,h=(v/maxv)*plotH,y=pad.t+plotH-h;
+    s.appendChild(el("rect",{x,y,width:bw,height:h,rx:4,fill:i===dc.length-1?"var(--good)":"#3f6e57"}));});
+  const et=el("text",{x:X(11),y:Y(38)-10,class:"vlab","text-anchor":"middle"});et.textContent="38";s.appendChild(et);
+  [0,1,6,11].forEach(i=>s.appendChild(el("text",{x:X(i),y:H-pad.b+22,class:"tk","text-anchor":"middle"})).textContent=days[i]);
+  document.getElementById("chartDC").appendChild(s);
+}
+
+// 5) Paid ratio bars
+function chartPaid(){
+  const data=[{k:"미완소년",v:0.14,mw:1},{k:"미라클",v:1.00},{k:"스킨즈",v:1.00},{k:"비던",v:0.56},{k:"오위스",v:0.14}];
+  const W=560,H=340,pad={l:78,r:40,t:18,b:34};
+  const s=svg(W,H);const plotW=W-pad.l-pad.r,plotH=H-pad.t-pad.b;
+  const bh=plotH/data.length*0.62, gap=plotH/data.length;
+  for(let g=0;g<=1.0001;g+=0.25){const x=pad.l+g*plotW;s.appendChild(el("line",{x1:x,y1:pad.t,x2:x,y2:pad.t+plotH,class:"gl"}));
+    s.appendChild(el("text",{x,y:H-pad.b+22,class:"tk","text-anchor":"middle"})).textContent=g.toFixed(2);}
+  data.forEach((d,i)=>{const y=pad.t+i*gap+(gap-bh)/2;
+    s.appendChild(el("text",{x:pad.l-12,y:y+bh/2+4,class:"tk","text-anchor":"end",fill:d.mw?"var(--mw)":"var(--mut)"})).textContent=d.k;
+    s.appendChild(el("rect",{x:pad.l,y,width:Math.max(d.v*plotW,2),height:bh,rx:5,fill:d.mw?"var(--mw)":(d.v>=0.5?"var(--paid)":"#6b7689")}));
+    const t=el("text",{x:pad.l+d.v*plotW+8,y:y+bh/2+4,class:"vlab"});t.style.fontSize="13px";t.textContent=d.v.toFixed(2);s.appendChild(t);});
+  s.appendChild(el("text",{x:pad.l+plotW/2,y:H-6,class:"tk","text-anchor":"middle"})).textContent="D-20 유료 의심 비중 (낮을수록 유기적)";
+  document.getElementById("chartPaid").appendChild(s);
+}
+
+chartAds();chartFunnel();chartER();chartScatter();chartSubs();chartDC();chartPaid();
+
+// navigation
+const deck=document.getElementById("deck");
+const slides=[...document.querySelectorAll(".slide")];
+const pg=document.getElementById("pg"),prog=document.getElementById("prog");
+function cur(){let i=0,min=1e9;slides.forEach((s,idx)=>{const d=Math.abs(s.getBoundingClientRect().top);if(d<min){min=d;i=idx;}});return i;}
+function upd(){const i=cur();pg.textContent=String(i+1).padStart(2,"0")+" / "+String(slides.length).padStart(2,"0");
+  prog.style.width=((i)/(slides.length-1)*100)+"%";}
+function go(i){i=Math.max(0,Math.min(slides.length-1,i));slides[i].scrollIntoView({behavior:"smooth"});}
+document.getElementById("next").onclick=()=>go(cur()+1);
+document.getElementById("prev").onclick=()=>go(cur()-1);
+deck.addEventListener("scroll",()=>{clearTimeout(window._t);window._t=setTimeout(upd,60);},{passive:true});
+window.addEventListener("keydown",e=>{
+  if(["ArrowDown","ArrowRight","PageDown"," "].includes(e.key)){e.preventDefault();go(cur()+1);}
+  if(["ArrowUp","ArrowLeft","PageUp"].includes(e.key)){e.preventDefault();go(cur()-1);}
+  if(e.key==="Home")go(0);if(e.key==="End")go(slides.length-1);
+});
+upd();
+</script>
+</body>
+</html>

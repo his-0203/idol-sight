@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MiiWAN 바이럴 실패 진단 · 2026-06-02 (D-14)</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#141821; --panel2:#1b2230; --ink:#eef2f8; --mut:#94a3b8;
+    --line:#27303f; --brand:#7c8cff; --good:#34d399; --warn:#fbbf24; --bad:#f87171;
+    --paid:#60a5fa; --org:#34d399; --accent:#7c8cff; --mw:#a78bfa; --hot:#fb7185;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",-apple-system,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+  .deck{scroll-snap-type:y mandatory;height:100vh;overflow-y:scroll}
+  section.slide{scroll-snap-align:start;min-height:100vh;padding:5vh 6vw 7vh;
+    display:flex;flex-direction:column;justify-content:center;position:relative;
+    border-bottom:1px solid var(--line)}
+  .kicker{color:var(--brand);font-weight:700;letter-spacing:.14em;font-size:13px;text-transform:uppercase;margin-bottom:14px}
+  h1{font-size:clamp(34px,5.2vw,64px);line-height:1.08;margin:0 0 18px;font-weight:800;letter-spacing:-.02em}
+  h2{font-size:clamp(24px,3.4vw,40px);line-height:1.15;margin:0 0 22px;font-weight:800;letter-spacing:-.01em}
+  h2 .num{color:var(--brand);margin-right:14px}
+  p.lead{font-size:clamp(16px,1.7vw,21px);color:var(--mut);max-width:64ch;line-height:1.6;margin:0 0 10px}
+  .pagefoot{position:absolute;bottom:18px;left:6vw;right:6vw;display:flex;justify-content:space-between;
+    color:#5b667a;font-size:12px;letter-spacing:.04em}
+  .grid{display:grid;gap:18px}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+  .g23{grid-template-columns:1.3fr 1fr}
+  @media(max-width:860px){.g2,.g3,.g4,.g23{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+  .card.hl{background:linear-gradient(160deg,#1a2030,#141821);border-color:#2b3650}
+  .card.bad{background:linear-gradient(160deg,#241519,#141821);border-color:#4a2730}
+  .stat{font-size:clamp(28px,3.8vw,44px);font-weight:850;letter-spacing:-.02em;line-height:1}
+  .stat.good{color:var(--good)}.stat.bad{color:var(--bad)}.stat.brand{color:var(--brand)}.stat.warn{color:var(--warn)}.stat.paid{color:var(--paid)}.stat.hot{color:var(--hot)}
+  .stat small{font-size:.42em;font-weight:700;color:var(--mut);margin-left:6px}
+  .lbl{color:var(--mut);font-size:14px;margin-top:8px;line-height:1.45}
+  .chip{display:inline-block;padding:4px 11px;border-radius:999px;font-size:12.5px;font-weight:700;margin:0 6px 6px 0}
+  .chip.g{background:rgba(52,211,153,.14);color:#6ee7b7;border:1px solid rgba(52,211,153,.3)}
+  .chip.r{background:rgba(248,113,113,.13);color:#fca5a5;border:1px solid rgba(248,113,113,.3)}
+  .chip.b{background:rgba(124,140,255,.14);color:#aeb8ff;border:1px solid rgba(124,140,255,.3)}
+  .chip.y{background:rgba(251,191,36,.13);color:#fcd34d;border:1px solid rgba(251,191,36,.3)}
+  .chip.c{background:rgba(96,165,250,.14);color:#93c5fd;border:1px solid rgba(96,165,250,.3)}
+  ul.clean{margin:6px 0 0;padding:0;list-style:none}
+  ul.clean li{padding:10px 0 10px 26px;position:relative;border-top:1px solid var(--line);font-size:15.5px;line-height:1.55;color:#d7deea}
+  ul.clean li:first-child{border-top:none}
+  ul.clean li::before{content:"";position:absolute;left:4px;top:18px;width:7px;height:7px;border-radius:2px;background:var(--brand)}
+  ul.clean li.good::before{background:var(--good)}ul.clean li.bad::before{background:var(--bad)}ul.clean li.warn::before{background:var(--warn)}ul.clean li.paid::before{background:var(--paid)}
+  b.hi{color:#fff}
+  .em{color:var(--good);font-weight:800}.emb{color:var(--bad);font-weight:800}
+  svg{width:100%;height:auto;display:block;overflow:visible}
+  .gl{stroke:#1e2533;stroke-width:1}
+  .tk{fill:var(--mut);font-size:12px}
+  .vlab{fill:var(--ink);font-size:12.5px;font-weight:700}
+  table.t{width:100%;border-collapse:collapse;font-size:14px}
+  table.t th,table.t td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--line)}
+  table.t th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  table.t td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+  table.t td.mono{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#cbd5e6}
+  .nav{position:fixed;right:16px;bottom:14px;z-index:30;display:flex;gap:7px;align-items:center;
+    background:rgba(20,24,33,.82);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:999px;padding:7px 12px}
+  .nav button{background:none;border:none;color:var(--ink);cursor:pointer;font-size:17px;line-height:1;padding:3px 6px;border-radius:8px}
+  .nav button:hover{background:var(--panel2)}
+  .nav .pg{color:var(--mut);font-size:12.5px;font-variant-numeric:tabular-nums;min-width:52px;text-align:center}
+  .progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--bad),var(--brand),var(--good));z-index:40;width:0}
+  .note{font-size:12.5px;color:#6b7689;margin-top:14px;line-height:1.5}
+  .big2{display:flex;gap:26px;align-items:flex-end;flex-wrap:wrap}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:var(--mut)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .quote{border-left:3px solid var(--bad);padding:6px 0 6px 18px;color:#cbd5e6;font-size:16px;line-height:1.6;margin:4px 0 18px}
+  .arrow{color:var(--brand);font-weight:800}
+  .ba{display:grid;grid-template-columns:1fr;gap:10px}
+  .ba .row{display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center}
+  @media(max-width:760px){.ba .row{grid-template-columns:1fr}}
+  .tbox{border-radius:11px;padding:12px 14px;font-size:14px;line-height:1.5}
+  .tbox.before{background:#1a1216;border:1px solid #3a2027;color:#e7c9cf}
+  .tbox.after{background:#101d18;border:1px solid #1f4636;color:#cfeede}
+  .tbox .tag{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;display:block;margin-bottom:5px}
+  .tbox.before .tag{color:var(--bad)}.tbox.after .tag{color:var(--good)}
+  .tbox .vv{font-size:11.5px;color:#7d8aa0;margin-top:5px}
+  .ba .mid{color:var(--brand);font-weight:800;font-size:20px;text-align:center}
+  .ex{background:#0e1219;border:1px solid var(--line);border-radius:10px;padding:11px 13px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:#cbd5e6;line-height:1.6;margin-top:8px}
+  .ex .c{color:#6b7689}
+  .step{counter-reset:st;list-style:none;margin:6px 0 0;padding:0}
+  .step li{position:relative;padding:9px 0 9px 38px;border-top:1px solid var(--line);font-size:14px;line-height:1.5;color:#d7deea}
+  .step li:first-child{border-top:none}
+  .step li::before{counter-increment:st;content:counter(st);position:absolute;left:0;top:9px;
+    width:24px;height:24px;border-radius:8px;background:var(--brand);color:#0b0d12;font-weight:800;font-size:13px;
+    display:flex;align-items:center;justify-content:center}
+  .tag2{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+    padding:1px 7px;font-size:12px;color:#aeb8ff;font-family:ui-monospace,monospace;margin:0 2px}
+  .pillrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .pill{background:#0e1219;border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-size:13px;color:#cbd5e6}
+  .pill b{color:#fff}
+  .spec{margin-top:10px}
+  .spec .r{padding:10px 0;border-top:1px solid var(--line)}
+  .spec .r:first-child{border-top:none}
+  .spec .k{display:block;color:var(--brand);font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}
+  .spec .v{display:block;font-size:14.5px;line-height:1.5;color:#d7deea}
+  .spec .v b{color:#fff;font-weight:700}
+</style>
+</head>
+<body>
+<div class="progress" id="prog"></div>
+<div class="deck" id="deck">
+
+<!-- 1 TITLE -->
+<section class="slide">
+  <div class="kicker">ABYSS COMPANY · IDOL-SIGHT BI · 콘텐츠 진단</div>
+  <h1>미완소년(MiiWAN)은<br>왜 바이럴되지 않는가</h1>
+  <p class="lead">조회수·구독은 광고로 데우고 있고 organic 관여(ER 6%+)도 최상위인데, <b class="hi">개별 영상이 ‘터지는’ 일이 없다.</b>
+  제목·호칭·후킹·발견 채널을 종합 해부한 결과, 원인은 콘텐츠 품질이 아니라 <b class="hi">‘설계 방향’</b>이다 —
+  모든 신호가 <span class="emb">이미 아는 코어 100명</span>을 향하고, <span class="em">모르는 신규</span>를 위한 장치가 0이다.</p>
+  <div class="big2" style="margin-top:18px">
+    <div><div class="stat bad">2.0×</div><div class="lbl">쇼츠 최고/중앙 조회 배율 · 바이럴 채널은 50~1,000×</div></div>
+    <div><div class="stat bad">0 / 13</div><div class="lbl">제목에 그룹명·곡명 포함된 쇼츠 · 검색 유입 불가</div></div>
+    <div><div class="stat warn">~1,000</div><div class="lbl">쇼츠 조회 천장 = 구독자 도달 한계 = 콜드 피드 미진입</div></div>
+  </div>
+  <div class="pagefoot"><span>기준일 2026-06-02 (D-14) · IDOL-SIGHT(D1) 5/31 스냅샷 · organic 쇼츠 13개 해부</span><span>01 / 10</span></div>
+</section>
+
+<!-- 2 EXEC SUMMARY -->
+<section class="slide">
+  <div class="kicker">한 장 요약 · 결론 먼저</div>
+  <h2>“콘텐츠가 안쪽(코어)을 향한다 — 그래서 바깥(신규)에 발견되지 않는다”</h2>
+  <div class="grid g2">
+    <div class="card bad">
+      <div class="chip r">핵심 진단</div>
+      <ul class="clean">
+        <li class="bad"><b class="hi">구독자 에코챔버에 갇힘.</b> organic 쇼츠 92%가 700~1,600 조회 좁은 밴드에 정체. 이 천장은 <b class="hi">구독·알림 받은 코어가 도달 한계</b> — 알고리즘 콜드 피드로 한 번도 안 나갔다.</li>
+        <li class="bad"><b class="hi">제목이 검색·알고리즘에 무의미.</b> 그룹명·곡명 0%, 장식 특수문자 38%, 내부 별명 62%. 신규 시청자도, YouTube 알고리즘도 <b class="hi">이 영상이 무엇·누구인지 매칭할 단서가 없다.</b></li>
+        <li class="bad"><b class="hi">후킹이 ‘내부자 농담’.</b> “똑똑똑? 복복복!”·“겜율이 게임 서열 1위” — 팬만 이해. 콜드 시청자는 맥락을 몰라 1~2초에 이탈 → 알고리즘이 확장을 멈춤.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="chip y">왜 ‘질’이 아니라 ‘방향’ 문제인가</div>
+      <ul class="clean">
+        <li class="good"><b class="hi">코어 안에선 콘텐츠가 강하다.</b> ER 6.22%(전 그룹 1위급)는 ‘본 사람은 좋아한다’는 뜻. 문제는 보는 사람이 늘 같은 100명.</li>
+        <li class="warn"><b class="hi">바이럴 = 신규 도달의 연쇄.</b> 알고리즘이 콜드 시청자에게 테스트 → 끝까지 봄·공유 → 다음 링으로 확장. MiiWAN은 <b class="hi">1번째 링(구독자)에서 멈춘다.</b></li>
+        <li class="warn"><b class="hi">발견 채널도 봉쇄.</b> X=0, 검색 유입 0, 광고는 동남아·일본인데 커뮤니티는 한국 전용. 새 유입의 입구가 전부 막힘.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">→ 처방: 콘텐츠 cadence·퀄리티는 그대로 두고, <b style="color:#cbd5e6">제목·호칭·첫 3초·해시태그·사운드를 ‘바깥을 향하게’ 재설계</b>. 코어용 영상과 신규 발견용 영상을 분리 운영. (09p)</p>
+  <div class="pagefoot"><span>Executive Summary</span><span>02 / 10</span></div>
+</section>
+
+<!-- 3 VIRAL PHYSICS -->
+<section class="slide">
+  <h2><span class="num">물리</span>바이럴은 멱법칙이다 — MiiWAN은 평탄선이다</h2>
+  <div class="grid g23" style="align-items:center">
+    <div>
+      <div id="chartPow"></div>
+      <div class="legend">
+        <span><i style="background:var(--mw)"></i>MiiWAN organic 쇼츠 13개 (실측)</span>
+        <span><i style="background:var(--hot)"></i>바이럴 채널 전형 (멱법칙 참조)</span>
+      </div>
+    </div>
+    <div>
+      <div class="card hl" style="margin-bottom:14px">
+        <div class="stat bad">CV 0.31</div>
+        <div class="lbl">조회 변동계수. 거의 평탄 = <b class="hi">breakout 0건</b>. 바이럴 채널은 한 영상이 중앙값의 수십~수백 배로 튄다.</div>
+      </div>
+      <div class="grid g2">
+        <div class="card"><div class="stat warn">92%</div><div class="lbl">700~1,600 좁은 밴드에 갇힌 쇼츠 비율</div></div>
+        <div class="card"><div class="stat bad">2.0×</div><div class="lbl">최고(2,259)/중앙(1,128). 바이럴은 50~1,000×</div></div>
+      </div>
+      <p class="note"><span class="arrow">⇒</span> 모든 쇼츠가 비슷한 조회에서 멈춘다는 건 <b style="color:#cbd5e6">‘같은 사람들’에게만 도달</b>한다는 신호다. 그 천장은 다음 장 — 정확히 구독자 규모와 일치한다.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Viral Physics · Power-law absent</span><span>03 / 10</span></div>
+</section>
+
+<!-- 4 ECHO CHAMBER CEILING -->
+<section class="slide">
+  <h2><span class="num">메커니즘</span>‘1,000뷰 천장’의 정체 — 콜드 피드 미진입</h2>
+  <div class="grid g23" style="align-items:center">
+    <div id="chartRings"></div>
+    <div>
+      <p class="lead">YouTube Shorts 알고리즘은 <b class="hi">동심원처럼 확장</b>한다. 작은 테스트 그룹 → 끝까지 봄·공유 → 다음 링으로. MiiWAN은 <b class="hi">1번째 링(구독·알림)</b>에서 멈춰 있다.</p>
+      <div class="card bad">
+        <div class="chip r">왜 2번째 링(콜드)으로 못 나가나</div>
+        <ul class="clean">
+          <li class="bad"><b class="hi">콜드 시청자 이탈.</b> 알고리즘은 영상을 비구독자에게도 테스트하지만, 맥락 없는 내부자 콘텐츠라 1~2초에 스킵 → 시청지속률 하락 → 확장 중단.</li>
+          <li class="warn"><b class="hi">높은 ER이 함정.</b> 6.22%는 ‘자발적으로 본 코어’의 신호일 뿐. 확장 게이트는 <b class="hi">코어 좋아요가 아니라 콜드 시청자의 완시청</b>인데 그 신호가 약하다.</li>
+        </ul>
+      </div>
+      <p class="note"><span class="arrow">⇒</span> 쇼츠 조회 천장(~1,000~1,300)이 <b style="color:#cbd5e6">활성 구독자 규모와 거의 일치</b>. 즉 쇼츠가 구독 피드 안에서만 돌고 추천 피드로 안 나간다 — 전형적 에코챔버.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Mechanism · Subscriber echo chamber</span><span>04 / 10</span></div>
+</section>
+
+<!-- 5 DIAGNOSIS 1: TITLES -->
+<section class="slide">
+  <h2><span class="num">진단 1</span>제목 — 검색·알고리즘이 읽을 키워드가 0</h2>
+  <div class="grid g23" style="align-items:center">
+    <div>
+      <div id="chartTitle"></div>
+      <p class="note" style="margin-top:6px">organic 쇼츠 13개 제목 피처 분석. <b style="color:#cbd5e6">검색·분류에 필요한 키워드는 0%, 알고리즘을 방해하는 장식·이모지는 과반.</b></p>
+    </div>
+    <div>
+      <table class="t">
+        <thead><tr><th>제목 (실측)</th><th class="n">조회</th><th>문제</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">˚₊‧꒰ა 어디까지 날아갈지…~</td><td class="n">2,259</td><td>장식·맥락無</td></tr>
+          <tr><td class="mono">그룹 내 게임 서열 1위 겜율이 🎮🏆</td><td class="n">1,334</td><td>내부 별명</td></tr>
+          <tr><td class="mono">최고의 인테리어는 마하진 ⟡</td><td class="n">1,098</td><td>별명·기호</td></tr>
+          <tr><td class="mono">똑똑똑? 복복복!</td><td class="n">866</td><td>팬만 이해</td></tr>
+          <tr><td class="mono">포켓몬 박사 나이선 학위 박탈 논란?!</td><td class="n">902</td><td>‘나이선’ 불명</td></tr>
+        </tbody>
+      </table>
+      <div class="pillrow">
+        <span class="pill"><b>0%</b> 그룹명·곡명 포함</span>
+        <span class="pill"><b>0%</b> 검색 가능 식별자</span>
+        <span class="pill"><b>62%</b> 내부 별명만</span>
+        <span class="pill"><b>38%</b> 장식 특수문자</span>
+      </div>
+      <p class="note"><span class="arrow">⇒</span> 누가 “복복복”·“겜율이”·“마하진”을 검색하나. 제목에 <b style="color:#cbd5e6">미완소년·MiiWAN·PLUMA·멤버 본명</b>이 없으니 검색·추천 유입 경로가 통째로 닫혀 있다.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Diagnosis 1 · Titles</span><span>05 / 10</span></div>
+</section>
+
+<!-- 6 DIAGNOSIS 2/3: NAMING + HOOK -->
+<section class="slide">
+  <h2><span class="num">진단 2·3</span>호칭은 ‘내부어’, 후킹은 ‘내부자 농담’</h2>
+  <div class="grid g2">
+    <div class="card">
+      <div class="chip r">진단 2 · 멤버 호칭의 내부화</div>
+      <p class="lbl" style="margin-top:2px">콘텐츠가 멤버를 <b class="hi">애칭·줄임말</b>로만 부른다. 신규는 누가 누군지 식별 불가 → 최애 형성·검색·2차창작의 출발점이 막힘.</p>
+      <table class="t" style="margin-top:8px">
+        <thead><tr><th>콘텐츠 호칭</th><th>신규가 겪는 문제</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">겜율이 / 주율이</td><td>본명(원주율)·역할 모름</td></tr>
+          <tr><td class="mono">온이 / 안쌤</td><td>멤버인지 별명인지 불명</td></tr>
+          <tr><td class="mono">마하진 / 나이선</td><td>검색해도 결과 없음</td></tr>
+        </tbody>
+      </table>
+      <p class="note">멤버 인기 집중도 HHI 0.29·균등 0.88로 ‘대표 얼굴 한 방’도 아직 없음 — 내부 호칭이 이걸 더 악화.</p>
+    </div>
+    <div class="card">
+      <div class="chip r">진단 3 · 후킹이 ‘이미 팬인 사람’ 전제</div>
+      <p class="lbl" style="margin-top:2px">첫 1~2초가 콜드 시청자를 잡아야 하는데, 후킹이 전부 <b class="hi">관계·맥락을 아는 사람</b> 기준이다.</p>
+      <ul class="clean">
+        <li class="bad"><b class="hi">관계 전제형:</b> “안쌤을 절대 그냥 넘어가지 않으셔” — 안쌤이 누군지, 왜 웃긴지 신규는 모름.</li>
+        <li class="bad"><b class="hi">맥락 전제형:</b> “몰래 온 손님(?)” — 무슨 상황인지 영상 끝까지 봐야 앎(=안 봄).</li>
+        <li class="warn"><b class="hi">보편 후킹 부재:</b> ‘버추얼인데 실제로 노래함’ ‘데뷔 D-14 신인’ 같은 <b class="hi">누구나 클릭할 이유</b>가 제목·첫 컷에 없음.</li>
+      </ul>
+      <p class="note"><span class="arrow">⇒</span> 코어에겐 정겹지만, 신규에겐 <b style="color:#cbd5e6">‘끼리끼리 노는 채널’</b>로 보여 진입 장벽이 된다.</p>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Diagnosis 2·3 · Naming & Hook</span><span>06 / 10</span></div>
+</section>
+
+<!-- 7 DIAGNOSIS 4: DISCOVERY CHANNELS -->
+<section class="slide">
+  <h2><span class="num">진단 4</span>발견 채널이 전부 막혀 있다</h2>
+  <p class="lead">신규 팬이 들어올 수 있는 입구를 점검하면, 바이럴에 필요한 <b class="hi">외부 유입 경로가 거의 모두 닫혀</b> 있다.</p>
+  <div class="grid g4">
+    <div class="card bad"><div class="stat bad">X = 0</div><div class="lbl"><b class="hi">트위터 미운영.</b> 글로벌·버추얼 팬덤 1차 발견·2차창작 확산 채널이 통째로 비어 있음.</div></div>
+    <div class="card bad"><div class="stat bad">검색 0</div><div class="lbl"><b class="hi">검색 유입 봉쇄.</b> 제목에 검색어가 없어 YouTube·구글·네이버 검색 결과에 안 잡힘.</div></div>
+    <div class="card bad"><div class="stat warn">지역 미스매치</div><div class="lbl"><b class="hi">광고=동남아·일본, 커뮤니티=한국.</b> 해외 도달이 갈 동선(영어 자막·글로벌 X)이 없음.</div></div>
+    <div class="card bad"><div class="stat warn">뉴스 13</div><div class="lbl"><b class="hi">PR 정체.</b> 네이버 기사 13건에서 2주째 멈춤. 미디어 발견 경로도 약함.</div></div>
+  </div>
+  <div class="grid g2" style="margin-top:18px">
+    <div class="card">
+      <div class="chip y">바이럴 채널이 쓰는 입구 (MiiWAN 결손)</div>
+      <ul class="clean">
+        <li class="warn"><b class="hi">트렌딩 사운드·챌린지</b> — 추천 피드 진입의 지름길. 현재 미사용 추정.</li>
+        <li class="warn"><b class="hi">해시태그·시리즈명</b> — 묶음 노출·재생목록 유입. 제목에 #태그 0.</li>
+        <li class="warn"><b class="hi">컷·리액션·밈 포맷</b> — 타 팬덤 교차 유입. 내부 일상 위주.</li>
+      </ul>
+    </div>
+    <div class="card hl">
+      <div class="chip g">유일하게 작동 중인 것</div>
+      <ul class="clean">
+        <li class="good"><b class="hi">디시 갤러리</b> 0→38 — 단, 한국 코어 내부 담론장. 신규 유입구가 아니라 코어 응집 장치.</li>
+        <li class="paid"><b class="hi">유료 광고</b> — 도달은 사지만 ‘발견 → 팬 전환’ 동선이 비어 누수(별도 리포트).</li>
+      </ul>
+    </div>
+  </div>
+  <div class="pagefoot"><span>Diagnosis 4 · Discovery channels</span><span>07 / 10</span></div>
+</section>
+
+<!-- 8 ROOT CAUSE SYNTHESIS -->
+<section class="slide">
+  <div class="kicker">종합</div>
+  <h2>한 문장: “코어 100명을 위한 콘텐츠를, 모르는 100만에게 들이밀고 있다”</h2>
+  <div class="grid g3">
+    <div class="card"><div class="chip b">원인 사슬 ①</div><div class="lbl"><b class="hi">내향적 설계</b><br>제목·호칭·후킹이 ‘아는 사람’ 전제 → 콜드 시청자 이탈</div></div>
+    <div class="card"><div class="chip b">원인 사슬 ②</div><div class="lbl"><b class="hi">알고리즘 확장 실패</b><br>완시청·공유 신호 약함 → 1번째 링(구독자)에서 정체</div></div>
+    <div class="card"><div class="chip b">원인 사슬 ③</div><div class="lbl"><b class="hi">발견 채널 봉쇄</b><br>X·검색·해외 동선 부재 → 외부 유입 0</div></div>
+  </div>
+  <div class="card hl" style="margin-top:18px">
+    <p class="lead" style="margin:0">결과: 모든 영상이 <b class="hi">구독자 도달 한계(~1,000~1,300뷰)</b>에서 평탄하게 멈춘다.
+    이것은 <b class="hi">콘텐츠가 약해서가 아니라</b>(ER은 1위급), <b style="color:#cbd5e6">신규를 위한 진입로·식별자·후킹·사운드·플랫폼이 설계에서 빠졌기 때문</b>이다.
+    바이럴은 ‘운’이 아니라 <b class="hi">발견 가능성(discoverability)의 함수</b> — 지금은 그 함수의 입력값이 거의 0이다.</p>
+  </div>
+  <p class="note">다음 장(마무리): 콘텐츠·플랫폼 무관하게 <b style="color:#cbd5e6">숏폼 알고리즘을 ‘태우기’ 위해 일반적으로 필요한 작업</b>을 한 페이지로 정리.</p>
+  <div class="pagefoot"><span>Root Cause Synthesis</span><span>08 / 10</span></div>
+</section>
+
+<!-- 9 ALGORITHM CHECKLIST (CLOSE) -->
+<section class="slide">
+  <div class="kicker">마무리 · 일반론</div>
+  <h2>숏폼 알고리즘을 ‘태우기’ 위해 필요한 작업</h2>
+  <p class="lead">숏폼 추천은 <b class="hi">[소수 테스트 노출 → 반응 신호 측정 → 다음 시청자 링으로 확장]</b>의 반복이다.
+  확장을 부르는 신호는 정해져 있고, 각 신호는 만들어내는 작업이 따로 있다. <b class="hi">아래 7개가 ‘알고리즘을 태우는’ 레버다.</b></p>
+  <table class="t" style="margin-top:6px">
+    <thead><tr><th style="width:18%">알고리즘 신호</th><th style="width:40%">작동 원리 (왜 확장되나)</th><th>필요한 작업</th></tr></thead>
+    <tbody>
+      <tr><td><b class="hi">① 첫 1~3초 후킹</b></td><td>테스트 노출에서 ‘스크롤 정지율’이 1차 통과 관문. 초반 이탈하면 거기서 끝.</td><td>강한 첫 컷(질문·반전·시각 충격)으로 시작. 인트로·로고·뜸들이기 제거.</td></tr>
+      <tr><td><b class="hi">② 시청 지속·재시청</b></td><td>완시청률·루프(끝→처음 재생)가 핵심 랭킹 신호. 길수록 완주율 하락.</td><td>영상 짧고 군더더기 컷 삭제. 마지막이 처음과 자연스럽게 이어지게 설계.</td></tr>
+      <tr><td><b class="hi">③ 검색·분류 메타데이터</b></td><td>제목·설명·태그로 ‘무엇/누구’를 알고리즘이 매칭. 단서 없으면 노출 대상 못 정함.</td><td>제목 앞부분에 검색어(그룹명·곡명·본명) 배치. 설명·해시태그로 주제 명시.</td></tr>
+      <tr><td><b class="hi">④ 트렌딩 사운드</b></td><td>인기 오디오는 같은 사운드 묶음 피드로 노출돼 추천 진입 지름길.</td><td>상승 중인 사운드를 빠르게 차용. 챌린지·밈 포맷에 얹기.</td></tr>
+      <tr><td><b class="hi">⑤ 초동 속도(Velocity)</b></td><td>업로드 직후 1~2시간 CTR·완시청·반응 밀도가 확산 여부를 가름.</td><td>타깃 활동 피크 시간대 업로드 + 알림·커뮤니티로 초기 시청 부스트.</td></tr>
+      <tr><td><b class="hi">⑥ 공유·외부 유입</b></td><td>공유 수와 off-platform(타 SNS) 유입은 알고리즘에 강한 ‘가치’ 신호.</td><td>공유 욕구를 부르는 소재 + X·커뮤니티 동시 배포로 외부 유입 만들기.</td></tr>
+      <tr><td><b class="hi">⑦ 업로드 일관성</b></td><td>주제·포맷·빈도가 일정해야 알고리즘이 채널 시청자상을 학습·고정.</td><td>정기 cadence 유지 + 포맷·주제 일관. 잦은 노선 변경 지양.</td></tr>
+    </tbody>
+  </table>
+  <div class="grid g3" style="margin-top:16px">
+    <div class="card hl"><div class="chip g">한 줄 원리</div><div class="lbl">알고리즘은 <b class="hi">‘콜드 시청자가 끝까지 보고 공유하는가’</b>를 본다. ①②가 통과 관문, ③④가 매칭·진입, ⑤⑥이 확장 가속, ⑦이 토대.</div></div>
+    <div class="card"><div class="chip y">측정 핵심 3</div><div class="lbl"><b class="hi">시청 지속률 · 비구독자 도달 비중 · 공유 수</b> — 이 3개가 오르면 알고리즘에 타고 있다는 뜻(YouTube Studio에서 확인).</div></div>
+    <div class="card"><div class="chip c">주의</div><div class="lbl">구독자·좋아요 수는 <b class="hi">결과</b>지 신호가 아니다. ‘이미 아는 사람’이 아닌 <b class="hi">‘모르는 사람’의 완시청</b>을 만드는 게 본질.</div></div>
+  </div>
+  <p class="note">출처: IDOL-SIGHT(D1) 5/31 스냅샷 진단(1~8p) + 숏폼 추천 알고리즘 일반론. 본 페이지는 플랫폼·콘텐츠 무관 공통 레버 정리이며, 실제 적용 효과는 위 측정 3종으로 확인.</p>
+  <div class="pagefoot"><span>알고리즘 작업 체크리스트 · 2026-06-02 (D-14)</span><span>09 / 10</span></div>
+</section>
+
+<!-- 10 PLATFORM-SPECIFIC STRATEGY (CLOSE) -->
+<section class="slide">
+  <div class="kicker">마무리 · 플랫폼별 전략</div>
+  <h2>같은 영상도 플랫폼마다 다르게 — 제목·콘텐츠 성향 분리</h2>
+  <p class="lead">발견 방식이 플랫폼마다 다르다. <b class="hi">한 벌을 그대로 크로스포스트하면 셋 다 저성과</b> — 원본 1개를 플랫폼 문법에 맞춰 제목·포맷·캡션을 갈아끼워야 한다.</p>
+  <div class="grid g3">
+    <div class="card hl">
+      <div class="chip r">YouTube</div>
+      <div class="spec">
+        <div class="r"><span class="k">발견 엔진</span><span class="v">검색 + 추천 — <b>검색 비중 큰 SEO형</b></span></div>
+        <div class="r"><span class="k">제목</span><span class="v">그룹명·곡명·멤버 <b>본명·키워드를 맨 앞</b>에. 길어도 OK, 설명란·태그 적극</span></div>
+        <div class="r"><span class="k">콘텐츠 성향</span><span class="v">정보·서사를 <b>자산화</b>. 롱폼(데뷔무대·MV·비하인드) + 쇼츠 후킹, 자막·챕터</span></div>
+        <div class="r"><span class="k">우선 레버</span><span class="v">검색 키워드 · 썸네일 CTR · 시청 지속시간</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="chip c">TikTok</div>
+      <div class="spec">
+        <div class="r"><span class="k">발견 엔진</span><span class="v">FYP 추천 중심 — 검색 약함, <b>트렌드·사운드가 핵심</b></span></div>
+        <div class="r"><span class="k">제목 / 캡션</span><span class="v">짧은 후킹 한 줄 + 트렌딩 해시태그. <b>화면 텍스트 오버레이</b>가 제목 역할</span></div>
+        <div class="r"><span class="k">콘텐츠 성향</span><span class="v">트렌드·챌린지·밈·반전. 날것·세로 풀스크린·빠른 편집, <b>광고티 비호감</b></span></div>
+        <div class="r"><span class="k">우선 레버</span><span class="v">트렌딩 사운드 · 첫 2초 · 챌린지/듀엣 · <b>글로벌(동남아·일본) 도달</b></span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="chip b">Instagram (Reels)</div>
+      <div class="spec">
+        <div class="r"><span class="k">발견 엔진</span><span class="v">Reels 추천 + 탐색탭. <b>저장·공유</b> 신호 가중</span></div>
+        <div class="r"><span class="k">제목 / 캡션</span><span class="v">스토리텔링 + 해시태그 묶음. <b>세계관·감성 카피</b></span></div>
+        <div class="r"><span class="k">콘텐츠 성향</span><span class="v">비주얼 완성도·브랜딩·<b>세계관</b>, 그리드 일관성. 캐러셀 정보 · 스토리/하이라이트로 코어 소통</span></div>
+        <div class="r"><span class="k">우선 레버</span><span class="v">미적 비주얼 · 저장 유발 · 오디오 트렌드</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card hl">
+      <div class="chip g">리퍼포징 원칙 — 원본 1개 → 3벌</div>
+      <div class="lbl" style="margin-top:2px">같은 소스라도 <b class="hi">YouTube=검색 제목·롱폼 자산</b>, <b class="hi">TikTok=트렌드·날것·글로벌</b>, <b class="hi">IG=세계관·비주얼·저장</b>으로 재편집. 타 플랫폼 워터마크 제거 + 세로 풀스크린 + 캡션 교체는 기본.</div>
+    </div>
+    <div class="card">
+      <div class="chip y">미완소년 적용</div>
+      <div class="lbl" style="margin-top:2px"><b class="hi">광고 도달이 동남아·일본 → TikTok 글로벌과 정합.</b> YouTube엔 데뷔무대·MV를 검색자산으로 쌓고, IG Reels엔 멤버·세계관 비주얼로 브랜딩. 코어 소통은 IG 스토리·YouTube 라이브.</div>
+    </div>
+  </div>
+  <p class="note">원칙: <b style="color:#cbd5e6">플랫폼은 ‘배급 채널’이 아니라 각자 다른 ‘언어’다.</b> 발견 엔진(검색/FYP/저장)에 맞춰 제목·포맷을 바꿔야 같은 콘텐츠가 각 플랫폼 알고리즘을 탄다.</p>
+  <div class="pagefoot"><span>플랫폼별 전략 · 2026-06-02 (D-14)</span><span>10 / 10</span></div>
+</section>
+
+</div>
+
+<div class="nav">
+  <button id="prev" aria-label="이전">◀</button>
+  <span class="pg" id="pg">01 / 10</span>
+  <button id="next" aria-label="다음">▶</button>
+</div>
+
+<script>
+const NS="http://www.w3.org/2000/svg";
+function el(t,a){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function svg(w,h){const s=el("svg",{viewBox:`0 0 ${w} ${h}`});s.setAttribute("width","100%");return s;}
+
+// 3) Power-law: MiiWAN flat vs viral reference (log scale)
+function chartPow(){
+  const mw=[2259,1519,1403,1334,1321,1303,1128,1098,969,912,902,866,740];
+  // viral reference power-law (rank → views), illustrative
+  const viral=[480000,90000,42000,22000,14000,9000,6200,4400,3300,2500,1900,1500,1200];
+  const W=620,H=380,pad={l:54,r:18,t:26,b:50};
+  const s=svg(W,H);const plotW=W-pad.l-pad.r,plotH=H-pad.t-pad.b;
+  const lmin=Math.log10(500),lmax=Math.log10(600000);
+  const X=i=>pad.l+(i/(mw.length-1))*plotW;
+  const Y=v=>pad.t+plotH-((Math.log10(v)-lmin)/(lmax-lmin))*plotH;
+  [1000,10000,100000].forEach(g=>{const y=Y(g);s.appendChild(el("line",{x1:pad.l,y1:y,x2:W-pad.r,y2:y,class:"gl"}));
+    s.appendChild(el("text",{x:pad.l-10,y:y+4,class:"tk","text-anchor":"end"})).textContent=(g>=1000?(g/1000)+"K":g);});
+  // ceiling band (subscriber reach ~1000-1300)
+  const yb1=Y(1300),yb2=Y(900);
+  s.appendChild(el("rect",{x:pad.l,y:yb1,width:plotW,height:yb2-yb1,fill:"var(--mw)","fill-opacity":.10}));
+  const cb=el("text",{x:W-pad.r-4,y:yb1-6,class:"tk","text-anchor":"end",fill:"var(--mw)"});cb.style.fontSize="11.5px";cb.style.fontWeight="700";cb.textContent="구독자 도달 천장";s.appendChild(cb);
+  // viral path
+  let vp=`M ${X(0)} ${Y(viral[0])}`;viral.forEach((v,i)=>vp+=` L ${X(i)} ${Y(v)}`);
+  s.appendChild(el("path",{d:vp,fill:"none",stroke:"var(--hot)","stroke-width":2.4,"stroke-dasharray":"5 4","stroke-opacity":.85}));
+  viral.forEach((v,i)=>s.appendChild(el("circle",{cx:X(i),cy:Y(v),r:3,fill:"var(--hot)","fill-opacity":.8})));
+  s.appendChild(el("text",{x:X(0)+6,y:Y(480000)-8,fill:"var(--hot)"})).textContent="";
+  const vl=el("text",{x:X(1),y:Y(90000)-10,fill:"var(--hot)"});vl.style.fontSize="12px";vl.style.fontWeight="700";vl.textContent="바이럴: 1편이 폭발";s.appendChild(vl);
+  // mw path
+  let mp=`M ${X(0)} ${Y(mw[0])}`;mw.forEach((v,i)=>mp+=` L ${X(i)} ${Y(v)}`);
+  s.appendChild(el("path",{d:mp,fill:"none",stroke:"var(--mw)","stroke-width":2.8}));
+  mw.forEach((v,i)=>s.appendChild(el("circle",{cx:X(i),cy:Y(v),r:3.6,fill:"var(--mw)"})));
+  const ml=el("text",{x:X(6),y:Y(1128)+22,class:"vlab","text-anchor":"middle",fill:"var(--mw)"});ml.textContent="MiiWAN: 전부 평탄";s.appendChild(ml);
+  s.appendChild(el("text",{x:pad.l+plotW/2,y:H-10,class:"tk","text-anchor":"middle"})).textContent="영상 순위 (조회 내림차순) · 세로축 로그";
+  document.getElementById("chartPow").appendChild(s);
+}
+
+// 4) Expansion rings
+function chartRings(){
+  const W=520,H=420;const s=svg(W,H);const cx=W/2,cy=H/2;
+  // outer to inner
+  [200,166,108,54].forEach((r,i)=>{
+    const colors=["#2a3344","var(--bad)","var(--warn)","var(--good)"];
+    s.appendChild(el("circle",{cx,cy,r,fill:"none",stroke:colors[i],"stroke-width":1.6,"stroke-opacity":.7,"stroke-dasharray":i===0?"3 4":"none"}));
+  });
+  s.appendChild(el("circle",{cx,cy,r:54,fill:"var(--good)","fill-opacity":.18}));
+  // labels
+  const labs=[{r:54,t:"① 구독자 (코어)",c:"var(--good)",dy:-54-10},
+              {r:108,t:"② 추천 콜드 피드",c:"var(--warn)",dy:-108-10},
+              {r:166,t:"③ 바이럴 확산",c:"var(--bad)",dy:-166-10}];
+  labs.forEach(L=>{const e=el("text",{x:cx,y:cy+L.dy,class:"tk","text-anchor":"middle",fill:L.c});e.style.fontWeight="700";e.style.fontSize="12.5px";e.textContent=L.t;s.appendChild(e);});
+  // "stuck here" marker at ring 1 boundary
+  const bx=cx+54,by=cy;
+  s.appendChild(el("circle",{cx:bx,cy:by,r:6,fill:"var(--mw)"}));
+  // barrier between ring1 and ring2
+  const arc=el("circle",{cx,cy,r:54,fill:"none",stroke:"var(--mw)","stroke-width":3,"stroke-opacity":.9});s.appendChild(arc);
+  const stuck=el("text",{x:cx,y:cy+4,class:"vlab","text-anchor":"middle"});stuck.style.fontSize="13px";stuck.textContent="MiiWAN";s.appendChild(stuck);
+  const stuck2=el("text",{x:cx,y:cy+22,class:"tk","text-anchor":"middle",fill:"var(--mw)"});stuck2.style.fontSize="11.5px";stuck2.textContent="여기서 멈춤";s.appendChild(stuck2);
+  // blocked arrow trying to cross
+  const ar=el("text",{x:cx,y:cy-78,"text-anchor":"middle",fill:"var(--bad)"});ar.style.fontSize="20px";ar.style.fontWeight="800";ar.textContent="⃠";s.appendChild(ar);
+  const note=el("text",{x:cx,y:H-8,class:"tk","text-anchor":"middle"});note.textContent="콜드 시청자 완시청·공유 신호 약함 → 확장 차단";s.appendChild(note);
+  document.getElementById("chartRings").appendChild(s);
+}
+
+// 5) Title feature bars
+function chartTitle(){
+  const data=[
+    {k:"그룹명·곡명 포함",v:0,c:"var(--bad)",good:true},
+    {k:"검색 가능 식별자",v:0,c:"var(--bad)",good:true},
+    {k:"내부 별명만",v:62,c:"var(--warn)"},
+    {k:"이모지",v:62,c:"var(--paid)"},
+    {k:"장식 특수문자",v:38,c:"var(--warn)"},
+  ];
+  const W=560,H=330,pad={l:140,r:48,t:18,b:34};
+  const s=svg(W,H);const plotW=W-pad.l-pad.r,plotH=H-pad.t-pad.b;
+  const bh=plotH/data.length*0.6, gap=plotH/data.length;
+  for(let g=0;g<=100.001;g+=25){const x=pad.l+g/100*plotW;s.appendChild(el("line",{x1:x,y1:pad.t,x2:x,y2:pad.t+plotH,class:"gl"}));
+    s.appendChild(el("text",{x,y:H-pad.b+22,class:"tk","text-anchor":"middle"})).textContent=g+"%";}
+  data.forEach((d,i)=>{const y=pad.t+i*gap+(gap-bh)/2;
+    s.appendChild(el("text",{x:pad.l-12,y:y+bh/2+4,class:"tk","text-anchor":"end"})).textContent=d.k;
+    const w=Math.max(d.v/100*plotW,d.v===0?0:2);
+    if(d.v===0){
+      const z=el("text",{x:pad.l+6,y:y+bh/2+4,fill:"var(--bad)"});z.style.fontSize="13px";z.style.fontWeight="800";z.textContent="0% — 검색·발견 불가";s.appendChild(z);
+    }else{
+      s.appendChild(el("rect",{x:pad.l,y,width:w,height:bh,rx:5,fill:d.c}));
+      const t=el("text",{x:pad.l+w+8,y:y+bh/2+4,class:"vlab"});t.style.fontSize="13px";t.textContent=d.v+"%";s.appendChild(t);
+    }});
+  document.getElementById("chartTitle").appendChild(s);
+}
+
+chartPow();chartRings();chartTitle();
+
+// navigation
+const deck=document.getElementById("deck");
+const slides=[...document.querySelectorAll(".slide")];
+const pg=document.getElementById("pg"),prog=document.getElementById("prog");
+function cur(){let i=0,min=1e9;slides.forEach((s,idx)=>{const d=Math.abs(s.getBoundingClientRect().top);if(d<min){min=d;i=idx;}});return i;}
+function upd(){const i=cur();pg.textContent=String(i+1).padStart(2,"0")+" / "+String(slides.length).padStart(2,"0");
+  prog.style.width=((i)/(slides.length-1)*100)+"%";}
+function go(i){i=Math.max(0,Math.min(slides.length-1,i));slides[i].scrollIntoView({behavior:"smooth"});}
+document.getElementById("next").onclick=()=>go(cur()+1);
+document.getElementById("prev").onclick=()=>go(cur()-1);
+deck.addEventListener("scroll",()=>{clearTimeout(window._t);window._t=setTimeout(upd,60);},{passive:true});
+window.addEventListener("keydown",e=>{
+  if(["ArrowDown","ArrowRight","PageDown"," "].includes(e.key)){e.preventDefault();go(cur()+1);}
+  if(["ArrowUp","ArrowLeft","PageUp"].includes(e.key)){e.preventDefault();go(cur()-1);}
+  if(e.key==="Home")go(0);if(e.key==="End")go(slides.length-1);
+});
+upd();
+</script>
+</body>
+</html>
