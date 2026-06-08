@@ -84,9 +84,21 @@ def build_context(
         "causal_diagnosis: groups=%d hypotheses_lit=%d per_group=%s",
         len(signals_by_group), _total_lit, _lit,
     )
+    # 데뷔 D-N ground-truth: LLM 이 데뷔일/카운트다운을 환각하지 않도록
+    # groups.debut_date 를 생성 시각(KST) 기준 D-N label 로 변환해 주입한다.
+    # (debut_countdown 가드는 prompts.py PROMPT_WEEKLY 참조.) "오늘"은
+    # forward-looking ipx_action("오늘부터 D-N")에 맞춰 분석 주가 아닌
+    # 생성 시각 기준.
+    debut_rows = db.execute(
+        "SELECT key, debut_date FROM groups "
+        "WHERE debut_date IS NOT NULL AND is_active=1"
+    )
+    today_kst = (datetime.now(UTC) + timedelta(hours=9)).date()
+    debut_countdown = _debut_countdown(debut_rows, today_kst)
     return {
         "week": {"start": week_start, "end": week_end},
         "report_kind": report_kind,
+        "debut_countdown": debut_countdown,
         "agg_summary_last_7d": last_7d,
         "agg_summary_prev_7d": prev_7d,
         "hanteo": hanteo,

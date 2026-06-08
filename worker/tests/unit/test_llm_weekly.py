@@ -44,6 +44,7 @@ def _stub_db():
         [],   # hanteo_weekly sales (comeback_boost)
         [],   # youtube_videos weekly upload counts (comeback_boost)
         [],   # community_posts titles (community_keywords_topic)
+        [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows (build_context 끝)
     ]
     return db
 
@@ -269,6 +270,7 @@ def _stub_db_with_signals():
         [],   # hanteo_weekly sales (comeback_boost)
         [],   # youtube_videos weekly upload counts (comeback_boost)
         [],   # community_posts titles (community_keywords_topic)
+        [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows (build_context 끝)
     ]
     return db
 
@@ -448,3 +450,32 @@ def test_debut_countdown_empty():
     from datetime import date
     from idol_sight.llm.weekly import _debut_countdown
     assert _debut_countdown([], date(2026, 6, 8)) == {}
+
+
+def test_build_context_includes_debut_countdown():
+    """build_context 가 groups.debut_date 를 조회해 debut_countdown 을
+    컨텍스트에 주입한다 (LLM 이 데뷔 D-N 을 환각하지 않게 ground-truth 제공)."""
+    from idol_sight.llm.weekly import build_context
+    from unittest.mock import MagicMock
+    db = MagicMock()
+    # build_context 의 execute 순서: last_7d, prev_7d, hanteo, market,
+    # top_news (5개), signals_by_group={} 주입 → compute_group_signals 미호출,
+    # debut 쿼리 (6번째).
+    db.execute.side_effect = [
+        [],  # last_7d
+        [],  # prev_7d
+        [],  # hanteo
+        [],  # market
+        [],  # top_news
+        [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows
+    ]
+    ctx = build_context(
+        db, week_start="2026-06-07", week_end="2026-06-13",
+        signals_by_group={},  # 주입 → compute_group_signals 미호출
+    )
+    assert "debut_countdown" in ctx
+    assert "miiwan" in ctx["debut_countdown"]
+    cd = ctx["debut_countdown"]["miiwan"]
+    assert cd["debut_date"] == "2026-06-16"
+    assert cd["label"].startswith("D")  # 실제 today 에 따라 D-n/D-DAY/D+n
+    assert isinstance(cd["days_to_debut"], int)
