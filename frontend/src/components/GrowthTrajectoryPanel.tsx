@@ -4,16 +4,15 @@ import { api } from "../api";
 
 interface Pillar {
   key: string;
-  /** Raw floats retained from worker contract for future tooltip use; not currently rendered in UI. */
-  level: number | null;
-  wow_growth: number | null;
-  slope_4w: number | null;
-  accel: number;
-  direction: string;   // climbing | plateau | declining | unknown
-  accel_dir: string;   // accelerating | flat | decelerating
+  level: number | null;       // reach=subs, engagement/sentiment=ratio, community=posts
+  wow_growth: number | null;  // level pillars: relative %; ratio pillars: absolute delta
+  slope_4w: number | null;    // retained from worker contract (tooltip/future use)
+  accel: number;              // retained from worker contract (tooltip/future use)
+  direction: string;          // climbing | plateau | declining | unknown
+  accel_dir: string;          // accelerating | flat | decelerating (not surfaced)
 }
 interface Trajectory {
-  status: string;       // ok | insufficient_history | no_data
+  status: string;             // ok | insufficient_history | no_data
   computed_at?: string;
   history_days?: number;
   posture_label?: string | null;
@@ -21,28 +20,81 @@ interface Trajectory {
   pillars?: Pillar[];
 }
 
+// Plain, non-jargon names — the panel leads with meaning, not metric names.
 const PILLAR_LABEL: Record<string, string> = {
-  reach: "도달 성장", engagement: "호응 품질",
-  community: "커뮤니티 모멘텀", sentiment: "여론",
-};
-const DIR_ARROW: Record<string, string> = {
-  climbing: "↗", plateau: "→", declining: "↘", unknown: "·",
-};
-const DIR_COLOR: Record<string, string> = {
-  climbing: "#22c55e", plateau: "#a1a1aa", declining: "#ef4444", unknown: "#71717a",
-};
-const ACCEL_LABEL: Record<string, string> = {
-  accelerating: "가속", flat: "—", decelerating: "감속",
+  reach: "새 팬 유입",
+  engagement: "팬 반응 진정성",
+  community: "커뮤니티 활기",
+  sentiment: "평판",
 };
 
-function fmtWoW(p: Pillar): string {
-  if (p.wow_growth === null) return "—";
-  if (p.key === "engagement") return `ER ${(p.wow_growth * 100).toFixed(2)}%p`;
-  // sentiment: wow_growth is raw negative_ratio delta (negative = healthier).
-  // Arrow already conveys health direction; show the raw %p change as
-  // "부정 여론 변화" so a negative number with a green arrow is legible.
-  if (p.key === "sentiment") return `부정 ${(p.wow_growth * 100).toFixed(1)}%p`;
-  return `${p.wow_growth >= 0 ? "+" : ""}${(p.wow_growth * 100).toFixed(0)}%/주`;
+type Tone = "good" | "neutral" | "watch" | "muted";
+const TONE_COLOR: Record<Tone, string> = {
+  good: "#22c55e", neutral: "#a1a1aa", watch: "#f59e0b", muted: "#71717a",
+};
+
+// Per-pillar plain status word + tone, keyed by the worker's direction. Direction
+// is growth-rate framed (climbing = growth speeding up), and sentiment is already
+// health-inverted upstream (climbing = 부정여론 감소). No arrows — the word + dot
+// carries the read, avoiding the number-vs-arrow contradiction of the old design.
+const STATUS: Record<string, Record<string, [string, Tone]>> = {
+  reach: {
+    climbing: ["빠른 증가", "good"], plateau: ["꾸준", "good"],
+    declining: ["증가 둔화", "watch"], unknown: ["—", "muted"],
+  },
+  community: {
+    climbing: ["활발", "good"], plateau: ["유지", "neutral"],
+    declining: ["둔화", "watch"], unknown: ["—", "muted"],
+  },
+  engagement: {
+    climbing: ["개선 중", "good"], plateau: ["안정", "neutral"],
+    declining: ["약화", "watch"], unknown: ["—", "muted"],
+  },
+  sentiment: {
+    climbing: ["개선 중", "good"], plateau: ["양호", "good"],
+    declining: ["주의", "watch"], unknown: ["—", "muted"],
+  },
+};
+
+function statusFor(p: Pillar): [string, Tone] {
+  return STATUS[p.key]?.[p.direction] ?? ["—", "muted"];
+}
+
+// Supporting number (muted, secondary to the status word).
+function fmtMetric(p: Pillar): string {
+  if (p.key === "reach" || p.key === "community") {
+    if (p.wow_growth === null) return "";
+    const v = p.wow_growth * 100;
+    return `주간 ${v >= 0 ? "+" : ""}${v.toFixed(0)}%`;
+  }
+  if (p.level === null) return "";
+  if (p.key === "engagement") return `참여율 ${(p.level * 100).toFixed(1)}%`;
+  return `부정 ${(p.level * 100).toFixed(0)}%`;  // sentiment
+}
+
+// Posture label (from worker) → plain one-line gloss + a tone for the badge.
+const POSTURE: Record<string, [string, Tone]> = {
+  "성장 가속": ["구독자가 빠르게 느는 중", "good"],
+  "성장 확대": ["꾸준히 성장하는 중", "good"],
+  "성장 확대(둔화 조짐)": ["성장 중이나 속도는 둔화", "neutral"],
+  "성장 유지": ["성장 속도를 유지하는 중", "neutral"],
+  "성장 둔화": ["성장 속도가 느려지는 중", "watch"],
+  "성장 둔화 심화": ["성장 둔화가 뚜렷한 편", "watch"],
+};
+
+const WEAKEST_REASON: Record<string, string> = {
+  reach: "구독자 증가가 느려지는 중",
+  engagement: "팬 반응이 약해지는 중",
+  community: "커뮤니티가 잠잠해지는 중",
+  sentiment: "부정 여론이 늘고 있음",
+};
+
+function MessageBox({ children }: { children: preact.ComponentChildren }) {
+  return (
+    <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
+      {children}
+    </div>
+  );
 }
 
 export function GrowthTrajectoryPanel({ groupKey }: { groupKey: string }) {
@@ -58,54 +110,66 @@ export function GrowthTrajectoryPanel({ groupKey }: { groupKey: string }) {
 
   if (!data) return <div class="text-zinc-500 text-sm">Loading…</div>;
 
-  if (data.status === "no_data") {
-    return (
-      <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
-        아직 성장 궤적 데이터가 없습니다. (다음 집계 cron 이후 표시)
-      </div>
-    );
-  }
   if (data.status === "insufficient_history") {
-    return (
-      <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
-        데이터 축적 중 ({data.history_days ?? 0}일 / 최소 14일). 궤적은 14일 이상부터 표시됩니다.
-      </div>
-    );
+    return <MessageBox>아직 데이터가 충분하지 않아요 ({data.history_days ?? 0}일 모음 · 최소 14일부터 표시).</MessageBox>;
   }
   if (data.status !== "ok") {
-    return (
-      <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
-        아직 성장 궤적 데이터가 없습니다. (다음 집계 cron 이후 표시)
-      </div>
-    );
+    return <MessageBox>아직 성장 추이 데이터가 없어요. (다음 집계 이후 표시됩니다)</MessageBox>;
   }
 
   const pillars = data.pillars ?? [];
+  const label = data.posture_label ?? "";
+  const [gloss, postureTone] = POSTURE[label] ?? ["", "neutral"];
+  const weakest = data.weakest_pillar ?? null;
+
   return (
     <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
-      <div class="mb-3 flex items-baseline justify-between">
-        <h3 class="section-title">성장 궤적</h3>
-        <span class="text-lg font-semibold text-zinc-100">{data.posture_label ?? "—"}</span>
+      {/* Headline: plain one-liner is the lead; the label sits beside it as a chip. */}
+      <div class="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h3 class="section-title">성장 추이</h3>
+          {gloss && <p class="mt-0.5 text-sm text-zinc-300">{gloss}</p>}
+        </div>
+        {label && (
+          <span class="shrink-0 rounded-full px-2.5 py-1 text-sm font-medium"
+                style={{ background: TONE_COLOR[postureTone] + "22", color: TONE_COLOR[postureTone] }}>
+            {label}
+          </span>
+        )}
       </div>
-      <div class="space-y-2">
-        {pillars.map((p) => (
-          <div key={p.key} class="flex items-center gap-3 text-sm">
-            <span class="w-28 shrink-0 text-zinc-300">{PILLAR_LABEL[p.key] ?? p.key}</span>
-            <span class="w-28 shrink-0 tabular-nums text-zinc-400">{fmtWoW(p)}</span>
-            <span class="w-6 shrink-0 text-center" style={{ color: DIR_COLOR[p.direction] }}>
-              {DIR_ARROW[p.direction] ?? "·"}
-            </span>
-            <span class="text-zinc-500">{ACCEL_LABEL[p.accel_dir] ?? "—"}</span>
-            {data.weakest_pillar === p.key && (
-              <span class="ml-auto rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] text-amber-200">
-                ⚠ 가장 약한 궤적
+
+      <div class="space-y-2.5">
+        {pillars.map((p) => {
+          const [word, tone] = statusFor(p);
+          const metric = fmtMetric(p);
+          return (
+            <div key={p.key} class="flex items-center gap-3 text-sm">
+              <span class="w-32 shrink-0 text-zinc-400">{PILLAR_LABEL[p.key] ?? p.key}</span>
+              <span class="inline-flex items-center gap-1.5" style={{ color: TONE_COLOR[tone] }}>
+                <span class="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ background: TONE_COLOR[tone] }} />
+                {word}
               </span>
-            )}
-          </div>
-        ))}
+              {metric && <span class="ml-auto shrink-0 tabular-nums text-zinc-600">{metric}</span>}
+            </div>
+          );
+        })}
       </div>
-      <p class="mt-3 text-[11px] leading-relaxed text-zinc-500">
-        자기 과거 대비(WoW + 4주 추세 + 가속) · 등급 아닌 방향 사실 · 여론 화살표=건강방향(↗=부정여론 감소) · 휴리스틱 추정(ground-truth 아님, 인간 검증 필요).
+
+      {/* Weakest: human phrasing; explicit "all good" when nothing is concerning. */}
+      <div class="mt-4 text-sm">
+        {weakest ? (
+          <span class="text-amber-300">
+            가장 신경 쓸 부분 — <span class="font-medium">{PILLAR_LABEL[weakest] ?? weakest}</span>
+            {WEAKEST_REASON[weakest] ? `: ${WEAKEST_REASON[weakest]}` : ""}
+          </span>
+        ) : (
+          <span class="text-emerald-400">지금은 특별히 신경 쓸 약점은 없어요.</span>
+        )}
+      </div>
+
+      <p class="mt-3 text-[11px] leading-relaxed text-zinc-600">
+        자기 과거 대비 추정치 · 참고용이며 정답이 아니에요 (사람 확인이 필요해요).
       </p>
     </div>
   );
