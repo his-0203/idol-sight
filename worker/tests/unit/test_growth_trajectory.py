@@ -183,6 +183,16 @@ def test_incremental_er_guards_tiny_view_delta():
     assert incremental_er(daily, window=1) is None
 
 
+def test_incremental_er_guards_implausible_ratio():
+    from idol_sight.analysis.growth_trajectory import incremental_er
+    # Δviews 2000 but Δeng 1728 → ER 0.86 (impossible) → None (uryael artifact)
+    daily = [
+        {"yt_total_views": 1_000_000, "yt_likes_total": 0, "yt_comments_total": 0},
+        {"yt_total_views": 1_002_000, "yt_likes_total": 1_700, "yt_comments_total": 28},
+    ]
+    assert incremental_er(daily, window=1) is None
+
+
 def _frozen_subs_growing_views(n=40):
     """Quantized/frozen subscriber count (YouTube rounds large channels) while
     cumulative views keep accelerating — the reach-views-fallback fixture."""

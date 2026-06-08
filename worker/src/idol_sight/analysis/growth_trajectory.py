@@ -121,6 +121,8 @@ def classify_accel(accel: float, deadband: float) -> str:
 
 
 MIN_DELTA_VIEWS_FOR_ER = 1000   # too few new views → ER ratio explodes (artifact)
+MAX_PLAUSIBLE_ER = 0.30         # real (likes+comments)/views never exceeds ~15-20%;
+                                # above this = stale/quantized views inflating it
 
 
 def incremental_er(daily: list[dict], window: int = 7) -> float | None:
@@ -144,7 +146,10 @@ def incremental_er(daily: list[dict], window: int = 7) -> float | None:
         (last.get("yt_likes_total") or 0) + (last.get("yt_comments_total") or 0)
         - (base.get("yt_likes_total") or 0) - (base.get("yt_comments_total") or 0)
     )
-    return d_eng / d_views
+    er = d_eng / d_views
+    if er > MAX_PLAUSIBLE_ER:   # implausible ratio → artifact (stale/quantized views)
+        return None
+    return er
 
 
 ACCEL_DEADBAND_FRAC = 0.02   # |accel| below 2% of |mean recent| → flat
