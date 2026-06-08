@@ -4,6 +4,7 @@ import { api } from "../api";
 
 interface Pillar {
   key: string;
+  /** Raw floats retained from worker contract for future tooltip use; not currently rendered in UI. */
   level: number | null;
   wow_growth: number | null;
   slope_4w: number | null;
@@ -36,7 +37,7 @@ const ACCEL_LABEL: Record<string, string> = {
 
 function fmtWoW(p: Pillar): string {
   if (p.wow_growth === null) return "—";
-  if (p.key === "engagement") return `ER ${(p.wow_growth * 100).toFixed(2)}p`;
+  if (p.key === "engagement") return `ER ${(p.wow_growth * 100).toFixed(2)}%p`;
   // sentiment: wow_growth is raw negative_ratio delta (negative = healthier).
   // Arrow already conveys health direction; show the raw %p change as
   // "부정 여론 변화" so a negative number with a green arrow is legible.
@@ -68,6 +69,13 @@ export function GrowthTrajectoryPanel({ groupKey }: { groupKey: string }) {
     return (
       <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
         데이터 축적 중 ({data.history_days ?? 0}일 / 최소 14일). 궤적은 14일 이상부터 표시됩니다.
+      </div>
+    );
+  }
+  if (data.status !== "ok") {
+    return (
+      <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
+        아직 성장 궤적 데이터가 없습니다. (다음 집계 cron 이후 표시)
       </div>
     );
   }
