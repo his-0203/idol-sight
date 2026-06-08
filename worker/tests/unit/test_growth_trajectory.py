@@ -2,6 +2,8 @@
 from idol_sight.analysis.growth_trajectory import _kst_day, resample_daily
 from idol_sight.analysis.growth_trajectory import relative_slope
 from idol_sight.analysis.growth_trajectory import acceleration, weekly_flow
+import pytest
+from idol_sight.analysis.growth_trajectory import classify_accel, classify_direction
 
 
 def test_kst_day_shifts_utc_into_kst():
@@ -56,3 +58,19 @@ def test_acceleration_positive_when_recent_flow_exceeds_prior():
 
 def test_acceleration_zero_when_insufficient():
     assert acceleration([1.0, 2.0], half=14) == 0.0
+
+
+@pytest.mark.parametrize("rs,expected", [
+    (0.20, "climbing"), (0.05001, "climbing"),
+    (0.0, "plateau"), (0.05, "plateau"), (-0.05, "plateau"),
+    (-0.20, "declining"), (None, "unknown"),
+])
+def test_classify_direction(rs, expected):
+    assert classify_direction(rs) == expected
+
+
+@pytest.mark.parametrize("a,expected", [
+    (5.0, "accelerating"), (-5.0, "decelerating"), (0.0, "flat"),
+])
+def test_classify_accel(a, expected):
+    assert classify_accel(a, deadband=1.0) == expected

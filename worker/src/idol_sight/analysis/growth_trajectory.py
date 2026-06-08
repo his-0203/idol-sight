@@ -80,3 +80,24 @@ def acceleration(series: list[float], half: int = 14) -> float:
     if not recent or not prior:
         return 0.0
     return sum(recent) / len(recent) - sum(prior) / len(prior)
+
+
+CLIMB_THRESHOLD = 0.05   # %/week relative-slope boundary (first-pass)
+
+
+def classify_direction(rel_slope: float | None, threshold: float = CLIMB_THRESHOLD) -> str:
+    if rel_slope is None:
+        return "unknown"
+    if rel_slope > threshold:
+        return "climbing"
+    if rel_slope < -threshold:
+        return "declining"
+    return "plateau"
+
+
+def classify_accel(accel: float, deadband: float) -> str:
+    if accel > deadband:
+        return "accelerating"
+    if accel < -deadband:
+        return "decelerating"
+    return "flat"
