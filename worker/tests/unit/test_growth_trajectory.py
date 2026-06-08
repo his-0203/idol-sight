@@ -214,6 +214,27 @@ def test_posture_label_vocabulary(dirs, accs, expected):
     assert label == expected
 
 
+def test_change_4w_relative_for_levels_absolute_for_values():
+    from idol_sight.analysis.growth_trajectory import _change_4w
+    # relative: base is the point ~28 days back (index -29 over a 29-long series)
+    levels = [100.0] + [0.0] * 27 + [120.0]   # len 29, base = levels[-29] = 100
+    assert abs(_change_4w(levels, relative=True) - 0.2) < 1e-9
+    # absolute delta for ratio pillars
+    vals = [0.03] + [0.0] * 27 + [0.05]
+    assert abs(_change_4w(vals, relative=False) - 0.02) < 1e-9
+    # short history → falls back to the earliest point
+    assert _change_4w([100.0, 110.0], relative=True) == 0.1
+    # guards: too short, zero base
+    assert _change_4w([100.0], relative=True) is None
+    assert _change_4w([0.0] * 29, relative=True) is None
+
+
+def test_pillars_carry_change_4w_field():
+    pillars = compute_pillars(_rising_daily())
+    for p in pillars:
+        assert "change_4w" in p
+
+
 def test_compute_pillars_sentiment_zero_is_healthy_plateau_not_unknown():
     # negative_ratio flat at 0 is the healthiest state, not a data gap → plateau.
     pillars = compute_pillars(_rising_daily())

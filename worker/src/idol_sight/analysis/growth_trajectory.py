@@ -161,6 +161,21 @@ def _wow(levels: list[float]) -> float | None:
     return (levels[-1] - levels[-8]) / levels[-8]
 
 
+def _change_4w(series: list[float], relative: bool) -> float | None:
+    """Change over the trailing ~4 weeks (28 days): a relative ratio for
+    cumulative-level pillars, an absolute delta for ratio pillars. Falls back to
+    the earliest point when history is shorter than 28 days. None if fewer than 2
+    points, or (relative) the base is 0. This is the magnitude the UI shows next
+    to the 4-week-trend status word, so the two share one horizon and can't read
+    as contradictory the way a noisy single-week figure did."""
+    if len(series) < 2:
+        return None
+    base = series[-29] if len(series) >= 29 else series[0]
+    if relative:
+        return (series[-1] - base) / base if base else None
+    return series[-1] - base
+
+
 def _pillar_from_levels(key: str, levels: list[float], invert: bool = False) -> dict:
     """Cumulative pillar: trajectory on the weekly-flow series."""
     flows = weekly_flow(levels, lag=7)
@@ -178,6 +193,7 @@ def _pillar_from_levels(key: str, levels: list[float], invert: bool = False) -> 
         # wow_growth is a relative ratio (e.g. +0.10 = +10%) for cumulative-level
         # pillars. Consumers must render per pillar type (not the same as ratio pillars).
         "wow_growth": _wow(levels),
+        "change_4w": _change_4w(levels, relative=True),
         "slope_4w": rs,
         "accel": acc,
         "direction": classify_direction(rs),
@@ -202,6 +218,7 @@ def _pillar_from_values(key: str, values: list[float], invert: bool = False) -> 
         # ratio/value pillars — a relative % change would be misleading here.
         # Consumers must render per pillar type (not the same as level pillars).
         "wow_growth": (values[-1] - values[-8]) if len(values) >= 8 else None,
+        "change_4w": _change_4w(values, relative=False),
         "slope_4w": rs,
         "accel": acc,
         "direction": classify_direction(rs),

@@ -6,7 +6,8 @@ import { api } from "../api";
 interface Pillar {
   key: string;
   level: number | null;       // reach=subs, engagement/sentiment=ratio, community=posts
-  wow_growth: number | null;  // level pillars: relative %; ratio pillars: absolute delta
+  wow_growth: number | null;  // 1-week change (retained from contract; not surfaced)
+  change_4w: number | null;   // 4-week change — level pillars: relative %; ratio: absolute
   slope_4w: number | null;    // retained from worker contract (tooltip/future use)
   accel: number;              // retained from worker contract (tooltip/future use)
   direction: string;          // climbing | plateau | declining | unknown
@@ -24,7 +25,7 @@ interface Trajectory {
 // Plain, non-jargon names — the panel leads with meaning, not metric names.
 const PILLAR_LABEL: Record<string, string> = {
   reach: "새 팬 유입",
-  engagement: "팬 반응 진정성",
+  engagement: "팬 반응",
   community: "커뮤니티 활기",
   sentiment: "평판",
 };
@@ -44,12 +45,12 @@ const STATUS: Record<string, Record<string, [string, Tone]>> = {
     declining: ["증가 둔화", "watch"], unknown: ["—", "muted"],
   },
   community: {
-    climbing: ["활발", "good"], plateau: ["유지", "neutral"],
-    declining: ["둔화", "watch"], unknown: ["—", "muted"],
+    climbing: ["활발해지는 중", "good"], plateau: ["유지", "neutral"],
+    declining: ["잠잠해지는 중", "watch"], unknown: ["—", "muted"],
   },
   engagement: {
-    climbing: ["개선 중", "good"], plateau: ["안정", "neutral"],
-    declining: ["약화", "watch"], unknown: ["—", "muted"],
+    climbing: ["좋아지는 중", "good"], plateau: ["안정적", "neutral"],
+    declining: ["약해지는 중", "watch"], unknown: ["—", "muted"],
   },
   sentiment: {
     climbing: ["개선 중", "good"], plateau: ["양호", "good"],
@@ -61,12 +62,16 @@ function statusFor(p: Pillar): [string, Tone] {
   return STATUS[p.key]?.[p.direction] ?? ["—", "muted"];
 }
 
-// Supporting number (muted, secondary to the status word).
+// Supporting number (muted), kept on the SAME 4-week horizon as the status word
+// so the two never read as contradictory (the old 1-week figure could show "+0%"
+// next to "빠른 증가"). Level pillars show the 4-week growth %; ratio pillars show
+// the current level for context (their status word already carries the trend).
 function fmtMetric(p: Pillar): string {
   if (p.key === "reach" || p.key === "community") {
-    if (p.wow_growth === null) return "";
-    const v = p.wow_growth * 100;
-    return `주간 ${v >= 0 ? "+" : ""}${v.toFixed(0)}%`;
+    if (p.change_4w === null) return "";
+    const v = p.change_4w * 100;
+    const dec = Math.abs(v) < 1 ? 1 : 0;   // don't round a small-but-real % to 0
+    return `최근 4주 ${v >= 0 ? "+" : ""}${v.toFixed(dec)}%`;
   }
   if (p.level === null) return "";
   if (p.key === "engagement") return `참여율 ${(p.level * 100).toFixed(1)}%`;
