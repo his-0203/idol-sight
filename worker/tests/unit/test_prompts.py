@@ -161,3 +161,18 @@ def test_prompt_weekly_includes_good_vs_bad_exemplars():
     # frontend cannot recover from (group-name hallucinations).
     assert "플라브" in PROMPT_WEEKLY
     assert "이세돌" in PROMPT_WEEKLY
+
+
+def test_prompt_weekly_includes_interim_framing_block():
+    """수요일 중간점검(interim)을 미완결 주로 프레이밍하는 블록이
+    PROMPT_WEEKLY 에 포함돼야 한다 (V2.31 환각 가드 연장)."""
+    from idol_sight.llm.prompts import (
+        PROMPT_WEEKLY,
+        PROMPT_WEEKLY_INTERIM_FRAMING,
+    )
+    assert PROMPT_WEEKLY_INTERIM_FRAMING in PROMPT_WEEKLY
+    assert "report_kind" in PROMPT_WEEKLY_INTERIM_FRAMING
+    assert "interim" in PROMPT_WEEKLY_INTERIM_FRAMING
+    # 핵심 가드 토큰: 미완결 / 중간 / 단정 금지 취지.
+    for token in ["미완결", "중간", "일~수"]:
+        assert token in PROMPT_WEEKLY_INTERIM_FRAMING, f"missing token: {token}"

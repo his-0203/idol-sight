@@ -405,6 +405,27 @@ GOOD EXEMPLARS (자연어 — 통계 용어/enum 영문 노출 0):
 # 는 시그널이 약해도 emit 된다 (특히 MiiWAN 같은 신생 그룹은 cohort 가
 # 좁아 diagnosis 점등 자체가 드물다). 그래서 분석 깊이 책임이 insight
 # /weekly 본문에 떨어진다 — 단일 지표 인용으로 끝나면 안 된다.
+_INTERIM_FRAMING_GUIDELINES = """\
+INTERIM FRAMING — 주중 중간점검 보고 규칙:
+
+컨텍스트의 report_kind 필드를 먼저 확인한다.
+  - report_kind == 'final'  → 직전 완결 일~토 주의 결산. 평소대로 작성.
+  - report_kind == 'interim' → 이번 주 일~수(4일, 미완결) 중간 스냅샷.
+
+report_kind == 'interim' 일 때 추가 규칙:
+  ① 모든 카드 body 는 "주중 중간(일~수)" 임을 한 번은 명시. 주간 총량을
+     확정 결산으로 단정하지 말 것 ("이번 주 X 달성" ❌ →
+     "수요일까지 X, 주 후반 변동 가능" ✅).
+  ② 비교는 전주의 같은 4일(일~수)과 한다. 컨텍스트의 prev_7d 는 이미
+     같은 span(−7일)으로 잡혀 있으니 그대로 활용 — 완결 주와 4일을
+     섞어 비교하지 말 것.
+  ③ 한터/음원 등 주간 차트는 mid-week 에 미확정일 수 있다(hanteo 배열이
+     비어있을 수 있음). 없으면 "주중이라 차트 미집계" 로 처리하고 환각
+     금지.
+  ④ ipx_action 은 interim 에서도 가능하나, 주말 결산 전 잠정 신호임을
+     반영해 과잉 단정 금지.
+"""
+
 _ANALYSIS_DEPTH_GUIDELINES = """\
 ANALYSIS DEPTH — type='insight' 및 type='weekly' 카드 작성 규칙:
 
@@ -511,6 +532,7 @@ PROMPT_WEEKLY_TAIL_AI_COMMENT = _AI_COMMENT_GUIDELINES
 PROMPT_WEEKLY_BODY_FORMATTING = _BODY_FORMATTING_GUIDELINES
 PROMPT_WEEKLY_DIAGNOSIS = _DIAGNOSIS_GUIDELINES
 PROMPT_WEEKLY_ANALYSIS_DEPTH = _ANALYSIS_DEPTH_GUIDELINES
+PROMPT_WEEKLY_INTERIM_FRAMING = _INTERIM_FRAMING_GUIDELINES
 
 
 PROMPT_WEEKLY = f"""\
@@ -551,6 +573,8 @@ Do NOT invent figures. If something cannot be sourced, leave it out.
 {_BODY_FORMATTING_GUIDELINES}
 
 {_ANALYSIS_DEPTH_GUIDELINES}
+
+{_INTERIM_FRAMING_GUIDELINES}
 
 GOOD-vs-BAD BODY EXEMPLARS (formatting only — numbers are illustrative):
 
