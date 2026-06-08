@@ -21,6 +21,7 @@ const GROUP_TABS: Array<[RouterState["tab"], string]> = [
   ["members",   "멤버"],
   ["community", "커뮤니티"],
   ["risk",      "PR/리스크"],
+  ["growth",    "성장"],
 ];
 
 export function GroupTabs() {

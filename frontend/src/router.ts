@@ -1,5 +1,5 @@
 export interface RouterState {
-  tab: "market" | "weekly" | "content" | "members" | "community" | "risk" | "insights" | "miiwan" | "shorts" | "status";
+  tab: "market" | "weekly" | "content" | "members" | "community" | "risk" | "growth" | "insights" | "miiwan" | "shorts" | "status";
   group: string | null;
   period: number | null;        // days; null = all
   theme: "dark" | "light";

@@ -11,6 +11,7 @@ import { GroupContent } from "./views/GroupContent";
 import { Members } from "./views/Members";
 import { Community } from "./views/Community";
 import { PRRisk } from "./views/PRRisk";
+import { GroupGrowth } from "./views/GroupGrowth";
 import { Insights } from "./views/Insights";
 import { MiiWANBriefing } from "./views/MiiWANBriefing";
 import { ShortsTrend } from "./views/ShortsTrend";
@@ -47,6 +48,7 @@ export function App() {
         {state.tab === "members"   && <Members groupKey={state.group} />}
         {state.tab === "community" && <Community groupKey={state.group} period={state.period} />}
         {state.tab === "risk"      && <PRRisk groupKey={state.group} />}
+        {state.tab === "growth"    && <GroupGrowth groupKey={state.group} />}
         {state.tab === "insights"  && <Insights />}
         {state.tab === "miiwan"    && <MiiWANBriefing />}
         {state.tab === "shorts"    && <ShortsTrend />}

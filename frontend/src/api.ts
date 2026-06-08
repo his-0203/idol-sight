@@ -52,6 +52,8 @@ export const api = {
       "/api/debut-window/summary"
       + (bucket ? `?bucket=${encodeURIComponent(bucket)}` : ""),
     ),
+  growthTrajectory: <T = unknown>(group: string): Promise<T> =>
+    getJson<T>(`/api/growth-trajectory?group=${encodeURIComponent(group)}`),
   debutWindowVideos: <T = unknown>(
     group: string,
     bucket: string,
