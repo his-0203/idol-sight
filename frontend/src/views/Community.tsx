@@ -37,7 +37,7 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const [includeNotices, setIncludeNotices] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>("views");
+  const [sortKey, setSortKey] = useState<SortKey>("latest");
   // null = 전체. 플랫폼 필터는 URL state 미사용 — 그룹 전환 시
   // 자동 reset 되어야 자연스러워서(다른 그룹의 platform 분포가 다름)
   // useState 만 사용한다. 같은 이유로 sortKey 도 URL state 가 아님.

@@ -114,7 +114,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
                                  WHERE url_hash = cp.url_hash)
       WHERE cp.group_key = ?
         AND COALESCE(cp.user_flagged_irrelevant, 0) = 0
-      ORDER BY views DESC LIMIT 30`, [key]);
+      ORDER BY COALESCE(cp.posted_at, cp.collected_at) DESC LIMIT 50`, [key]);
 
   const naver = await d1Query<any>(env.DB,
     `SELECT title, url, source, published_at FROM naver_articles
