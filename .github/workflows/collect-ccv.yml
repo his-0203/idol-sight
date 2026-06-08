@@ -1,7 +1,7 @@
 name: collect-ccv
 on:
   schedule:
-    - cron: "*/30 8-17 * * *"   # every 30 min, UTC 08–17 = KST 17:00–02:00
+    - cron: "45 9 * * *"   # KST 18:45 — single trigger; the job self-loops ~4.5h
   workflow_dispatch:
 
 concurrency:
@@ -11,20 +11,35 @@ concurrency:
 jobs:
   ccv:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 290    # ~4.8h ceiling; the loop self-terminates at ~4.5h
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --frozen
         working-directory: worker
-      - name: collect-ccv
+      - name: collect-ccv (self-loop, sample every 5 min through KST ~23:15)
         working-directory: worker
         env:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_D1_DB_ID:   ${{ secrets.CF_D1_DB_ID }}
           CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
           YT_API_KEY:    ${{ secrets.YT_API_KEY }}
-        run: uv run python -m idol_sight collect-ccv
+        run: |
+          # GitHub silently drops most `schedule` ticks under load, so instead of
+          # a dense cron (*/5) we trigger ONCE and drive the cadence ourselves with
+          # sleep — immune to that throttling. Window: KST 18:45 (UTC 09:45) + 4.5h
+          # = KST ~23:15, covering the typical 19–23 broadcast block. CCV is
+          # ephemeral (readable only while live), so a sample must overlap the live.
+          end=$(( $(date +%s) + 4 * 3600 + 1800 ))
+          n=0
+          while [ "$(date +%s)" -lt "$end" ]; do
+            n=$((n + 1))
+            echo "::group::sample #$n @ $(date -u +%H:%M:%SZ)"
+            uv run python -m idol_sight collect-ccv || echo "WARN: sample #$n failed (continuing)"
+            echo "::endgroup::"
+            sleep 300
+          done
+          echo "collect-ccv self-loop done: $n samples attempted"
       - name: notify on failure
         if: failure()
         working-directory: worker
