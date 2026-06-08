@@ -33,3 +33,30 @@ def resample_daily(rows: list[dict]) -> list[dict]:
         enriched["day"] = day
         by_day[day] = enriched  # later snapshot_at overwrites
     return [by_day[d] for d in sorted(by_day)]
+
+
+def _ols_slope(ys: list[float]) -> float:
+    """Least-squares slope of ys against x=0,1,2,…  (per-step slope)."""
+    n = len(ys)
+    if n < 2:
+        return 0.0
+    xs = list(range(n))
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    den = sum((x - mx) ** 2 for x in xs)
+    return num / den if den else 0.0
+
+
+def relative_slope(values: list[float], window_days: int = 28) -> float | None:
+    """%/week slope over the trailing window, relative to |mean|.
+
+    None when fewer than 2 points or mean is 0 (undefined relative slope).
+    """
+    w = values[-window_days:]
+    if len(w) < 2:
+        return None
+    mean = sum(w) / len(w)
+    if mean == 0:
+        return None
+    return _ols_slope(w) * 7.0 / abs(mean)
