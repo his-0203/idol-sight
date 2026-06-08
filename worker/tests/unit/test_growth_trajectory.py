@@ -146,7 +146,7 @@ def _pillar(key, direction, accel_dir, slope=0.1, accel=1.0):
             "slope_4w": slope, "accel": accel}
 
 
-def test_posture_rising_accelerating_and_weakest_is_declining():
+def test_posture_growth_accelerating_and_weakest_is_declining():
     pillars = [
         _pillar("reach", "climbing", "accelerating", 0.3, 5.0),
         _pillar("engagement", "climbing", "flat", 0.1, 0.0),
@@ -154,11 +154,13 @@ def test_posture_rising_accelerating_and_weakest_is_declining():
         _pillar("sentiment", "plateau", "flat", 0.0, 0.0),
     ]
     label, weakest = synthesize_posture(pillars)
-    assert label == "상승·가속"
-    assert weakest == "community"
+    assert label == "성장 가속"
+    assert weakest == "community"   # the only pillar with a negative combined score
 
 
-def test_posture_declining_label():
+def test_posture_slowing_label_uses_growth_rate_framing_not_decline():
+    # All cumulative pillars → a negative flow-slope means growth SLOWING, never
+    # absolute decline. Label must never say 하락/악화.
     pillars = [
         _pillar("reach", "declining", "decelerating", -0.3, -5.0),
         _pillar("engagement", "declining", "decelerating", -0.2, -3.0),
@@ -166,7 +168,54 @@ def test_posture_declining_label():
         _pillar("sentiment", "plateau", "flat", 0.0, 0.0),
     ]
     label, _ = synthesize_posture(pillars)
-    assert label.startswith("하락")
+    assert label == "성장 둔화 심화"
+    assert "하락" not in label and "악화" not in label
+
+
+def test_posture_weakest_is_none_when_all_pillars_healthy():
+    # MiiWAN-like: everything climbing/plateau, no pillar genuinely weak → no flag.
+    pillars = [
+        _pillar("reach", "climbing", "accelerating"),
+        _pillar("engagement", "plateau", "accelerating"),
+        _pillar("community", "climbing", "flat"),
+        _pillar("sentiment", "plateau", "flat"),
+    ]
+    _, weakest = synthesize_posture(pillars)
+    assert weakest is None
+
+
+def test_posture_weakest_excludes_unknown_pillars():
+    # An 'unknown' (no-signal) pillar must never be picked as the weakest.
+    pillars = [
+        _pillar("reach", "climbing", "accelerating"),
+        _pillar("engagement", "unknown", "flat"),
+        _pillar("community", "declining", "flat"),
+        _pillar("sentiment", "plateau", "flat"),
+    ]
+    _, weakest = synthesize_posture(pillars)
+    assert weakest == "community"
+
+
+@pytest.mark.parametrize("dirs,accs,expected", [
+    (["climbing"] * 4, ["accelerating"] * 4, "성장 가속"),
+    (["climbing"] * 4, ["flat"] * 4, "성장 확대"),
+    (["climbing"] * 4, ["decelerating"] * 4, "성장 확대(둔화 조짐)"),
+    (["plateau"] * 4, ["flat"] * 4, "성장 유지"),
+    (["declining"] * 4, ["flat"] * 4, "성장 둔화"),
+    (["declining"] * 4, ["decelerating"] * 4, "성장 둔화 심화"),
+])
+def test_posture_label_vocabulary(dirs, accs, expected):
+    keys = ["reach", "engagement", "community", "sentiment"]
+    pillars = [_pillar(k, d, a) for k, d, a in zip(keys, dirs, accs)]
+    label, _ = synthesize_posture(pillars)
+    assert label == expected
+
+
+def test_compute_pillars_sentiment_zero_is_healthy_plateau_not_unknown():
+    # negative_ratio flat at 0 is the healthiest state, not a data gap → plateau.
+    pillars = compute_pillars(_rising_daily())
+    sentiment = next(p for p in pillars if p["key"] == "sentiment")
+    assert sentiment["direction"] == "plateau"
 
 
 def _fetch_rows_for(group, n):

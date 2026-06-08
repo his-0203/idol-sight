@@ -217,11 +217,19 @@ def compute_pillars(daily: list[dict]) -> list[dict]:
     """
     er_raw = [incremental_er(daily[: i + 1], window=7) for i in range(len(daily))]
     er_series = [v for v in er_raw if v is not None]
+    neg_series = _series(daily, "negative_ratio")
+    sentiment = _pillar_from_values("sentiment", neg_series, invert=True)
+    # A negative_ratio flat at ~0 is the HEALTHIEST state, not a missing signal.
+    # relative_slope returns None when the mean is 0 → "unknown"; remap that case
+    # to a healthy plateau so clean groups aren't shown as a data gap nor flagged
+    # as their own weakest pillar.
+    if sentiment["direction"] == "unknown" and (not neg_series or max(neg_series) < 1e-9):
+        sentiment["direction"] = "plateau"
     return [
         _pillar_from_levels("reach", _series(daily, "yt_subscribers")),
         _pillar_from_values("engagement", er_series),
         _pillar_from_levels("community", _community_series(daily)),
-        _pillar_from_values("sentiment", _series(daily, "negative_ratio"), invert=True),
+        sentiment,
     ]
 
 
@@ -231,33 +239,43 @@ _DIR_SCORE = {"climbing": 1, "plateau": 0, "declining": -1, "unknown": 0}
 _ACCEL_SCORE = {"accelerating": 1, "flat": 0, "decelerating": -1}
 
 
+def _pillar_score(p: dict) -> int:
+    return _DIR_SCORE[p["direction"]] + _ACCEL_SCORE[p["accel_dir"]]
+
+
 def synthesize_posture(pillars: list[dict]) -> tuple[str, str | None]:
-    """Weighted direction → 상승/정체/하락, weighted accel → 가속/감속.
-    weakest = pillar with the lowest (direction + accel) combined score.
+    """Growth-rate posture label + the single most-concerning pillar (or None).
+
+    Every pillar is cumulative (flow-based), so a negative flow-slope means growth
+    is SLOWING, not that the metric is falling. Labels are therefore framed as
+    growth-rate ("성장 둔화") and never as absolute decline ("하락"/"악화") — a
+    market leader whose weekly adds naturally moderate is still growing.
+
+    weakest is the most-concerning pillar, but only surfaced when one is genuinely
+    weak (combined score < 0). 'unknown' (no-signal) pillars are never candidates.
+    When everything is holding or growing, weakest is None (no weak point).
     """
     dir_sum = sum(PILLAR_WEIGHTS[p["key"]] * _DIR_SCORE[p["direction"]] for p in pillars)
     acc_sum = sum(PILLAR_WEIGHTS[p["key"]] * _ACCEL_SCORE[p["accel_dir"]] for p in pillars)
 
     if dir_sum > 0.15:
-        direction = "상승"
+        if acc_sum > 0.15:
+            label = "성장 가속"
+        elif acc_sum < -0.15:
+            label = "성장 확대(둔화 조짐)"
+        else:
+            label = "성장 확대"
     elif dir_sum < -0.15:
-        direction = "하락"
+        label = "성장 둔화 심화" if acc_sum < -0.15 else "성장 둔화"
     else:
-        direction = "정체"
+        label = "성장 유지"
 
-    accel = "가속" if acc_sum > 0.15 else "감속" if acc_sum < -0.15 else None
-
-    if direction == "정체":
-        label = "정체"
-    elif direction == "상승":
-        label = "상승·가속" if accel == "가속" else "상승·감속(정점 징후)" if accel == "감속" else "상승"
-    else:
-        label = "하락·가속(악화)" if accel == "가속" else "하락·감속" if accel == "감속" else "하락"
-
-    weakest = min(
-        pillars,
-        key=lambda p: _DIR_SCORE[p["direction"]] + _ACCEL_SCORE[p["accel_dir"]],
-    )["key"]
+    judged = [p for p in pillars if p["direction"] != "unknown"]
+    weakest = None
+    if judged:
+        worst = min(judged, key=_pillar_score)
+        if _pillar_score(worst) < 0:
+            weakest = worst["key"]
     return label, weakest
 
 
