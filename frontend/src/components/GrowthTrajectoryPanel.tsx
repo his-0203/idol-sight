@@ -67,13 +67,18 @@ function statusFor(p: Pillar): [string, Tone] {
 // next to "빠른 증가"). Level pillars show the 4-week growth %; ratio pillars show
 // the current level for context (their status word already carries the trend).
 function fmtMetric(p: Pillar): string {
-  if (p.key === "reach" || p.key === "community") {
+  if (p.key === "reach") {
     // == null catches undefined too: rows written before change_4w existed (a
     // pre-redesign cron run) omit the field — fall back to blank, not NaN.
     if (p.change_4w === null || p.change_4w === undefined) return "";
     const v = p.change_4w * 100;
     const dec = Math.abs(v) < 1 ? 1 : 0;   // don't round a small-but-real % to 0
     return `최근 4주 ${v >= 0 ? "+" : ""}${v.toFixed(dec)}%`;
+  }
+  if (p.key === "community") {
+    // level = posts actually posted in the trailing window (real recent volume).
+    if (p.level === null || p.level === undefined) return "";
+    return `최근 7일 ${Math.round(p.level)}건`;
   }
   if (p.level === null) return "";
   if (p.key === "engagement") return `참여율 ${(p.level * 100).toFixed(1)}%`;

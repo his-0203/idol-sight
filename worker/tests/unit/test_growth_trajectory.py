@@ -129,8 +129,13 @@ def _rising_daily(n=40):
     return rows
 
 
+def _rising_series(n=40):
+    """A rising community-activity series for compute_pillars' community arg."""
+    return [float(i + 1) for i in range(n)]
+
+
 def test_compute_pillars_returns_four_keyed_pillars_climbing():
-    pillars = compute_pillars(_rising_daily())
+    pillars = compute_pillars(_rising_daily(), _rising_series())
     keys = {p["key"] for p in pillars}
     assert keys == {"reach", "engagement", "community", "sentiment"}
     reach = next(p for p in pillars if p["key"] == "reach")
@@ -230,14 +235,14 @@ def test_change_4w_relative_for_levels_absolute_for_values():
 
 
 def test_pillars_carry_change_4w_field():
-    pillars = compute_pillars(_rising_daily())
+    pillars = compute_pillars(_rising_daily(), _rising_series())
     for p in pillars:
         assert "change_4w" in p
 
 
 def test_compute_pillars_sentiment_zero_is_healthy_plateau_not_unknown():
     # negative_ratio flat at 0 is the healthiest state, not a data gap → plateau.
-    pillars = compute_pillars(_rising_daily())
+    pillars = compute_pillars(_rising_daily(), _rising_series())
     sentiment = next(p for p in pillars if p["key"] == "sentiment")
     assert sentiment["direction"] == "plateau"
 
@@ -262,10 +267,49 @@ def _fetch_rows_for(group, n):
     return rows
 
 
-def _client(rows):
+def _client(rows, community_rows=None):
     client = MagicMock()
-    client.execute.side_effect = lambda sql, params=None: rows
+
+    def _exec(sql, params=None):
+        if "community_posts" in sql:
+            return community_rows or []
+        return rows
+
+    client.execute.side_effect = _exec
     return client
+
+
+def test_shift_day():
+    from idol_sight.analysis.growth_trajectory import _shift_day
+    assert _shift_day("2026-06-08", -7) == "2026-06-01"
+    assert _shift_day("2026-03-01", -1) == "2026-02-28"
+
+
+def test_community_activity_series_counts_trailing_window():
+    from idol_sight.analysis.growth_trajectory import community_activity_series
+    posts = {"2026-06-01": 3, "2026-06-05": 2, "2026-06-08": 4}
+    # 06-07 window = 06-01..06-07 → 3+2 = 5 ; 06-08 window = 06-02..06-08 → 2+4 = 6
+    assert community_activity_series(posts, ["2026-06-07", "2026-06-08"], window=7) == [5.0, 6.0]
+    # posts outside the trailing window are excluded
+    assert community_activity_series({"2026-05-01": 9}, ["2026-06-08"], window=7) == [0.0]
+
+
+def test_build_community_pillar_uses_posted_at_volume_not_cumulative():
+    from datetime import date, timedelta
+    agg = _fetch_rows_for("miiwan", 40)
+    # rising daily posting volume (by posted_at) → recent-volume trend climbs
+    community_rows = [
+        {"group_key": "miiwan",
+         "pday": (date(2026, 3, 1) + timedelta(days=i)).isoformat(),
+         "n": 1 + i}
+        for i in range(40)
+    ]
+    result = build_growth_trajectory(_client(agg, community_rows))
+    upsert = next(s for s in result.statements if "INSERT INTO" in s[0])
+    pillars = json.loads(upsert[1][6])
+    community = next(p for p in pillars if p["key"] == "community")
+    assert community["direction"] == "climbing"
+    assert community["level"] is not None   # current trailing-window volume
 
 
 def test_build_emits_delete_then_per_group_upserts():

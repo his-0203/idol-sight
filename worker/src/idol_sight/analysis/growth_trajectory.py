@@ -20,6 +20,7 @@ __all__ = [
     "classify_direction",
     "classify_accel",
     "incremental_er",
+    "community_activity_series",
     "compute_pillars",
     "synthesize_posture",
     "build_growth_trajectory",
@@ -143,15 +144,29 @@ def incremental_er(daily: list[dict], window: int = 7) -> float | None:
 
 ACCEL_DEADBAND_FRAC = 0.02   # |accel| below 2% of |mean recent| → flat
 
-_COMMUNITY_COLS = ("dc_total_posts", "theqoo_posts", "instiz_posts", "twitter_posts")
-
 
 def _series(daily: list[dict], col: str) -> list[float]:
     return [float(r.get(col) or 0) for r in daily]
 
 
-def _community_series(daily: list[dict]) -> list[float]:
-    return [float(sum((r.get(c) or 0) for c in _COMMUNITY_COLS)) for r in daily]
+def _shift_day(day: str, delta: int) -> str:
+    """Shift a 'YYYY-MM-DD' day string by `delta` days."""
+    return (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=delta)).strftime("%Y-%m-%d")
+
+
+def community_activity_series(
+    posts_by_day: dict[str, int], days: list[str], window: int = 7,
+) -> list[float]:
+    """Trailing `window`-day posting volume aligned to `days` (the resampled
+    timeline). ``posts_by_day`` maps a posted_at day ('YYYY-MM-DD') to its post
+    count. Each output is the number of posts actually *posted* in the window
+    ending at that day — real recent activity, NOT the cumulative all-time count
+    (which only ever rises as old/backfilled/supplemental posts accumulate and so
+    can't tell a quiet week from a busy one)."""
+    return [
+        float(sum(posts_by_day.get(_shift_day(d, -k), 0) for k in range(window)))
+        for d in days
+    ]
 
 
 def _wow(levels: list[float]) -> float | None:
@@ -226,8 +241,12 @@ def _pillar_from_values(key: str, values: list[float], invert: bool = False) -> 
     }
 
 
-def compute_pillars(daily: list[dict]) -> list[dict]:
+def compute_pillars(daily: list[dict], community_series: list[float]) -> list[dict]:
     """Four trajectory pillars from a KST-daily-resampled series.
+
+    ``community_series`` is the trailing-window posting *volume* (by posted_at,
+    via community_activity_series), aligned to ``daily`` — real recent activity,
+    not the cumulative agg_summary post count.
 
     sentiment uses invert=True so 'climbing' always means *healthier* (falling
     negative_ratio), keeping direction semantics uniform across pillars.
@@ -245,7 +264,7 @@ def compute_pillars(daily: list[dict]) -> list[dict]:
     return [
         _pillar_from_levels("reach", _series(daily, "yt_subscribers")),
         _pillar_from_values("engagement", er_series),
-        _pillar_from_levels("community", _community_series(daily)),
+        _pillar_from_values("community", community_series),
         sentiment,
     ]
 
@@ -312,6 +331,13 @@ FROM agg_summary
 ORDER BY group_key, snapshot_at
 """
 
+_FETCH_COMMUNITY_SQL = """
+SELECT group_key, substr(posted_at, 1, 10) AS pday, COUNT(*) AS n
+FROM community_posts
+WHERE posted_at IS NOT NULL AND posted_at != ''
+GROUP BY group_key, pday
+"""
+
 _CLEAR_SQL = "DELETE FROM group_growth_trajectory"
 
 _UPSERT_SQL = """
@@ -333,11 +359,17 @@ def build_growth_trajectory(client: _Executor) -> CollectionResult:
     """Per-group growth trajectory snapshot from agg_summary history. Full
     DELETE + rebuild so groups dropping below thresholds don't persist."""
     rows = client.execute(_FETCH_SQL)
+    post_rows = client.execute(_FETCH_COMMUNITY_SQL)
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     by_group: dict[str, list[dict]] = {}
     for r in rows:
         by_group.setdefault(r["group_key"], []).append(r)
+
+    # Per-group {posted_at_day → count} for the recent-posting-volume pillar.
+    posts_by_group: dict[str, dict[str, int]] = {}
+    for r in post_rows:
+        posts_by_group.setdefault(r["group_key"], {})[r["pday"]] = r["n"]
 
     statements: list[tuple[str, list[Any]]] = [(_CLEAR_SQL, [])]
     for group_key, group_rows in by_group.items():
@@ -349,7 +381,10 @@ def build_growth_trajectory(client: _Executor) -> CollectionResult:
                 None, None, "[]",
             ]))
             continue
-        pillars = compute_pillars(daily)
+        community_series = community_activity_series(
+            posts_by_group.get(group_key, {}), [r["day"] for r in daily],
+        )
+        pillars = compute_pillars(daily, community_series)
         label, weakest = synthesize_posture(pillars)
         statements.append((_UPSERT_SQL, [
             group_key, now, "ok", history_days,
