@@ -275,7 +275,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     d1Query<{ video_id: string; peak: number; last_at: string }>(env.DB,
       "SELECT video_id, MAX(concurrent_viewers) AS peak, MAX(sampled_at) AS last_at "
       + "FROM live_ccv_samples WHERE group_key=? "
-      + "AND sampled_at >= datetime('now','-90 days') "
+      + "AND sampled_at >= datetime('now','-56 days') "
       + "GROUP BY video_id ORDER BY last_at DESC LIMIT 12", [key])
       .catch(() => [] as { video_id: string; peak: number; last_at: string }[]),
   ]);
