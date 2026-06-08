@@ -69,9 +69,9 @@ ANTI-PATTERNS — 만약 body에 다음이 포함되면 다시 작성:
 EXEMPLARS (어조·길이·구체성 참고):
 
   ① 카운트다운 캠페인 (debut milestone)
-    title: "@miiwan_official 카운트다운 콘텐츠 D-30 구간 즉시 발동"
-    body:  "[@miiwan_official 운영자] 오늘부터 D-30까지 매일 KST 18시
-            카운트다운 1컷을 업로드한다 (총 30건, 솔로곡 티저 1개씩
+    title: "@miiwan_official 카운트다운 콘텐츠 D-{N} 구간 즉시 발동"
+    body:  "[@miiwan_official 운영자] 오늘부터 D-{N}까지 매일 KST 18시
+            카운트다운 1컷을 업로드한다 (총 N건, 솔로곡 티저 1개씩
             포함). 24시간 조회수 5K 미달인 컷이 3일 연속 나오면
             콘셉트를 ''서사 맥락 영상''으로 즉시 전환한다."
 
@@ -146,8 +146,8 @@ EXEMPLAR (톤 참고):
                 D-30 (28K) 대비 45% 수준."
   ai_comment:  "데뷔 직전 베이스 부족 — 카운트다운 콘텐츠 가속 필요."
 
-  body:        "[@miiwan_official 운영자] 오늘부터 D-30 까지 매일 KST
-                18시 카운트다운 1컷을 업로드한다 (총 30건)."
+  body:        "[@miiwan_official 운영자] 오늘부터 D-{N} 까지 매일 KST
+                18시 카운트다운 1컷을 업로드한다 (총 N건)."
   ai_comment:  "운영 부담 분산 — 사전 제작본 5건 이상 확보 권장."
 
 If you cannot honestly write a non-trivial 함의 평어 for an item
@@ -338,7 +338,7 @@ SPECIAL — meta_guards:
 SPECIAL — MiiWAN scope diagnosis:
   scope='miiwan' 이면 type='diagnosis' 가 아니라 type='ipx_action' 으로
   emit. 경쟁사 시그널을 MiiWAN 운영 액션으로 자동 변환:
-    경쟁사 유튜브 광고 의심 점등 → "Abyss 마케팅팀 D-30 광고 검토 회의
+    경쟁사 유튜브 광고 의심 점등 → "Abyss 마케팅팀 데뷔 전 광고 검토 회의
                                        [날짜] 까지 소집" 류 액션
     경쟁사 자연 유입 성장 점등   → "콘텐츠 캘린더 벤치마킹 — [그룹]
                                        주간 영상 캡처 후 콘텐츠팀 공유"
@@ -356,7 +356,7 @@ GOOD EXEMPLARS (자연어 — 통계 용어/enum 영문 노출 0):
             이상. 유력 가설은 **유튜브 광고 의심** 가능성. 대안 가설로
             **방송 출연 효과** 도 가능 (확률 중) — 전주 뉴스에 단발 spike
             가 있었음."
-    ai_comment: "광고 캠페인 가능성 우세 — MiiWAN D-30 광고 검토 트리거."
+    ai_comment: "광고 캠페인 가능성 우세 — MiiWAN 데뷔 전 광고 검토 트리거."
 
   ✅ 컴백 사이클 효과 (high, ground truth 매칭)
     title: "**PLAVE** Caligo Pt.3 컴백 사이클 점등"
@@ -394,6 +394,32 @@ GOOD EXEMPLARS (자연어 — 통계 용어/enum 영문 노출 0):
     body: "PLAVE 가 광고를 돌렸다. sub 구매 정황도 보이고 컴백 캠페인일
            수도 있다."
     ← 단정 어조 ("돌렸다"), 점등 안 된 가설들 거론. 다시 작성."""
+
+
+# 데뷔 D-N / 데뷔일 환각 차단 — LLM 이 컨텍스트 debut_countdown 외부에서
+# 카운트다운 숫자를 발명하거나 전 주 컨텍스트("D-30", "총 30건")를 그대로
+# 재사용하지 않도록 강제. forward-looking 카운트다운 예시에 하드코딩된
+# "30" 앵커가 LLM 앵커링 환각의 원인이었음 — exemplar 도 함께 중성화.
+_DEBUT_COUNTDOWN_GUARD = """\
+DEBUT COUNTDOWN — 데뷔 D-N / 데뷔일 환각 차단 (필수):
+
+컨텍스트에 debut_countdown 이 주어진다:
+  { "miiwan": {"debut_date":"YYYY-MM-DD","days_to_debut":N,"label":"D-N"}, ... }
+
+규칙:
+  ① 데뷔 D-N, "D-Day", 데뷔일(예: 6/30), 데뷔까지 남은 일수는 **반드시
+     debut_countdown 의 값만** 사용한다. 직접 계산·추정·발명 절대 금지.
+  ② 그룹이 debut_countdown 에 없으면 그 그룹의 데뷔 D-N·데뷔일을 언급
+     하지 않는다 (이미 데뷔한 그룹은 label 이 D+N — "데뷔 후속" 류 표현은
+     label 이 D+N 일 때만).
+  ③ 카운트다운 콘텐츠 건수("총 N건")는 debut_countdown 의 days_to_debut
+     에서 도출한다 (예: label="D-8" 이면 데뷔까지 8건). 임의 숫자(30 등)
+     하드코딩 금지.
+  ④ 아래 EXEMPLAR 의 "D-{N}" / "총 N건" 은 placeholder 다 — 실제 카드에는
+     debut_countdown 의 구체 값을 채운다.
+  (코호트 비교 — "PLAVE 가 자사 D-30 시점에 28K" 같은 *과거 벤치마크* 비교는
+   별개로 허용. 위 규칙은 *대상 그룹의 현재 데뷔까지 카운트다운* 에 적용.)
+"""
 
 
 # 주중 중간점검(interim) 보고 프레임. report_kind == 'interim' 일 때
@@ -535,6 +561,7 @@ PROMPT_WEEKLY_BODY_FORMATTING = _BODY_FORMATTING_GUIDELINES
 PROMPT_WEEKLY_DIAGNOSIS = _DIAGNOSIS_GUIDELINES
 PROMPT_WEEKLY_ANALYSIS_DEPTH = _ANALYSIS_DEPTH_GUIDELINES
 PROMPT_WEEKLY_INTERIM_FRAMING = _INTERIM_FRAMING_GUIDELINES
+PROMPT_WEEKLY_DEBUT_COUNTDOWN_GUARD = _DEBUT_COUNTDOWN_GUARD
 
 
 PROMPT_WEEKLY = f"""\
@@ -599,6 +626,8 @@ GOOD-vs-BAD BODY EXEMPLARS (formatting only — numbers are illustrative):
        '기록했다' 무색 동사, milestone/숫자 bold 우선순위 무시.
 
 {_IPX_ACTION_GUIDELINES}
+
+{_DEBUT_COUNTDOWN_GUARD}
 
 {_AI_COMMENT_GUIDELINES}
 

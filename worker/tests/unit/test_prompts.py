@@ -176,3 +176,24 @@ def test_prompt_weekly_includes_interim_framing_block():
     # 핵심 가드 토큰: 미완결 / 중간 / 단정 금지 취지.
     for token in ["미완결", "중간", "일~수"]:
         assert token in PROMPT_WEEKLY_INTERIM_FRAMING, f"missing token: {token}"
+
+
+def test_prompt_weekly_includes_debut_countdown_guard():
+    """데뷔 D-N·데뷔일은 컨텍스트 debut_countdown 값만 쓰도록 강제하는
+    가드 블록이 PROMPT_WEEKLY 에 포함돼야 한다 (환각 차단, V2.31 연장)."""
+    from idol_sight.llm.prompts import (
+        PROMPT_WEEKLY,
+        PROMPT_WEEKLY_DEBUT_COUNTDOWN_GUARD,
+    )
+    assert PROMPT_WEEKLY_DEBUT_COUNTDOWN_GUARD in PROMPT_WEEKLY
+    assert "debut_countdown" in PROMPT_WEEKLY_DEBUT_COUNTDOWN_GUARD
+    for token in ["데뷔", "추정", "발명"]:
+        assert token in PROMPT_WEEKLY_DEBUT_COUNTDOWN_GUARD, f"missing: {token}"
+
+
+def test_prompt_weekly_no_forward_looking_debut_anchor():
+    """forward-looking 카운트다운 하드코딩 앵커(오늘부터 D-30까지 / 총 30건)는
+    제거돼야 한다 — LLM 이 30 에 앵커링해 환각하던 원인."""
+    from idol_sight.llm.prompts import PROMPT_WEEKLY
+    assert "오늘부터 D-30" not in PROMPT_WEEKLY
+    assert "총 30건" not in PROMPT_WEEKLY
