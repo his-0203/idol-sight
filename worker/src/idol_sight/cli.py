@@ -406,6 +406,18 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
                            f"{bs.statements_executed}/{bs.statements_sent}", err=True)
                 raise typer.Exit(code=1)
         typer.echo(f"debut_window_summary: wrote {len(dw_summary.statements)} rows")
+
+        # V2.43: per-group growth trajectory (raw-pillar, self-history). Like
+        # debut_window it doesn't read melon, so it lives in skip_derived branch.
+        from idol_sight.analysis.growth_trajectory import build_growth_trajectory
+        gt = build_growth_trajectory(client)
+        if gt.statements:
+            bs = client.batch(gt.statements)
+            if bs.statements_executed != bs.statements_sent:
+                typer.echo(f"partial growth_trajectory write: "
+                           f"{bs.statements_executed}/{bs.statements_sent}", err=True)
+                raise typer.Exit(code=1)
+        typer.echo(f"growth_trajectory: wrote {len(gt.statements)} rows")
     else:
         typer.echo("skip-derived: agg_group_combined / velocity / reactivity skipped")
 
