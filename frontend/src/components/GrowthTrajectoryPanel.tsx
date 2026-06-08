@@ -68,7 +68,9 @@ function statusFor(p: Pillar): [string, Tone] {
 // the current level for context (their status word already carries the trend).
 function fmtMetric(p: Pillar): string {
   if (p.key === "reach" || p.key === "community") {
-    if (p.change_4w === null) return "";
+    // == null catches undefined too: rows written before change_4w existed (a
+    // pre-redesign cron run) omit the field — fall back to blank, not NaN.
+    if (p.change_4w === null || p.change_4w === undefined) return "";
     const v = p.change_4w * 100;
     const dec = Math.abs(v) < 1 ? 1 : 0;   // don't round a small-but-real % to 0
     return `최근 4주 ${v >= 0 ? "+" : ""}${v.toFixed(dec)}%`;
