@@ -5,6 +5,7 @@ from idol_sight.analysis.growth_trajectory import acceleration, weekly_flow
 import pytest
 from idol_sight.analysis.growth_trajectory import classify_accel, classify_direction
 from idol_sight.analysis.growth_trajectory import incremental_er
+from idol_sight.analysis.growth_trajectory import compute_pillars
 
 
 def test_kst_day_shifts_utc_into_kst():
@@ -93,3 +94,37 @@ def test_incremental_er_none_when_no_new_views():
         {"yt_total_views": 1_000_000, "yt_likes_total": 40_010, "yt_comments_total": 5_000},
     ]
     assert incremental_er(daily, window=1) is None
+
+
+def _rising_daily(n=40):
+    """n contiguous KST days with accelerating growth so weekly-flow slopes up.
+
+    plan originally used constant-rate growth (+300/day) which yields flat
+    weekly-flow → 'plateau'; changed to quadratic (+i*30/day) so flow itself
+    rises → reach direction='climbing' as the test asserts.
+    """
+    rows = []
+    for i in range(n):
+        rows.append({
+            "day": f"2026-04-{i + 1:02d}" if i < 30 else f"2026-05-{i - 29:02d}",
+            "yt_subscribers": 5000 + 15 * i * i,   # quadratic → rising flow
+            "yt_total_views": 900_000 + 80_000 * i + 2000 * i * i,
+            "yt_likes_total": 8000 + 400 * i + 10 * i * i,
+            "yt_comments_total": 500 + 30 * i + i * i,
+            "dc_total_posts": 30 + 2 * i,
+            "theqoo_posts": 0, "instiz_posts": 0, "twitter_posts": 0,
+            "negative_ratio": 0.0,
+        })
+    return rows
+
+
+def test_compute_pillars_returns_four_keyed_pillars_climbing():
+    pillars = compute_pillars(_rising_daily())
+    keys = {p["key"] for p in pillars}
+    assert keys == {"reach", "engagement", "community", "sentiment"}
+    reach = next(p for p in pillars if p["key"] == "reach")
+    assert reach["direction"] == "climbing"
+    # every pillar dict has the contract fields
+    for p in pillars:
+        assert set(p) >= {"key", "level", "wow_growth", "slope_4w", "accel",
+                          "direction", "accel_dir"}

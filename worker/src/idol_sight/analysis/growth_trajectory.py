@@ -121,3 +121,84 @@ def incremental_er(daily: list[dict], window: int = 7) -> float | None:
         - (base.get("yt_likes_total") or 0) - (base.get("yt_comments_total") or 0)
     )
     return d_eng / d_views
+
+
+ACCEL_DEADBAND_FRAC = 0.02   # |accel| below 2% of |mean recent| → flat
+
+_COMMUNITY_COLS = ("dc_total_posts", "theqoo_posts", "instiz_posts", "twitter_posts")
+
+
+def _series(daily: list[dict], col: str) -> list[float]:
+    return [float(r.get(col) or 0) for r in daily]
+
+
+def _community_series(daily: list[dict]) -> list[float]:
+    return [float(sum((r.get(c) or 0) for c in _COMMUNITY_COLS)) for r in daily]
+
+
+def _wow(levels: list[float]) -> float | None:
+    """(L[-1]-L[-8]) / L[-8] — week-over-week % change of a level series."""
+    if len(levels) < 8 or levels[-8] == 0:
+        return None
+    return (levels[-1] - levels[-8]) / levels[-8]
+
+
+def _pillar_from_levels(key: str, levels: list[float], invert: bool = False) -> dict:
+    """Cumulative pillar: trajectory on the weekly-flow series."""
+    flows = weekly_flow(levels, lag=7)
+    rs = relative_slope(flows, window_days=28)
+    if rs is not None and invert:
+        rs = -rs
+    acc = acceleration(flows, half=14)
+    if invert:
+        acc = -acc
+    recent_mean = abs(sum(flows[-14:]) / len(flows[-14:])) if flows[-14:] else 0.0
+    deadband = max(recent_mean * ACCEL_DEADBAND_FRAC, 1e-9)
+    return {
+        "key": key,
+        "level": levels[-1] if levels else None,
+        "wow_growth": _wow(levels),
+        "slope_4w": rs,
+        "accel": acc,
+        "direction": classify_direction(rs),
+        "accel_dir": classify_accel(acc, deadband),
+    }
+
+
+def _pillar_from_values(key: str, values: list[float], invert: bool = False) -> dict:
+    """Ratio/level pillar: trajectory on the value series itself."""
+    rs = relative_slope(values, window_days=28)
+    if rs is not None and invert:
+        rs = -rs
+    acc = acceleration(values, half=14)
+    if invert:
+        acc = -acc
+    recent_mean = abs(sum(values[-14:]) / len(values[-14:])) if values[-14:] else 0.0
+    deadband = max(recent_mean * ACCEL_DEADBAND_FRAC, 1e-9)
+    return {
+        "key": key,
+        "level": values[-1] if values else None,
+        "wow_growth": (values[-1] - values[-8]) if len(values) >= 8 else None,
+        "slope_4w": rs,
+        "accel": acc,
+        "direction": classify_direction(rs),
+        "accel_dir": classify_accel(acc, deadband),
+    }
+
+
+def compute_pillars(daily: list[dict]) -> list[dict]:
+    """Four trajectory pillars from a KST-daily-resampled series.
+
+    sentiment uses invert=True so 'climbing' always means *healthier* (falling
+    negative_ratio), keeping direction semantics uniform across pillars.
+    """
+    er_series = []
+    for i in range(len(daily)):
+        er = incremental_er(daily[: i + 1], window=7)
+        er_series.append(er if er is not None else 0.0)
+    return [
+        _pillar_from_levels("reach", _series(daily, "yt_subscribers")),
+        _pillar_from_values("engagement", er_series),
+        _pillar_from_levels("community", _community_series(daily)),
+        _pillar_from_values("sentiment", _series(daily, "negative_ratio"), invert=True),
+    ]
