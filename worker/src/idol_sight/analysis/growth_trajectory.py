@@ -238,3 +238,70 @@ def synthesize_posture(pillars: list[dict]) -> tuple[str, str | None]:
         key=lambda p: _DIR_SCORE[p["direction"]] + _ACCEL_SCORE[p["accel_dir"]],
     )["key"]
     return label, weakest
+
+
+MIN_HISTORY_DAYS = 14
+
+
+class _Executor(Protocol):
+    def execute(self, sql: str, params: list | None = ...) -> list[dict]: ...
+
+
+_FETCH_SQL = """
+SELECT group_key, snapshot_at,
+       yt_subscribers, yt_total_views, yt_likes_total, yt_comments_total,
+       dc_total_posts, theqoo_posts, instiz_posts, twitter_posts,
+       negative_ratio
+FROM agg_summary
+ORDER BY group_key, snapshot_at
+"""
+
+_CLEAR_SQL = "DELETE FROM group_growth_trajectory"
+
+_UPSERT_SQL = """
+INSERT INTO group_growth_trajectory
+  (group_key, computed_at, status, history_days,
+   posture_label, weakest_pillar, pillars)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(group_key) DO UPDATE SET
+  computed_at=excluded.computed_at,
+  status=excluded.status,
+  history_days=excluded.history_days,
+  posture_label=excluded.posture_label,
+  weakest_pillar=excluded.weakest_pillar,
+  pillars=excluded.pillars
+"""
+
+
+def build_growth_trajectory(client: _Executor) -> CollectionResult:
+    """Per-group growth trajectory snapshot from agg_summary history. Full
+    DELETE + rebuild so groups dropping below thresholds don't persist."""
+    rows = client.execute(_FETCH_SQL)
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    by_group: dict[str, list[dict]] = {}
+    for r in rows:
+        by_group.setdefault(r["group_key"], []).append(r)
+
+    statements: list[tuple[str, list[Any]]] = [(_CLEAR_SQL, [])]
+    for group_key, grows in by_group.items():
+        daily = resample_daily(grows)
+        history_days = len(daily)
+        if history_days < MIN_HISTORY_DAYS:
+            statements.append((_UPSERT_SQL, [
+                group_key, now, "insufficient_history", history_days,
+                None, None, "[]",
+            ]))
+            continue
+        pillars = compute_pillars(daily)
+        label, weakest = synthesize_posture(pillars)
+        statements.append((_UPSERT_SQL, [
+            group_key, now, "ok", history_days,
+            label, weakest, json.dumps(pillars),
+        ]))
+
+    return CollectionResult(
+        rows_inserted=0,
+        rows_updated=len(statements),
+        statements=statements,
+    )

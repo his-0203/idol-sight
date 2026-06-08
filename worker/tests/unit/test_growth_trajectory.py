@@ -7,6 +7,12 @@ from idol_sight.analysis.growth_trajectory import classify_accel, classify_direc
 from idol_sight.analysis.growth_trajectory import incremental_er
 from idol_sight.analysis.growth_trajectory import compute_pillars
 from idol_sight.analysis.growth_trajectory import synthesize_posture
+from unittest.mock import MagicMock
+from idol_sight.analysis.growth_trajectory import (
+    MIN_HISTORY_DAYS,
+    build_growth_trajectory,
+)
+import json
 
 
 def test_kst_day_shifts_utc_into_kst():
@@ -157,3 +163,63 @@ def test_posture_declining_label():
     ]
     label, _ = synthesize_posture(pillars)
     assert label.startswith("하락")
+
+
+def _fetch_rows_for(group, n):
+    """Generate n rows starting 2026-03-01 (March has 31 days; up to ~60 rows safe)."""
+    from datetime import date, timedelta
+    base = date(2026, 3, 1)
+    rows = []
+    for i in range(n):
+        d = base + timedelta(days=i)
+        rows.append({
+            "group_key": group,
+            "snapshot_at": f"{d.isoformat()}T13:00:00Z",
+            "yt_subscribers": 5000 + 300 * i,
+            "yt_total_views": 900_000 + 80_000 * i,
+            "yt_likes_total": 8000 + 400 * i,
+            "yt_comments_total": 500 + 30 * i,
+            "dc_total_posts": 30 + 2 * i, "theqoo_posts": 0,
+            "instiz_posts": 0, "twitter_posts": 0, "negative_ratio": 0.0,
+        })
+    return rows
+
+
+def _client(rows):
+    client = MagicMock()
+    client.execute.side_effect = lambda sql, params=None: rows
+    return client
+
+
+def test_build_emits_delete_then_per_group_upserts():
+    rows = _fetch_rows_for("miiwan", 30) + _fetch_rows_for("bthd", 5)
+    result = build_growth_trajectory(_client(rows))
+    sqls = [s[0] for s in result.statements]
+    assert "DELETE FROM group_growth_trajectory" in sqls[0]
+    # one upsert per group
+    upserts = [s for s in result.statements if "INSERT INTO group_growth_trajectory" in s[0]]
+    assert len(upserts) == 2
+    by_group = {s[1][0]: s[1] for s in upserts}
+    assert set(by_group) == {"miiwan", "bthd"}
+
+
+def test_build_marks_thin_history_insufficient():
+    rows = _fetch_rows_for("bthd", MIN_HISTORY_DAYS - 1)
+    result = build_growth_trajectory(_client(rows))
+    upsert = next(s for s in result.statements if "INSERT INTO" in s[0])
+    params = upsert[1]
+    # params: group_key, computed_at, status, history_days, posture, weakest, pillars
+    assert params[0] == "bthd"
+    assert params[2] == "insufficient_history"
+    assert params[4] is None and params[5] is None
+
+
+def test_build_marks_ok_and_climbing_for_rich_history():
+    rows = _fetch_rows_for("miiwan", 40)
+    result = build_growth_trajectory(_client(rows))
+    upsert = next(s for s in result.statements if "INSERT INTO" in s[0])
+    params = upsert[1]
+    assert params[2] == "ok"
+    assert params[4] is not None        # posture_label
+    pillars = json.loads(params[6])
+    assert len(pillars) == 4
