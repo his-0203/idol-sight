@@ -1254,6 +1254,20 @@ def _recompute_health_scores(
         c["music_show_wins"] = music_by_key.get(c["key"], 0)
     live_metrics = compute_live_metrics(cohort) if cohort else None
 
+    # V2.46: 충성도 점수 주입용 조회. basis='scored'(방송 2회+) 만 Health 에
+    # 반영 — 단발(low_confidence)·insufficient 는 신호가 얇아 점수 보류(카드
+    # 표시는 별개). 테이블 미적용(migration 0084 전)이면 graceful — health
+    # 스코어링이 통째로 죽지 않게 빈 dict 로 폴백.
+    try:
+        loyalty_rows = client.execute(
+            "SELECT group_key, score FROM agg_fan_loyalty "
+            "WHERE basis='scored' AND score IS NOT NULL"
+        )
+        loyalty_by_key = {r["group_key"]: r["score"] for r in loyalty_rows}
+    except Exception as exc:
+        typer.echo(f"[warn] loyalty fallback (agg_fan_loyalty 조회 실패): {exc}", err=True)
+        loyalty_by_key = {}
+
     health_stmts: list = []
     for g in _load_active_groups_full(client):
         s = cohort_by_key.get(g["key"])
@@ -1286,6 +1300,7 @@ def _recompute_health_scores(
             "melon_top100_depth": s.get("melon_top100_depth"),
             "v90_count": (v90[0].get("n", 0) if v90 else 0),
             "v30_count": (v30[0].get("n", 0) if v30 else 0),
+            "loyalty_score": loyalty_by_key.get(g["key"]),  # None → 2신호 경로
         }
         score = compute_health_score(
             g["key"], agg_dict, g.get("debut_date"),
