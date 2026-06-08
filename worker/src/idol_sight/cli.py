@@ -945,7 +945,8 @@ def challenge_scan() -> None:
 @app.command("analyze-weekly", help="Run weekly analysis: hanteo, market_share, member_pop, llm.")
 def analyze_weekly(
     week_start: str = typer.Option(..., "--week-start", help="YYYY-MM-DD (Sunday)"),
-    week_end: str   = typer.Option(..., "--week-end",   help="YYYY-MM-DD (Saturday)"),
+    week_end: str   = typer.Option(..., "--week-end",   help="YYYY-MM-DD (Saturday for final, Wed for interim)"),
+    kind: str       = typer.Option("final", "--kind", help="final (일=완결주 결산) | interim (수=중간점검)"),
 ) -> None:
     settings = load_settings()
     client = _make_d1_client(settings)
@@ -1134,6 +1135,7 @@ def analyze_weekly(
             db=client, gemini=gemini,
             week_start=week_start, week_end=week_end,
             signals_by_group=signals_by_group,
+            report_kind=kind,
         )
         if weekly.statements:
             client.batch(weekly.statements)
