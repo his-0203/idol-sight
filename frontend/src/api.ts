@@ -44,7 +44,6 @@ export const api = {
   search:      (q: string) => getJson<any>(`/api/search?q=${encodeURIComponent(q)}`),
   healthSpec:  () => getJson<any>("/api/health/spec"),
   adminStatus: () => getJson<any>("/api/admin/status"),
-  liveCcv:     () => getJson<any>("/api/live-ccv"),
   // Debut Window API — row 타입은 caller (KPI / CompetitorOrganicityBar /
   // DebutWindowVideoTable) 가 자체 interface 로 정의 → generic T 노출.
   debutWindowSummary: <T = unknown>(bucket?: string): Promise<{ rows: T[] }> =>

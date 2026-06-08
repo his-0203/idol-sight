@@ -36,7 +36,6 @@ import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
 import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
 import { CompetitorOrganicityBar } from "../components/CompetitorOrganicityBar";
-import { LiveCcvCard } from "../components/LiveCcvCard";
 
 type SummaryShape = {
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
@@ -385,7 +384,6 @@ export function MiiWANBriefing() {
 
   return (
     <div class="space-y-6">
-      <LiveCcvCard />
       {/* 1) STRATEGIC HERO — 한 줄 진단이 가장 강한 시각 weight를
           차지하도록 구성. 위치(D-day) + 상태(Health) + 진척(멤버
           커버리지)을 한 row에. */}
