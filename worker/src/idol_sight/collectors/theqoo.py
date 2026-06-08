@@ -47,7 +47,7 @@ from scrapling import StealthyFetcher
 from idol_sight.analysis.relevance import is_relevant
 from idol_sight.collectors.base import CollectionResult
 from idol_sight.config import GroupConfig
-from idol_sight.utils.dates import parse_safe
+from idol_sight.utils.dates import kst_to_utc, parse_safe
 from idol_sight.utils.url_hash import url_hash
 
 log = logging.getLogger(__name__)
@@ -113,7 +113,7 @@ class TheQooCollector:
         statements: list[tuple[str, list[Any]]] = []
 
         for uh, r in relevant:
-            posted = parse_safe(r.get("posted_at_raw", ""))
+            posted = kst_to_utc(parse_safe(r.get("posted_at_raw", "")))
             posted_iso = posted.strftime("%Y-%m-%dT%H:%M:%SZ") if posted else None
             statements.append((
                 """

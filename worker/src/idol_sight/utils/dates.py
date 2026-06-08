@@ -42,6 +42,17 @@ RELATIVE_PATTERNS: list[tuple[re.Pattern[str], object]] = [
 WINDOW = 30
 
 
+def kst_to_utc(dt: datetime | None) -> datetime | None:
+    """Convert a naive **KST** datetime to naive **UTC** (subtract 9h).
+
+    Korean community sites (DC/theqoo/instiz) render absolute post times in KST,
+    which ``parse_safe`` returns as a naive datetime. The DB contract is UTC (the
+    frontend's ``formatKST`` adds +9h for display), so collectors must convert
+    KST→UTC before storing — otherwise a 14:04 KST post is stored as 14:04Z and
+    displayed as 23:04 KST (9h late)."""
+    return dt - timedelta(hours=9) if dt is not None else None
+
+
 def parse_safe(s: str | None, *, now: datetime | None = None) -> datetime | None:
     """Parse the start of `s` as a date.
 

@@ -87,3 +87,13 @@ def test_absolute_date_takes_precedence_over_relative():
     # prefer the absolute one.
     s = "2026-03-12 게시 (3시간 전 댓글)"
     assert parse_safe(s, now=NOW) == datetime(2026, 3, 12)
+
+
+def test_kst_to_utc_subtracts_9_hours():
+    from datetime import datetime
+    from idol_sight.utils.dates import kst_to_utc
+    # 14:04 KST → 05:04 UTC (same day)
+    assert kst_to_utc(datetime(2026, 6, 8, 14, 4)) == datetime(2026, 6, 8, 5, 4)
+    # 06:00 KST → 21:00 UTC previous day (crosses midnight)
+    assert kst_to_utc(datetime(2026, 6, 8, 6, 0)) == datetime(2026, 6, 7, 21, 0)
+    assert kst_to_utc(None) is None
