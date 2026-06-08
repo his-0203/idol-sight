@@ -8,6 +8,8 @@ interface Pillar {
   level: number | null;       // reach=subs, engagement/sentiment=ratio, community=posts
   wow_growth: number | null;  // 1-week change (retained from contract; not surfaced)
   change_4w: number | null;   // 4-week change — level pillars: relative %; ratio: absolute
+  prev: number | null;        // value over the previous 7 days (the "before")
+  recent: number | null;      // value over the recent 7 days (the "after")
   slope_4w: number | null;    // retained from worker contract (tooltip/future use)
   accel: number;              // retained from worker contract (tooltip/future use)
   direction: string;          // climbing | plateau | declining | unknown
@@ -63,29 +65,33 @@ function statusFor(p: Pillar): [string, Tone] {
   return STATUS[p.key]?.[p.direction] ?? ["—", "muted"];
 }
 
-// Supporting number (muted), kept on the SAME 4-week horizon as the status word
-// so the two never read as contradictory (the old 1-week figure could show "+0%"
-// next to "빠른 증가"). Level pillars show the 4-week growth %; ratio pillars show
-// the current level for context (their status word already carries the trend).
-function fmtMetric(p: Pillar): string {
+// Compact signed Korean number (+1,100 / +516만 / +1.2억) for weekly count deltas.
+function compactKo(n: number): string {
+  const sign = n < 0 ? "−" : "+";
+  const a = Math.abs(n);
+  if (a >= 1e8) return `${sign}${(a / 1e8).toFixed(1)}억`;
+  if (a >= 1e4) return `${sign}${Math.round(a / 1e4)}만`;
+  return `${sign}${Math.round(a).toLocaleString()}`;
+}
+
+// Supporting detail (muted): the previous-7-days vs recent-7-days figures behind
+// the status word, so a viewer can see *why* a pillar is rising or falling
+// ("이전 X → 최근 Y"). prev/recent are the pillar's own signal one week apart:
+// reach = weekly adds (subs or views), community = weekly post count, engagement
+// = 7-day ER, sentiment = negative_ratio.
+function fmtPrevRecent(p: Pillar): string {
+  if (p.prev === null || p.prev === undefined || p.recent === null || p.recent === undefined) {
+    return "";
+  }
   if (p.key === "reach") {
-    // == null catches undefined too: rows written before change_4w existed (a
-    // pre-redesign cron run) omit the field — fall back to blank, not NaN.
-    if (p.change_4w === null || p.change_4w === undefined) return "";
-    const v = p.change_4w * 100;
-    const dec = Math.abs(v) < 1 ? 1 : 0;   // don't round a small-but-real % to 0
-    const base = `최근 4주 ${v >= 0 ? "+" : ""}${v.toFixed(dec)}%`;
-    // views fallback (subscriber count was quantized/rounded) — flag the basis.
-    return p.source === "views" ? `${base} · 조회 기준` : base;
+    const tail = p.source === "views" ? " 조회/주" : " 명/주";
+    return `이전 ${compactKo(p.prev)} → 최근 ${compactKo(p.recent)}${tail}`;
   }
   if (p.key === "community") {
-    // level = posts actually posted in the trailing window (real recent volume).
-    if (p.level === null || p.level === undefined) return "";
-    return `최근 7일 ${Math.round(p.level)}건`;
+    return `이전 ${Math.round(p.prev)} → 최근 ${Math.round(p.recent)}건/주`;
   }
-  if (p.level === null) return "";
-  if (p.key === "engagement") return `참여율 ${(p.level * 100).toFixed(1)}%`;
-  return `부정 ${(p.level * 100).toFixed(0)}%`;  // sentiment
+  // engagement / sentiment — ratios rendered as %
+  return `이전 ${(p.prev * 100).toFixed(1)}% → 최근 ${(p.recent * 100).toFixed(1)}%`;
 }
 
 // Posture label (from worker) → plain one-line gloss + a tone for the badge.
@@ -157,7 +163,7 @@ export function GrowthTrajectoryPanel({ groupKey }: { groupKey: string }) {
       <div class="space-y-2.5">
         {pillars.map((p) => {
           const [word, tone] = statusFor(p);
-          const metric = fmtMetric(p);
+          const metric = fmtPrevRecent(p);
           return (
             <div key={p.key} class="flex items-center gap-3 text-sm">
               <span class="w-32 shrink-0 text-zinc-400">{PILLAR_LABEL[p.key] ?? p.key}</span>

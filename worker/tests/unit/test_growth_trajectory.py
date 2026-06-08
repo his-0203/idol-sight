@@ -306,6 +306,16 @@ def test_pillars_carry_change_4w_field():
         assert "change_4w" in p
 
 
+def test_pillars_carry_prev_recent_7d_values():
+    pillars = compute_pillars(_rising_daily(), _rising_series())
+    for p in pillars:
+        assert "prev" in p and "recent" in p
+    # community series = [1..40] → recent = last value, prev = the value 7 back
+    community = next(p for p in pillars if p["key"] == "community")
+    assert community["recent"] == 40.0
+    assert community["prev"] == 33.0
+
+
 def test_compute_pillars_sentiment_zero_is_healthy_plateau_not_unknown():
     # negative_ratio flat at 0 is the healthiest state, not a data gap → plateau.
     pillars = compute_pillars(_rising_daily(), _rising_series())

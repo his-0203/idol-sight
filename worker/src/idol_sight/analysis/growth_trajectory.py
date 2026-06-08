@@ -228,6 +228,10 @@ def _pillar_from_levels(
         # pillars. Consumers must render per pillar type (not the same as ratio pillars).
         "wow_growth": _wow(levels),
         "change_4w": change,
+        # prev/recent = adjacent 7-day flows (this week's adds vs last week's) so
+        # the UI can show "이전 X → 최근 Y" — the before/after behind the trend.
+        "prev": flows[-8] if len(flows) >= 8 else None,
+        "recent": flows[-1] if flows else None,
         "slope_4w": rs,
         "accel": acc,
         "direction": direction,
@@ -253,6 +257,10 @@ def _pillar_from_values(key: str, values: list[float], invert: bool = False) -> 
         # Consumers must render per pillar type (not the same as level pillars).
         "wow_growth": (values[-1] - values[-8]) if len(values) >= 8 else None,
         "change_4w": _change_4w(values, relative=False),
+        # prev/recent = the value 7 days ago vs now (adjacent 7-day figures) for
+        # the UI's "이전 X → 최근 Y" before/after behind the trend.
+        "prev": values[-8] if len(values) >= 8 else None,
+        "recent": values[-1] if values else None,
         "slope_4w": rs,
         "accel": acc,
         "direction": classify_direction(rs),
