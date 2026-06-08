@@ -1,7 +1,10 @@
+import pytest
 from datetime import date, timedelta
 
 from idol_sight.analysis.health_score import (
+    DEFAULT_REFS,
     WEIGHTS,
+    _factor_inputs,
     compute_dynamic_refs,
     compute_health_score,
 )
@@ -533,3 +536,44 @@ def test_cold_start_floor_removed_absolute_scoring():
     assert score.total < 1.0, (
         f"total={score.total} — cold-start floor가 여전히 적용 중."
     )
+
+
+def test_intimacy_no_loyalty_is_unchanged():
+    """loyalty 키 없으면 기존 2신호(0.55/0.45) 경로 — 점수 불변."""
+    agg = {
+        "likes_total": 1000, "comments_total": 100, "yt_total_views": 100_000,
+        "dc_total_posts": 50, "theqoo_posts": 0, "instiz_posts": 0,
+        "negative_ratio": 0.0,
+    }
+    refs = {**DEFAULT_REFS}
+    base = _factor_inputs(agg, refs)["intimacy"]
+    # loyalty_score=None 명시해도 동일해야 한다.
+    agg_none = {**agg, "loyalty_score": None}
+    assert _factor_inputs(agg_none, refs)["intimacy"] == base
+
+
+def test_intimacy_with_loyalty_blends_third_signal():
+    """loyalty_score 있으면 3신호(0.40/0.30/0.30) 경로로 값이 달라진다."""
+    agg = {
+        "likes_total": 1000, "comments_total": 100, "yt_total_views": 100_000,
+        "dc_total_posts": 50, "theqoo_posts": 0, "instiz_posts": 0,
+        "negative_ratio": 0.0,
+    }
+    refs = {**DEFAULT_REFS}
+    base = _factor_inputs(agg, refs)["intimacy"]
+    high = _factor_inputs({**agg, "loyalty_score": 100.0}, refs)["intimacy"]
+    low = _factor_inputs({**agg, "loyalty_score": 0.0}, refs)["intimacy"]
+    assert high > base > low   # 충성도 100 가점 / 0 감점 (3신호 혼합)
+
+
+def test_intimacy_loyalty_respects_compression():
+    """부정 감정 압축이 loyalty 포함 intimacy에도 적용된다."""
+    agg = {
+        "likes_total": 1000, "comments_total": 100, "yt_total_views": 100_000,
+        "dc_total_posts": 50, "theqoo_posts": 0, "instiz_posts": 0,
+        "negative_ratio": 0.5, "loyalty_score": 100.0,
+    }
+    refs = {**DEFAULT_REFS}
+    no_neg = _factor_inputs({**agg, "negative_ratio": 0.0}, refs)["intimacy"]
+    with_neg = _factor_inputs(agg, refs)["intimacy"]
+    assert with_neg == pytest.approx(no_neg * 0.5)

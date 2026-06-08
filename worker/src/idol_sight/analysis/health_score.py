@@ -543,6 +543,23 @@ def _factor_inputs(
     neg_ratio = float(agg.get("negative_ratio", 0) or 0)
     intimacy_compression = max(0.0, 1.0 - neg_ratio)
 
+    # V2.46: 라이브 CCV 충성도를 Intimacy 3번째 신호로. 데이터 있는 그룹만
+    # (loyalty_score not None) 3신호로 확장하고, 없으면 기존 2신호 경로를
+    # 그대로 타 점수 불변(재정규화 페널티 0 — 라이브 안 한 그룹 손해 없음).
+    loyalty_raw = agg.get("loyalty_score")
+    if loyalty_raw is not None:
+        loyalty_n = max(0.0, min(float(loyalty_raw) / 100.0, 1.0))
+        intimacy = _wmean([
+            (eng_n,     0.40, "quality"   in L),
+            (comm_n,    0.30, "community" in L),
+            (loyalty_n, 0.30, True),
+        ]) * intimacy_compression
+    else:
+        intimacy = _wmean([
+            (eng_n,  0.55, "quality"   in L),
+            (comm_n, 0.45, "community" in L),
+        ]) * intimacy_compression
+
     return {
         # Reach — raw audience size: subscribers, views, news exposure.
         # V2.17: news weight 0.15 → 0.05. naver hit count는 group name
@@ -578,12 +595,9 @@ def _factor_inputs(
             (hanteo_n,  0.25, "hanteo"      in L),
             (sub_n,     0.10, "subscribers" in L),
         ]),
-        # Intimacy — engagement rate + community activity, compressed by
-        # negative sentiment ratio.
-        "intimacy": _wmean([
-            (eng_n,  0.55, "quality"   in L),
-            (comm_n, 0.45, "community" in L),
-        ]) * intimacy_compression,
+        # Intimacy — engagement rate + community activity (+ V2.46 라이브
+        # 충성도, 데이터 있을 때만), compressed by negative sentiment ratio.
+        "intimacy": intimacy,
     }
 
 
