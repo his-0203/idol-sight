@@ -150,10 +150,37 @@ def test_reach_noise_floor_allows_real_accelerating_growth():
     assert p["direction"] == "climbing"
 
 
-def test_reach_without_noise_floor_keeps_slope_classification():
+def test_reach_frozen_data_reads_plateau_via_compare():
     from idol_sight.analysis.growth_trajectory import _pillar_from_levels
-    p = _pillar_from_levels("reach", [1_180_000.0] * 40)   # no floor → unmodified
-    assert p["direction"] == "unknown"   # frozen flow → slope None → unknown
+    # frozen levels → flows all 0 → prev≈recent≈0 → 유지 (plateau), not a spurious trend
+    p = _pillar_from_levels("reach", [1_180_000.0] * 40)
+    assert p["direction"] == "plateau"
+
+
+@pytest.mark.parametrize("prev,recent,invert,expected", [
+    (800.0, 1100.0, False, "climbing"),    # recent up >10% → 증가
+    (8900.0, 600.0, False, "declining"),   # recent down → 둔화 (owis case)
+    (19.0, 8.0, False, "declining"),       # community down (miiwan case)
+    (100.0, 105.0, False, "plateau"),      # within ±10% → 유지
+    (0.0, 0.0, False, "plateau"),          # both zero → 유지
+    (0.0, 5.0, False, "climbing"),         # from zero up → 증가
+    (0.05, 0.01, True, "climbing"),        # sentiment: negative dropped → healthier
+    (0.01, 0.05, True, "declining"),       # sentiment: negative rose → worse
+    (None, 5.0, False, "unknown"),
+])
+def test_compare_direction(prev, recent, invert, expected):
+    from idol_sight.analysis.growth_trajectory import _compare_direction
+    assert _compare_direction(prev, recent, invert) == expected
+
+
+def test_incremental_er_guards_tiny_view_delta():
+    from idol_sight.analysis.growth_trajectory import incremental_er
+    # Δviews of only 100 (< MIN_DELTA_VIEWS_FOR_ER) would explode ER → None
+    daily = [
+        {"yt_total_views": 1_000_000, "yt_likes_total": 0, "yt_comments_total": 0},
+        {"yt_total_views": 1_000_100, "yt_likes_total": 80, "yt_comments_total": 6},
+    ]
+    assert incremental_er(daily, window=1) is None
 
 
 def _frozen_subs_growing_views(n=40):

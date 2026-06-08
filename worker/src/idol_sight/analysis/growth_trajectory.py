@@ -120,20 +120,25 @@ def classify_accel(accel: float, deadband: float) -> str:
     return "flat"
 
 
+MIN_DELTA_VIEWS_FOR_ER = 1000   # too few new views → ER ratio explodes (artifact)
+
+
 def incremental_er(daily: list[dict], window: int = 7) -> float | None:
     """Δ(likes+comments)/Δviews over the trailing `window` days.
 
     Captures engagement quality on *new* reach (anchor-independent). None when
-    fewer than 2 points or non-positive Δviews. If cumulative likes/comments
-    decrease (e.g. due to moderation or data correction) d_eng can be negative,
-    yielding a negative ER; downstream handles this safely.
+    fewer than 2 points, or when Δviews is below MIN_DELTA_VIEWS_FOR_ER — a tiny
+    (or stale/quantized) view delta makes the ratio explode to implausible values
+    (e.g. 86%), so we treat it as no signal. If cumulative likes/comments decrease
+    (moderation/correction) d_eng can be negative, yielding a negative ER;
+    downstream handles that safely.
     """
     if len(daily) < 2:
         return None
     last = daily[-1]
     base = daily[-1 - window] if len(daily) > window else daily[0]
     d_views = (last.get("yt_total_views") or 0) - (base.get("yt_total_views") or 0)
-    if d_views <= 0:
+    if d_views < MIN_DELTA_VIEWS_FOR_ER:
         return None
     d_eng = (
         (last.get("yt_likes_total") or 0) + (last.get("yt_comments_total") or 0)
@@ -196,6 +201,33 @@ def _change_4w(series: list[float], relative: bool) -> float | None:
     return series[-1] - base
 
 
+COMPARE_THRESHOLD = 0.10   # recent vs prior 7-day change to call it 증가/둔화 (else 유지)
+
+
+def _compare_direction(
+    prev: float | None, recent: float | None,
+    invert: bool = False, threshold: float = COMPARE_THRESHOLD,
+) -> str:
+    """Direction from the SAME 'prev 7d → recent 7d' figures the UI shows, so the
+    status word can never contradict the numbers. invert=True flips it so for
+    sentiment a falling negative_ratio reads as 'climbing' (healthier)."""
+    if prev is None or recent is None:
+        return "unknown"
+    if abs(prev) < 1e-9:
+        if abs(recent) < 1e-9:
+            return "plateau"
+        delta = 1.0 if recent > 0 else -1.0
+    else:
+        delta = (recent - prev) / abs(prev)
+    if invert:
+        delta = -delta
+    if delta > threshold:
+        return "climbing"
+    if delta < -threshold:
+        return "declining"
+    return "plateau"
+
+
 def _pillar_from_levels(
     key: str, levels: list[float], invert: bool = False, noise_floor: float | None = None,
 ) -> dict:
@@ -216,7 +248,12 @@ def _pillar_from_levels(
     recent_mean = abs(sum(flows[-14:]) / len(flows[-14:])) if flows[-14:] else 0.0
     deadband = max(recent_mean * ACCEL_DEADBAND_FRAC, 1e-9)
     change = _change_4w(levels, relative=True)
-    direction = classify_direction(rs)
+    # prev/recent = adjacent 7-day flows (last week's adds vs this week's). Direction
+    # is the comparison of these two so the status WORD always matches the displayed
+    # "이전 X → 최근 Y" numbers (never contradicts them).
+    prev = flows[-8] if len(flows) >= 8 else None
+    recent = flows[-1] if flows else None
+    direction = _compare_direction(prev, recent, invert)
     accel_dir = classify_accel(acc, deadband)
     if noise_floor is not None and change is not None and abs(change) < noise_floor:
         direction = "plateau"
@@ -228,10 +265,8 @@ def _pillar_from_levels(
         # pillars. Consumers must render per pillar type (not the same as ratio pillars).
         "wow_growth": _wow(levels),
         "change_4w": change,
-        # prev/recent = adjacent 7-day flows (this week's adds vs last week's) so
-        # the UI can show "이전 X → 최근 Y" — the before/after behind the trend.
-        "prev": flows[-8] if len(flows) >= 8 else None,
-        "recent": flows[-1] if flows else None,
+        "prev": prev,
+        "recent": recent,
         "slope_4w": rs,
         "accel": acc,
         "direction": direction,
@@ -249,6 +284,8 @@ def _pillar_from_values(key: str, values: list[float], invert: bool = False) -> 
         acc = -acc
     recent_mean = abs(sum(values[-14:]) / len(values[-14:])) if values[-14:] else 0.0
     deadband = max(recent_mean * ACCEL_DEADBAND_FRAC, 1e-9)
+    prev = values[-8] if len(values) >= 8 else None
+    recent = values[-1] if values else None
     return {
         "key": key,
         "level": values[-1] if values else None,
@@ -257,13 +294,13 @@ def _pillar_from_values(key: str, values: list[float], invert: bool = False) -> 
         # Consumers must render per pillar type (not the same as level pillars).
         "wow_growth": (values[-1] - values[-8]) if len(values) >= 8 else None,
         "change_4w": _change_4w(values, relative=False),
-        # prev/recent = the value 7 days ago vs now (adjacent 7-day figures) for
-        # the UI's "이전 X → 최근 Y" before/after behind the trend.
-        "prev": values[-8] if len(values) >= 8 else None,
-        "recent": values[-1] if values else None,
+        # prev/recent = the value 7 days ago vs now; direction is their comparison
+        # so the status word always matches the displayed "이전 X → 최근 Y".
+        "prev": prev,
+        "recent": recent,
         "slope_4w": rs,
         "accel": acc,
-        "direction": classify_direction(rs),
+        "direction": _compare_direction(prev, recent, invert),
         "accel_dir": classify_accel(acc, deadband),
     }
 
