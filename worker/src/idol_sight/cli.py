@@ -9,6 +9,7 @@ import time
 from datetime import UTC, datetime
 from typing import Any
 
+import click
 import typer
 
 from idol_sight.analysis.challenge_scan import run_challenge_scan
@@ -946,7 +947,7 @@ def challenge_scan() -> None:
 def analyze_weekly(
     week_start: str = typer.Option(..., "--week-start", help="YYYY-MM-DD (Sunday)"),
     week_end: str   = typer.Option(..., "--week-end",   help="YYYY-MM-DD (Saturday for final, Wed for interim)"),
-    kind: str       = typer.Option("final", "--kind", help="final (일=완결주 결산) | interim (수=중간점검)"),
+    kind: str       = typer.Option("final", "--kind", click_type=click.Choice(["final", "interim"]), help="final (일=완결주 결산) | interim (수=중간점검)"),
 ) -> None:
     settings = load_settings()
     client = _make_d1_client(settings)
