@@ -424,3 +424,27 @@ def test_generate_weekly_defaults_to_final_kind():
     assert del_params == ["2026-04-22", "final"]
     sql, params = _insert_stmts(result)[0]
     assert params[-1] == "final"
+
+
+def test_debut_countdown_labels():
+    from datetime import date
+    from idol_sight.llm.weekly import _debut_countdown
+    rows = [
+        {"key": "miiwan", "debut_date": "2026-06-16"},  # 미래 → D-8
+        {"key": "plave",  "debut_date": "2023-03-12"},  # 과거 → D+...
+        {"key": "owis",   "debut_date": "2026-06-08"},  # 당일 → D-DAY
+        {"key": "nodate", "debut_date": None},          # 무시
+    ]
+    out = _debut_countdown(rows, date(2026, 6, 8))
+    assert out["miiwan"] == {"debut_date": "2026-06-16", "days_to_debut": 8, "label": "D-8"}
+    assert out["owis"]["label"] == "D-DAY"
+    assert out["owis"]["days_to_debut"] == 0
+    assert out["plave"]["label"].startswith("D+")
+    assert out["plave"]["days_to_debut"] < 0
+    assert "nodate" not in out  # debut_date None 은 제외
+
+
+def test_debut_countdown_empty():
+    from datetime import date
+    from idol_sight.llm.weekly import _debut_countdown
+    assert _debut_countdown([], date(2026, 6, 8)) == {}

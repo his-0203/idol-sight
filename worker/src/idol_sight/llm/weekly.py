@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Protocol
 
 from idol_sight.analysis.weekly_diagnosis import (
@@ -128,9 +128,31 @@ def _serialize_signals_for_llm(
 
 
 def _shift_iso_date(iso_date: str, days: int) -> str:
-    from datetime import date, timedelta
     d = date.fromisoformat(iso_date)
     return (d + timedelta(days=days)).isoformat()
+
+
+def _debut_countdown(rows: list[dict], today: "date") -> dict[str, dict]:
+    """groups 행 [{key, debut_date}] → {key: {debut_date, days_to_debut, label}}.
+
+    label: 데뷔 전(days>0)=D-{n}, 당일(0)=D-DAY, 데뷔 후(days<0)=D+{n}.
+    debut_date 가 비어있는 행은 제외한다. LLM 이 데뷔 D-N·데뷔일을
+    추정하지 않도록 ground-truth 를 컨텍스트로 넘기기 위한 변환.
+    """
+    out: dict[str, dict] = {}
+    for r in rows:
+        ds = r.get("debut_date")
+        if not ds:
+            continue
+        days = (date.fromisoformat(ds) - today).days
+        if days > 0:
+            label = f"D-{days}"
+        elif days == 0:
+            label = "D-DAY"
+        else:
+            label = f"D+{abs(days)}"
+        out[r["key"]] = {"debut_date": ds, "days_to_debut": days, "label": label}
+    return out
 
 
 def generate_weekly(
