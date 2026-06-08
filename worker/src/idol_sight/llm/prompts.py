@@ -404,7 +404,7 @@ _DEBUT_COUNTDOWN_GUARD = """\
 DEBUT COUNTDOWN — 데뷔 D-N / 데뷔일 환각 차단 (필수):
 
 컨텍스트에 debut_countdown 이 주어진다:
-  { "miiwan": {"debut_date":"YYYY-MM-DD","days_to_debut":N,"label":"D-N"}, ... }
+  { "miiwan": {"debut_date":"YYYY-MM-DD","days_to_debut":N,"label":"D-N | D-DAY | D+N"}, ... }
 
 규칙:
   ① 데뷔 D-N, "D-Day", 데뷔일(예: 6/30), 데뷔까지 남은 일수는 **반드시
@@ -417,8 +417,8 @@ DEBUT COUNTDOWN — 데뷔 D-N / 데뷔일 환각 차단 (필수):
      하드코딩 금지.
   ④ 아래 EXEMPLAR 의 "D-{N}" / "총 N건" 은 placeholder 다 — 실제 카드에는
      debut_countdown 의 구체 값을 채운다.
-  (코호트 비교 — "PLAVE 가 자사 D-30 시점에 28K" 같은 *과거 벤치마크* 비교는
-   별개로 허용. 위 규칙은 *대상 그룹의 현재 데뷔까지 카운트다운* 에 적용.)
+  (코호트 비교 — "PLAVE 가 자사 D-30 시점에 28K" 같은 *경쟁사의 과거 시점 벤치마크*
+   비교는 별개로 허용. 위 규칙은 *대상 그룹의 현재 데뷔까지 카운트다운* 에 적용.)
 """
 
 
