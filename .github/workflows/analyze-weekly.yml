@@ -32,7 +32,7 @@ jobs:
             #   일요일(weekday 6) → final: 직전 완결 일~토.
             #   그 외(수요일)     → interim: 이번 주 일 ~ 오늘(수).
             # out=$(...) 는 set -eo pipefail 하에서 python 실패 시 step 을
-            # 중단시킨다(process substitution 은 안 그래서 here-string 사용).
+            # 중단시킨다(process substitution <(...) 와 달리 exit code 가 전파됨).
             out=$(python3 -c "
           import datetime as d
           t = d.date.today()                      # runner 는 UTC
