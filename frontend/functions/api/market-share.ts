@@ -12,6 +12,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   const rows = await d1Query<ShareRow>(env.DB,
     `SELECT * FROM agg_market_share
       WHERE week_end >= date('now', ?)
+        AND strftime('%w', week_end) = '6'
       ORDER BY week_start ASC, group_key ASC`,
     [`-${weeks * 7} days`]);
   return jsonResponse({ weeks, rows });
