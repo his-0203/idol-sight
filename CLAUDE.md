@@ -121,7 +121,9 @@ cd frontend && wrangler pages deploy dist
 
 - **V2.43.4 (2026-06-08)**: ① 성장 궤적 **reach 조회수 보조 신호**(Phase 2) — 대형 채널 구독자 반올림으로 reach가 noise-floor에 걸려 "유지"로만 나오던 것 보완. 구독자 4주 변동 <`REACH_NOISE_FLOOR`(양자화/동결)면 **정확한 누적 조회수 velocity로 reach 계산** + pillar에 `source`('subscribers'|'views') 표기, 프런트 "· 조회 기준" 병기. 실데이터 검증: plave/isedol/skinz/myrakl 조회수 velocity는 추세 신호 보유(반올림 구독자가 못 잡음). ② **커뮤니티 글 표시 버그 수정** — 운영자 보고 "OWIS 최근 글이 대시보드에 안 보이고 최신=5/30". 진단: **크롤은 정상**(전 그룹 6/8까지 수집, community_post_stats도 신선) — `api/group/[key].ts` commTop 쿼리가 `ORDER BY views DESC LIMIT 30`이라 조회수 0인 최근 글이 상위 30에서 밀려 풀에 부재했음. → `ORDER BY COALESCE(posted_at,collected_at) DESC LIMIT 50` + Community 뷰 기본 정렬 views→latest. worker 682 + frontend 174. **미해결(도메인 판단 필요)**: bdawn DC 갤러리 'bdawn'은 무관 노이즈 다수(동명/통합갤 유입)+실제 비던 글 5/28이 최신 → 갤러리 ID 재검토 또는 비활성 인정 필요. posted_at이 KST-naive 저장(타임존 불일치)도 후속.
 
-**다음 단계 (우선순위)**: S급 (RBAC + Cloudflare Access, 감사 로그, 본체 마스킹, **티켓 매진속도 collector** — 다음 데뷔-크리티컬, 별도 brainstorm 필요). 라이브 CCV 는 V2.38 로 완료. 자세한 우선순위는 대화 컨텍스트 또는 v2-roadmap.md 참고.
+- **V2.43.5 (2026-06-08)**: ① **커뮤니티 posted_at 타임존 수정** — `community_posts.posted_at`이 KST 값을 Z(UTC)로 잘못 저장(collector가 parse_safe 결과에 변환 없이 `Z` 부착) → 프런트 `formatKST`가 +9h 추가 → 게시시각 9시간 늦게 표시. `kst_to_utc()` 헬퍼 + dc/theqoo/instiz collector가 저장 전 -9h, migration 0082가 기존 row 백필(posted_at은 insert 1회만 쓰여 재이동 없음, datetime() 가드). 프런트 무변경(formatKST가 이미 UTC→KST). naver는 date-only(00:00Z=KST 09:00 같은날)라 무영향. ② **"데이터 있는데 표기 안 됨" 전수 감사** — 실제 버그는 커뮤니티 2건뿐(ORDER BY views→최신순, tz, 둘 다 수정 완료). 점검 결과 무이상: naver date-only 정확 / members JOIN orphan 없음 / melon JOIN은 self-derived(드랍 없음) / shorts-trend LEFT JOIN / 비활성 그룹·고아 group_key 없음 / twitter_posts 빈 테이블. worker 683. migration 0082 운영자 apply 필요.
+
+**다음 단계 (우선순위)**: S급 (RBAC + Cloudflare Access, 감사 로그, 본체 마스킹, **티켓 매진속도 collector** — 다음 데뷔-크리티컬, 별도 brainstorm 필요). **알려진 잔여**: bdawn DC 갤러리 노이즈(갤러리 ID 도메인 재검토), twitter 수집 비활성. 라이브 CCV 는 V2.38 로 완료. 자세한 우선순위는 대화 컨텍스트 또는 v2-roadmap.md 참고.
 
 ## 작업 시 주의사항
 
