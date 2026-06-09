@@ -283,6 +283,10 @@ def compute_organic_score(video: dict) -> tuple[int | None, dict]:
 
     safe_views = max(view_count, 1)
     safe_comments = max(comment_count, 1)
+    # UNWEIGHTED engagement rate (likes + comments, no comment weighting) —
+    # INTENTIONALLY distinct from health_score.engagement_rate which weights
+    # comments ×5 (COMMENT_WEIGHT=5). Organicity calibration (SHORT_ER_FLOOR/CEIL
+    # etc.) was tuned against this unweighted definition; do NOT "unify" them.
     engagement_rate = engagement_total / safe_views
     like_comment_ratio = like_count / safe_comments
 

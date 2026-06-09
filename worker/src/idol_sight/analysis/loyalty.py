@@ -6,6 +6,7 @@ Heuristic, not ground-truth.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -15,6 +16,7 @@ __all__ = [
     "median",
     "score_from_conversion",
     "ccv_trend",
+    "subscribers_at",
     "compute_loyalty",
     "build_fan_loyalty",
     "WINDOW_DAYS",
@@ -84,13 +86,37 @@ def ccv_trend(peaks_chrono: list[float]) -> tuple[float | None, str]:
     return pct, ("rising" if pct > 0 else "falling")
 
 
+def subscribers_at(series: list[tuple[str, int]], at: str) -> int | None:
+    """방송 시점(at) 기준 가장 최근(snapshot_at ≤ at) 구독자 스냅샷 값.
+
+    at 이 모든 스냅샷보다 이르면 최초(가장 이른) 스냅샷, series 가 비면 None.
+    snapshot_at 은 ISO8601 문자열이라 사전식 비교가 시간순과 일치(정렬 무관).
+    """
+    if not series:
+        return None
+    chosen: int | None = None
+    chosen_at: str | None = None
+    for snap_at, subs in series:
+        if snap_at <= at and (chosen_at is None or snap_at > chosen_at):
+            chosen_at, chosen = snap_at, subs
+    if chosen is None:  # at 이 모든 스냅샷보다 이름 → 최초 스냅샷
+        return min(series, key=lambda x: x[0])[1]
+    return chosen
+
+
 def compute_loyalty(
     samples: list[dict[str, Any]], subscribers: int | None,
+    subs_at: Callable[[str], int | None] | None = None,
 ) -> dict[str, Any]:
     """그룹의 윈도우-내 CCV 샘플 + 구독자 → 충성도 row 필드 dict.
 
     samples: [{video_id, sampled_at, concurrent_viewers}, ...] (윈도우 사전필터됨).
     distinct video_id = distinct 방송. 방송별 peak = MAX(ccv).
+
+    subs_at(broadcast_time) → 그 방송 시점의 구독자 (A1, 시점 매칭). 주면 방송별
+    전환율을 각자의 시점 구독자로 산출해 급성장 채널(데뷔기 MiiWAN)의 분모 과대
+    편향을 제거한다. None 이면 모든 방송이 `subscribers`(최신)를 써 결과가
+    median(peaks)/subscribers 와 동일(하위호환).
     """
     base = {
         "conversion_rate": None, "peak_ccv_median": None,
@@ -119,9 +145,20 @@ def compute_loyalty(
         return base  # insufficient — 분모 sanity (V2.43.3 동결/이상치 방어)
 
     peaks = [v["peak"] for v in by_video.values()]
-    peak_med = median(peaks)
-    rate = peak_med / subscribers
-    base["peak_ccv_median"] = peak_med
+    # 방송별 전환율 — 각 방송을 그 시점 구독자로 나눠 시점 편향 제거(A1). subs_at
+    # 없거나 그 시점 구독자가 결측/0 이면 최신 subscribers 로 폴백. 모든 방송이
+    # 동일 분모면 median(convs) == median(peaks)/subscribers (하위호환).
+    convs: list[float] = []
+    for v in by_video.values():
+        sb = subs_at(v["first_at"]) if subs_at is not None else None
+        if not sb or sb <= 0:
+            sb = subscribers
+        if sb and sb > 0:
+            convs.append(v["peak"] / sb)
+    if not convs:
+        return base  # 모든 방송에서 분모 결측 — insufficient
+    rate = median(convs)
+    base["peak_ccv_median"] = median(peaks)  # 표시용 (규모 신호, 분모 무관)
     base["conversion_rate"] = rate
     base["score"] = round(score_from_conversion(rate), 2)
     base["basis"] = "low_confidence" if bc == 1 else "scored"
@@ -179,19 +216,23 @@ def build_fan_loyalty(client: _Executor) -> CollectionResult:
     for r in sample_rows:
         samples_by_group.setdefault(r["group_key"], []).append(r)
 
-    # 그룹별 최신 non-null 구독자 (snapshot_at DESC 첫 행).
-    subs_by_group: dict[str, int] = {}
-    latest_at: dict[str, str] = {}
+    # 그룹별 구독자 시계열 (snapshot_at 오름차순) — 방송별 시점 매칭(A1)용.
+    # 최신값은 series[-1] (표시/폴백 분모), 과거 방송은 그 시점 값으로 매칭.
+    subs_series_by_group: dict[str, list[tuple[str, int]]] = {}
     for r in client.execute(_SUBS_SQL):
-        gk, at = r["group_key"], r["snapshot_at"]
-        if gk not in latest_at or at > latest_at[gk]:
-            latest_at[gk] = at
-            subs_by_group[gk] = r["yt_subscribers"]
+        subs_series_by_group.setdefault(r["group_key"], []).append(
+            (r["snapshot_at"], r["yt_subscribers"])
+        )
+    for series in subs_series_by_group.values():
+        series.sort(key=lambda x: x[0])
 
     statements: list[tuple[str, list[Any]]] = [(_CLEAR_SQL, [])]
     for gk in tracked:
+        series = subs_series_by_group.get(gk, [])
+        latest = series[-1][1] if series else None
         out = compute_loyalty(
-            samples_by_group.get(gk, []), subs_by_group.get(gk),
+            samples_by_group.get(gk, []), latest,
+            subs_at=(lambda at, s=series: subscribers_at(s, at)) if series else None,
         )
         statements.append((_INSERT_SQL, [
             gk, out["conversion_rate"], out["peak_ccv_median"],

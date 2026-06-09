@@ -52,9 +52,13 @@ def video_upload_z(
 
 
 def wow_ratio(now: float | None, prev: float | None) -> float | None:
-    """Week-over-week ratio = (now - prev) / max(prev, 1).
+    """Week-over-week ratio = (now - prev) / prev.
 
-    prev 가 None 또는 0 이면 None 반환 (분모 불가 — dead signal).
+    prev 가 None 또는 0 이면 None 반환 (분모 불가). prev==0 → None 은 의도적이고
+    올바른 선택이다: 0 베이스라인은 보통 데이터 갭이거나 onset (새로 추적 시작한
+    지표) 을 의미해 변화율이 정의되지 않으며, 0 베이스라인 위에서 진단 가설을
+    발사하면 false positive 위험이 크다 — None 반환 (이 축에선 발사 안 함) 이
+    안전하고 신중한 선택이다.
     """
     if now is None or prev is None:
         return None
@@ -79,6 +83,10 @@ def engagement_rate_from_agg(agg: dict[str, Any]) -> float:
     weight live in health_score.engagement_rate (single source); this only adapts
     the raw column keys (health_score._engagement_rate adapts cli.py's rekeyed
     `likes_total`/`comments_total` instead). views=0 → 0.0.
+
+    NOTE: this deliberately uses the health-score (comment-weighted ×5) ER
+    definition, which differs from debut_window/organicity's UNWEIGHTED ER — the
+    two are not interchangeable.
     """
     return _engagement_rate(
         float(agg.get("yt_likes_total") or 0),

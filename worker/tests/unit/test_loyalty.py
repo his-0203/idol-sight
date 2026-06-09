@@ -1,7 +1,7 @@
 import pytest
 from idol_sight.analysis.loyalty import (
     median, score_from_conversion, ccv_trend, compute_loyalty,
-    build_fan_loyalty,
+    build_fan_loyalty, subscribers_at,
     WINDOW_DAYS, TREND_FLAT_BAND, MIN_BROADCASTS_FOR_TREND,
 )
 
@@ -80,6 +80,53 @@ def test_compute_loyalty_low_confidence_single_broadcast():
     assert out["score"] is not None
 
 
+def test_subscribers_at_picks_snapshot_at_or_before():
+    series = [
+        ("2026-05-01T00:00:00Z", 50_000),
+        ("2026-05-20T00:00:00Z", 80_000),
+        ("2026-06-05T00:00:00Z", 100_000),
+    ]
+    assert subscribers_at(series, "2026-04-01T00:00:00Z") == 50_000   # 이전 → 최초
+    assert subscribers_at(series, "2026-05-20T00:00:00Z") == 80_000   # 동일 시점 포함
+    assert subscribers_at(series, "2026-05-25T00:00:00Z") == 80_000   # 최근 ≤
+    assert subscribers_at(series, "2026-06-10T00:00:00Z") == 100_000  # 이후 → 최신
+    assert subscribers_at([], "2026-06-10T00:00:00Z") is None         # 이력 없음
+
+
+def test_compute_loyalty_time_matches_subscribers_per_broadcast():
+    # 초기 방송(구독자 50k 시점)과 최근 방송(구독자 100k 시점). 시점 매칭 시
+    # 각 2% → median 2%. 편향(최신 구독자만)이었다면 median peak/100k = 1.5%.
+    samples = [
+        {"video_id": "a", "sampled_at": "2026-05-02T10:00:00Z", "concurrent_viewers": 1000},
+        {"video_id": "b", "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 2000},
+    ]
+    series = [("2026-05-01T00:00:00Z", 50_000), ("2026-06-05T00:00:00Z", 100_000)]
+    out = compute_loyalty(samples, subscribers=100_000,
+                          subs_at=lambda at: subscribers_at(series, at))
+    assert out["conversion_rate"] == pytest.approx(0.02)   # median([0.02, 0.02])
+    assert out["peak_ccv_median"] == 1500.0                # 표시용 median peak 불변
+    assert out["subscribers"] == 100_000                   # 표시용 최신 구독자
+
+
+def test_compute_loyalty_naive_unchanged_without_subs_at():
+    # subs_at 없으면 기존 동작 유지: median peak / 최신 구독자 (하위호환)
+    samples = [
+        {"video_id": "a", "sampled_at": "2026-05-02T10:00:00Z", "concurrent_viewers": 1000},
+        {"video_id": "b", "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 2000},
+    ]
+    out = compute_loyalty(samples, subscribers=100_000)
+    assert out["conversion_rate"] == pytest.approx(0.015)  # 1500/100000
+
+
+def test_compute_loyalty_subs_at_falls_back_to_latest_when_none():
+    # subs_at 이 None 반환(해당 시점 이력 없음)하면 latest subscribers 로 폴백
+    samples = [
+        {"video_id": "a", "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 1500},
+    ]
+    out = compute_loyalty(samples, subscribers=100_000, subs_at=lambda at: None)
+    assert out["conversion_rate"] == pytest.approx(0.015)
+
+
 def test_compute_loyalty_insufficient_no_broadcast():
     out = compute_loyalty([], subscribers=100_000)
     assert out["basis"] == "insufficient"
@@ -149,5 +196,7 @@ def test_build_fan_loyalty_picks_latest_nonnull_subscribers():
     miiwan = res.statements[1][1]
     # INSERT 컬럼: group_key, conversion_rate, peak_ccv_median, broadcast_count,
     #   subscribers, score, basis, ccv_trend_pct, trend_basis, window_days, snapshot_at
-    assert miiwan[1] == pytest.approx(0.015)   # conversion_rate (1500/100000)
-    assert miiwan[4] == 100_000                 # subscribers (최신 non-null)
+    # A1: 방송(06-05)은 그 시점 구독자(06-01 의 50k, 06-07 100k 는 방송 이후)로
+    #     매칭 → 1500/50000 = 0.03. 표시 subscribers 는 최신 non-null(100k).
+    assert miiwan[1] == pytest.approx(0.03)    # conversion_rate (시점 매칭: 1500/50000)
+    assert miiwan[4] == 100_000                 # subscribers (최신 non-null, 표시용)

@@ -1,8 +1,10 @@
 // frontend/functions/lib/debutWindowBuckets.ts
 //
-// V2.34 (2026-05-27): worker WINDOW_BUCKETS 가 9 named bucket 으로 균등
-// 15일 폭 통일됨 (이전 V3.1 의 비대칭 11 bucket 폐기). frontend UI 도
-// 동일하게 9 탭 노출 → worker bucket ↔ frontend bucket 이 1:1 identity
+// V2.34 (2026-05-27): worker WINDOW_BUCKETS 가 20일 폭으로 균등 통일됨
+// (이전 V3.1 의 비대칭 11 bucket 폐기). 7 named bucket (D-60..D+60, 각 20일,
+// D-Day 는 데뷔일 중심 ±10일) + Pre/Post = 총 9 entry. 이 FRONTEND_BUCKET_MAP
+// 은 그중 7 named bucket 만 열거 (Pre/Post 는 탭 미노출). frontend UI 도
+// 동일하게 7 탭 노출 → worker bucket ↔ frontend bucket 이 1:1 identity
 // 매핑. 이전 V3 의 union 매핑 (D-30 → [D-30, D-20, D-10]) 은 폭 비대칭
 // 결과를 5탭 UI 에 합쳤던 우회였고 균등 폭 통일 후 불필요.
 //

@@ -103,6 +103,10 @@ CLIMB_THRESHOLD = 0.05   # %/week relative-slope boundary (first-pass)
 
 
 def classify_direction(rel_slope: float | None, threshold: float = CLIMB_THRESHOLD) -> str:
+    """LEGACY / unused-in-production. Superseded by `_compare_direction`
+    (prev-7d → recent-7d comparison), which is what the live pillar-computation
+    path uses. Retained for reference + its existing unit test — do not delete.
+    """
     if rel_slope is None:
         return "unknown"
     if rel_slope > threshold:

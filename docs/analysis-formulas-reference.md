@@ -226,6 +226,7 @@
 ### 6.2 Engagement sub-score (`_compute_engagement_score`, `:149`)
 `er = (likes+comments)/max(views,1)`; `floor,ceil = (0.005,0.090) if short else (0.010,0.060)`;
 `e_score = clamp(round((er-floor)/(ceil-floor)*100), 0, 100)`.
+> ⚠️ **ER 정의 3종 (의도적 상이, 통일 금지)**: organicity ER = **무가중** `(likes+comments)/views` (이 §, calibration이 이 정의 기준) / Health·진단 ER = **댓글 ×5 가중** `(likes+5·comments)/views` (§1.4, COMMENT_WEIGHT=5) / shortsDiagnostic avg_er = `(likes+comments)/views×100`. 같은 "ER"여도 패널 간 수치가 다름 — 비교 시 주의.
 
 ### 6.3 Balance sub-score (`_compute_balance_score`, `:160`) — 진정성(organic vs farm)
 `r = likes/max(comments,1)`. SHORT `lo,hi=15,78; low_slope=5, high_slope=0.4` / LONG `lo,hi=10,50; low_slope=8, high_slope=0.5`.
@@ -308,8 +309,8 @@
 ### 8.1 상수
 `WINDOW_DAYS=56`; `LOYALTY_ANCHORS=[(0.005,20),(0.015,50),(0.03,70),(0.06,88),(0.12,100)]`; `TREND_FLAT_BAND=0.10`; `MIN_BROADCASTS_FOR_TREND=4`.
 
-### 8.2 Conversion Rate (`:121`)
-방송별 peak = `MAX(concurrent_viewers)` (video_id별, 56일 윈도). `peak_med = median(방송별 peak)`. **`rate = peak_med / subscribers`**. subscribers는 최신 non-null `yt_subscribers`. subs≤0/None → insufficient.
+### 8.2 Conversion Rate (`:121`, V2.48 시점 매칭)
+방송별 peak = `MAX(concurrent_viewers)` (video_id별, 56일 윈도). **방송별 전환율 = peak ÷ `subscribers_at(방송 시점)`** → `rate = median(방송별 전환율)`. `subscribers_at(series, at)`는 그 방송 시점(`first_at`) 기준 **가장 최근(≤at) 구독자 스냅샷**(이전이면 최초, 이력 없으면 최신 폴백). 급성장 채널(데뷔기 MiiWAN)에서 과거 방송을 현재(부푼) 구독자로 나누던 편향 제거. 표시용 `peak_ccv_median = median(peaks)`(규모 신호), `subscribers` = 최신 non-null(표시·폴백). subs≤0/None 또는 전 방송 분모 결측 → insufficient. *subs_at 미제공 시 median(peaks)/subscribers 와 동일(하위호환).*
 
 ### 8.3 Score 0–100 (`score_from_conversion`, `:55`)
 `LOYALTY_ANCHORS` 구간 선형보간: `rate≤0.005 → 20`; `rate≥0.12 → 100`; 내부 `s0 + (rate-r0)/(r1-r0)*(s1-s0)`. `round(.,2)`.
