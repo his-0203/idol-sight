@@ -37,6 +37,16 @@ const DATE_FMT = new Intl.DateTimeFormat("ko-KR", {
   day: "2-digit",
 });
 
+// Compact "MM/DD 요일" — for dense rows (e.g. the loyalty CCV ladder) where
+// the year is implied and a one-letter Korean weekday adds quick rhythm
+// without taking width.
+const MD_WEEKDAY_FMT = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: KST_TZ,
+  month: "2-digit",
+  day: "2-digit",
+  weekday: "short", // ko-KR "short" weekday is the single char 일/월/…
+});
+
 function toDate(input: string | Date | number | null | undefined): Date | null {
   if (input == null) return null;
   if (input instanceof Date) {
@@ -116,6 +126,22 @@ export function formatKSTDate(
   opts: { withSuffix?: boolean } = {},
 ): string {
   return formatKST(input, { withTime: false, withSuffix: opts.withSuffix ?? false });
+}
+
+/**
+ * Compact KST date as `"MM/DD 요일"` (e.g. `"06/07 일"`). Year-less, one-char
+ * weekday — for dense list rows. null/unparseable → `"—"`.
+ */
+export function formatKSTMonthDayWeekday(
+  input: string | Date | number | null | undefined,
+): string {
+  const d = toDate(input);
+  if (!d) return "—";
+  const parts = MD_WEEKDAY_FMT.formatToParts(d);
+  const m = part(parts, "month");
+  const day = part(parts, "day");
+  const weekday = parts.find((p) => p.type === "weekday")?.value ?? "";
+  return `${m}/${day} ${weekday}`.trim();
 }
 
 /**
