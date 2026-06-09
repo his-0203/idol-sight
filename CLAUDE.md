@@ -65,6 +65,7 @@ cd frontend && wrangler pages deploy dist
 
 | 문서 | 용도 |
 |---|---|
+| `docs/analysis-formulas-reference.md` | **대시보드 전체 산식 레퍼런스** (Health/SOV/HHI/Organicity/Growth/Loyalty/Diagnosis 등 가중치·임계값을 file:line 인용으로 전수 정리). 산식 작업 전 필독 |
 | `docs/superpowers/specs/2026-05-04-idol-sight-rebuild-design.md` | 전체 시스템 설계 (스키마, 인증, 비목표) |
 | `docs/superpowers/specs/2026-05-04-v2-roadmap.md` | V2 로드맵 (Anthropologist + Trend Researcher + Analytics Reporter 합성) |
 | `docs/superpowers/specs/2026-05-04-foundation.md` | 1단계 기반 구축 |
@@ -150,7 +151,7 @@ cd frontend && wrangler pages deploy dist
 - 새 collector는 `worker/src/idol_sight/collectors/base.py` 패턴을 따른다.
 - 새 analysis 모듈은 `worker/src/idol_sight/analysis/` 에 추가하고 `cli.py`에 entry 등록.
 - D1 schema 변경은 반드시 새 migration 파일로 (기존 migration 수정 금지).
-- 산식 변경 시 `docs/superpowers/specs/2026-05-04-analysis-and-llm.md` 도 함께 업데이트.
+- 산식 변경 시 `docs/analysis-formulas-reference.md` (전체 산식 레퍼런스, 단일 진실원천에 가까움)를 함께 업데이트. 설계 배경은 `docs/superpowers/plans/2026-05-04-analysis-and-llm.md` 참고.
 
 ### Frontend
 
