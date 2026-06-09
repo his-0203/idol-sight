@@ -1,10 +1,11 @@
 # IDOL-SIGHT 산식 레퍼런스 (Dashboard Formula Reference)
 
 > **목적**: 대시보드가 계산하는 **모든 결정론적 산식**(가중치·임계값·정규화·분류 규칙)을 한 곳에 정리한 단일 참조 문서.
-> **기준일**: 2026-06-09 (V2.47까지 반영).
-> **출처**: `worker/src/idol_sight/analysis/*.py`, `worker/src/idol_sight/cli.py`, `frontend/src/lib/*.ts`, `frontend/functions/lib/*.ts`, `frontend/src/components/FanLoyaltyCard.tsx`. 각 산식에 `파일:라인` 명시.
-> **갱신 규칙**: 산식/상수 변경 시 이 문서와 `CLAUDE.md` 체인지로그를 함께 갱신한다. 코드가 진실의 원천이며, 본 문서는 인용 라인이 drift할 수 있으니 의심되면 원본 확인.
-> **비-결정론 제외**: LLM(Gemini) 판단에 의존하는 항목(감성 분류, weekly 인사이트 본문, 챌린지 LLM 분류)은 "산식"이 아니므로 규칙만 기술하고 수치 공식은 없음 — §13 참조.
+> **기준일**: 2026-06-09 (V2.48까지 반영).
+> **읽는 법**: 각 항목은 두 겹이다 — **🟢 쉽게** = 수식 없이 비유로 "뭘 보는 건지", 그 아래 **산식** = 정확한 공식·상수·`파일:라인`. 비전문가는 🟢만 읽어도 되고, 구현/검증은 산식까지 본다.
+> **출처**: `worker/src/idol_sight/analysis/*.py`, `worker/src/idol_sight/cli.py`, `frontend/src/lib/*.ts`, `frontend/functions/lib/*.ts`, `frontend/src/components/FanLoyaltyCard.tsx`.
+> **갱신 규칙**: 산식/상수 변경 시 이 문서와 `CLAUDE.md` 체인지로그를 함께 갱신한다. 코드가 진실의 원천이며, 인용 라인은 drift할 수 있으니 의심되면 원본 확인.
+> **비-결정론 제외**: LLM(Gemini) 판단 항목(감성 분류, weekly 본문, 챌린지 분류)은 "산식"이 아니므로 규칙만 — §13 참조.
 > **윤리 주의**: 모든 지표는 공개 외형 신호 기반. 위기 알림(논란/본체노출)은 인간 검증 필수(`v2-roadmap.md §7`).
 
 ---
@@ -32,6 +33,14 @@
 
 여러 산식이 공유하는 원자 함수.
 
+> 🟢 **쉽게**: 모든 점수가 쓰는 '계산 부품'들. 값을 0~1 점수로 바꾸거나, 또래와 비교하거나, 한가운데 값을 뽑는 도구.
+> - **정규화(`_normalize`)**: 어떤 값을 *기준치 대비 0~1*로 환산. 기준 넘으면 만점(1), 0이면 0. (키를 "반에서 큰 편?" 0~1로 바꾸기)
+> - **로그 정규화(`_normalize_log`)**: 값 차이가 너무 클 때(100 vs 100만) 로그로 눌러 공정 비교. 뉴스 건수처럼 격차 큰 데 씀.
+> - **percentile / rank**: 줄 세웠을 때 몇 등쯤인지 0~1로.
+> - **z-score(`cohort_z_score`)**: 또래(경쟁사) 평균에서 몇 칸(표준편차) 벗어났나. +면 평균 위, −면 아래.
+> - **중앙값(`median`)**: 줄 세운 한가운데 값. 평균과 달리 튀는 값에 안 휘둘림.
+> - **NULL vs 0**: 구독자 수는 '아직 못 가져옴'이면 빈칸(NULL)으로 두고 최근 값으로 메움. 댓글 0개는 진짜 0.
+
 | 함수 | 정의 | 위치 |
 |---|---|---|
 | `_normalize(v, ref)` | `min(max(v/ref, 0), 1)`. v=None 또는 ref≤0 → 0 | `health_score.py:199` |
@@ -51,7 +60,11 @@
 
 `health_score.py` · V2.5 4-Factor 모델 (`group_model`별 가중치 + 동적 ref + recency 보너스).
 
+> 🟢 **쉽게**: 그룹이 전반적으로 얼마나 잘 나가는지 **0~10점 + S~D 등급**으로 요약한 종합 성적표. 4개 영역(도달·성과·동원·친밀도) 점수를 그룹 유형별 비중으로 합치고, 최근 영상 많으면 가산점, 논란 있으면 깎는다.
+
 ### 1.1 총점 & 등급
+
+> 🟢 **쉽게**: 네 영역 점수 합 + 최근활동 보너스 → 10점 만점으로 환산 → 점수대로 S/A/B/C/D 등급. 데뷔 전 그룹은 아직 "PRE"(점수 없음).
 
 **산식** (`compute_health_score`, `:604-704`):
 1. **Pre-debut 게이트** (`:613-618`): `debut_date` 없음/미래 → `grade="PRE"`, `total=None`.
@@ -72,6 +85,8 @@
 
 ### 1.2 group_model별 4-Factor 가중치 (`FACTOR_WEIGHTS`, `:121-140`, 각 행 합=100)
 
+> 🟢 **쉽게**: 그룹 유형마다 '중요한 것'이 다르다. 회사형(PLAVE)은 차트 성과·팬 동원을 크게, 버튜버 연합형(STELLIVE)은 팬과의 친밀도를 가장 크게 본다.
+
 | group_model | Reach | RitualVictory | Mobilization | Intimacy |
 |---|---|---|---|---|
 | **corporate** (PLAVE형, 기본) | 25 | 30 | 30 | 15 |
@@ -79,6 +94,12 @@
 | **confederation** (STELLIVE형) | 15 | 10 | 20 | 55 |
 
 ### 1.3 팩터 입력값 (`_factor_inputs`, `:462-601`) — 각 0–1, `_wmean` 가중평균(dead 신호 재정규화)
+
+> 🟢 **쉽게**: 네 영역이 각각 뭘 보는지 —
+> - **Reach(도달)**: 얼마나 많은 사람에게 닿나 (구독자·조회수·뉴스).
+> - **RitualVictory(성과)**: "이겼다"는 증거 (음반 판매·음방 1위·차트 순위).
+> - **Mobilization(동원)**: 팬을 실제로 움직이게 하나 (조회수·꾸준한 업로드·음반 구매).
+> - **Intimacy(친밀도)**: 팬과 얼마나 끈끈한가 (댓글 참여·커뮤 글·라이브 충성도). 부정 여론 있으면 깎임.
 
 **Reach (도달)** (`:569`):
 `wmean[(sub_n,0.55,live), (view_n,0.40,live), (news_n,0.05,live)]`
@@ -101,15 +122,23 @@
 - `eng_n=_normalize(engagement_rate, ref)`, `comm_n=_normalize(dc+theqoo+instiz posts, ref)`.
 
 ### 1.4 Engagement Rate (참여율)
+> 🟢 **쉽게**: 조회수 대비 좋아요+댓글이 얼마나 달리나. 댓글은 좋아요보다 '진짜 관심'이라 **5배**로 쳐준다.
+
 **산식** (`engagement_rate`, `:425`): `(likes + 5*comments) / views`. **`COMMENT_WEIGHT=5`** (댓글이 좋아요보다 5배 의도 신호). views≤0 → 0.0.
 
 ### 1.5 Recent Bonus (`_recent_bonus`, `:455`)
+> 🟢 **쉽게**: 최근(90일/30일) 영상 많이 올렸으면 가산점(최대 10). 부지런하면 +.
+
 `min(v90/30, 1)*7 + min(v30/10, 1)*3` → 0–10 가산 overlay (group_model 무관).
 
 ### 1.6 Controversy Factor (`_controversy_factor`, `:448`)
+> 🟢 **쉽게**: 논란 건수가 많을수록 전체 점수에 곱하는 '깎임 배수'. 10건이면 0(전부 깎임).
+
 `count<=0 → 1.0`, 아니면 `max(0, 1 - count/10)`. 10건+ → 0. 4개 팩터 전부에 곱.
 
 ### 1.7 동적 REF (코호트 percentile)
+> 🟢 **쉽게**: 만점 기준을 고정하지 않고 '경쟁사들 중 상위 25% 수준'을 매번 기준으로 잡는다. 1.0 = 상위권. (반 평균이 바뀌면 'A 받는 점수'도 바뀌는 셈)
+
 `ref[dim] = max(_percentile(cohort_vals, 0.75), MIN_REFS[dim])` (`:373`). 1.0 = 코호트 p75 수준.
 - `MIN_REFS` (`:97`): subscribers=50K, views=1M, quality=0.005, community=1K, news=10.
 - `music_show_wins` ref=5.0 고정 (sparse).
@@ -120,6 +149,8 @@
 ## 2. SOV — Share of Voice
 
 `market_share.py` · 코호트의 측정된 크로스플랫폼 관심 점유율(실제 시장점유 아님). z-score/percentile-rank 단위 통일.
+
+> 🟢 **쉽게**: 경쟁사들 사이에서 우리가 **'관심을 몇 % 차지'**하나. 채널 5종(조회·커뮤·뉴스·구독·트위터) 신호를 등수로 바꿔 합치고, 누적 60% + 최근 모멘텀 40%로 섞는다. 코호트 전체를 더하면 100%(누가 오르면 누구는 내림).
 
 **산식** (`_compute_sov`, `:120-167`):
 1. 누적 신호 5종 각 `_percentile_rank`: yt_views, community, news, subscribers, twitter.
@@ -139,6 +170,8 @@
 
 `member_popularity.py` · 그룹 내 인기 집중도(그룹 크기 무관 비교).
 
+> 🟢 **쉽게**: 그룹 인기가 **한 멤버에게 쏠렸나, 고르게 퍼졌나**. evenness 0 = 한 명 독식, 1 = 완전 균등. 멤버 수가 달라도 공정 비교되게 보정. (top1/top3 = 1·3등이 차지하는 비중)
+
 - **멤버 composite** (`:61`): `yt_score*0.5 + community_score*0.5`.
 - **share %** (`:80`): `composite_i / total * 100`.
 - **raw HHI** (`:81`): `Σ(share_pct²) / 10000` (범위 [1/N, 1]).
@@ -154,6 +187,8 @@
 
 `group_combined.py` · 그룹당 3가지 합산 뷰. **`MEMBER_WEIGHT=0.7`** (멤버 솔로채널 할인, collab 중복계산 완화).
 
+> 🟢 **쉽게**: 구독자/조회수를 **세 가지로** 보여준다 — ① 회사 채널만 ② 멤버 솔로채널까지 다 합산 ③ 멤버는 0.7배만 합산(콜라보 중복 부풀리기 완화). 그룹 유형 따라 어느 뷰가 맞는지 다름.
+
 채널별 최신 stats 집계 후 (`:125`):
 - **group_only**: 그룹 채널값만.
 - **sum**: `group + member_sum` (subs/views/videos).
@@ -168,6 +203,8 @@
 ### 5.1 agg_summary 집계 컬럼 (`agg_summary.py`)
 대부분 카운트/합계 (산식 아님), `(group_key, snapshot_at)` 멱등 UPSERT.
 
+> 🟢 **쉽게**: 매일 원천 데이터를 그룹별로 더하고 세는 '기본 집계'(조회수·좋아요·게시글 수 등). 영상별 최신 스냅샷만 합쳐 중복 합산을 막고, 멤버 솔로채널은 합산(SUM)해 연합형 그룹의 실제 규모를 반영.
+
 | 컬럼 | 산식 | 위치 |
 |---|---|---|
 | `yt_total_videos` | `COUNT(DISTINCT video_id)` | `:132` |
@@ -180,6 +217,8 @@
 ### 5.2 24h Video Velocity (`viral_velocity_ratio`)
 `video_velocity.py` · 신규 영상 첫 24h 조회수가 같은 채널 평균 대비 몇 배.
 
+> 🟢 **쉽게**: 새 영상이 첫 24시간에 **그 채널 평소보다 몇 배** 봤나. 5배↑면 컴백 대박 신호. (자기 자신은 평균에서 빼고 비교)
+
 - **Pass 1** (`:51`): `published_at+24h` ±`WINDOW_HOURS=18h` 이내 가장 가까운 stats → `view_count_24h`.
 - **Pass 2** (`:85`): 채널별 누적, **n<2 채널 skip**, **leave-one-out 평균** `adjusted_mean=(Σ-v24)/(n-1)` (self-bias 방지), `ratio = round(v24/adjusted_mean, 3)`.
 - **해석**: >5 viral · 2–5 strong · 1–2 solid · <1 underperform.
@@ -187,6 +226,8 @@
 
 ### 5.3 Platform Reactivity (`reactivity_dc/theqoo/instiz/naver`)
 `platform_reactivity.py` · 바이럴 영상 발행 ±24h 동안 플랫폼 게시량 `after/before`.
+
+> 🟢 **쉽게**: 영상이 터지면 커뮤니티 글이 **평소보다 늘어나나**(발행 전 24h vs 후 24h). 2배↑면 팬덤이 그 플랫폼에서 강하게 반응한다는 뜻. 1 근처면 영상과 무관하게 굴러감.
 
 - **상수**: `VIRAL_THRESHOLD=2.0`(샘플 영상 컷, **debut_window 1.5와 의도적 상이**), `WINDOW_DAYS=30`, `WINDOW_HOURS=24`.
 - **산식** (`:47`): viral 영상별 before=`[pivot-24h, pivot)`, after=`[pivot, pivot+24h)` 카운트 → `_ratio`:
@@ -196,6 +237,8 @@
 - 바이럴 영상 0개 → 전부 1.0, sample=0.
 
 ### 5.4 Sentiment & negative_ratio
+> 🟢 **쉽게**: 커뮤니티 글의 분위기를 AI가 긍정/부정/논란/중립으로 분류. **negative_ratio** = 분류된 글 중 (부정+논란) 비율 — 분모는 '분류된 글'만(전체 글 아님).
+
 - **분류**: **LLM(Gemini) 기반** (규칙 아님) — title만 입력, 4-클래스 {positive, negative, controversy, neutral}. 배치 `LIMIT_PER_GROUP=200`, `BATCH=50`. (§13 참조)
 - **negative_ratio** (`sentiment.py:155`, 결정론): `(negative+controversy) / 분류된_글수`, `round(.,4)`. **분모는 분류된 글만**(전체 아님). classified≤0 → 0 유지.
 
@@ -204,6 +247,8 @@
 ## 6. Debut Window Organicity
 
 `debut_window.py` + `frontend/src/lib/organicity.ts` + `debutWindow.ts` + `functions/lib/debutWindowBuckets.ts` · 데뷔 영상의 오가닉(진짜) vs paid 채점. **규모와 직교한 진정성 신호**. Shorts/Long-form 경로가 다름.
+
+> 🟢 **쉽게**: 데뷔 영상이 **'진짜 인기'인지 '돈 써서 띄운 건지'**를 0~100점으로. 조회수 규모와 무관하게, 좋아요·댓글 패턴이 자연스러운지(진정성)만 본다. 초록(진짜) ↔ 빨강(유료의심) 5단계. *주의: '진짜'라고 '인기/충분'은 아님 — 규모는 별개.*
 
 ### 6.1 상수 전표
 
@@ -224,37 +269,53 @@
 | **Short weights** | eng `0.4` / bal `0.6` | `:125` |
 
 ### 6.2 Engagement sub-score (`_compute_engagement_score`, `:149`)
+> 🟢 **쉽게**: 반응의 **세기** — 조회수 대비 좋아요+댓글이 얼마나 달리나. 바닥~천장 사이를 0~100점으로. (Shorts는 피드 특성상 바닥을 낮게 잡음)
+
 `er = (likes+comments)/max(views,1)`; `floor,ceil = (0.005,0.090) if short else (0.010,0.060)`;
 `e_score = clamp(round((er-floor)/(ceil-floor)*100), 0, 100)`.
 > ⚠️ **ER 정의 3종 (의도적 상이, 통일 금지)**: organicity ER = **무가중** `(likes+comments)/views` (이 §, calibration이 이 정의 기준) / Health·진단 ER = **댓글 ×5 가중** `(likes+5·comments)/views` (§1.4, COMMENT_WEIGHT=5) / shortsDiagnostic avg_er = `(likes+comments)/views×100`. 같은 "ER"여도 패널 간 수치가 다름 — 비교 시 주의.
 
 ### 6.3 Balance sub-score (`_compute_balance_score`, `:160`) — 진정성(organic vs farm)
+> 🟢 **쉽게**: 좋아요와 댓글 **비율이 자연스러운가** = 조작 여부 신호. 정상 구간 벗어나 한쪽으로 쏠리면(댓글만 많음=댓글농장 / 좋아요만 많음=좋아요농장) 감점. Shorts는 댓글이 너무 적으면(노이즈) 판단 보류.
+
 `r = likes/max(comments,1)`. SHORT `lo,hi=15,78; low_slope=5, high_slope=0.4` / LONG `lo,hi=10,50; low_slope=8, high_slope=0.5`.
 - `lo≤r≤hi` → 100. `r<lo` → `max(0, 100-(lo-r)*low_slope)` (comment-farm). `r>hi` → `max(0, 100-(r-hi)*high_slope)` (like-farm).
 - **Shorts 댓글 가드** (`balance_basis`, `:291`): `comment==0` → b=100(`zero_comment`); `comment<10 AND view<50K` → b=100(`insufficient_comments`). 고조회(≥50K)+소댓글은 farm 탐지 유지.
 
 ### 6.4 Velocity coherence (`_compute_velocity_coherence`, `:179`) — **Long-form 전용**
+> 🟢 **쉽게**: 급상승했는데 **반응이 따라오나**(롱폼만). 빠르게 떴는데 좋아요·댓글이 없으면 = 돈으로 조회수만 산 'paid burst' 의심. (Shorts는 분모 왜곡이 심해 이 신호 안 씀)
+
 `velocity<1.5 → 50`(중립); `er≥0.03 → 100`(real); `er≥0.015 → 60`(weak); else `20`(paid burst). velocity=None → None(가중치 재분배). **Shorts는 v_score=None 강제**(`:321`, 분모 아티팩트 제거).
 
 ### 6.5 Composite (`compute_organic_score`, `:269`)
+> 🟢 **쉽게**: 위 세기·진정성·(롱폼)일관성 점수를 가중합한 **종합 0~100**. Shorts는 진정성(균형)을 더 무겁게(6:4) 본다. 조회·반응이 거의 없으면 채점 보류(insufficient).
+
 - **base 게이트**: `view<1000 AND eng_total<10` → `None`(`insufficient_data`).
 - **Shorts** (`:316`): `round(0.4*e + 0.6*b)` (balance 우위).
 - **Long, velocity 有** (`:337`): `round(0.5*e + 0.3*b + 0.2*v)`.
 - **Long, velocity NULL**: `round(0.625*e + 0.375*b)`.
 
 ### 6.6 Verdict (`_classify_verdict`, `:202`; 프런트 `organicity.ts:16` 미러)
+> 🟢 **쉽게**: 종합 점수를 5단계 판정으로 — 진짜강함 / 진짜 / 애매 / 의심 / 유료의심.
+
 `≥85 organic_strong · ≥70 organic · ≥55 borderline · ≥40 suspect · <40 likely_paid`. (null/insufficient → 회색 neutral)
 
 ### 6.7 Cause 태그 (`_compute_causes`, `:226`)
+> 🟢 **쉽게**: 왜 의심받는지 자동 꼬리표 — 반응약함 / 댓글농장 / 좋아요농장 / 유료버스트 / (반대로) 진짜바이럴.
+
 `v==100→viral_real`(verdict 무관). verdict이 borderline 이하일 때: `e<40→engagement_weak`; `b<60`이면 r<lo→`comment_farm` / r>hi→`like_farm`; `v≤20→paid_burst`.
 
 ### 6.8 윈도우 버킷 (`WINDOW_BUCKETS`, `:49`; V2.34 균등 20일)
+> 🟢 **쉽게**: 영상을 **데뷔일 기준 20일 단위 시기**(D-60~D+60)로 묶어 "데뷔 전/직후/후 어땠나"를 비교. 데뷔일 없는 그룹은 'Undated'로 점수만.
+
 9개: `Pre(≤-71) · D-60(-70~-51) · D-40(-50~-31) · D-20(-30~-11) · D-Day(-10~+9) · D+20(10~29) · D+40(30~49) · D+60(50~69) · Post(≥70)`. 7 named × 20일, D-Day는 데뷔일 ±10. `days_relative = (published_date - debut_date).days`.
 - **Undated** (V2.42, `:135`): `debut_date` 없는 그룹은 점수만 산정(산식은 데뷔일 미사용) → `"Undated"` 버킷.
 - 프런트 탭은 `DISPLAY_BUCKETS` 7 named만 (`debutWindow.ts:9`); Pre/Post/Undated 비노출.
 - ⚠️ `debutWindowBuckets.ts:3-7` 주석의 "15일 폭/9 named"는 **stale** — 실제는 20일 폭 7 named + Pre/Post.
 
 ### 6.9 요약 집계 (`build_summary`, `:539`)
+> 🟢 **쉽게**: 시기(버킷)별 평균 오가닉 점수. 기본은 **'영상 한 개씩 평균(simple)'** — 고조회 영상 1개가 평균을 좌우하지 못하게(view-weighted는 토글로). 채점 보류 영상은 평균에서 제외.
+
 (group, bucket)별: `organic_score_mean`(view-weighted, scored만), `organic_score_mean_simple`(count 기반 simple), long/short 별도 mean, 5종 verdict 비율(분모=scored 수), total_views/engagement(insufficient 포함).
 - **헤드라인 렌즈** (V2.40, `organicity.ts:53`): `DEFAULT_ORGANICITY_MODE="all_simple"` → `organic_score_mean_simple`(고조회 아웃라이어 1개가 버킷 지배하는 것 방지). view-weighted는 toggle.
 - `insufficient_data`는 video_count/total엔 포함, mean·비율 분모엔 제외. 요약은 full DELETE 후 재집계.
@@ -265,7 +326,11 @@
 
 `growth_trajectory.py` · V2.43~. 모든 그룹 자기-과거-대비 4 기둥(누적은 weekly flow로 차분, KST 일별 리샘플).
 
+> 🟢 **쉽게**: 각 그룹이 **'자기 과거보다 성장 중인지'**를 4개 기둥으로 본다 — 새 팬 유입(reach)·반응 진정성(engagement)·커뮤 활기(community)·여론(sentiment). 각 기둥이 오르나/유지/둔화인지 + 가속/감속인지 묶어 한마디(posture)로.
+
 ### 7.1 핵심 함수
+> 🟢 **쉽게**: 추세를 재는 도구들 — 기울기(상승 속도), 가속도(빨라지나 느려지나), 주간 증분(누적값을 '이번 주 늘어난 양'으로 차분), 증분 ER(새로 늘어난 조회에 반응이 따라오나).
+
 | 함수 | 산식 | 위치 |
 |---|---|---|
 | `resample_daily` | 같은 KST일 다중 스냅샷 → 최신 1개 | `:46` |
@@ -279,11 +344,15 @@
 | `_compare_direction(prev, recent, invert)` | prev 7d→recent 7d %변화 분류(실사용 경로) | `:212` |
 
 ### 7.2 분류 상수
+> 🟢 **쉽게**: '얼마나 변해야 상승/둔화로 칠지' 문턱값들 + 데이터 품질 가드(구독자가 반올림돼 멈춰 보이거나, 커뮤 글이 너무 적으면 섣불리 판단 안 함).
+
 - `CLIMB_THRESHOLD=0.05` (`classify_direction` %/주 경계), `COMPARE_THRESHOLD=0.10` (`_compare_direction` 7d 비교, 실제 pillar 사용).
 - `ACCEL_DEADBAND_FRAC=0.02` (`|accel| < |mean|*2%` → flat).
 - **calibration 가드** (V2.43.3~4): `REACH_NOISE_FLOOR=0.02`(reach 4주변동<2% → plateau/flat 강제, 구독자 양자화 방어), `MIN_COMMUNITY_VOLUME=5`, `MIN_COMMUNITY_ACTIVE_DAYS=14`(미만 → community direction=unknown).
 
 ### 7.3 4 기둥 (`compute_pillars`, `:313`)
+> 🟢 **쉽게**: ① **reach** 새 팬 유입(구독자 4주 변화, 멈춰 보이면 조회수 속도로 대체) ② **engagement** 새로 늘어난 조회에 반응이 비례하나 ③ **community** 최근 7일 글이 늘었나 ④ **sentiment** 부정 여론이 줄면 '건강 호전'으로(뒤집어 해석).
+
 1. **reach (도달 성장)**: `subs_change=_change_4w(subs, rel)`. **|change|<0.02 또는 None → 조회수 velocity로 fallback**(`source="views"`), 아니면 구독자(`source="subscribers"`, noise_floor 적용).
 2. **engagement (호응 품질)**: `incremental_er` prefix series → `_pillar_from_values`.
 3. **community (커뮤니티 모멘텀)**: trailing 7일 게시량 series. 침묵/onset 가드 → unknown.
@@ -291,6 +360,8 @@
 - level 기둥(`_pillar_from_levels`): wow_growth=상대%. ratio 기둥(`_pillar_from_values`): wow_growth=절대 델타(pp).
 
 ### 7.4 Posture 합성 (`synthesize_posture`, `:373`)
+> 🟢 **쉽게**: 4기둥 방향·가속을 가중 합산해 **'성장 가속/확대/유지/둔화/둔화 심화'** 한마디 + 가장 약한 기둥 한 개. (전부 누적 기반이라 음수는 '절대 하락'이 아니라 '성장 둔화'를 뜻함 — 그래서 "하락" 라벨 없음)
+
 - `PILLAR_WEIGHTS = reach 0.4 / engagement 0.3 / community 0.2 / sentiment 0.1`.
 - `_DIR_SCORE = climbing+1/plateau0/declining-1/unknown0`, `_ACCEL_SCORE = accel+1/flat0/decel-1`.
 - `dir_sum = Σ weight*dir_score`, `acc_sum = Σ weight*accel_score`. 임계 ±0.15.
@@ -298,6 +369,8 @@
 - **weakest**: unknown 제외 + `_pillar_score<0`인 최저 기둥, 없으면 None.
 
 ### 7.5 빌드 (`build_growth_trajectory`, `:449`)
+> 🟢 **쉽게**: 데이터가 2주(14일) 안 모인 그룹은 '데이터 축적 중'으로 보류.
+
 `MIN_HISTORY_DAYS=14` 미만 → `insufficient_history`(빈 pillars). full DELETE+rebuild, 그룹당 1행.
 
 ---
@@ -306,26 +379,40 @@
 
 `loyalty.py` + `FanLoyaltyCard.tsx` (V2.46~V2.47) · **CCV 절대값=규모 / 충성도=peak CCV÷구독자 전환율(규모와 직교)**.
 
+> 🟢 **쉽게**: 라이브 켜면 **구독자 중 몇 %가 실제로 보러 오나**(전환율) = 충성도 0~100점. 구독자가 많고 적고와 무관한 '끈끈함' 지표. 동접 절대수는 규모, 충성도는 비율.
+
 ### 8.1 상수
 `WINDOW_DAYS=56`; `LOYALTY_ANCHORS=[(0.005,20),(0.015,50),(0.03,70),(0.06,88),(0.12,100)]`; `TREND_FLAT_BAND=0.10`; `MIN_BROADCASTS_FOR_TREND=4`.
 
 ### 8.2 Conversion Rate (`:121`, V2.48 시점 매칭)
-방송별 peak = `MAX(concurrent_viewers)` (video_id별, 56일 윈도). **방송별 전환율 = peak ÷ `subscribers_at(방송 시점)`** → `rate = median(방송별 전환율)`. `subscribers_at(series, at)`는 그 방송 시점(`first_at`) 기준 **가장 최근(≤at) 구독자 스냅샷**(이전이면 최초, 이력 없으면 최신 폴백). 급성장 채널(데뷔기 MiiWAN)에서 과거 방송을 현재(부푼) 구독자로 나누던 편향 제거. 표시용 `peak_ccv_median = median(peaks)`(규모 신호), `subscribers` = 최신 non-null(표시·폴백). subs≤0/None 또는 전 방송 분모 결측 → insufficient. *subs_at 미제공 시 median(peaks)/subscribers 와 동일(하위호환).*
+> 🟢 **쉽게**: 방송별 '최고 동접 ÷ **그 방송 당시** 구독자'로 전환율을 내고 그 중앙값. (예전엔 *오늘* 구독자로 나눠서, 데뷔기처럼 구독자가 급증한 그룹은 과거 방송이 손해봤음 → V2.48에서 방송 시점 구독자로 맞춤)
+
+방송별 peak = `MAX(concurrent_viewers)` (video_id별, 56일 윈도). **방송별 전환율 = peak ÷ `subscribers_at(방송 시점)`** → `rate = median(방송별 전환율)`. `subscribers_at(series, at)`는 그 방송 시점(`first_at`) 기준 **가장 최근(≤at) 구독자 스냅샷**(이전이면 최초, 이력 없으면 최신 폴백). 표시용 `peak_ccv_median = median(peaks)`(규모 신호), `subscribers` = 최신 non-null(표시·폴백). subs≤0/None 또는 전 방송 분모 결측 → insufficient. *subs_at 미제공 시 median(peaks)/subscribers 와 동일(하위호환).*
 
 ### 8.3 Score 0–100 (`score_from_conversion`, `:55`)
+> 🟢 **쉽게**: 전환율을 점수표로 환산(0.5%=20점 … 6%=88점 … 12%=100점, 사이는 직선보간). *임계값은 first-pass — 라이브 데이터 쌓이면 보정 예정.*
+
 `LOYALTY_ANCHORS` 구간 선형보간: `rate≤0.005 → 20`; `rate≥0.12 → 100`; 내부 `s0 + (rate-r0)/(r1-r0)*(s1-s0)`. `round(.,2)`.
 - 해석: <0.5% 매우낮음, 1.5% 보통, 6%+ 매우높음. **first-pass, 라이브 분포로 보정 예정**.
 
 ### 8.4 basis (`:114-127`)
+> 🟢 **쉽게**: 방송 0회 = 데이터없음('축적 중'), 1회 = 참고만(저신뢰), 2회+ = 정식 점수.
+
 `broadcast_count(distinct video_id)`: 0 또는 subs≤0 → **insufficient**(score=None); ==1 → **low_confidence**; ≥2 → **scored**. 모든 tracked 그룹에 insufficient 행이라도 기록(카드 "축적 중").
 
 ### 8.5 ccv_trend_pct / trend_basis (`ccv_trend`, `:68`) — **표시 전용, 점수 미반영**
+> 🟢 **쉽게**: 최근 방송 시청자가 늘었나/줄었나(앞·뒤 절반 비교). 화면 표시만, 충성도 점수엔 안 들어감.
+
 시간순 peak를 반으로 갈라 `pct=(median(후반)-median(전반))/median(전반)`. n<4 또는 first≤0 → unknown. `|pct|<0.10` → flat. else rising/falling.
 
 ### 8.6 Health Intimacy 주입 (V2.46)
+> 🟢 **쉽게**: 충성도 점수가 '정식(scored)'인 그룹만 Health의 친밀도 영역에 반영(라이브 안 한 그룹은 페널티 없음).
+
 주입 게이트 (`cli.py:1263`): `WHERE basis='scored' AND score IS NOT NULL`만 `loyalty_score` 주입(low_confidence/insufficient 제외 → 2신호 경로 → 점수 불변). `_factor_inputs`에서 `loyalty_n=clamp(score/100, 0, 1)`, Intimacy 3신호 `(eng 0.40, comm 0.30, loyalty 0.30)`.
 
 ### 8.7 프런트 헬퍼 (`FanLoyaltyCard.tsx`)
+> 🟢 **쉽게**: 카드 표시용 — 전환율 %, 추세 화살표, 호가창 막대 폭, 중앙값 행 강조, 점수대 색(초록↔빨강).
+
 - `fmtPct(rate)`: `(rate*100).toFixed(1)+"%"`, null→`—`.
 - `trendLabel`: unknown/null→`추세 보류`, flat→`→ 유지`, rising/falling→`▲/▼ ±round(pct*100)%`.
 - `barWidthPct(peak, max)`: `max≤0→0`, else `peak/max*100` (호가창 깊이 막대, V2.47).
@@ -340,13 +427,21 @@
 
 `weekly_diagnosis.py` + `weekly_diagnosis_signals.py` · 주간 신호로 인과 가설 점등(휴리스틱, 인간 검증 전제).
 
+> 🟢 **쉽게**: 지난주 숫자 변화로 **'왜 이렇게 됐나'를 자동 추정**(유료광고? 구독자구매? 컴백? 논란?). 단서 여러 개가 모여야 점등하고, 자연스러운 이유(컴백 등)가 있으면 의심 가설은 낮춘다. **최종 판단은 사람** — false positive(괜한 의심)로 인한 역효과 회피.
+
 ### 9.1 공통 임계 (`:65-71`, `:365`)
+> 🟢 **쉽게**: '평소보다 튀었다'를 가르는 문턱값 모음(z 1.5/2.0, ER 급락 -20% 등).
+
 `Z_PRIMARY=1.5`, `Z_STRONG=2.0`, `ER_DROP_PAID=-0.20`, `ER_DROP_SUB_PURCHASE=-0.25`, `VPS_DROP_SUB_PURCHASE=-0.30`, `ORGANICITY_PAID=0.30`, `SUBS_Z_SUB_PURCHASE=2.5`, `CONTROVERSY_Z=2.0`.
 
 ### 9.2 `_is_lit` — 3축 OR 점등 (`:86`)
+> 🟢 **쉽게**: 한 신호가 '튀었나'를 세 잣대(또래 대비 / 자기 과거 대비 / 주간 변화율) 중 **하나라도** 넘으면 점등.
+
 `category_z ≥ th` OR `temporal_z ≥ th` OR (`wow_pct ≥ wow_th`). 기본 th=1.5.
 
 ### 9.3 가설별 점등 규칙 (요약)
+> 🟢 **쉽게**: 각 가설은 '단서 점수'가 일정 개수 이상 모여야 켜진다. 예: 유료광고 = 조회수만 급등+구독 비례 안 함+ER 급락+오가닉 낮음 중 3개↑.
+
 | 가설 | confidence | 핵심 규칙 |
 |---|---|---|
 | organic_growth | high | `|er_wow|<0.15` & lit 신호(subs/views/news/community/market_share_z≥1.5) **≥4** |
@@ -360,13 +455,17 @@
 | community_word_of_mouth | medium | community_z_prev≥2.0 & (subs 또는 views) lit |
 
 ### 9.4 메타 가드 / dampen
+> 🟢 **쉽게**: 컴백/멤버 이슈처럼 자연스러운 이유가 동시에 켜지면 '유료의심'을 한 단계 낮춘다. 무관글 비율↑·백필 데이터 많음 등 신뢰 떨어지면 전체를 한 단계 하향.
+
 - `_confidence_dampen`: high→medium→low (1단계).
 - comeback 또는 member_centric 점등 시 paid_youtube_ads/subscriber_purchase를 **1단계** 감점(이유 수 무관).
 - `apply_meta_guards` (`:490`): `irrelevant_ratio≥0.15` 또는 `data_source_backfill>0.5` → 모든 가설 1단계 감점.
 
 ### 9.5 순수 시그널 함수 (`weekly_diagnosis_signals.py`)
+> 🟢 **쉽게**: 위 규칙이 쓰는 개별 단서들 — ER 급락률, 구독자당 조회수 변화, 오가닉 유료비율, 멤버 쏠림 변화, 음방 연속 1위, 부정 키워드 급증 등. (`wow`는 전주 대비 변화율; 전주가 0이면 계산 불가라 None — 데이터 갭 위 발사 방지)
+
 - `engagement_rate_from_agg`: `(likes+5*comments)/views` (health_score 단일출처).
-- `er_wow` / `vps_wow`: `(now-prev)/prev`, prev=0 → None. (⚠️ docstring "max(prev,1)"과 코드 불일치 — 실제 `/prev`.)
+- `er_wow` / `vps_wow`: `(now-prev)/prev`, prev=0 → None.
 - `organicity_paid_ratio`: `count(verdict∈{suspect,likely_paid}) / scored수`.
 - `reactivity_dominant_platform`: `DOMINANCE=2.5`, `OTHER_MAX=1.3`, `MIN_SAMPLE=3`.
 - `member_centric_signals`: `TOP1_WOW=0.10`, `HHI_WOW=0.15`, `TOP1_ABS_HIGH=0.60`.
@@ -381,6 +480,8 @@
 
 `challenge_scan.py` · 주간 바이럴 챌린지 발굴. (LLM 분류는 §13)
 
+> 🟢 **쉽게**: 이번 주 **뜨는 챌린지**를 찾아 점수(조회수 0.7 + 숏츠 수 0.3)로 줄 세움. 실제 바이럴 풀에 있는 것만 남겨 환각/니치 챌린지를 거른다.
+
 - 상수: `POOL_CAP=150`, `SEED_QUERIES` 5개, 최근 7일·`order=viewCount`·조회수 상위.
 - **`select_and_rank` 점수** (`:162`): `score = (views/max_views)*0.7 + (recent_shorts/max_shorts)*0.3`. meme(비-댄스)은 상위 `min_meme=3` 보장, 나머지 score순으로 `total=10`개.
 - `measure_challenge`: 해시태그 블라인드 검색 → `yt_recent_shorts=len(ids)`, `yt_total_views=sum(views)`.
@@ -391,6 +492,8 @@
 ## 11. Relevance / News Filter 게이트
 
 분류 게이트(boolean), 수치 산식 아님.
+
+> 🟢 **쉽게**: 이 글/기사가 **정말 이 그룹 얘긴지** 거르는 문지기. 스팸(양도·광고)·무관 글·데뷔 1년보다 오래된 기사는 버린다. 짧은 약칭(초성 등)은 그룹명이 같이 있을 때만 인정.
 
 ### 11.1 `is_relevant` (`relevance.py:121`)
 순서: ① `is_global_spam` → False. ② **long-token fast path**: context keyword 중 `len≥3 & not blocked & in title` → True. ③ **short-token anchor gate**: short token + `_has_anchor`(그룹명 영/한 in title) → True. else False.
@@ -405,14 +508,20 @@
 ## 12. 클라이언트 계산
 
 ### 12.1 shortsTrend.ts
+> 🟢 **쉽게**: 최근 14일 안 올라온 + 급상승(velocity 2배↑) 숏폼에 🔥 배지. 최신순/조회순/속도순/신선순 정렬.
+
 `FRESH_DAYS=14`, `FRESH_VELOCITY=2.0`(🔥 배지), `MIN_VIEWS_FLOOR=5000`(velocity 랭킹 floor).
 - `isFresh`: `daysSince≤14 & velocity≥2.0`. `velocityEligible`: `views≥5000 & velocity!=null`.
 - 정렬: recent(일수↑) / views(↓) / velocity(eligible 먼저) / fresh(isFresh 먼저).
 
 ### 12.2 alerts.ts
+> 🟢 **쉽게**: 논란 글이 전주의 2배↑이고 최소 5건 이상이면 '논란 급증' 알림(소수 노이즈는 무시).
+
 `CONTROVERSY_SPIKE_MULTIPLIER=2.0`(전주 2배), `CONTROVERSY_SPIKE_MIN_COUNT=5`(floor). worker `alerts/`와 미러링(drift 테스트 가드). 나머지는 라벨/톤 매핑(산식 아님).
 
 ### 12.3 shortsDiagnostic.ts (MiiWAN Shorts 운영 진단 — organicity와 별개)
+> 🟢 **쉽게**: MiiWAN 숏폼 운영 **건강검진** — 터짐 비율·조회 균일도·해시태그 커버리지 등 8개 지표를 good/warn/bad 신호등으로. (오가닉 채점과는 별개 도구)
+
 - 임계 `T` (`:174`): breakout(good10/warn3↑), cv(0.8/0.4↑), band(0.4/0.7↓), coverage(80/40↑), decoration(20/50↓), hashtag(50/20↑), er(4/2↑), velocity(2/1↑). `SMALL_SAMPLE=5`.
 - 지표: `breakoutRatio=max/median`, `bandConcentration`=median±40% 비중, `coefficientOfVariation=stdev/mean`, `normalizedHHI=(hhi-1/n)/(1-1/n)`, `cadenceDays`=인접 gap 중앙값, `avg_er=(likes+comments)/views*100` 평균, `ceiling_vs_subs=median(views)/subs`.
 - `statusByThresholds`: higher면 `≥good→good/≥warn→warn/else bad`, lower면 부등호 반대.
@@ -420,6 +529,8 @@
 ---
 
 ## 13. LLM 기반(비-결정론) 항목
+
+> 🟢 **쉽게**: 여기는 '공식'이 아니라 **AI(Gemini)가 판단**하는 부분. 같은 입력이라도 결과가 달라질 수 있어 산식으로 못 적는다.
 
 다음은 Gemini 판단에 의존 — 결정론 산식 아님(프롬프트 엔지니어링·환각 가드만 존재):
 - **Sentiment 4-클래스 분류** (`sentiment.py`) — title만 입력, {positive/negative/controversy/neutral}. *negative_ratio 산식 자체는 결정론(§5.4).*
@@ -429,4 +540,4 @@
 
 ---
 
-*문서 끝. 정확도가 의심되면 항상 인용된 `파일:라인`의 코드를 진실의 원천으로 확인할 것.*
+*문서 끝. 🟢는 직관용 요약일 뿐, 정확도가 의심되면 항상 인용된 `파일:라인`의 코드를 진실의 원천으로 확인할 것.*
