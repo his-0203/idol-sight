@@ -36,6 +36,7 @@ export function DebutWindowKPI({ groupKey }: Props) {
     let cancelled = false;
     api.debutWindowSummary<SummaryRow>().then((r) => {
       if (cancelled) return;
+      // KPI 는 탭 선택이 없는 평면 grid 라 window.current_bucket 은 불필요.
       if (r.window?.buckets?.length) setBuckets(r.window.buckets);
       const filtered = r.rows.filter((x) => x.group_key === groupKey);
       const m = new Map<string, SummaryRow>();

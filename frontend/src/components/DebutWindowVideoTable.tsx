@@ -178,7 +178,7 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
             >ⓘ</button>
           </div>
 
-          {/* Debut Window view 의 5 bucket 탭 */}
+          {/* Debut Window view 의 버킷 탭 (롤링 창 — 메타 기반 동적) */}
           {viewMode === "debut" && (
             <nav class="dw-bucket-tabs">
               {buckets.map((b) => (
