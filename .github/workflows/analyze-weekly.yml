@@ -1,7 +1,11 @@
 name: analyze-weekly
 on:
   schedule:
-    - cron: '0 14 * * 0,3'     # Sun & Wed 14:00 UTC = Sun & Wed 23:00 KST
+    # 요일별로 분리 — bounds 스텝이 github.event.schedule 로 final/interim 을
+    # 판정하므로, GitHub 의 tick 지연(실측 ~3-4h)이 UTC 자정을 넘겨 요일이
+    # 바뀌어도 오분류되지 않는다 (아래 cron 문자열은 python 분기와 정확히 일치 필수).
+    - cron: '0 14 * * 0'       # Sun 14:00 UTC = Sun 23:00 KST → final
+    - cron: '0 14 * * 3'       # Wed 14:00 UTC = Wed 23:00 KST → interim
   workflow_dispatch:
     inputs:
       week_start: {description: 'YYYY-MM-DD (Sunday)', required: false}
@@ -21,6 +25,8 @@ jobs:
         working-directory: worker
       - name: Compute week bounds + kind (if not provided)
         id: bounds
+        env:
+          FIRED_CRON: ${{ github.event.schedule }}   # schedule 이벤트만 채워짐
         run: |
           if [[ -n "${{ inputs.week_start }}" && -n "${{ inputs.week_end }}" ]]; then
             echo "ws=${{ inputs.week_start }}" >> "$GITHUB_OUTPUT"
@@ -28,23 +34,30 @@ jobs:
             kind="${{ inputs.kind }}"
             echo "kind=${kind:-final}" >> "$GITHUB_OUTPUT"
           else
-            # 요일로 모드 결정 (cron 은 일=0, 수=3 에만 발사):
-            #   일요일(weekday 6) → final: 직전 완결 일~토.
-            #   그 외(수요일)     → interim: 이번 주 일 ~ 오늘(수).
+            # 모드 결정: schedule 실행이면 발사된 cron 문자열로(일=final/수=interim),
+            # blank dispatch 면 UTC 요일 휴리스틱으로. GitHub tick 이 수 시간 지연돼
+            # UTC 자정을 넘겨도(일→월) cron 기반 판정 + '가장 최근 토요일' 앵커라
+            # final 이 interim 으로 오분류되거나 주가 밀리지 않는다.
+            #   final  : 직전 완결 일~토.
+            #   interim: 이번 주 일 ~ 오늘.
             # out=$(...) 는 set -eo pipefail 하에서 python 실패 시 step 을
             # 중단시킨다(process substitution <(...) 와 달리 exit code 가 전파됨).
             out=$(python3 -c "
-          import datetime as d
+          import datetime as d, os
           t = d.date.today()                      # runner 는 UTC
           wd = t.weekday()                         # Mon=0 .. Sun=6
-          if wd == 6:                              # 일요일 → final
-              end = t - d.timedelta(days=1)        # 직전 토요일
+          fired = os.environ.get('FIRED_CRON', '')
+          if fired:                                # on.schedule 의 cron 과 일치 필수
+              kind = 'final' if fired == '0 14 * * 0' else 'interim'
+          else:
+              kind = 'final' if wd == 6 else 'interim'
+          if kind == 'final':
+              # 가장 최근 토요일 (오늘이 토요일이면 직전 완결주의 토요일)
+              end = t - d.timedelta(days=((wd - 5) % 7) or 7)
               start = end - d.timedelta(days=6)    # 그 주 일요일
-              kind = 'final'
-          else:                                    # 수요일 → interim
+          else:
               start = t - d.timedelta(days=(wd + 1) % 7)  # 이번 주 일요일
-              end = t                              # 오늘(수)
-              kind = 'interim'
+              end = t                              # 오늘
           print(start.isoformat(), end.isoformat(), kind)
           ")
             read -r ws we kind <<< "$out"
@@ -64,7 +77,9 @@ jobs:
           CF_API_TOKEN:    ${{ secrets.CF_API_TOKEN }}
           GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-      - if: failure()
+      # cancelled() 포함 — timeout-minutes 도달 시 job 은 failure 가 아닌 cancelled 라
+      # failure() 만으로는 무알림 (2026-06-10 Gemini 429 폭풍 → 30분 timeout 이 무알림이었음).
+      - if: failure() || cancelled()
         working-directory: worker
         run: |
           uv run python -m idol_sight notify-fail --job 'analyze-weekly'

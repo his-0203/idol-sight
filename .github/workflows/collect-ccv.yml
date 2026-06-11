@@ -1,7 +1,13 @@
 name: collect-ccv
 on:
   schedule:
-    - cron: "45 9 * * *"   # KST 18:45 — single trigger; the job self-loops ~4.5h
+    # 실측(2026-06-09/10): GitHub 이 단일 tick 도 ~2.5–3h 지연시켜 윈도우가
+    # KST 21:25+ 에야 시작 → 이른 저녁(OWIS 19시대) 방송을 통째로 놓침.
+    # 두 트리거 + concurrency 직렬화로 보강 — 1차가 제때면 15:45~20:15 커버 후
+    # 2차가 큐에서 이어받아 ~00:45 까지, 둘 다 ~3h 지연이면 18:45~03:45 연속.
+    # 1차가 중간 크래시해도(06-09 러너 사망 사례) 2차가 잔여 저녁 윈도우를 백필.
+    - cron: "45 6 * * *"   # KST 15:45 nominal — 1st window
+    - cron: "45 9 * * *"   # KST 18:45 nominal — 2nd window (queued behind 1st)
   workflow_dispatch:
 
 concurrency:
@@ -17,7 +23,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --frozen
         working-directory: worker
-      - name: collect-ccv (self-loop, sample every 5 min through KST ~23:15)
+      - name: collect-ccv (self-loop, sample every 5 min for ~4.5h from actual start)
         working-directory: worker
         env:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -25,11 +31,13 @@ jobs:
           CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
           YT_API_KEY:    ${{ secrets.YT_API_KEY }}
         run: |
-          # GitHub silently drops most `schedule` ticks under load, so instead of
-          # a dense cron (*/5) we trigger ONCE and drive the cadence ourselves with
-          # sleep — immune to that throttling. Window: KST 18:45 (UTC 09:45) + 4.5h
-          # = KST ~23:15, covering the typical 19–23 broadcast block. CCV is
-          # ephemeral (readable only while live), so a sample must overlap the live.
+          # GitHub silently drops/delays `schedule` ticks under load, so instead of
+          # a dense cron (*/5) we trigger sparsely and drive the cadence ourselves
+          # with sleep. Two daily triggers (KST 15:45 / 18:45 nominal) serialize via
+          # the concurrency group; each run loops 4.5h from its actual start, so the
+          # pair covers the 19–23 broadcast block even when GitHub delays ticks ~3h.
+          # CCV is ephemeral (readable only while live) — a sample must overlap the
+          # live. Overlapping samples are harmless (UPSERT, quota ~1 unit/sample).
           end=$(( $(date +%s) + 4 * 3600 + 1800 ))
           n=0
           while [ "$(date +%s)" -lt "$end" ]; do
