@@ -1,8 +1,8 @@
 """Debut window organicity — organic vs paid-viral classifier for YouTube
 videos. V3.1 (2026-05-25): scoring applies to all videos for groups with a
-debut_date; Pre/Post buckets catch videos outside the ±60d window so the
-[전체 기간] view in DebutWindowVideoTable can render ER/Score/판정 for
-every video instead of 91% NULL.
+debut_date; Pre + 산술 D+N 버킷이 전 기간을 커버하므로 [전체 기간] view 에서
+모든 영상이 ER/Score/판정 렌더 가능. V2.49 (2026-06-11): Post catch-all 폐기,
+d>=10 은 20일 폭 산술 생성 (D+20, D+40, … 무한).
 
 See docs/superpowers/specs/2026-05-12-debut-window-organicity-design.md for
 the algorithm rationale, signal weights, and verdict thresholds, and
@@ -32,30 +32,22 @@ __all__ = [
 ]
 
 # (label, days_lo_inclusive, days_hi_inclusive). V2.34 (2026-05-27):
-# 균등 20일 폭 통일. 이전엔 D-60/D+60 (30일), D-30~D+30 (10일), D-Day
-# (3일) 로 폭 비대칭이라 그룹 간 점수 비교 시 표본 수 격차 (D-60 30일
-# 영상 vs D-30 10일 영상) 가 발생, 또한 ±30 안쪽의 D-20/D-10/D+10/D+20
-# 가 KPI / Posture bar / DebutWindowVideoTable 5탭 UI 에 비노출 → 데뷔
-# windowing 의 연속 비교가 불가했음.
+# 균등 20일 폭 통일 (이전 이력). V2.49 (2026-06-11) 롤링 윈도우:
+# 음수 측(데뷔 전) + D-Day 만 고정 목록.
+# d >= 10 (데뷔 후) 는 bucket_for 가 산술 생성 — k = (d-10)//20 + 1 →
+# f"D+{20k}" (20일 폭 무한 시리즈: D+20, D+40, …, D+80, D+100, …).
+# 'Post' catch-all 은 폐기 (migration 0085 가 기존 행 재배치). 'Pre' 는
+# 유지 — 표시 창이 과거로는 밀리지 않으므로 음수 무한 시리즈는 불필요.
 #
-# 신규 정의: 7 named bucket 모두 정확히 20일 폭. D-Day 는 데뷔일 중심
-# ±10일(−10..+9) 으로 "데뷔 직전·직후 1주반" 의미 보존. 라벨 N 은 N일
-# 부근 ±10 범위. Pre/Post 는 ±69일 밖 catch-all (전체 기간 view 에서만
-# 가시).
-#
-# Pre/Post 라벨은 frontend 의 DebutWindowKPI / CompetitorOrganicityBar /
-# DebutWindowVideoTable 의 7 탭 UI 에 *포함되지 않음* — 자동 무시.
-# DebutWindowVideoTable 의 [전체 기간] view 만 모든 bucket 영상 표시.
+# 표시 창(연속 7버킷)은 frontend functions/lib/debutWindowBuckets.ts 가
+# anchor(MiiWAN) 데뷔 경과일로 계산. 경계 동일성은 frontend
+# tests/lib/debutWindow.test.ts 의 cross-language fixture 가 핀.
 WINDOW_BUCKETS: list[tuple[str, int, int]] = [
     ("Pre",   -999999, -71),
     ("D-60",     -70,  -51),
     ("D-40",     -50,  -31),
     ("D-20",     -30,  -11),
     ("D-Day",    -10,    9),
-    ("D+20",      10,   29),
-    ("D+40",      30,   49),
-    ("D+60",      50,   69),
-    ("Post",      70, 999999),
 ]
 
 # Engagement-rate boundaries. Long-form: V2 calibrated 2026-05-13 (long p10=1.57%
@@ -135,15 +127,18 @@ SHORT_WEIGHTS: Mapping[str, float] = MappingProxyType(_SHORT_WEIGHTS_RAW)
 UNDATED_BUCKET = "Undated"
 
 
-def bucket_for(days_relative: int) -> str | None:
-    """Map a signed day offset to its bucket label, or None if out of window.
+def bucket_for(days_relative: int) -> str:
+    """Map a signed day offset to its bucket label.
 
     ``days_relative`` is days from debut: negative = before, positive = after.
+    음수/D-Day 는 WINDOW_BUCKETS 고정 목록, d >= 10 은 20일 폭 산술 생성
+    (무한 시리즈). V2.49 부터 총함수 — None 을 반환하지 않는다.
     """
     for label, lo, hi in WINDOW_BUCKETS:
         if lo <= days_relative <= hi:
             return label
-    return None
+    k = (days_relative - 10) // 20 + 1
+    return f"D+{20 * k}"
 
 
 def _compute_engagement_score(engagement_rate: float, is_short: bool) -> int:
@@ -435,8 +430,6 @@ def build_video_organicity(client: _Executor) -> CollectionResult:
         if debut_date:
             days_rel = _days_between(debut_date, r["published_at"])
             bucket = bucket_for(days_rel)
-            if bucket is None:
-                continue  # defensive — Pre/Post catch all post-V3.1
         else:
             # V2.42: no announced debut → score anyway, park in Undated.
             days_rel = 0

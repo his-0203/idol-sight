@@ -18,20 +18,12 @@ from idol_sight.analysis.debut_window import (
 )
 
 
-def test_window_buckets_are_9_non_overlapping_ranges():
-    """V2.34 (2026-05-27): 균등 20일 폭 통일. 7 named bucket (D-60/D-40/D-20/
-    D-Day/D+20/D+40/D+60) + Pre/Post catch-all = 9 bucket. 모든 named bucket
-    이 정확히 20일 폭, 인접 bucket 경계 연속, 데뷔 ±69일 안에 빈 구간 없음.
-
-    이전 V3.1 (2026-05-25) 의 11 bucket 은 D-60/D+60 (30일) / D-30~D+30
-    (10일) / D-Day (3일) 의 비대칭 폭이었으나 균등 폭으로 통일.
-    """
-    assert len(WINDOW_BUCKETS) == 9
+def test_window_buckets_fixed_entries():
+    """V2.49 롤링 윈도우: WINDOW_BUCKETS 는 음수 측 + D-Day 고정 5개만
+    (Post 폐기). d >= 10 은 bucket_for 의 산술 생성 (20일 폭 무한)."""
+    assert len(WINDOW_BUCKETS) == 5
     labels = [b[0] for b in WINDOW_BUCKETS]
-    assert labels == [
-        "Pre", "D-60", "D-40", "D-20", "D-Day",
-        "D+20", "D+40", "D+60", "Post",
-    ]
+    assert labels == ["Pre", "D-60", "D-40", "D-20", "D-Day"]
     flat = [(lo, hi) for _, lo, hi in WINDOW_BUCKETS]
     assert flat == [
         (-999999, -71),
@@ -39,13 +31,9 @@ def test_window_buckets_are_9_non_overlapping_ranges():
         (-50, -31),
         (-30, -11),
         (-10,   9),
-        ( 10,  29),
-        ( 30,  49),
-        ( 50,  69),
-        ( 70, 999999),
     ]
-    # 균등 20일 폭 회귀 가드 — named bucket 7개 모두 hi-lo+1 == 20.
-    named = [b for b in WINDOW_BUCKETS if b[0] not in ("Pre", "Post")]
+    # 균등 20일 폭 회귀 가드 — named 음수 bucket + D-Day 모두 20일.
+    named = [b for b in WINDOW_BUCKETS if b[0] != "Pre"]
     assert all(hi - lo + 1 == 20 for _, lo, hi in named)
 
 
@@ -80,11 +68,11 @@ def test_window_buckets_are_9_non_overlapping_ranges():
     (50,  "D+60"),
     (60,  "D+60"),
     (69,  "D+60"),
-    # Pre / Post catch-all
+    # Pre catch-all / 산술 생성 (V2.49 — Post 폐기)
     (-100, "Pre"),
     (-71,  "Pre"),
-    (70,   "Post"),
-    (200,  "Post"),
+    (70,   "D+80"),
+    (200,  "D+200"),
 ])
 def test_bucket_for_returns_correct_bucket(days, expected):
     assert bucket_for(days) == expected
@@ -802,33 +790,67 @@ def test_bucket_for_d_plus_40_d_plus_60_boundary():
     assert bucket_for(50) == "D+60"
 
 
-def test_bucket_for_outside_pm_69_maps_to_pre_post():
-    """V2.34: ±69 밖 영상은 Pre/Post bucket 로 매핑 (20일 폭 7 bucket 의 catch-all)."""
+def test_bucket_for_outside_pm_69():
+    """V2.49: -71 이하는 Pre 유지, +70 이상은 산술 D+N (Post 폐기)."""
     assert bucket_for(-71) == "Pre"
     assert bucket_for(-100) == "Pre"
     assert bucket_for(-999999) == "Pre"
-    assert bucket_for(70) == "Post"
-    assert bucket_for(100) == "Post"
-    assert bucket_for(999999) == "Post"
+    assert bucket_for(70) == "D+80"
+    assert bucket_for(100) == "D+100"
 
 
-def test_bucket_for_pre_post_boundary():
-    """V2.34: Pre/Post 와 D-60/D+60 의 경계 정확."""
+def test_bucket_for_pre_and_arithmetic_boundary():
+    """V2.49: Pre/D-60 경계 유지, D+60/D+80 경계는 산술."""
     assert bucket_for(-71) == "Pre"
     assert bucket_for(-70) == "D-60"
     assert bucket_for(69) == "D+60"
-    assert bucket_for(70) == "Post"
+    assert bucket_for(70) == "D+80"
 
 
 def test_bucket_for_extreme_values():
-    """V3.1: -999999, +999999 같은 극단값도 매핑."""
+    """V2.49: 극단값 — 음수는 Pre, 양수는 산술 (overflow 없는 int)."""
     assert bucket_for(-999999) == "Pre"
-    assert bucket_for(999999) == "Post"
+    assert bucket_for(999999) == "D+1000000"
 
 
 def test_bucket_for_year_old_videos():
-    """V3.1: 데뷔 1년 후 영상 (예: ISEDOL 의 2026 영상, 데뷔 2021-12) 매핑."""
-    # 데뷔 후 365 + 365*4 = 1825 일 (대충 4년)
-    assert bucket_for(1825) == "Post"
+    """V2.49: 데뷔 1년 후 영상 (예: ISEDOL 의 2026 영상, 데뷔 2021-12) 산술 매핑."""
+    # 데뷔 후 365 + 365*4 = 1825 일 (대충 4년) → k=(1825-10)//20+1=91 → D+1820
+    assert bucket_for(1825) == "D+1820"
     # 데뷔 1년 이전 영상
     assert bucket_for(-365) == "Pre"
+
+
+def test_bucket_for_positive_arithmetic_unbounded():
+    """V2.49 롤링 윈도우: d>=10 은 20일 폭 산술 생성 (Post catch-all 폐기).
+    k = (d-10)//20 + 1 → f"D+{20k}". D+20/D+40/D+60 경계는 V2.34 와 동일."""
+    assert bucket_for(70) == "D+80"
+    assert bucket_for(89) == "D+80"
+    assert bucket_for(90) == "D+100"
+    assert bucket_for(109) == "D+100"
+    assert bucket_for(200) == "D+200"
+    assert bucket_for(400) == "D+400"
+    assert bucket_for(1500) == "D+1500"
+
+
+def test_bucket_for_never_returns_post():
+    """V2.49: 'Post' 라벨은 더 이상 생성되지 않는다 (migration 0085 가
+    기존 행 재배치). 양수 전 구간이 D+N (N=20 배수) 형식."""
+    for d in range(10, 500):
+        label = bucket_for(d)
+        assert label != "Post"
+        assert label.startswith("D+")
+        n = int(label[2:])
+        assert n >= 20 and n % 20 == 0
+
+
+def test_bucket_for_positive_buckets_are_20d_uniform():
+    """V2.49: 산술 버킷 경계가 d=10+20j 에서만 바뀜 — 전부 20일 폭."""
+    changes = []
+    prev = None
+    for d in range(10, 210):
+        lab = bucket_for(d)
+        if lab != prev:
+            changes.append(d)
+            prev = lab
+    assert changes == [10, 30, 50, 70, 90, 110, 130, 150, 170, 190]
