@@ -1,13 +1,8 @@
-// Ordered display-tab list for the Debut Window UI: the 7 named buckets, in
-// chronological order. Hand-copied identically into DebutWindowVideoTable,
-// DebutWindowKPI, and CompetitorOrganicityBar — single-sourced here.
-//
-// V2.34 (2026-05-27): worker WINDOW_BUCKETS unified to 7 named × 20-day buckets
-// (+ Pre/Post catch-all), 1:1 with the frontend tabs. Must stay aligned with
-// functions/lib/debutWindowBuckets VALID_BUCKETS (guarded by
-// tests/lib/debutWindow.test.ts) and the worker WINDOW_BUCKETS.
-export const DISPLAY_BUCKETS = [
+// V2.49 롤링 윈도우: 표시 탭은 summary API 의 window 메타가 내려준다
+// (서버가 anchor=MiiWAN 데뷔 경과일로 계산 — functions/lib/debutWindowBuckets
+// 의 displayBuckets). 아래 정적 목록은 메타 부재 시(네트워크 오류 등)
+// fallback 전용 — 데뷔 전 고정 창과 동일한 값.
+export const DEFAULT_DISPLAY_BUCKETS: string[] = [
   "D-60", "D-40", "D-20", "D-Day", "D+20", "D+40", "D+60",
-] as const;
-
-export type DisplayBucket = typeof DISPLAY_BUCKETS[number];
+];
+export const DEFAULT_CURRENT_BUCKET = "D-Day";

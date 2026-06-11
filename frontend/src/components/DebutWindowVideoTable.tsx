@@ -1,11 +1,11 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { verdictColor } from "../lib/organicity";
-import { DISPLAY_BUCKETS as BUCKETS } from "../lib/debutWindow";
+import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 import { DebutWindowSignalPanel } from "./DebutWindowSignalPanel";
 
-// Display tabs: see src/lib/debutWindow.ts (single source of truth).
-type Bucket = typeof BUCKETS[number];
+// V2.49: 표시 탭은 summary 응답의 window 메타 (롤링 창) — 정적 타입 대신 string.
+type Bucket = string;
 type FilterType = "all" | "long" | "short";
 type ViewMode = "debut" | "all";
 
@@ -77,8 +77,12 @@ function fmtPublishedDate(iso: string | undefined): string {
 
 export function DebutWindowVideoTable({ groupKey }: Props) {
   const [viewMode, setViewMode] = useState<ViewMode>("debut");
-  // V2.34: 기본 D-Day. 7탭 grid 의 중앙 + 데뷔 모먼트 영상 우선 노출.
-  const [bucket, setBucket] = useState<Bucket>("D-Day");
+  // V2.49: 탭 목록/기본 탭은 summary 의 window 메타 (롤링 창). 사용자가
+  // 탭을 클릭하면 그 선택 우선. 메타 도착 전엔 fallback (데뷔 전 고정 창).
+  const [buckets, setBuckets] = useState<string[]>(DEFAULT_DISPLAY_BUCKETS);
+  const [defaultBucket, setDefaultBucket] = useState<string>(DEFAULT_CURRENT_BUCKET);
+  const [picked, setPicked] = useState<Bucket | null>(null);
+  const bucket = picked ?? defaultBucket;
   const [filterType, setFilterType] = useState<FilterType>("all");
   // Debut Window view rows
   const [rows, setRows] = useState<VideoRow[] | null>(null);
@@ -89,6 +93,20 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
 
   const [selected, setSelected] = useState<VideoRow | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // V2.49: 롤링 창 메타 1회 fetch (rows 는 버리고 window 만 사용 — 가벼운
+  // 집계 쿼리라 수용, KPI/Bar 와 같은 endpoint 재사용).
+  useEffect(() => {
+    let cancelled = false;
+    api.debutWindowSummary().then((r) => {
+      if (cancelled || !r.window?.buckets?.length) return;
+      setBuckets(r.window.buckets);
+      setDefaultBucket(r.window.current_bucket);
+    }).catch(() => {
+      // graceful: fallback 탭 유지.
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Debut Window view 데이터 fetch
   useEffect(() => {
@@ -163,11 +181,11 @@ export function DebutWindowVideoTable({ groupKey }: Props) {
           {/* Debut Window view 의 5 bucket 탭 */}
           {viewMode === "debut" && (
             <nav class="dw-bucket-tabs">
-              {BUCKETS.map((b) => (
+              {buckets.map((b) => (
                 <button type="button"
                         key={b}
                         class={b === bucket ? "active" : ""}
-                        onClick={() => setBucket(b)}>{b}</button>
+                        onClick={() => setPicked(b)}>{b}</button>
               ))}
             </nav>
           )}

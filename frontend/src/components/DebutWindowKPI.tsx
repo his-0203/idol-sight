@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { headlineOrganicScore, scoreColor } from "../lib/organicity";
-import { DISPLAY_BUCKETS as BUCKETS } from "../lib/debutWindow";
+import { DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 
 interface SummaryRow {
   group_key: string;
@@ -29,11 +29,14 @@ interface Props {
 
 export function DebutWindowKPI({ groupKey }: Props) {
   const [byBucket, setByBucket] = useState<Map<string, SummaryRow> | null>(null);
+  // V2.49: 표시 버킷은 summary 응답의 window 메타 (롤링 창). 부재 시 fallback.
+  const [buckets, setBuckets] = useState<string[]>(DEFAULT_DISPLAY_BUCKETS);
 
   useEffect(() => {
     let cancelled = false;
     api.debutWindowSummary<SummaryRow>().then((r) => {
       if (cancelled) return;
+      if (r.window?.buckets?.length) setBuckets(r.window.buckets);
       const filtered = r.rows.filter((x) => x.group_key === groupKey);
       const m = new Map<string, SummaryRow>();
       for (const row of filtered) m.set(row.window_bucket, row);
@@ -50,7 +53,7 @@ export function DebutWindowKPI({ groupKey }: Props) {
     <div class="kpi-debutwin">
       <div class="kpi-debutwin-label">Debut Window Organicity</div>
       <div class="kpi-debutwin-row">
-        {BUCKETS.map((b) => {
+        {buckets.map((b) => {
           const row = byBucket.get(b);
           const score = row ? headlineOrganicScore(row) : null;
           const display = score === null ? "—" : Math.round(score).toString();

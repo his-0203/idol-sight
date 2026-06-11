@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { DEFAULT_ORGANICITY_MODE, scoreColor } from "../lib/organicity";
-import { DISPLAY_BUCKETS as BUCKETS } from "../lib/debutWindow";
+import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 
-// Display tabs: see src/lib/debutWindow.ts (single source of truth). All tabs
-// are the same 20-day window unit → no sample-size warp across groups.
-type Bucket = typeof BUCKETS[number];
-type AnyBucket = Bucket;
-const ALL_BUCKETS = BUCKETS as readonly AnyBucket[];
+// V2.49: 표시 탭은 summary 응답의 window 메타 (롤링 창) — 정적 타입 대신
+// string. 모든 탭이 같은 20일 창 단위라 그룹 간 표본 왜곡 없음 (기존 동일).
+type Bucket = string;
 
 // V2.22.3 (2026-05-15): user-requested exclusion from the cohort
 // posture bar. ISEDOL/STELLIVE are 서브컬처 (segmentary / confederation)
@@ -53,7 +51,7 @@ interface DisplayRow {
   score: number | null;
   sample_count: number;
   display_mode: DisplayMode;
-  shown_bucket: AnyBucket;
+  shown_bucket: string;
 }
 
 function scoreFor(row: SummaryRow, mode: Mode): number | null {
@@ -74,15 +72,16 @@ function sampleCountFor(row: SummaryRow, mode: Mode): number {
 // Pick what to display for a single group under selected (bucket, mode).
 // - exact: the selected bucket has a non-null score for this mode.
 // - current: selected bucket empty for this mode → fall back to the group's
-//   chronologically latest bucket whose mode column is non-null (BUCKETS
-//   reverse iteration: D+60 → D-60). 모든 bucket 이 균등 20일 폭이라
+//   chronologically latest bucket whose mode column is non-null (bucketsOrdered
+//   reverse iteration: newest → oldest). 모든 bucket 이 균등 20일 폭이라
 //   별도 extended tier 불필요 (V2.34).
 // - none: the group has no scoreable data in any bucket for this mode.
 function pickDisplayRow(
-  byBucket: Map<AnyBucket, SummaryRow>,
+  byBucket: Map<string, SummaryRow>,
   selected: Bucket,
   mode: Mode,
   groupKey: string,
+  bucketsOrdered: readonly string[],
 ): DisplayRow {
   const exact = byBucket.get(selected);
   if (exact && scoreFor(exact, mode) !== null) {
@@ -94,9 +93,9 @@ function pickDisplayRow(
       shown_bucket: selected,
     };
   }
-  // 균등 폭 BUCKETS 를 chronologically newest → oldest 로 순회.
-  for (let i = BUCKETS.length - 1; i >= 0; i--) {
-    const b = BUCKETS[i]!;
+  // 균등 폭 bucketsOrdered 를 chronologically newest → oldest 로 순회.
+  for (let i = bucketsOrdered.length - 1; i >= 0; i--) {
+    const b = bucketsOrdered[i]!;
     const row = byBucket.get(b);
     if (row && scoreFor(row, mode) !== null) {
       return {
@@ -118,19 +117,27 @@ function pickDisplayRow(
 }
 
 export function CompetitorOrganicityBar() {
-  // V2.34: 기본 D-Day (균등 20일 폭 7탭 의 중앙). 데뷔 모먼트 기준 비교가
-  // posture bar 의 가장 자주 쓰이는 view 라 첫 진입 시 즉시 정보 노출.
-  const [bucket, setBucket] = useState<Bucket>("D-Day");
+  // V2.49: 기본 탭 = 서버가 내려준 "오늘(anchor 기준) 버킷" — 데뷔 전엔
+  // D-Day, 슬라이드 후엔 최신 버킷. 사용자가 클릭하면 그 선택 우선.
+  const [picked, setPicked] = useState<Bucket | null>(null);
   // V2.40 Finding 3: default to the count-based simple mean so one high-view
   // paid outlier (the PLUMA teaser) can't dominate a bucket. view-weighted
   // stays one click away. See src/lib/organicity.DEFAULT_ORGANICITY_MODE.
   const [mode, setMode] = useState<Mode>(DEFAULT_ORGANICITY_MODE);
   const [allRows, setAllRows] = useState<SummaryRow[] | null>(null);
+  const [buckets, setBuckets] = useState<string[]>(DEFAULT_DISPLAY_BUCKETS);
+  const [defaultBucket, setDefaultBucket] = useState<string>(DEFAULT_CURRENT_BUCKET);
+  const bucket = picked ?? defaultBucket;
 
   useEffect(() => {
     let cancelled = false;
     api.debutWindowSummary<SummaryRow>().then((r) => {
-      if (!cancelled) setAllRows(r.rows);
+      if (cancelled) return;
+      if (r.window?.buckets?.length) {
+        setBuckets(r.window.buckets);
+        setDefaultBucket(r.window.current_bucket);
+      }
+      setAllRows(r.rows);
     }).catch(() => {
       if (!cancelled) setAllRows([]);
     });
@@ -139,19 +146,19 @@ export function CompetitorOrganicityBar() {
 
   const display = useMemo<DisplayRow[]>(() => {
     if (!allRows) return [];
-    const byGroup = new Map<string, Map<AnyBucket, SummaryRow>>();
+    const byGroup = new Map<string, Map<string, SummaryRow>>();
     for (const r of allRows) {
       if (EXCLUDED_GROUPS.has(r.group_key)) continue;
-      if (!(ALL_BUCKETS as readonly string[]).includes(r.window_bucket)) continue;
-      const b = r.window_bucket as AnyBucket;
+      if (!buckets.includes(r.window_bucket)) continue;
+      const b = r.window_bucket;
       let m = byGroup.get(r.group_key);
       if (!m) { m = new Map(); byGroup.set(r.group_key, m); }
       m.set(b, r);
     }
     return Array.from(byGroup.keys()).map((k) =>
-      pickDisplayRow(byGroup.get(k)!, bucket, mode, k),
+      pickDisplayRow(byGroup.get(k)!, bucket, mode, k, buckets),
     );
-  }, [allRows, bucket, mode]);
+  }, [allRows, bucket, mode, buckets]);
 
   if (!allRows) return <div class="cob-section">Loading…</div>;
 
@@ -171,11 +178,11 @@ export function CompetitorOrganicityBar() {
       <h3>Competitive Debut Window Posture</h3>
       <div class="cob-bucket-picker">
         View bucket:
-        {BUCKETS.map((b) => (
+        {buckets.map((b) => (
           <button type="button"
                   key={b}
                   class={b === bucket ? "active" : ""}
-                  onClick={() => setBucket(b)}>{b}</button>
+                  onClick={() => setPicked(b)}>{b}</button>
         ))}
       </div>
       <div class="cob-mode-picker">
