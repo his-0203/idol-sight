@@ -3,10 +3,11 @@
 // Returns videos in a (group, bucket) window with their signal_breakdown.
 // Joins youtube_videos for title. Required: group, bucket. Optional:
 // type=long|short|all (default all).
+// Bucket 라벨: named 4종 (D-60/D-40/D-20/D-Day) + D+20 배수 (V2.49 산술).
 
 import { d1Query, type D1Database } from "../../lib/d1";
 import { jsonResponse } from "../../lib/jsonResponse";
-import { FRONTEND_BUCKET_MAP, VALID_BUCKETS } from "../../lib/debutWindowBuckets";
+import { isValidBucketLabel } from "../../lib/debutWindowBuckets";
 
 interface VideoRow {
   video_id: string;
@@ -33,15 +34,13 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   const type = url.searchParams.get("type") ?? "all";
 
   if (!group) return jsonResponse({ error: "group required" }, 400);
-  if (!bucket || !VALID_BUCKETS.has(bucket)) {
+  if (!bucket || !isValidBucketLabel(bucket)) {
     return jsonResponse({ error: "valid bucket required" }, 400);
   }
   if (!["all", "long", "short"].includes(type)) {
     return jsonResponse({ error: "type must be all|long|short" }, 400);
   }
 
-  const workerBuckets = FRONTEND_BUCKET_MAP[bucket]!;   // VALID_BUCKETS 통과 보장
-  const bucketPlaceholders = workerBuckets.map(() => "?").join(",");
   let sql = `
     SELECT o.video_id, v.title, o.is_short, o.published_at,
            o.days_relative_to_debut,
@@ -50,9 +49,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
            o.organic_score, o.verdict, o.causes, o.signal_breakdown
     FROM debut_window_video_organicity o
     LEFT JOIN youtube_videos v ON v.video_id = o.video_id
-    WHERE o.group_key = ? AND o.window_bucket IN (${bucketPlaceholders})
+    WHERE o.group_key = ? AND o.window_bucket = ?
   `;
-  const params: (string | number)[] = [group, ...workerBuckets];
+  const params: (string | number)[] = [group, bucket];
   if (type === "long") {
     sql += ` AND o.is_short = 0`;
   } else if (type === "short") {

@@ -1,21 +1,30 @@
 // frontend/functions/api/debut-window/summary.ts
 //
-// Returns per-(group, frontend_bucket) organicity summary. Optional ?bucket=X
-// filter on frontend bucket (D-60/D-30/D-Day/D+30/D+60).
+// Returns per-(group, window_bucket) organicity summary. Optional ?bucket=X
+// filter on a single bucket label.
 //
-// V3 (2026-05-25): worker 가 9 bucket (+ Pre/Post) 으로 row 를 저장하지만
-// frontend KPI 는 5 탭만 노출. 이 endpoint 가 9 → 5 union aggregate 를 SQL
-// GROUP BY 로 처리. 가중치:
+// V2.49: videos.ts 와 같은 debutWindowBuckets 산술 모듈을 공유.
+// V2.49: 응답에 window 메타 (롤링 창 버킷 리스트 + 오늘 버킷) 동봉 —
+// 프런트 3 컴포넌트 (KPI / CompetitorOrganicityBar / VideoTable) 가
+// 정적 탭 대신 이 메타를 렌더한다.
+//
+// 가중치:
 //   - organic_score_mean      : total_views 가중 평균
 //   - 5-tier ratio (organic_strong/organic/borderline/suspect/likely_paid)
 //                             : video_count 가중 평균
 //   - count/views/engagement  : SUM
 //   - computed_at             : MAX
-// videos.ts 와 같은 FRONTEND_BUCKET_MAP 을 공유 (lib/debutWindowBuckets).
 
 import { d1Query, type D1Database } from "../../lib/d1";
 import { jsonResponse } from "../../lib/jsonResponse";
-import { FRONTEND_BUCKET_MAP, VALID_BUCKETS } from "../../lib/debutWindowBuckets";
+import {
+  ANCHOR_GROUP_KEY,
+  UNDATED_BUCKET,
+  currentBucket,
+  debutAgeDaysKST,
+  displayBuckets,
+  isValidBucketLabel,
+} from "../../lib/debutWindowBuckets";
 
 interface SummaryRow {
   group_key: string;
@@ -37,57 +46,42 @@ interface SummaryRow {
   computed_at: string;
 }
 
-// SQL CASE 식 — worker bucket → frontend bucket 매핑.
-// (FRONTEND_BUCKET_MAP 을 역인덱스로 전개해 CASE WHEN 생성.)
-// V2.42: 데뷔일 없는 그룹(BTHD 등)의 영상은 worker 가 'Undated' 버킷으로
-// 채점한다. FRONTEND_BUCKET_MAP 에는 넣지 않아 UI 탭으로는 노출되지 않고,
-// 카드의 unfiltered fetch 에서만 passthrough 로 반환 → KPI pre-debut 배지용.
-const UNDATED_BUCKET = "Undated";
-
-function buildBucketCase(): string {
-  const lines: string[] = [];
-  for (const [frontendBucket, workerBuckets] of Object.entries(FRONTEND_BUCKET_MAP)) {
-    for (const wb of workerBuckets) {
-      // 따옴표 escape — bucket 라벨은 코드 상수라 안전하지만 방어적.
-      const safeWb = wb.replace(/'/g, "''");
-      const safeFb = frontendBucket.replace(/'/g, "''");
-      lines.push(`    WHEN window_bucket = '${safeWb}' THEN '${safeFb}'`);
-    }
-  }
-  // V2.42: Undated → Undated passthrough (IN 목록에 포함될 때만 매칭됨).
-  lines.push(`    WHEN window_bucket = '${UNDATED_BUCKET}' THEN '${UNDATED_BUCKET}'`);
-  return `CASE\n${lines.join("\n")}\n  END`;
-}
-
-// FRONTEND_BUCKET_MAP 에 포함된 worker bucket 만 union 대상 (Pre/Post 제외).
-const ALL_WORKER_BUCKETS: string[] = Object.values(FRONTEND_BUCKET_MAP).flat();
-
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, request }) => {
   const url = new URL(request.url);
   const bucket = url.searchParams.get("bucket");
 
-  let targetWorkerBuckets: string[];
+  // V2.49 롤링 윈도우 — anchor(MiiWAN) 데뷔 경과일이 표시 창을 결정.
+  // debut_date 미설정(이론상 없음)이면 age 0 → 데뷔 전 고정 창과 동일.
+  const anchorRows = await d1Query<{ debut_date: string | null }>(
+    env.DB, "SELECT debut_date FROM groups WHERE key = ?", [ANCHOR_GROUP_KEY],
+  );
+  const debutDate = anchorRows[0]?.debut_date ?? null;
+  const ageDays = debutDate ? debutAgeDaysKST(debutDate, new Date()) : 0;
+  const windowBuckets = displayBuckets(ageDays);
+  const nowBucket = currentBucket(ageDays);
+
+  let targetBuckets: string[];
   if (bucket) {
-    if (!VALID_BUCKETS.has(bucket)) {
+    if (!isValidBucketLabel(bucket)) {
       return jsonResponse({ error: "invalid bucket" }, 400);
     }
-    targetWorkerBuckets = FRONTEND_BUCKET_MAP[bucket]!;
+    targetBuckets = [bucket];
   } else {
-    // 카드 fetch (필터 없음): named 버킷 + Undated passthrough.
-    targetWorkerBuckets = [...ALL_WORKER_BUCKETS, UNDATED_BUCKET];
+    // 카드 fetch (필터 없음): 창 7버킷 + Undated passthrough (V2.42).
+    targetBuckets = [...windowBuckets, UNDATED_BUCKET];
   }
 
-  const placeholders = targetWorkerBuckets.map(() => "?").join(",");
-  const bucketCase = buildBucketCase();
+  const placeholders = targetBuckets.map(() => "?").join(",");
 
   // video_count 가중 ratio: WHEN SUM(video_count)=0 THEN NULL ELSE … END.
   // total_views 가중 score: WHEN SUM(total_views)=0 THEN NULL ELSE … END.
   // organic_score_mean 은 row 에 NULL 가능 (insufficient_data 등) → 0 로 변환
   // 후 가중치 (total_views) 곱 → SUM. NULL 가중 mean 의 표준 처리.
+  // V2.34 부터 worker↔frontend 버킷 라벨이 1:1 identity 라 CASE 매핑 불필요.
   const sql = `
     SELECT
       group_key,
-      ${bucketCase} AS window_bucket,
+      window_bucket,
       SUM(video_count)       AS video_count,
       SUM(long_form_count)   AS long_form_count,
       SUM(short_form_count)  AS short_form_count,
@@ -140,6 +134,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
     ORDER BY group_key ASC, window_bucket ASC
   `;
 
-  const rows = await d1Query<SummaryRow>(env.DB, sql, targetWorkerBuckets);
-  return jsonResponse({ rows }, 200);
+  const rows = await d1Query<SummaryRow>(env.DB, sql, targetBuckets);
+  return jsonResponse({
+    rows,
+    window: { buckets: windowBuckets, current_bucket: nowBucket },
+  }, 200);
 };

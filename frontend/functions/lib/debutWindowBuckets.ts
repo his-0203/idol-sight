@@ -71,13 +71,3 @@ export function debutAgeDaysKST(debutDate: string, now: Date): number {
     .toISOString().slice(0, 10);
   return Math.round((Date.parse(kstTodayIso) - Date.parse(debutDate)) / 86_400_000);
 }
-
-// ---------------------------------------------------------------------------
-// Legacy exports — consumed by summary.ts / videos.ts (Task 4 에서 교체 예정).
-// 이 시점에는 기존 소비처가 여전히 이 export 를 import 하므로 컴파일 오류를
-// 막기 위해 빈 stub 을 유지한다. 내용은 무의미 — Task 4 에서 삭제.
-// ---------------------------------------------------------------------------
-/** @deprecated Task 4 에서 삭제 예정 */
-export const FRONTEND_BUCKET_MAP: Record<string, string[]> = {};
-/** @deprecated Task 4 에서 삭제 예정 */
-export const VALID_BUCKETS: Set<string> = new Set();

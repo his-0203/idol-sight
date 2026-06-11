@@ -46,8 +46,15 @@ export const api = {
   adminStatus: () => getJson<any>("/api/admin/status"),
   // Debut Window API — row 타입은 caller (KPI / CompetitorOrganicityBar /
   // DebutWindowVideoTable) 가 자체 interface 로 정의 → generic T 노출.
-  debutWindowSummary: <T = unknown>(bucket?: string): Promise<{ rows: T[] }> =>
-    getJson<{ rows: T[] }>(
+  debutWindowSummary: <T = unknown>(bucket?: string): Promise<{
+    rows: T[];
+    // V2.49: 롤링 창 메타 — 표시 버킷 리스트 + 오늘(anchor 기준) 버킷.
+    window?: { buckets: string[]; current_bucket: string };
+  }> =>
+    getJson<{
+      rows: T[];
+      window?: { buckets: string[]; current_bucket: string };
+    }>(
       "/api/debut-window/summary"
       + (bucket ? `?bucket=${encodeURIComponent(bucket)}` : ""),
     ),
