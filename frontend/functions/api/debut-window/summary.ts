@@ -52,11 +52,14 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
 
   // V2.49 롤링 윈도우 — anchor(MiiWAN) 데뷔 경과일이 표시 창을 결정.
   // debut_date 미설정(이론상 없음)이면 age 0 → 데뷔 전 고정 창과 동일.
+  // malformed 날짜 문자열(Date.parse NaN)도 0 으로 방어 — labelForIndex
+  // throw 로 엔드포인트 전체가 500 나는 것 방지.
   const anchorRows = await d1Query<{ debut_date: string | null }>(
     env.DB, "SELECT debut_date FROM groups WHERE key = ?", [ANCHOR_GROUP_KEY],
   );
   const debutDate = anchorRows[0]?.debut_date ?? null;
-  const ageDays = debutDate ? debutAgeDaysKST(debutDate, new Date()) : 0;
+  const rawAge = debutDate ? debutAgeDaysKST(debutDate, new Date()) : 0;
+  const ageDays = Number.isFinite(rawAge) ? rawAge : 0;
   const windowBuckets = displayBuckets(ageDays);
   const nowBucket = currentBucket(ageDays);
 
