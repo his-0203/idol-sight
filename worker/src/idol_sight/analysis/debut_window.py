@@ -1,8 +1,8 @@
 """Debut window organicity — organic vs paid-viral classifier for YouTube
-videos. V3.1 (2026-05-25): scoring applies to all videos for groups with a
-debut_date; Pre + 산술 D+N 버킷이 전 기간을 커버하므로 [전체 기간] view 에서
-모든 영상이 ER/Score/판정 렌더 가능. V2.49 (2026-06-11): Post catch-all 폐기,
-d>=10 은 20일 폭 산술 생성 (D+20, D+40, … 무한).
+videos. debut_date 있는 그룹의 모든 영상을 채점하며, Pre + 산술 D+N 버킷이
+전 기간을 커버하므로 [전체 기간] view 에서 모든 영상이 ER/Score/판정 렌더
+가능. (이력: V3.1 2026-05-25 전 영상 채점 도입 → V2.49 2026-06-11 Post
+catch-all 폐기, d>=10 은 20일 폭 산술 생성 D+20, D+40, … 무한.)
 
 See docs/superpowers/specs/2026-05-12-debut-window-organicity-design.md for
 the algorithm rationale, signal weights, and verdict thresholds, and

@@ -772,7 +772,8 @@ def test_bucket_for_d_minus_60_range():
 
 
 def test_bucket_for_d_plus_60_range():
-    """V2.34: +50 ~ +69 사이 영상은 D+60 bucket (20일 폭)."""
+    """V2.34 경계 보존: +50 ~ +69 영상은 D+60 (20일 폭).
+    V2.49 부터 D+60 은 고정 목록이 아닌 산술 경로로 생성되지만 경계 동일."""
     assert bucket_for(50) == "D+60"
     assert bucket_for(60) == "D+60"
     assert bucket_for(69) == "D+60"
