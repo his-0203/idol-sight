@@ -27,20 +27,15 @@ describe("debut window cross-layer guards", () => {
       resolve(here, "../../../worker/src/idol_sight/analysis/debut_window.py"),
       "utf8",
     );
-    // WINDOW_BUCKETS 에 타입 어노테이션(list[tuple[str, int, int]])이 붙어
-    // "=" 다음 첫 "[" は 어노테이션의 대괄호다. "= [" (공백 포함)로 리스트
-    // 리터럴 시작을 찾아야 어노테이션을 건너뛸 수 있다.
-    const assignIdx = py.indexOf("WINDOW_BUCKETS");
-    const eqIdx = py.indexOf("=", assignIdx);
-    // "= [" — 어노테이션 닫힘("]") 이후에 오는 첫 번째 "[" 를 잡는다.
-    const listLiteralMatch = py.slice(eqIdx).match(/=\s*\[/);
-    const listStart = listLiteralMatch
-      ? eqIdx + listLiteralMatch.index! + listLiteralMatch[0].length - 1
-      : -1;
-    const listEnd = listStart !== -1 ? py.indexOf("]", listStart + 1) : -1;
-    const inner = listStart !== -1 && listEnd !== -1
-      ? py.slice(listStart + 1, listEnd)
-      : null;
+    // 할당문 자체를 앵커한다 — "WINDOW_BUCKETS" 문자열은 __all__ 목록에도
+    // 등장하므로, 같은 줄에 "=" 가 있는 실제 할당만 매칭. 타입 어노테이션
+    // (list[tuple[...]]) 의 "[" 를 건너뛰기 위해 "= [" 까지 포함해 매칭하고,
+    // 리스트 리터럴엔 "]" 가 없으므로 다음 "]" 가 닫는 대괄호다.
+    const assign = py.match(/WINDOW_BUCKETS[^=\n]*=\s*\[/);
+    expect(assign, "WINDOW_BUCKETS assignment not found").toBeTruthy();
+    const listStart = assign!.index! + assign![0].length - 1;
+    const listEnd = py.indexOf("]", listStart + 1);
+    const inner = listEnd !== -1 ? py.slice(listStart + 1, listEnd) : null;
     expect(inner, "WINDOW_BUCKETS list literal not found").toBeTruthy();
 
     const entries = [...inner!.matchAll(
