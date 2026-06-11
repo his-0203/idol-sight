@@ -305,13 +305,13 @@
 
 `v==100→viral_real`(verdict 무관). verdict이 borderline 이하일 때: `e<40→engagement_weak`; `b<60`이면 r<lo→`comment_farm` / r>hi→`like_farm`; `v≤20→paid_burst`.
 
-### 6.8 윈도우 버킷 (`WINDOW_BUCKETS`, `:49`; V2.34 균등 20일)
-> 🟢 **쉽게**: 영상을 **데뷔일 기준 20일 단위 시기**(D-60~D+60)로 묶어 "데뷔 전/직후/후 어땠나"를 비교. 데뷔일 없는 그룹은 'Undated'로 점수만.
+### 6.8 윈도우 버킷 (`WINDOW_BUCKETS` + 산술, `:45`; V2.49 롤링 윈도우)
+> 🟢 **쉽게**: 영상을 **데뷔일 기준 20일 단위 시기**로 묶음. 데뷔 후에는 D+80, D+100… 새 시기가 계속 생기고, 화면은 그중 "지금(MiiWAN 기준)까지의 최근 7칸"만 보여줌 — 시간이 가면 오래된 칸이 한 칸씩 밀려남. 데뷔일 없는 그룹은 'Undated'로 점수만.
 
-9개: `Pre(≤-71) · D-60(-70~-51) · D-40(-50~-31) · D-20(-30~-11) · D-Day(-10~+9) · D+20(10~29) · D+40(30~49) · D+60(50~69) · Post(≥70)`. 7 named × 20일, D-Day는 데뷔일 ±10. `days_relative = (published_date - debut_date).days`.
-- **Undated** (V2.42, `:135`): `debut_date` 없는 그룹은 점수만 산정(산식은 데뷔일 미사용) → `"Undated"` 버킷.
-- 프런트 탭은 `DISPLAY_BUCKETS` 7 named만 (`debutWindow.ts:9`); Pre/Post/Undated 비노출.
-- ⚠️ `debutWindowBuckets.ts:3-7` 주석의 "15일 폭/9 named"는 **stale** — 실제는 20일 폭 7 named + Pre/Post.
+고정 5개: `Pre(≤-71) · D-60(-70~-51) · D-40(-50~-31) · D-20(-30~-11) · D-Day(-10~+9)` + **산술 무한** `d≥10 → D+20k (k=(d-10)//20+1)` — D+20(10~29) · D+40(30~49) · D+60(50~69) · D+80(70~89) · … (Post catch-all 은 V2.49 에서 폐기, migration 0085 재배치). `days_relative = (published_date - debut_date).days`.
+- **Undated** (V2.42, `UNDATED_BUCKET`): `debut_date` 없는 그룹은 점수만 산정(산식은 데뷔일 미사용) → `"Undated"` 버킷.
+- **표시 창** (V2.49, `debutWindowBuckets.ts displayBuckets`): MiiWAN 데뷔 경과일(KST)이 속한 버킷을 오른쪽 끝으로 한 연속 7버킷, 오른쪽 끝 최소 D+60 (데뷔 전~D+69 는 종전 D-60~D+60 고정 창과 동일, D+70 에 첫 슬라이드). summary API 가 `window.buckets`/`current_bucket` 메타로 내려주고 프런트 3 컴포넌트가 렌더 (fallback = `DEFAULT_DISPLAY_BUCKETS`). Pre/Undated 탭 비노출(Undated 는 KPI 배지).
+- worker↔functions 경계 동일성: `debutWindowBuckets.test.ts` BOUNDARY_FIXTURE ↔ `test_debut_window.py` parametrize 가 양쪽 핀.
 
 ### 6.9 요약 집계 (`build_summary`, `:539`)
 > 🟢 **쉽게**: 시기(버킷)별 평균 오가닉 점수. 기본은 **'영상 한 개씩 평균(simple)'** — 고조회 영상 1개가 평균을 좌우하지 못하게(view-weighted는 토글로). 채점 보류 영상은 평균에서 제외.
