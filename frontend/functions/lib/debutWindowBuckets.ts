@@ -14,8 +14,12 @@ export const ANCHOR_GROUP_KEY = "miiwan";
 export const WINDOW_SIZE = 7;
 export const UNDATED_BUCKET = "Undated";
 
-// 개념적 무한 시퀀스의 고정 prefix (index 0..3). index 4+ 는 D+20(i-3).
+// 개념적 무한 시퀀스의 고정 prefix (index 0..3). index 4+ 는 D+(20×(i-3)).
 const NEGATIVE_LABELS = ["D-60", "D-40", "D-20", "D-Day"] as const;
+
+// 산술 라벨의 index 오프셋: index 4 가 첫 산술 버킷 D+20 (= 20×1) 이 되도록
+// NEGATIVE_LABELS 길이에서 파생. 배열을 늘리면 자동 추종.
+const ARITHMETIC_OFFSET = NEGATIVE_LABELS.length - 1;
 
 // 시퀀스 index → 버킷 라벨.
 export function labelForIndex(i: number): string {
@@ -23,7 +27,7 @@ export function labelForIndex(i: number): string {
     throw new Error(`bucket index out of range: ${i}`);
   }
   if (i < NEGATIVE_LABELS.length) return NEGATIVE_LABELS[i]!;
-  return `D+${20 * (i - 3)}`;
+  return `D+${20 * (i - ARITHMETIC_OFFSET)}`;
 }
 
 // 데뷔 경과일 → 그 날이 속한 버킷의 시퀀스 index.

@@ -33,6 +33,11 @@ describe("bucket arithmetic (worker bucket_for parity)", () => {
     expect(currentBucket(-5)).toBe("D-Day");
     expect(currentBucket(75)).toBe("D+80");
   });
+
+  it("labelForIndex throws on negative or fractional index", () => {
+    expect(() => labelForIndex(-1)).toThrow();
+    expect(() => labelForIndex(0.5)).toThrow();
+  });
 });
 
 describe("displayBuckets (rolling 7-bucket window)", () => {
