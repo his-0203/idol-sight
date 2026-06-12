@@ -1,0 +1,48 @@
+-- migrations/0086_skinz_dc_gallery_mini.sql
+--
+-- SKINZ DC 갤러리 이전 반영: skinz(마이너) → 1011(미니).
+--
+-- 배경
+-- ----
+-- 0002_seed.sql 에서 SKINZ 의 dc_gallery_id 가 'skinz' (마이너 갤러리)
+-- 로 시드되었다. 2026-06-12 운영자 확인 — 커뮤니티 본진이 미니 갤러리
+-- https://gall.dcinside.com/mini/board/lists/?id=1011 ("스킨즈 미니
+-- 갤러리") 로 이전됨.
+--
+-- 2026-06-12 실측:
+--   - 새 미니갤(1011): us-post 11행/page, 06-09~06-12 일 단위 연속
+--     게시 — 활성 본진.
+--   - 기존 마이너갤(skinz): 잔존 글 드문드문 (06-06, 06-11) — 이전 후
+--     잔류 수준.
+--   - /board/lists/?id=1011 은 갤러리가 아니라 디시 메인 포털로
+--     해석되며 us-post 0행 → DcCollector 의 `_fetch_list_with_fallback`
+--     (V2.33, UR:L 'sandboxurl' 과 동일 경로) 이 /mini/ URL 로 자동
+--     fallback. 코드 변경 불필요.
+--
+-- 변경
+-- ----
+-- dc_gallery_id: 'skinz' → '1011'
+--
+-- 기존 마이너갤(skinz)은 supplemental 로 추가하지 않는다 — supplemental
+-- 은 is_relevant 키워드 필터를 강제하는데(V2.27), 그룹 전용 갤러리 글은
+-- 제목에 그룹명을 안 쓰는 경우가 대부분이라 필터에 다 걸러져 실익이
+-- 없다. 잔존 활동이 유의미해지면 별도 재검토 (0065 ISEDOL 선례와 동일
+-- 판단).
+--
+-- 영향
+-- ----
+-- - dc:skinz 잡이 다음 collect-6h 사이클부터 미니갤 1011 을 수집한다
+--   (1차 /board/ fetch 는 포털 페이지 → 0행 → /mini/ fallback, 사이클당
+--   fetch 2회 — sandboxurl 과 동일 비용).
+-- - 기존 'skinz' 갤러리 URL 로 적재된 historical community_posts 는
+--   URL 기반이라 그대로 유효 — 변경 없음.
+-- - context_keywords 는 0064 정비값 그대로 — primary 갤러리는
+--   group-scoped 라 keyword 필터 미적용, 영향 없음.
+--
+-- Rollback
+-- --------
+--   UPDATE groups SET dc_gallery_id = 'skinz' WHERE key = 'skinz';
+
+UPDATE groups
+   SET dc_gallery_id = '1011'
+ WHERE key = 'skinz';
