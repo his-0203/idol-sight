@@ -493,10 +493,14 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       analytics: (ytAnalytics || (ytAnalyticsCountries ?? []).length > 0)
         ? {
             snapshot_at: ytAnalytics?.snapshot_at ?? "",
+            // growth_mom 은 null(직전 30일 데이터 없음 = 신규)을 보존한다 —
+            // 프론트가 "성장 0%"와 "성장 데이터 없음"을 구분해야 데뷔 초기
+            // 산점도가 x=0 에 무더기로 뭉치지 않는다. retention 은 1.0(국내
+            // 동등) 폴백이 의미 있어 유지.
             countries: (ytAnalyticsCountries ?? []).map((c) => ({
               country: c.country,
               watch_share: c.watch_share,
-              growth_mom: c.growth_mom ?? 0,
+              growth_mom: c.growth_mom,
               retention_rel: c.retention_rel ?? 1,
               sub_per_1k: c.sub_per_1k,
             })),

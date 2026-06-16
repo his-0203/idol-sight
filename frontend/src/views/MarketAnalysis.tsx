@@ -19,7 +19,7 @@ import {
 import { fmt } from "../format";
 
 type CountryApi = {
-  country: string; watch_share: number; growth_mom: number;
+  country: string; watch_share: number; growth_mom: number | null;
   retention_rel: number; sub_per_1k: number;
 };
 export type AnalyticsApi = {
@@ -45,15 +45,24 @@ export function MarketAnalysis({
 }: {
   analytics: AnalyticsApi; memberPopularity: MemberPopApi; daysToDebut: number | null;
 }) {
+  // growth_mom null = 직전 30일 데이터 없음(신규). 엔진엔 0으로 넣되(중립),
+  // 산점도에는 '성장 알려진' 국가만 그려 데뷔 초기 x=0 무더기를 방지한다.
   const raw: CountryRow[] = (analytics?.countries ?? []).map((c) => ({
-    country: c.country, watchShare: c.watch_share, growthMoM: c.growth_mom,
+    country: c.country, watchShare: c.watch_share, growthMoM: c.growth_mom ?? 0,
     retentionRel: c.retention_rel, subPer1k: c.sub_per_1k,
   }));
+  const growthKnown = useMemo(
+    () => new Set((analytics?.countries ?? []).filter((c) => c.growth_mom != null).map((c) => c.country)),
+    [analytics],
+  );
   const enriched = useMemo(() => enrichCountries(raw), [analytics]);
   const sufficient = enriched.filter((e) => !e.insufficient);
   const insufficient = enriched.filter((e) => e.insufficient);
+  const scatterCountries = enriched.filter((e) => growthKnown.has(e.row.country));
+  const growthPending = enriched.length - scatterCountries.length;
 
   const [selected, setSelected] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
   const sel = enriched.find((e) => e.row.country === selected)
     ?? [...sufficient].sort((a, b) => b.score - a.score)[0]
     ?? enriched[0] ?? null;
@@ -75,10 +84,20 @@ export function MarketAnalysis({
 
   return (
     <div class="space-y-6">
-      {/* 헤드라인 자동요약 */}
+      {/* 헤드라인 자동요약 + 도움말 토글 */}
       <section class="rounded-card border border-cyan-500/20 bg-cyan-500/[0.06] p-4">
-        <div class="text-hint mb-1 text-zinc-500">오늘의 한 줄 ({dPlus} · 갱신 {analytics.snapshot_at.slice(0, 10)})</div>
-        <div class="text-sm font-semibold text-zinc-100">{headline(enriched)}</div>
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="text-hint mb-1 text-zinc-500">오늘의 한 줄 ({dPlus} · 갱신 {analytics.snapshot_at.slice(0, 10)})</div>
+            <div class="text-sm font-semibold text-zinc-100">{headline(enriched)}</div>
+          </div>
+          <button type="button" onClick={() => setShowHelp((v) => !v)}
+            aria-expanded={showHelp}
+            class="shrink-0 rounded-full border border-zinc-600 px-2 py-0.5 text-xs text-zinc-400 hover:border-zinc-400 hover:text-zinc-200">
+            {showHelp ? "✕ 닫기" : "? 지표 안내"}
+          </button>
+        </div>
+        {showHelp && <HelpPanel />}
       </section>
 
       {/* 신뢰 게이트 */}
@@ -91,13 +110,21 @@ export function MarketAnalysis({
 
       {/* 사분면 + 랭킹 */}
       <section>
-        <h3 class="section-title mb-1">50개국 한눈에 — 모멘텀 × 품질</h3>
+        <h3 class="section-title mb-1">국가 한눈에 — 모멘텀 × 품질</h3>
         <p class="text-hint mb-3 text-zinc-500">
-          버블 클릭 → 아래 '왜' 분해. 크기=시청 점유, 색=tier(🔵후보 🟣테스트 ⚪관망), 흐림=표본부족.
+          버블 클릭 → 아래 '왜' 분해. 크기=시청 점유, 색=tier(🔵후보 🟣테스트 ⚪관망), 흐림=표본부족,
+          <span class="text-amber-300"> 금테=본진(KR)</span>.
+          {growthPending > 0 && <> · 성장 데이터 누적 중 {growthPending}개국은 산점도 제외(랭킹엔 포함).</>}
         </p>
         <div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
-            <QuadrantScatter countries={enriched} selected={sel?.row.country ?? null} onSelect={setSelected} />
+            {scatterCountries.length > 0 ? (
+              <QuadrantScatter countries={scatterCountries} selected={sel?.row.country ?? null} onSelect={setSelected} />
+            ) : (
+              <div class="flex h-80 items-center justify-center text-center text-sm text-zinc-500">
+                성장 데이터 누적 중 — 30일 윈도우가 차면 사분면이 채워집니다.<br />그 전까지는 우측 점수 랭킹으로 판단하세요.
+              </div>
+            )}
           </div>
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
             <div class="mb-2 text-xs font-semibold text-zinc-400">진출 점수 랭킹 (Top 12)</div>
@@ -108,6 +135,7 @@ export function MarketAnalysis({
                   class={"flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-zinc-800/60 "
                     + (sel?.row.country === e.row.country ? "bg-zinc-800/80" : "")}>
                   <span class="w-8 shrink-0 text-sm font-medium text-zinc-300">{e.row.country}</span>
+                  {e.row.country === "KR" && <span class="shrink-0 rounded border border-amber-500/40 px-1 text-[9px] text-amber-300">본진</span>}
                   <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
                     <div class={"h-full rounded " + (e.insufficient ? "bg-zinc-600 opacity-50" : "bg-cyan-500/60")}
                       style={{ width: `${e.score}%` }} />
@@ -310,6 +338,35 @@ function GoodsBoard({ memberPopularity, analytics }: { memberPopularity: MemberP
         </div>
       </div>
     </section>
+  );
+}
+
+// ─── 도움말 — 지표/등급 안내 (? 버튼) ───────────────────────────────
+function HelpPanel() {
+  const Row = ({ k, v }: { k: string; v: string }) => (
+    <div class="flex gap-2 py-0.5">
+      <span class="w-16 shrink-0 font-medium text-zinc-300">{k}</span>
+      <span class="text-zinc-400">{v}</span>
+    </div>
+  );
+  return (
+    <div class="mt-3 grid gap-4 border-t border-cyan-500/15 pt-3 text-xs md:grid-cols-2">
+      <div>
+        <div class="mb-1 font-semibold text-zinc-200">4개 핵심 지표</div>
+        <Row k="성장" v="직전 30일 대비 시청시간 증감(모멘텀). 데뷔 초기엔 표본이 얇아 부정확할 수 있어 '신규'는 산점도에서 제외." />
+        <Row k="유지율" v="영상을 끝까지 보는 정도 = 한국(본진) 대비 배수. 1.0×면 국내와 동등, <1이면 덜 봄(언어장벽 신호)." />
+        <Row k="전환" v="1,000 조회당 새 구독자 수. 관심이 팬으로 바뀌는 강도." />
+        <Row k="점유" v="전체 해외 시청시간 중 그 나라 비중." />
+      </div>
+      <div>
+        <div class="mb-1 font-semibold text-zinc-200">등급 · 읽는 법</div>
+        <Row k="tier" v="🔵후보(0순위) · 🟣테스트(검증 필요) · ⚪관망 · 표본부족(판단 보류)." />
+        <Row k="사분면" v="가로=성장, 세로=유지율. 우상 '공략 1순위', 우하 '거품 의심', 좌상 '안정·육성', 좌하 '관망'." />
+        <Row k="PRI" v="노력 대비 기대수익 — 도달×전환×진입용이성×모멘텀. 단순 점수보다 진출 우선순위에 적합." />
+        <Row k="L0~L4" v="액션 사다리: L0 관찰 → L1 자막AB → L2 유료도달 → L3 현지PR → L4 물리진출. 임계 미달 시 강등." />
+        <Row k="본진" v="KR은 한국 본진 = 유지율 기준선(1.0×). 진출 대상에 포함하되 금색 테두리로 구분." />
+      </div>
+    </div>
   );
 }
 

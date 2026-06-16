@@ -182,7 +182,7 @@ export function estimateDemandFloor(inp: DemandInputs): DemandFloorResult {
   if (returningViewers30d == null && membershipCount == null) {
     return {
       low: null, high: null, coreFans: null, confidence: "insufficient",
-      note: "OAuth(Analytics) 연결 필요 — 재방문 시청자·멤버십 데이터가 들어오면 점등.",
+      note: "YouTube Analytics API가 재방문 시청자·멤버십 가입자 수를 제공하지 않음 — Studio 수동 export나 예약판매 실측으로 보완 시 점등.",
     };
   }
   const convLow = inp.convLow ?? 0.02;
@@ -218,7 +218,7 @@ export function gradeWillingnessToPay(inp: WtpInputs): WtpResult {
   if (membershipPenetration == null && hasSuperChat == null) {
     return {
       tier: "unknown", confidence: "insufficient",
-      note: "OAuth(Analytics) 연결 필요 — 멤버십·슈퍼챗 데이터가 들어오면 점등.",
+      note: "YouTube Analytics API가 멤버십 침투율·슈퍼챗을 제공하지 않음 — 커머스/예약판매·라이브 채팅 등 보완 시 점등.",
     };
   }
   const threshold = inp.premiumThreshold ?? 0.02;

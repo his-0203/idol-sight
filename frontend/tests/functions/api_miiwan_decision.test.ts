@@ -76,7 +76,7 @@ describe("/api/miiwan decision.analytics", () => {
     expect(Array.isArray(body.decision.member_popularity)).toBe(true);
   });
 
-  it("국가 null 칼럼은 안전 디폴트(growth 0 / retention 1)로 채움", async () => {
+  it("growth_mom null 은 보존(신규 구분), retention null 만 1.0 폴백", async () => {
     const env = envWith((sql) => {
       if (sql.includes("agg_youtube_analytics_country")) {
         return [{ country: "BR", watch_share: 0.1, growth_mom: null,
@@ -92,7 +92,7 @@ describe("/api/miiwan decision.analytics", () => {
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
     const body = await res.json() as any;
     const c = body.decision.analytics.countries[0];
-    expect(c.growth_mom).toBe(0);
+    expect(c.growth_mom).toBeNull();      // 신규(데이터 없음) 보존
     expect(c.retention_rel).toBe(1);
     expect(body.decision.analytics.has_super_chat).toBeNull();
   });
