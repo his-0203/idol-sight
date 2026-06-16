@@ -7,6 +7,7 @@
 
 import { useMemo, useState } from "preact/hooks";
 import { EmptyState } from "../components/EmptyState";
+import { Tooltip } from "../components/Tooltip";
 import { QuadrantScatter } from "../components/QuadrantScatter";
 import {
   enrichCountries, headline, bettingQueue, hhi, hhiLabel, cr3,
@@ -44,13 +45,10 @@ const TIER_TONE: Record<string, string> = {
   watch: "text-slate-400", insufficient: "text-zinc-500",
 };
 
-// 용어 인라인 툴팁 — 점선 밑줄 + hover 시 1줄 설명(설명을 단어 자리에서).
+// 용어 인라인 툴팁 — hover/focus/클릭 시 실제 팝오버(native title 은 지연·
+// 비접근성이라 디자인된 Tooltip 컴포넌트 사용).
 function Term({ children, hint }: { children: any; hint: string }) {
-  return (
-    <span class="cursor-help border-b border-dotted border-zinc-500" title={hint}>
-      {children}
-    </span>
-  );
+  return <Tooltip content={hint}>{children}</Tooltip>;
 }
 
 // L0~L4 액션 단계를 숫자 코드 대신 진행바로 — "어디까지 왔나"를 위치로.
