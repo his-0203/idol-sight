@@ -11,7 +11,7 @@ import { Tooltip } from "../components/Tooltip";
 import { QuadrantScatter } from "../components/QuadrantScatter";
 import {
   enrichCountries, headline, bettingQueue, hhi, hhiLabel, cr3,
-  QUADRANT_LABEL, TIER_LABEL_KO, metaOf, fmtGrowthPct,
+  QUADRANT_LABEL, TIER_LABEL_KO, FANDOM_LABEL, metaOf, fmtGrowthPct,
   type CountryRow, type EnrichedCountry,
 } from "../lib/marketAnalysis";
 import {
@@ -153,73 +153,29 @@ export function MarketAnalysis({
         </div>
       </details>
 
-      {/* 사분면 + 랭킹 */}
-      <section>
-        <h3 class="section-title mb-1">국가 한눈에 — 성장세 × 끝까지 보는 정도</h3>
-        <p class="text-hint mb-1 text-zinc-400">
-          👉 읽는 법: <strong class="text-zinc-300">오른쪽일수록 뜨는 중, 위일수록 끝까지 봄.</strong> 오른쪽 위(초록) 칸이 명당입니다.
-          버블을 누르면 그 나라의 '왜'가 아래에 펼쳐져요.
+      {/* 1) 진출 우선순위(매력도) — 주인공: '어디부터 돈을 쓸까' */}
+      <section class="rounded-card border border-violet-500/25 bg-violet-500/[0.04] p-4">
+        <h3 class="section-title mb-1">💰 진출 우선순위 — 어디부터 돈을 쓸까 (핵심)</h3>
+        <p class="text-hint mb-3 text-zinc-400">
+          한정된 예산으로 <strong class="text-zinc-300">실제 어느 나라부터 돈을 쓸지</strong>. 데이터 점수에{" "}
+          <Term hint="언어 장벽·결제 인프라·배송 가능성·규제 — 실제로 들어가기 쉬운가">진입 난이도</Term>까지 반영한 실행 순위라, 아래 '유망도 점수'와 순위가 다를 수 있어요. 100에 가까울수록 매력적.
         </p>
-        <p class="text-hint mb-3 text-zinc-500">
-          버블 크기 = 시청 비중 · 색 = 등급(🔵0순위 🟣검증중 ⚪지켜보기) · 흐림 = 데이터 부족 ·
-          <span class="text-amber-300"> 금테 = 본진(한국)</span>.
-          {growthPending > 0 && <> 성장 데이터 누적 중인 {growthPending}개국은 그림에서 빠지고 오른쪽 목록엔 있습니다.</>}
-        </p>
-        <div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+        <div class="grid gap-4 md:grid-cols-2">
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
-            {scatterCountries.length > 0 ? (
-              <QuadrantScatter countries={scatterCountries} selected={sel?.row.country ?? null} onSelect={setSelected} />
-            ) : (
-              <div class="flex h-80 items-center justify-center text-center text-sm text-zinc-500">
-                성장 데이터 누적 중 — 30일 윈도우가 차면 사분면이 채워집니다.<br />그 전까지는 우측 점수 랭킹으로 판단하세요.
-              </div>
-            )}
-          </div>
-          <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
-            <div class="mb-2 text-xs font-semibold text-zinc-400">진출 점수 랭킹 (Top 12)</div>
+            <div class="mb-2 text-xs font-semibold text-zinc-400">진출 매력도 랭킹 (100점 만점) · 클릭 → 왜</div>
             <div class="space-y-1">
-              {[...enriched].sort((a, b) => b.score - a.score).slice(0, 12).map((e) => (
+              {byPri.slice(0, 8).map((e, i) => (
                 <button key={e.row.country} type="button"
                   onClick={() => setSelected(e.row.country)}
                   class={"flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-zinc-800/60 "
                     + (sel?.row.country === e.row.country ? "bg-zinc-800/80" : "")}>
-                  <span class="w-8 shrink-0 text-sm font-medium text-zinc-300">{e.row.country}</span>
-                  {e.row.country === "KR" && <span class="shrink-0 rounded border border-amber-500/40 px-1 text-[9px] text-amber-300">본진</span>}
+                  <span class="w-4 shrink-0 text-right text-xs text-zinc-600">{i + 1}</span>
+                  <span class="w-8 shrink-0 text-sm text-zinc-300">{e.row.country}</span>
                   <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
-                    <div class={"h-full rounded " + (e.insufficient ? "bg-zinc-600 opacity-50" : "bg-cyan-500/60")}
-                      style={{ width: `${e.score}%` }} />
-                  </div>
-                  <span class="w-7 shrink-0 text-right text-xs tabular-nums text-zinc-400">{e.score}</span>
-                  {e.insufficient && <span class="text-[10px] text-amber-400">⚠</span>}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 국가 드릴다운 — '왜' */}
-      {sel && <CountryDrilldown e={sel} pop={raw} />}
-
-      {/* PRI 우선순위 + 순차 베팅 */}
-      <section>
-        <h3 class="section-title mb-1">진출 매력도 — 어디부터 돈을 쓸까</h3>
-        <p class="text-hint mb-3 text-zinc-500">
-          단순 점수가 아니라 <strong class="text-zinc-400">들이는 노력 대비 기대 성과</strong>(도달×팬전환×진입 쉬움×성장세). 100에 가까울수록 매력적. 유료 광고는 예산상 동시 2곳까지.
-        </p>
-        <div class="grid gap-4 md:grid-cols-2">
-          <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
-            <div class="mb-2 text-xs font-semibold text-zinc-400">진출 매력도 랭킹 (100점 만점)</div>
-            <div class="space-y-1">
-              {byPri.slice(0, 8).map((e, i) => (
-                <div key={e.row.country} class="flex items-center gap-2">
-                  <span class="w-4 text-right text-xs text-zinc-600">{i + 1}</span>
-                  <span class="w-8 text-sm text-zinc-300">{e.row.country}</span>
-                  <div class="h-2 flex-1 overflow-hidden rounded bg-zinc-800">
                     <div class="h-full rounded bg-violet-500/60" style={{ width: `${Math.round(e.pri * 100)}%` }} />
                   </div>
-                  <span class="w-9 text-right text-xs tabular-nums text-zinc-400">{Math.round(e.pri * 100)}</span>
-                </div>
+                  <span class="w-9 shrink-0 text-right text-xs tabular-nums text-zinc-400">{Math.round(e.pri * 100)}</span>
+                </button>
               ))}
             </div>
           </div>
@@ -236,6 +192,54 @@ export function MarketAnalysis({
             </div>
           </div>
         </div>
+      </section>
+
+      {/* 2) 국가 드릴다운 — '왜' (위 랭킹/아래 지도에서 클릭하면 갱신) */}
+      {sel && <CountryDrilldown e={sel} pop={raw} />}
+
+      {/* 3) 시장 지도(사분면) + 유망도 점수(참고·접기) */}
+      <section>
+        <h3 class="section-title mb-1">🗺️ 시장 지도 — 유망한 곳 둘러보기 (참고)</h3>
+        <p class="text-hint mb-1 text-zinc-400">
+          👉 <strong class="text-zinc-300">오른쪽일수록 뜨는 중, 위일수록 끝까지 봄.</strong> 오른쪽 위(초록)가 명당,
+          <strong class="text-emerald-300"> 위쪽일수록 팬덤이 안착하기 좋은 곳</strong>입니다. 버블을 누르면 위에 '왜'가 펼쳐져요.
+        </p>
+        <p class="text-hint mb-3 text-zinc-500">
+          버블 크기 = 시청 비중 · 색 = 등급(🔵0순위 🟣검증중 ⚪지켜보기) · 흐림 = 데이터 부족 ·
+          <span class="text-amber-300"> 금테 = 본진(한국)</span>.
+          {growthPending > 0 && <> 성장 데이터 누적 중인 {growthPending}개국은 그림에서 빠지고 점수 목록엔 있습니다.</>}
+        </p>
+        <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
+          {scatterCountries.length > 0 ? (
+            <QuadrantScatter countries={scatterCountries} selected={sel?.row.country ?? null} onSelect={setSelected} />
+          ) : (
+            <div class="flex h-80 items-center justify-center text-center text-sm text-zinc-500">
+              성장 데이터 누적 중 — 30일 윈도우가 차면 지도가 채워집니다.<br />그 전까지는 위 '진출 우선순위'와 아래 점수로 판단하세요.
+            </div>
+          )}
+        </div>
+        <details class="mt-3 rounded-card border border-zinc-800 bg-zinc-900/40">
+          <summary class="cursor-pointer list-none px-3 py-2 text-xs text-zinc-400 marker:content-none">
+            📊 유망도 점수 랭킹 (참고) <span class="text-zinc-600">— 데이터 신호만 본 잠재력. 실제 돈 쓸 순서는 위 '진출 우선순위' (펼치기 ▾)</span>
+          </summary>
+          <div class="space-y-1 px-3 pb-3">
+            {[...enriched].sort((a, b) => b.score - a.score).slice(0, 12).map((e) => (
+              <button key={e.row.country} type="button"
+                onClick={() => setSelected(e.row.country)}
+                class={"flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-zinc-800/60 "
+                  + (sel?.row.country === e.row.country ? "bg-zinc-800/80" : "")}>
+                <span class="w-8 shrink-0 text-sm font-medium text-zinc-300">{e.row.country}</span>
+                {e.row.country === "KR" && <span class="shrink-0 rounded border border-amber-500/40 px-1 text-[9px] text-amber-300">본진</span>}
+                <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
+                  <div class={"h-full rounded " + (e.insufficient ? "bg-zinc-600 opacity-50" : "bg-cyan-500/60")}
+                    style={{ width: `${e.score}%` }} />
+                </div>
+                <span class="w-7 shrink-0 text-right text-xs tabular-nums text-zinc-400">{e.score}</span>
+                {e.insufficient && <span class="text-[10px] text-amber-400">⚠</span>}
+              </button>
+            ))}
+          </div>
+        </details>
       </section>
 
       {/* 굿즈 — 시장 분석과 별개 작업이라 접이식(첫 화면 부담 완화) */}
@@ -311,6 +315,9 @@ function CountryDrilldown({ e, pop }: { e: EnrichedCountry; pop: CountryRow[] })
         <span class={"text-sm font-semibold " + (TIER_TONE[e.tier] ?? "")}>{e.interpretation.label}</span>
         <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">{TIER_LABEL_KO[e.tier]} · {e.score}점</span>
         <span class="text-hint text-zinc-500">{QUADRANT_LABEL[e.quadrant]}</span>
+        <Tooltip content="팬덤이 안착하기 좋은 환경 — 끝까지 보고(몰입)·구독하고(헌신)·자연 유입(자생성)되는가. 성장세·크기는 무관.">
+          <span class="text-xs text-zinc-400">팬덤 안착 {FANDOM_LABEL[e.fandom.level]}</span>
+        </Tooltip>
         {e.insufficient && <span class="rounded border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">데이터 부족</span>}
       </div>
 
@@ -440,12 +447,14 @@ function HelpPanel() {
         <Row k="점유" v="전체 해외 시청시간 중 그 나라 비중." />
       </div>
       <div>
-        <div class="mb-1 font-semibold text-zinc-200">등급 · 읽는 법</div>
-        <Row k="tier" v="🔵후보(0순위) · 🟣테스트(검증 필요) · ⚪관망 · 표본부족(판단 보류)." />
-        <Row k="사분면" v="가로=성장, 세로=유지율. 우상 '공략 1순위', 우하 '거품 의심', 좌상 '안정·육성', 좌하 '관망'." />
-        <Row k="PRI" v="노력 대비 기대수익 — 도달×전환×진입용이성×모멘텀. 단순 점수보다 진출 우선순위에 적합." />
-        <Row k="L0~L4" v="액션 사다리: L0 관찰 → L1 자막AB → L2 유료도달 → L3 현지PR → L4 물리진출. 임계 미달 시 강등." />
-        <Row k="본진" v="KR은 한국 본진 = 유지율 기준선(1.0×). 진출 대상에 포함하되 금색 테두리로 구분." />
+        <div class="mb-1 font-semibold text-zinc-200">세 가지 렌즈 (헷갈리지 않게)</div>
+        <Row k="진출 매력도" v="★주인공★ '어디부터 돈을 쓸까'. 점수 + 진입 난이도(언어·결제·배송·규제)까지 반영한 실행 우선순위." />
+        <Row k="유망도 점수" v="'이 나라가 얼마나 유망한가'(데이터 신호만: 성장35+끝까지30+전환25+크기10%). 잠재력 — 참고용." />
+        <Row k="팬덤 안착" v="'지속될 팬층이 생기기 좋은가'. 끝까지 보고+구독하고+자연 유입되는가(성장·크기 무관)." />
+        <div class="mb-1 mt-2 font-semibold text-zinc-200">기타</div>
+        <Row k="tier" v="0순위 · 검증중 · 지켜보기 · 데이터 부족." />
+        <Row k="L0~L4" v="액션 단계: 관찰 → 자막 → 유료광고 → 현지PR → 진출. 효과 미달 시 강등." />
+        <Row k="본진" v="KR=한국 본진(유지율 기준선 1.0×). 진출 대상에 포함하되 금테로 구분." />
       </div>
     </div>
   );

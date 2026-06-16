@@ -311,6 +311,24 @@ export function prPriority(row: CountryRow, pop: CountryRow[]): number {
   return momentum(row, pop) * pctRank(row.subPer1k, pop.map((r) => r.subPer1k));
 }
 
+// 팬덤 안착력 — '지속되는 팬층이 형성되기 좋은 환경'인가. 점수(유망함)·PRI(돈)와
+// 다른 렌즈로, 깊이·헌신·자생성만 본다(성장세·크기 제외 — 그건 모멘텀/규모):
+//   끝까지 보기(retention) + 구독 전환(sub) + 자연 유입(organic).
+export type FandomFitLevel = "strong" | "ok" | "weak";
+export interface FandomFit { level: FandomFitLevel; score: number }
+export function fandomFit(row: CountryRow, pop: CountryRow[]): FandomFit {
+  const ret = pctRank(row.retentionRel, pop.map((r) => r.retentionRel));
+  const conv = pctRank(row.subPer1k, pop.map((r) => r.subPer1k));
+  // organic(자생 유입)은 best-effort라 없으면 중립 0.5.
+  const org = row.organicShare != null ? clamp01(row.organicShare) : 0.5;
+  const score = 0.4 * ret + 0.35 * conv + 0.25 * org;
+  const level: FandomFitLevel = score >= 0.6 ? "strong" : score >= 0.4 ? "ok" : "weak";
+  return { level, score };
+}
+export const FANDOM_LABEL: Record<FandomFitLevel, string> = {
+  strong: "🟢 좋음", ok: "🟡 보통", weak: "🔴 약함",
+};
+
 // ─── 5. PRI (노력 대비 기대수익) ─────────────────────────────────────
 export function retentionGate(retentionRel: number): number {
   if (retentionRel < 0.5) return 0.3;
@@ -395,6 +413,7 @@ export interface EnrichedCountry {
   flags: string[]; warnings: string[];
   momentum: number; quality: number; quadrant: Quadrant;
   pri: number; pattern: PatternFlags; rung: Rung; action: ActionCard;
+  fandom: FandomFit;
   insufficient: boolean;
 }
 
@@ -429,6 +448,7 @@ export function enrichCountries(raw: CountryRow[]): EnrichedCountry[] {
       quadrant: quadrant(sr), pri: pri(sr, scored),
       pattern, rung: currentRung(tier, pattern),
       action: actionCard(row, tier, pattern),
+      fandom: fandomFit(row, raw),
       insufficient,
     };
   });
