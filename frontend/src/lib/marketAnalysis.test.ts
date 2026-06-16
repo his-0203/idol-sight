@@ -10,7 +10,7 @@ import {
   isInsufficient, quantize, interpretCountry, contextFlags, distortionWarnings,
   quadrant, hhi, cr3, subtitlePriority, prPriority, retentionGate, pri,
   patternFlags, currentRung, actionCard, enrichCountries, headline, bettingQueue,
-  metaOf, shrinkGrowth, fandomFit, conclusion, easeContent, regionOf,
+  metaOf, shrinkGrowth, fandomFit, conclusion, easeContent, regionOf, weaknessAdvice,
 } from "./marketAnalysis";
 import { phaseOf, scoreExpansion, PHASE_WEIGHTS } from "./decisionSupport";
 
@@ -152,6 +152,16 @@ describe("#1 단계별 가중치 / #2,#3 ease / #4 결론", () => {
     expect(regionOf("JP")).toBe("동아시아");
     expect(regionOf("ID")).toBe("동남아");
     expect(regionOf("ZZ")).toBe("기타");
+  });
+  it("weaknessAdvice — 약점이 유지율이고 언어격차 크면 자막 처방", () => {
+    // US: retention 약점(0.72), 언어격차 high → 언어장벽 why + 자막 fix
+    const en = enrichCountries([
+      C("US", 0.14, 0.35, 0.72, 4), C("JP", 0.18, 0.04, 1.02, 9), C("ID", 0.06, 0.5, 0.95, 9),
+    ]);
+    const adv = weaknessAdvice(en.find((e) => e.row.country === "US")!);
+    expect(adv.driver).toMatch(/끝까지/);
+    expect(adv.fix).toMatch(/자막/);
+    expect(adv.why).toMatch(/언어/);
   });
   it("conclusion — KR 본진, insufficient 데이터더, L2 광고 추천", () => {
     const en = enrichCountries([
