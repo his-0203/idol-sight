@@ -458,17 +458,31 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
           {e.warnings.map((w, i) => (
             <p key={i} class="rounded border border-amber-500/20 bg-amber-500/[0.06] px-2 py-1 text-xs text-amber-300/90">⚠️ 주의: {w}</p>
           ))}
-          {/* 약점 진단 — 왜 약한지 + 어떻게 해결 */}
-          <div class="rounded border border-amber-500/25 bg-amber-500/[0.05] p-2.5">
-            <div class="mb-1 text-xs font-semibold text-amber-300">⚠ 약점: {adv.driver}</div>
-            <div class="text-xs text-zinc-300"><span class="text-zinc-500">왜 →</span> {adv.why}</div>
-            <div class="mt-1 text-xs text-zinc-300"><span class="text-emerald-400">해결 →</span> {adv.fix}</div>
-          </div>
-          {/* 약점 → 처방 연결 + 액션 카드 */}
-          <div class="rounded border border-cyan-700/40 bg-cyan-500/[0.05] p-2.5">
-            <div class="mb-1 text-xs text-zinc-400">
-              <span class="text-cyan-400">➜ 그래서 지금 할 일</span>
+          {/* 약점 진단 — 단정 않고 가능성 2~3개를 유력 순으로 */}
+          <div class="rounded-lg border border-amber-500/25 bg-amber-500/[0.04] p-3">
+            <div class="mb-2 flex items-baseline gap-1.5">
+              <span class="text-xs font-semibold text-amber-300">⚠ 약점: {adv.driver}</span>
+              <span class="text-[11px] text-zinc-500">— 원인 단정 어려워 가능성 순</span>
             </div>
+            <div class="space-y-1.5">
+              {adv.hypotheses.map((h, i) => (
+                <div key={i} class="rounded-md bg-zinc-900/50 p-2">
+                  <div class="mb-0.5 flex items-center gap-1.5">
+                    <span class="text-[10px] tabular-nums text-zinc-600">{i + 1}</span>
+                    <span class={"rounded px-1 py-px text-[9px] font-medium "
+                      + (h.likely ? "bg-cyan-500/20 text-cyan-300" : "bg-zinc-700/40 text-zinc-400")}>
+                      {h.likely ? "유력" : "가능"}
+                    </span>
+                    <span class="text-xs text-zinc-300">{h.why}</span>
+                  </div>
+                  <div class="pl-4 text-xs text-emerald-300/90">→ {h.fix}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* 엔진 추천 — 지금 할 한 가지 */}
+          <div class="rounded-lg border border-cyan-700/40 bg-cyan-500/[0.05] p-3">
+            <div class="mb-1 text-xs font-semibold text-cyan-300">➜ 지금 할 한 가지 (추천)</div>
             <div class="text-sm font-medium text-zinc-100">{e.action.verb}</div>
             <div class="mt-1.5"><RungBar rung={e.action.costTier} /></div>
             <div class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-500">

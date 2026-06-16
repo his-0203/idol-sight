@@ -470,44 +470,62 @@ export function conclusion(e: EnrichedCountry): Conclusion {
   }
 }
 
-// 약점 진단 — 가장 약한 드라이버에 대해 '왜 약한지 + 어떻게 해결'을 국가 맥락
-// (언어격차·시장 성숙도)에 맞춰 제시. 같은 약점이라도 시장에 따라 처방이 다르다.
-export interface WeaknessAdvice { driver: string; why: string; fix: string }
+// 약점 진단 — 가장 약한 드라이버의 원인을 단정하지 않고 가능성 2~3개로 제시.
+// 국가 맥락(언어격차·시장 성숙도·플랫폼)에 따라 어느 가설이 '유력'인지 표시하고
+// 유력한 것부터 정렬. 각 가설은 '왜 + 어떻게'.
+export interface WeaknessHypothesis { why: string; fix: string; likely: boolean }
+export interface WeaknessAdvice { driver: string; hypotheses: WeaknessHypothesis[] }
+
+function rankHyp(hs: WeaknessHypothesis[]): WeaknessHypothesis[] {
+  return [...hs].sort((a, b) => Number(b.likely) - Number(a.likely)).slice(0, 3);
+}
+
 export function weaknessAdvice(e: EnrichedCountry): WeaknessAdvice {
   const m = metaOf(e.row.country);
   const c = e.row.country;
   const d = e.drivers;
-  const ranked: Array<[string, number]> = [
-    ["growth", d.growth], ["retention", d.retention], ["sub", d.sub], ["share", d.share],
-  ];
-  const weak = ranked.sort((a, b) => a[1] - b[1])[0]![0];
+  const weak = ([["growth", d.growth], ["retention", d.retention],
+    ["sub", d.sub], ["share", d.share]] as Array<[string, number]>)
+    .sort((a, b) => a[1] - b[1])[0]![0];
 
   if (weak === "retention")
-    return m.langGap === "high" || m.langGap === "mid"
-      ? { driver: "끝까지 보는 정도",
-          why: `언어 장벽 가능성 — ${c}는 현지어 자막이 없어 중간에 이해가 끊겨 이탈했을 수 있음(언어격차 큰 시장).`,
-          fix: "현지어 자막 + 핀 댓글 번역으로 1개월 A/B → 유지율 상승폭으로 효과 확인." }
-      : { driver: "끝까지 보는 정도",
-          why: `언어보다 콘텐츠 적합도 — ${c}는 영어권이라 자막 문제가 아니라 템포·소재가 현지 취향과 어긋날 수 있음.`,
-          fix: "현지 인기 포맷·길이로 조정, 쇼츠 훅으로 초반 이탈 방지 후 본편 연결." };
+    return { driver: "끝까지 보는 정도", hypotheses: rankHyp([
+      { why: `언어 장벽 — ${c}는 현지어 자막이 없어 중간에 이해가 끊겨 이탈.`,
+        fix: "현지어 자막 + 핀 댓글 번역으로 1개월 A/B → 유지율 상승폭 확인.", likely: m.langGap !== "low" },
+      { why: "콘텐츠 적합도 — 템포·소재·길이가 현지 취향과 어긋남.",
+        fix: "현지 인기 포맷·길이로 조정, 컷 편집 빠르게.", likely: m.langGap === "low" },
+      { why: "도입부 이탈 — 초반 몇 초의 훅이 약해 일찍 나감.",
+        fix: "썸네일·인트로 단축, 쇼츠 훅으로 초반 잡고 본편 연결.", likely: false },
+    ]) };
 
   if (weak === "sub")
-    return m.market === "mature"
-      ? { driver: "팬 전환(구독)",
-          why: `성숙 시장 — ${c}는 구독할 코어가 이미 구독을 끝내 '신규' 전환이 평탄(예: 일본). 보긴 많이 봐도 새 구독은 적음.`,
-          fix: "신규 구독보다 기존 팬 심화 — 멤버십·커뮤니티·현지어 공지로 깊이를 키움." }
-      : { driver: "팬 전환(구독)",
-          why: `${c}는 보긴 하는데 구독으로 안 이어짐 — 구독 유인·동선이 약함.`,
-          fix: "영상 내·엔드스크린 구독 CTA, 시리즈/플레이리스트로 '다음 영상' 연결해 구독 동기 부여." };
+    return { driver: "팬 전환(구독)", hypotheses: rankHyp([
+      { why: `성숙 시장 — ${c}는 구독할 코어가 이미 구독 완료. 보긴 많이 봐도 '새' 구독은 적음.`,
+        fix: "신규 구독보다 멤버십·커뮤니티로 기존 팬 심화.", likely: m.market === "mature" },
+      { why: "유튜브 밖에서 헌신 — 현지 팬클럽·음반·전용앱으로 빠짐(특히 일본).",
+        fix: "유튜브 구독 유인 + 현지 플랫폼 연계 점검.", likely: m.market === "mature" && m.tzOverlap === "high" },
+      { why: "구독 동선·CTA 부족 — 보고 그냥 나감.",
+        fix: "엔드스크린 구독 CTA + 시리즈/플레이리스트로 '다음 영상' 연결.", likely: m.market !== "mature" },
+    ]) };
 
   if (weak === "growth")
-    return { driver: "성장세",
-      why: `${c}는 신규 유입이 정체 — 업로드 공백이거나 알고리즘 노출이 약해졌을 수 있음.`,
-      fix: "업로드 빈도·쇼츠로 신규 도달 확대, 컴백·이벤트·현지 협업으로 재점화." };
+    return { driver: "성장세", hypotheses: rankHyp([
+      { why: `${c}는 업로드 공백 — 새 영상이 뜸해 신규 유입 감소.`,
+        fix: "업로드 빈도 확대·쇼츠로 노출 늘리기.", likely: true },
+      { why: "데뷔 스파이크 후 정상 감쇠 — 초반 화제가 식는 자연스러운 구간.",
+        fix: "컴백·이벤트·협업으로 재점화 타이밍 잡기.", likely: false },
+      { why: "알고리즘 노출 약화 — 추천·검색에 덜 뜸.",
+        fix: "썸네일·제목 A/B, 쇼츠로 신규 도달 재확보.", likely: false },
+    ]) };
 
-  return { driver: "시청 비중(규모)",
-    why: `${c}는 아직 도달 규모가 작음 — 인지도 초기 단계.`,
-    fix: "현지 PR·소액 광고로 도달부터 키워 표본 확보. (작아도 유지·전환이 좋으면 먼저 잡을 후보)" };
+  return { driver: "시청 비중(규모)", hypotheses: rankHyp([
+    { why: `${c}는 인지도 초기 — 아직 도달 규모가 작음.`,
+      fix: "현지 PR·소액 광고로 도달부터 키워 표본 확보.", likely: true },
+    { why: "플랫폼 분산 — 유튜브 밖(틱톡·로컬앱) 비중이 커 YT 비중이 과소.",
+      fix: "타 플랫폼 활동 점검 — YT만으로 과소평가 주의.", likely: m.platform === "mixed" },
+    { why: "진출 미착수 — 현지화(자막·현지 채널)가 아직 안 됨.",
+      fix: "자막·현지 채널부터 진입 시작.", likely: false },
+  ]) };
 }
 
 export function enrichCountries(
