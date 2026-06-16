@@ -141,18 +141,28 @@ export function allocateMerch(
   const cap = (opts.capFactor ?? 2) / n;
 
   const weights = members.map((m) => Math.max(0, m.compositeScore ?? 0));
-  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  const total = weights.reduce((a, b) => a + b, 0);
+  let shares = total > 0 ? weights.map((w) => w / total) : members.map(() => 1 / n);
 
-  // 1차 비율 → floor/cap 클램프 → 재정규화.
-  const clamped = weights.map((w) =>
-    Math.min(cap, Math.max(floor, w / total)),
-  );
-  const cTotal = clamped.reduce((a, b) => a + b, 0) || 1;
+  // Water-filling: floor/cap 을 만족하면서 합=1 을 유지. 단순 클램프+재정규화는
+  // 재정규화가 cap/floor 를 다시 깨뜨리므로(과잉생산 방어 무력화), 초과/부족분을
+  // 여유 있는 멤버에 헤드룸 비례로 재분배하며 수렴시킨다.
+  for (let it = 0; it < 50; it++) {
+    shares = shares.map((s) => Math.min(cap, Math.max(floor, s)));
+    const sum = shares.reduce((a, b) => a + b, 0);
+    const diff = 1 - sum;
+    if (Math.abs(diff) < 1e-9) break;
+    // diff>0 → 늘려야 함(cap 안 닿은 멤버), diff<0 → 줄여야 함(floor 위 멤버).
+    const headroom = shares.map((s) => (diff > 0 ? cap - s : s - floor));
+    const freeTotal = headroom.reduce((a, h) => a + Math.max(0, h), 0);
+    if (freeTotal < 1e-12) break;
+    shares = shares.map((s, i) => s + diff * (Math.max(0, headroom[i]!) / freeTotal));
+  }
 
   return members.map((m, i) => ({
     memberId: m.memberId,
     name: m.name,
-    sharePct: (clamped[i]! / cTotal) * 100,
+    sharePct: shares[i]! * 100,
     // 공개 프록시이므로 최선이 estimated. 데이터 부족 멤버는 insufficient.
     confidence: m.sufficient && m.compositeScore != null ? "estimated" : "insufficient",
   }));

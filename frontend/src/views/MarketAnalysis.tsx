@@ -10,7 +10,7 @@ import { EmptyState } from "../components/EmptyState";
 import { QuadrantScatter } from "../components/QuadrantScatter";
 import {
   enrichCountries, headline, bettingQueue, hhi, hhiLabel, cr3,
-  QUADRANT_LABEL, RUNG_LABEL, metaOf, fmtGrowthPct,
+  QUADRANT_LABEL, RUNG_LABEL, TIER_LABEL_KO, metaOf, fmtGrowthPct,
   type CountryRow, type EnrichedCountry,
 } from "../lib/marketAnalysis";
 import {
@@ -67,7 +67,8 @@ export function MarketAnalysis({
   const growthPending = enriched.length - scatterCountries.length;
 
   const [selected, setSelected] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
+  // 비전문가 배려 — 지표 안내 기본 펼침(처음 보는 사람이 용어부터 막히지 않게).
+  const [showHelp, setShowHelp] = useState(true);
   const sel = enriched.find((e) => e.row.country === selected)
     ?? [...sufficient].sort((a, b) => b.score - a.score)[0]
     ?? enriched[0] ?? null;
@@ -93,8 +94,9 @@ export function MarketAnalysis({
       <section class="rounded-card border border-cyan-500/20 bg-cyan-500/[0.06] p-4">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <div class="text-hint mb-1 text-zinc-500">오늘의 한 줄 ({dPlus} · 갱신 {analytics.snapshot_at.slice(0, 10)})</div>
+            <div class="text-hint mb-1 text-cyan-300/80">📋 이번 주 추천 — 무엇부터 할까 ({dPlus} · 갱신 {analytics.snapshot_at.slice(0, 10)})</div>
             <div class="text-sm font-semibold text-zinc-100">{headline(enriched)}</div>
+            <div class="mt-0.5 text-[11px] text-zinc-500">아래는 "왜 그런지" 근거입니다. 모르는 용어는 오른쪽 ? 를 보세요.</div>
           </div>
           <button type="button" onClick={() => setShowHelp((v) => !v)}
             aria-expanded={showHelp}
@@ -115,11 +117,15 @@ export function MarketAnalysis({
 
       {/* 사분면 + 랭킹 */}
       <section>
-        <h3 class="section-title mb-1">국가 한눈에 — 모멘텀 × 품질</h3>
+        <h3 class="section-title mb-1">국가 한눈에 — 성장세 × 끝까지 보는 정도</h3>
+        <p class="text-hint mb-1 text-zinc-400">
+          👉 읽는 법: <strong class="text-zinc-300">오른쪽일수록 뜨는 중, 위일수록 끝까지 봄.</strong> 오른쪽 위(초록) 칸이 명당입니다.
+          버블을 누르면 그 나라의 '왜'가 아래에 펼쳐져요.
+        </p>
         <p class="text-hint mb-3 text-zinc-500">
-          버블 클릭 → 아래 '왜' 분해. 크기=시청 점유, 색=tier(🔵후보 🟣테스트 ⚪관망), 흐림=표본부족,
-          <span class="text-amber-300"> 금테=본진(KR)</span>.
-          {growthPending > 0 && <> · 성장 데이터 누적 중 {growthPending}개국은 산점도 제외(랭킹엔 포함).</>}
+          버블 크기 = 시청 비중 · 색 = 등급(🔵0순위 🟣검증중 ⚪지켜보기) · 흐림 = 데이터 부족 ·
+          <span class="text-amber-300"> 금테 = 본진(한국)</span>.
+          {growthPending > 0 && <> 성장 데이터 누적 중인 {growthPending}개국은 그림에서 빠지고 오른쪽 목록엔 있습니다.</>}
         </p>
         <div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
@@ -159,13 +165,13 @@ export function MarketAnalysis({
 
       {/* PRI 우선순위 + 순차 베팅 */}
       <section>
-        <h3 class="section-title mb-1">진출 우선순위 — 노력 대비 기대수익(PRI)</h3>
+        <h3 class="section-title mb-1">진출 매력도 — 어디부터 돈을 쓸까</h3>
         <p class="text-hint mb-3 text-zinc-500">
-          단순 점수가 아니라 (도달×전환×진입용이성×모멘텀). 유료 진출은 동시 2개국만 — 나머지는 대기.
+          단순 점수가 아니라 <strong class="text-zinc-400">들이는 노력 대비 기대 성과</strong>(도달×팬전환×진입 쉬움×성장세). 100에 가까울수록 매력적. 유료 광고는 예산상 동시 2곳까지.
         </p>
         <div class="grid gap-4 md:grid-cols-2">
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
-            <div class="mb-2 text-xs font-semibold text-zinc-400">PRI 랭킹</div>
+            <div class="mb-2 text-xs font-semibold text-zinc-400">진출 매력도 랭킹 (100점 만점)</div>
             <div class="space-y-1">
               {byPri.slice(0, 8).map((e, i) => (
                 <div key={e.row.country} class="flex items-center gap-2">
@@ -174,19 +180,20 @@ export function MarketAnalysis({
                   <div class="h-2 flex-1 overflow-hidden rounded bg-zinc-800">
                     <div class="h-full rounded bg-violet-500/60" style={{ width: `${Math.round(e.pri * 100)}%` }} />
                   </div>
-                  <span class="w-9 text-right text-xs tabular-nums text-zinc-400">{e.pri.toFixed(2)}</span>
+                  <span class="w-9 text-right text-xs tabular-nums text-zinc-400">{Math.round(e.pri * 100)}</span>
                 </div>
               ))}
             </div>
           </div>
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
-            <div class="mb-2 text-xs font-semibold text-zinc-400">순차 베팅 큐</div>
+            <div class="mb-2 text-xs font-semibold text-zinc-400">예산 배분 계획</div>
+            <p class="mb-2 text-[11px] text-zinc-600">예산을 흩으면 효과 측정이 어려워 한 번에 2곳만 집중합니다. 자막 테스트는 무료라 여러 곳 동시 가능.</p>
             <div class="space-y-2 text-xs">
-              <QueueRow label="🎯 유료 슬롯 (동시 2)" tone="text-cyan-300"
+              <QueueRow label="🎯 지금 광고할 곳 (2곳까지)" tone="text-cyan-300"
                 items={queue.paidSlots.map((e) => e.row.country)} />
-              <QueueRow label="🈂️ 자막 AB (무료·동시 가능)" tone="text-emerald-300"
+              <QueueRow label="🈂️ 자막 효과 테스트 (무료·동시 가능)" tone="text-emerald-300"
                 items={queue.subtitleEligible.map((e) => e.row.country)} />
-              <QueueRow label="⏸ 유료 대기" tone="text-zinc-400"
+              <QueueRow label="⏸ 다음 차례 (대기)" tone="text-zinc-400"
                 items={queue.paidQueue.map((e) => e.row.country)} />
             </div>
           </div>
@@ -237,11 +244,12 @@ function QueueRow({ label, items, tone }: { label: string; items: string[]; tone
 function CountryDrilldown({ e, pop }: { e: EnrichedCountry; pop: CountryRow[] }) {
   void pop;
   const m = metaOf(e.row.country);
+  const retArrow = e.row.retentionRel >= 1 ? "🔼 국내보다 더 봄" : "🔻 국내보다 덜 봄";
   const drivers: Array<[string, number, string]> = [
-    ["성장", e.drivers.growth, fmtGrowthPct(e.row.growthMoM)],
-    ["유지율", e.drivers.retention, `${e.row.retentionRel.toFixed(2)}× 국내`],
-    ["전환", e.drivers.sub, `${e.row.subPer1k.toFixed(1)}/1k`],
-    ["점유", e.drivers.share, `${(e.row.watchShare * 100).toFixed(1)}%`],
+    ["뜨는 중?", e.drivers.growth, fmtGrowthPct(e.row.growthMoM)],
+    ["끝까지", e.drivers.retention, `${e.row.retentionRel.toFixed(2)}× (${retArrow})`],
+    ["팬 전환", e.drivers.sub, `1k당 +${e.row.subPer1k.toFixed(1)}명`],
+    ["시청 비중", e.drivers.share, `${(e.row.watchShare * 100).toFixed(1)}%`],
   ];
   const weakest = drivers.reduce((min, d) => (d[1] < min[1] ? d : min), drivers[0]!);
 
@@ -249,11 +257,11 @@ function CountryDrilldown({ e, pop }: { e: EnrichedCountry; pop: CountryRow[] })
     <section class="rounded-card border-l-4 border border-zinc-800 bg-zinc-900/40 p-4"
       style={{ borderLeftColor: "#22d3ee" }}>
       <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h3 class="text-lg font-bold text-zinc-100">{e.row.country}</h3>
+        <h3 class="text-lg font-bold text-zinc-100">{e.row.country}{e.row.country === "KR" && <span class="ml-1 text-xs text-amber-300">본진</span>}</h3>
         <span class={"text-sm font-semibold " + (TIER_TONE[e.tier] ?? "")}>{e.interpretation.label}</span>
-        <span class="text-sm tabular-nums text-zinc-300">{e.score}점</span>
-        <span class="text-hint text-zinc-500">{QUADRANT_LABEL[e.quadrant]} · {RUNG_LABEL[e.rung]}</span>
-        {e.insufficient && <span class="rounded border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">표본부족</span>}
+        <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">{TIER_LABEL_KO[e.tier]} · {e.score}점</span>
+        <span class="text-hint text-zinc-500">{QUADRANT_LABEL[e.quadrant]}</span>
+        {e.insufficient && <span class="rounded border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">데이터 부족</span>}
       </div>
 
       <div class="grid gap-4 md:grid-cols-[1fr_1.2fr]">
@@ -289,19 +297,23 @@ function CountryDrilldown({ e, pop }: { e: EnrichedCountry; pop: CountryRow[] })
         <div class="space-y-2">
           <p class="text-sm leading-relaxed text-zinc-300">{e.interpretation.narrative}</p>
           {e.flags.map((f, i) => (
-            <p key={i} class="text-xs text-zinc-500">🏳️ {f}</p>
+            <p key={i} class="text-xs text-zinc-500">ℹ️ 참고: {f}</p>
           ))}
           {e.warnings.map((w, i) => (
-            <p key={i} class="rounded border border-amber-500/20 bg-amber-500/[0.06] px-2 py-1 text-xs text-amber-300/90">⚠️ {w}</p>
+            <p key={i} class="rounded border border-amber-500/20 bg-amber-500/[0.06] px-2 py-1 text-xs text-amber-300/90">⚠️ 주의: {w}</p>
           ))}
-          {/* 액션 카드 */}
-          <div class="rounded border border-zinc-700/60 bg-zinc-800/40 p-2.5">
-            <div class="mb-1 flex items-center gap-2">
-              <span class="rounded bg-zinc-700/60 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-300">{e.action.costTier} · {RUNG_LABEL[e.action.costTier]}</span>
-              <span class="text-[10px] text-zinc-500">{e.action.owner} · {e.action.due}</span>
+          {/* 약점 → 처방 연결 + 액션 카드 */}
+          <div class="rounded border border-cyan-700/40 bg-cyan-500/[0.05] p-2.5">
+            <div class="mb-1 text-xs text-zinc-400">
+              가장 약한 곳: <strong class="text-amber-300">{weakest[0]}</strong>
+              <span class="mx-1 text-cyan-400">➜ 그래서 할 일</span>
             </div>
-            <div class="text-sm font-medium text-zinc-200">{e.action.verb}</div>
-            <div class="mt-1 text-xs text-zinc-500">측정: {e.action.measurable}</div>
+            <div class="text-sm font-medium text-zinc-100">{e.action.verb}</div>
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-500">
+              <span class="rounded bg-zinc-700/60 px-1.5 py-0.5 text-zinc-300">{RUNG_LABEL[e.action.costTier]}</span>
+              <span>{e.action.owner} · {e.action.due}</span>
+            </div>
+            <div class="mt-1 text-[11px] text-zinc-500">성공 기준: {e.action.measurable}</div>
           </div>
         </div>
       </div>
