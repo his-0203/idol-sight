@@ -8,6 +8,7 @@ HTTP 는 건드리지 않고 build_country_rows / index_rows 만 — 국가별 �
 from idol_sight.collectors.youtube_analytics import (
     build_country_rows,
     index_rows,
+    organic_share_from_traffic,
 )
 
 
@@ -72,6 +73,34 @@ def test_growth_mom_none_when_no_prior():
     rows = build_country_rows(current, [], "miiwan", "2026-06-16T00:00:00Z")
     # prior 없음 → growth_mom None
     assert _params(rows[0])[4] is None
+
+
+def test_watch_minutes_and_organic_stored():
+    current = [
+        {"country": "JP", "estimatedMinutesWatched": 1200.7, "views": 600,
+         "subscribersGained": 30, "averageViewPercentage": 54.0},
+    ]
+    rows = build_country_rows(current, [], "miiwan", "2026-06-16T00:00:00Z",
+                              organic={"JP": 0.82})
+    p = _params(rows[0])
+    # params: [..., sub_per_1k, watch_minutes, organic_share]
+    assert p[7] == 1201          # round(1200.7)
+    assert p[8] == 0.82
+
+
+def test_organic_share_from_traffic():
+    rows = [
+        {"insightTrafficSourceType": "YT_SEARCH", "views": 400},
+        {"insightTrafficSourceType": "RELATED_VIDEO", "views": 300},
+        {"insightTrafficSourceType": "EXT_URL", "views": 200},
+        {"insightTrafficSourceType": "SHARES", "views": 100},
+    ]
+    # 오가닉 = 검색400+추천300 = 700 / 전체 1000 = 0.7
+    assert organic_share_from_traffic(rows) == 0.7
+
+
+def test_organic_share_none_when_no_views():
+    assert organic_share_from_traffic([]) is None
 
 
 def test_sub_per_1k_zero_when_no_views():

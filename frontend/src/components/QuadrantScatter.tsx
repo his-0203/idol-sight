@@ -2,20 +2,23 @@
 // X=growthMoM, Y=retentionRel, 버블크기=watch_share, 색=tier.
 // 기준선: x=0(전월 동일), y=1.0(국내 동등) → 4분면. 클릭 시 국가 선택.
 //
-// chart.js v4 bubble. 사분면 가이드선/라벨은 의존성(annotation 플러그인)
-// 없이 커스텀 인라인 플러그인(afterDraw)으로 직접 그린다.
+// 데뷔 초기 robust 처리:
+//   - 축 범위를 데이터 P5~P95(클램프 한계 내)로 고정 → +230000% 같은 극단치
+//     한 점이 전체 축을 파괴하지 못하게. 범위 초과 점은 가장자리에 핀.
+//   - 성장 데이터 없는(신규) 국가는 호출부가 제외하고 넘긴다.
+//   - 본진(KR)은 금색 테두리로 구분(진출 대상엔 포함, 기준선 의미).
+//
+// chart.js v4 bubble. 사분면 가이드선/라벨은 의존성 없이 커스텀 플러그인.
 
 import { useEffect, useRef } from "preact/hooks";
 import Chart from "chart.js/auto";
-import type { EnrichedCountry } from "../lib/marketAnalysis";
+import { percentile, type EnrichedCountry } from "../lib/marketAnalysis";
 
 const TIER_COLOR: Record<string, string> = {
   candidate: "#22d3ee", test: "#a78bfa", watch: "#64748b", insufficient: "#475569",
 };
-
-function bubbleRadius(watchShare: number): number {
-  return 4 + Math.sqrt(Math.max(0, watchShare)) * 28;
-}
+const HOME = "KR";
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export function QuadrantScatter({
   countries, selected, onSelect,
@@ -30,16 +33,26 @@ export function QuadrantScatter({
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
 
   useEffect(() => {
-    if (!canvas.current) return;
+    if (!canvas.current || countries.length === 0) return;
 
-    const points = countries.map((c) => ({
-      x: c.row.growthMoM,
-      y: c.row.retentionRel,
-      r: bubbleRadius(c.row.watchShare),
-      _c: c,
-    }));
+    // robust 축 범위 — 극단치가 축을 지배하지 못하도록 P5~P95 + 절대 한계.
+    const gs = countries.map((c) => c.row.growthMoM);
+    const rs = countries.map((c) => c.row.retentionRel);
+    const xLo = clamp(percentile(gs, 0.05), -1, -0.1);
+    const xHi = clamp(percentile(gs, 0.95), 0.3, 2);
+    const yLo = 0;
+    const yHi = clamp(percentile(rs, 0.95), 1.4, 2.5);
 
-    // 사분면 기준선 + 코너 라벨을 그리는 커스텀 플러그인.
+    const points = countries.map((c) => {
+      const gx = clamp(c.row.growthMoM, xLo, xHi);
+      const gy = clamp(c.row.retentionRel, yLo, yHi);
+      const pinned = gx !== c.row.growthMoM || gy !== c.row.retentionRel;
+      return {
+        x: gx, y: gy, r: 3 + Math.sqrt(Math.max(0, c.row.watchShare)) * 22,
+        _c: c, _pinned: pinned,
+      };
+    });
+
     const quadrantPlugin = {
       id: "quadrant",
       afterDraw(ch: any) {
@@ -48,26 +61,18 @@ export function QuadrantScatter({
         const y1 = scales.y.getPixelForValue(1.0);
         ctx.save();
         ctx.strokeStyle = "rgba(148,163,184,0.35)";
-        ctx.setLineDash([4, 3]);
-        ctx.lineWidth = 1;
-        if (x0 >= a.left && x0 <= a.right) {
-          ctx.beginPath(); ctx.moveTo(x0, a.top); ctx.lineTo(x0, a.bottom); ctx.stroke();
-        }
-        if (y1 >= a.top && y1 <= a.bottom) {
-          ctx.beginPath(); ctx.moveTo(a.left, y1); ctx.lineTo(a.right, y1); ctx.stroke();
-        }
+        ctx.setLineDash([4, 3]); ctx.lineWidth = 1;
+        if (x0 >= a.left && x0 <= a.right) { ctx.beginPath(); ctx.moveTo(x0, a.top); ctx.lineTo(x0, a.bottom); ctx.stroke(); }
+        if (y1 >= a.top && y1 <= a.bottom) { ctx.beginPath(); ctx.moveTo(a.left, y1); ctx.lineTo(a.right, y1); ctx.stroke(); }
         ctx.setLineDash([]);
-        ctx.fillStyle = "rgba(148,163,184,0.6)";
+        ctx.fillStyle = "rgba(148,163,184,0.55)";
         ctx.font = "11px ui-sans-serif, system-ui";
-        ctx.textBaseline = "top";
-        ctx.fillText("공략 1순위", a.right - 70, a.top + 4);
-        ctx.textBaseline = "bottom";
-        ctx.fillText("거품 의심", a.right - 64, a.bottom - 4);
-        ctx.textAlign = "left";
-        ctx.textBaseline = "top";
-        ctx.fillText("안정·육성", a.left + 4, a.top + 4);
-        ctx.textBaseline = "bottom";
-        ctx.fillText("관망", a.left + 4, a.bottom - 4);
+        ctx.textAlign = "right"; ctx.textBaseline = "top";
+        ctx.fillText("공략 1순위", a.right - 6, a.top + 4);
+        ctx.textBaseline = "bottom"; ctx.fillText("거품 의심", a.right - 6, a.bottom - 4);
+        ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.fillText("안정·육성", a.left + 6, a.top + 4);
+        ctx.textBaseline = "bottom"; ctx.fillText("관망", a.left + 6, a.bottom - 4);
         ctx.restore();
       },
     };
@@ -78,26 +83,25 @@ export function QuadrantScatter({
         datasets: [{
           data: points as any,
           backgroundColor: (cx: any) => {
-            const c: EnrichedCountry = cx.raw?._c;
-            if (!c) return "#475569";
+            const c: EnrichedCountry = cx.raw?._c; if (!c) return "#475569";
             const base = TIER_COLOR[c.tier] ?? "#64748b";
-            const sel = selected === c.row.country;
-            const alpha = c.insufficient ? 0.25 : sel ? 0.95 : 0.6;
+            const alpha = c.insufficient ? 0.22 : selected === c.row.country ? 0.92 : 0.55;
             return hexA(base, alpha);
           },
           borderColor: (cx: any) => {
-            const c: EnrichedCountry = cx.raw?._c;
-            return c && selected === c.row.country ? "#e2e8f0" : "transparent";
+            const c: EnrichedCountry = cx.raw?._c; if (!c) return "transparent";
+            if (selected === c.row.country) return "#e2e8f0";
+            if (c.row.country === HOME) return "#fbbf24";   // 본진 금색
+            return "rgba(15,18,22,0.8)";                     // 분리용 어두운 테두리
           },
           borderWidth: (cx: any) => {
             const c: EnrichedCountry = cx.raw?._c;
-            return c && selected === c.row.country ? 2 : 0;
+            return c && (selected === c.row.country || c.row.country === HOME) ? 2 : 1;
           },
         }],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         onClick(_e, els) {
           if (!els.length) return;
           const p = points[els[0]!.index];
@@ -105,11 +109,13 @@ export function QuadrantScatter({
         },
         scales: {
           x: {
+            min: xLo, max: xHi,
             title: { display: true, text: "모멘텀 (전월비 시청 성장)" },
             ticks: { callback: (v: any) => `${Math.round(Number(v) * 100)}%` },
           },
           y: {
-            title: { display: true, text: "품질 (국내 대비 유지율)" },
+            min: yLo, max: yHi,
+            title: { display: true, text: "품질 (한국 본진 대비 유지율)" },
             ticks: { callback: (v: any) => `${Number(v).toFixed(1)}×` },
           },
         },
@@ -118,12 +124,12 @@ export function QuadrantScatter({
           tooltip: {
             callbacks: {
               label(cx: any) {
-                const c: EnrichedCountry = cx.raw?._c;
-                if (!c) return "";
+                const c: EnrichedCountry = cx.raw?._c; if (!c) return "";
                 return [
-                  `${c.row.country} · ${c.score}점 · ${c.tier}`,
+                  `${c.row.country}${c.row.country === HOME ? " (본진)" : ""} · ${c.score}점 · ${c.tier}`,
                   `성장 ${pct(c.row.growthMoM)} · 유지 ${c.row.retentionRel.toFixed(2)}×`,
                   `점유 ${(c.row.watchShare * 100).toFixed(1)}% · 전환 ${c.row.subPer1k.toFixed(1)}/1k`,
+                  cx.raw?._pinned ? "↳ 표시범위 초과(가장자리에 핀)" : "",
                   c.insufficient ? "⚠ 표본부족" : "",
                 ].filter(Boolean);
               },
@@ -139,15 +145,13 @@ export function QuadrantScatter({
 
   return (
     <div class="relative h-80">
-      <canvas ref={canvas} role="img"
-        aria-label="국가별 모멘텀 × 품질 사분면" />
+      <canvas ref={canvas} role="img" aria-label="국가별 모멘텀 × 품질 사분면" />
     </div>
   );
 }
 
 function hexA(hex: string, alpha: number): string {
   const n = parseInt(hex.slice(1), 16);
-  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  return `rgba(${r},${g},${b},${alpha})`;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 const pct = (x: number) => `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%`;

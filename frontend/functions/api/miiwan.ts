@@ -141,6 +141,8 @@ interface YtAnalyticsCountryRow {
   growth_mom: number | null;
   retention_rel: number | null;
   sub_per_1k: number;
+  watch_minutes: number | null;
+  organic_share: number | null;
 }
 
 const safeJson = (s: string | null) => {
@@ -181,6 +183,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const [
     summary, prevSummary, summaryHistory, health, members, insights, alerts,
     controversyTrend, memberPopularity, ytAnalytics, ytAnalyticsCountries,
+    goodsPreorder,
   ] = await Promise.all([
     d1QueryOne<SummaryRow>(
       env.DB,
@@ -269,13 +272,22 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     ),
     d1Query<YtAnalyticsCountryRow>(
       env.DB,
-      `SELECT country, watch_share, growth_mom, retention_rel, sub_per_1k
+      `SELECT country, watch_share, growth_mom, retention_rel, sub_per_1k,
+              watch_minutes, organic_share
          FROM agg_youtube_analytics_country
         WHERE group_key=? AND snapshot_at = (
           SELECT MAX(snapshot_at) FROM agg_youtube_analytics_country
            WHERE group_key=?)
         ORDER BY watch_share DESC`,
       [TARGET, TARGET],
+    ),
+    // #4 굿즈 예판/위시리스트 by 국가 — 지불의향 hard signal (수동/커머스 적재).
+    d1Query<{ country: string; member_id: number | null; count: number; source: string }>(
+      env.DB,
+      `SELECT country, member_id, SUM(count) AS count, source
+         FROM goods_preorder WHERE group_key=?
+        GROUP BY country, member_id, source`,
+      [TARGET],
     ),
   ]);
 
@@ -493,12 +505,18 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       analytics: (ytAnalytics || (ytAnalyticsCountries ?? []).length > 0)
         ? {
             snapshot_at: ytAnalytics?.snapshot_at ?? "",
+            // growth_mom 은 null(직전 30일 데이터 없음 = 신규)을 보존한다 —
+            // 프론트가 "성장 0%"와 "성장 데이터 없음"을 구분해야 데뷔 초기
+            // 산점도가 x=0 에 무더기로 뭉치지 않는다. retention 은 1.0(국내
+            // 동등) 폴백이 의미 있어 유지.
             countries: (ytAnalyticsCountries ?? []).map((c) => ({
               country: c.country,
               watch_share: c.watch_share,
-              growth_mom: c.growth_mom ?? 0,
+              growth_mom: c.growth_mom,
               retention_rel: c.retention_rel ?? 1,
               sub_per_1k: c.sub_per_1k,
+              watch_minutes: c.watch_minutes,
+              organic_share: c.organic_share,
             })),
             returning_viewers_30d: ytAnalytics?.returning_viewers_30d ?? null,
             membership_count: ytAnalytics?.membership_count ?? null,
@@ -507,6 +525,11 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
               ? null : Boolean(ytAnalytics.has_super_chat),
           }
         : null,
+      // #4 굿즈 예판 — 국가/멤버별 집계 (지불의향 hard signal). 비었으면 [].
+      goods_preorder: (goodsPreorder ?? []).map((g) => ({
+        country: g.country, member_id: g.member_id,
+        count: Number(g.count ?? 0), source: g.source,
+      })),
     },
   });
 };
