@@ -65,6 +65,19 @@ def test_build_country_rows_computes_four_axes():
     assert abs(jp[6] - 50.0) < 1e-9
 
 
+def test_growth_mom_none_when_prior_below_threshold():
+    # 직전 시청 30분(<60) = 신규 진입 → 폭발 비율 대신 None.
+    current = [{"country": "BR", "estimatedMinutesWatched": 5000, "views": 100,
+                "subscribersGained": 5, "averageViewPercentage": 40.0}]
+    prior = [{"country": "BR", "estimatedMinutesWatched": 30}]
+    rows = build_country_rows(current, prior, "miiwan", "2026-06-16T00:00:00Z")
+    assert _params(rows[0])[4] is None
+    # 직전 200분(>=60)이면 정상 계산
+    prior2 = [{"country": "BR", "estimatedMinutesWatched": 200}]
+    rows2 = build_country_rows(current, prior2, "miiwan", "2026-06-16T00:00:00Z")
+    assert _params(rows2[0])[4] is not None
+
+
 def test_growth_mom_none_when_no_prior():
     current = [
         {"country": "BR", "estimatedMinutesWatched": 500, "views": 100,

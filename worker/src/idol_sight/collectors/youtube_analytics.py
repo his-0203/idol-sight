@@ -34,6 +34,8 @@ log = logging.getLogger(__name__)
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 ANALYTICS_URL = "https://youtubeanalytics.googleapis.com/v2/reports"
 DOMESTIC = "KR"  # retention_rel 의 기준 국가 (국내)
+# 직전 30일 시청시간이 이 미만이면 성장률 계산 안 함(신규 진입 = 분모 노이즈).
+MIN_PRIOR_MINUTES = 60.0
 
 
 def access_token(
@@ -105,7 +107,10 @@ def build_country_rows(
 
         watch_share = minutes / total_minutes
         pm = prior_minutes.get(country, 0.0)
-        growth_mom = ((minutes - pm) / pm) if pm > 0 else None
+        # 직전 윈도우 시청이 미미한 국가(=신규 진입)는 분모≈0 폭발 대신 NULL.
+        # 채널이 오래 돌았어도 그 '국가'가 최근에야 보기 시작하면 발생 →
+        # +228996% 같은 무의미한 비율 방지. 프론트는 NULL=신규로 다룬다.
+        growth_mom = ((minutes - pm) / pm) if pm >= MIN_PRIOR_MINUTES else None
         retention_rel = (avp / domestic_avp) if domestic_avp > 0 else None
         sub_per_1k = (subs / (views / 1000.0)) if views > 0 else 0.0
 
