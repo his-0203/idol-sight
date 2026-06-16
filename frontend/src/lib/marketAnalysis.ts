@@ -113,12 +113,17 @@ export const fmtGrowthPct = (x: number): string => {
 const pct = fmtGrowthPct;
 const x2 = (x: number) => `${x.toFixed(2)}×`;
 
-export function interpretCountry(row: CountryRow, pop: CountryRow[]): Interpretation {
+export function interpretCountry(
+  row: CountryRow, pop: CountryRow[], displayGrowth?: number,
+): Interpretation {
   const L = quantize(row, pop);
   const c = row.country;
   const subs = pop.map((r) => r.subPer1k);
   // 전환이 강한 편 = 중앙값 이상 (R3/R5 판정용).
   const subHigh = row.subPer1k >= percentile(subs, 0.5);
+  // 분류(quantize)는 row(수축 성장)로 — tier/액션과 정합. 서술의 성장% 표시만
+  // 원값(displayGrowth)으로 — 드라이버 막대의 성장%와 같은 숫자가 보이게.
+  const gpct = (x: number) => pct(displayGrowth ?? x);
 
   // 위에서부터 평가, 첫 매칭 채택 (우선순위 = 신뢰도·규모·시급성).
   if (isInsufficient(row))
@@ -128,22 +133,22 @@ export function interpretCountry(row: CountryRow, pop: CountryRow[]): Interpreta
 
   if (L.watch === "high" && L.retention === "low" && L.growth === "high")
     return { ruleId: "R8", label: "⚠️ 큰데 안 봄",
-      narrative: `${c}는 비중도 크고(${(row.watchShare * 100).toFixed(1)}%) 성장도 빠르나(${pct(row.growthMoM)}) 완주율이 국내의 ${x2(row.retentionRel)}에 그칩니다. 규모 있는 언어장벽 = 자막 ROI 최대.`,
+      narrative: `${c}는 비중도 크고(${(row.watchShare * 100).toFixed(1)}%) 성장도 빠르나(${gpct(row.growthMoM)}) 완주율이 국내의 ${x2(row.retentionRel)}에 그칩니다. 규모 있는 언어장벽 = 자막 ROI 최대.`,
       action: "자막 풀-로컬라이즈 (1순위)" };
 
   if (L.growth === "high" && L.retention === "low")
     return { ruleId: "R2", label: "🚨 언어장벽 의심",
-      narrative: `${c}는 유입이 폭발(${pct(row.growthMoM)})하나 완주율이 ${x2(row.retentionRel)}입니다. 관심은 있는데 끝까지 안 봄 = 언어/자막 장벽 가설.`,
+      narrative: `${c}는 유입이 폭발(${gpct(row.growthMoM)})하나 완주율이 ${x2(row.retentionRel)}입니다. 관심은 있는데 끝까지 안 봄 = 언어/자막 장벽 가설.`,
       action: "현지어 자막 A/B 테스트" };
 
   if (L.growth === "high" && L.retention === "high" && subHigh)
     return { ruleId: "R3", label: "🔥 핵심 확장",
-      narrative: `${c}는 유입·완주·전환이 모두 강합니다(${pct(row.growthMoM)}, ret ${x2(row.retentionRel)}). 저항 없는 성장 시장 — 예산 0순위.`,
+      narrative: `${c}는 유입·완주·전환이 모두 강합니다(${gpct(row.growthMoM)}, ret ${x2(row.retentionRel)}). 저항 없는 성장 시장 — 예산 0순위.`,
       action: "광고·현지 활성화 집중" };
 
   if (L.watch === "high" && L.growth === "low" && L.retention === "high")
     return { ruleId: "R4", label: "🪨 성숙·정체",
-      narrative: `${c}는 비중은 크나(${(row.watchShare * 100).toFixed(1)}%) 성장이 멈췄습니다(${pct(row.growthMoM)}). 충성 코어는 견고 — 신규 유입보다 팬덤 심화로.`,
+      narrative: `${c}는 비중은 크나(${(row.watchShare * 100).toFixed(1)}%) 성장이 멈췄습니다(${gpct(row.growthMoM)}). 충성 코어는 견고 — 신규 유입보다 팬덤 심화로.`,
       action: "리텐션·커뮤니티 심화" };
 
   if (L.retention === "high" && subHigh && L.watch !== "high")
@@ -153,24 +158,24 @@ export function interpretCountry(row: CountryRow, pop: CountryRow[]): Interpreta
 
   if (L.growth === "high" && L.retention === "mid" && L.sub === "low")
     return { ruleId: "R6", label: "📈 얕은 바이럴",
-      narrative: `${c}는 조회는 늘지만(${pct(row.growthMoM)}) 구독 전환이 약합니다. 알고리즘/쇼츠 바이럴 유입 가능성 — 휘발 위험, 코어 전환 장치 필요.`,
+      narrative: `${c}는 조회는 늘지만(${gpct(row.growthMoM)}) 구독 전환이 약합니다. 알고리즘/쇼츠 바이럴 유입 가능성 — 휘발 위험, 코어 전환 장치 필요.`,
       action: "구독 유도 CTA·롱폼 연결" };
 
   // R6b — 고성장 + 중간 완주 + 전환 약하지 않음. 명백한 유망 시장인데 R10으로
   // 새던 빠짐(gap) 보강.
   if (L.growth === "high" && L.retention === "mid")
     return { ruleId: "R6b", label: "📈 성장 유망(검증)",
-      narrative: `${c}는 빠르게 크고(${pct(row.growthMoM)}) 완주·전환도 나쁘지 않습니다. 검증 가치 큰 후보 — 소액 테스트로 핵심 시장 승급 여부 확인.`,
+      narrative: `${c}는 빠르게 크고(${gpct(row.growthMoM)}) 완주·전환도 나쁘지 않습니다. 검증 가치 큰 후보 — 소액 테스트로 핵심 시장 승급 여부 확인.`,
       action: "유료 도달 소액 테스트" };
 
   if (L.retention === "low" && (L.growth === "mid" || L.growth === "low"))
     return { ruleId: "R7", label: "🧊 적합도 낮음",
-      narrative: `${c}는 유입도 완주도 약합니다(ret ${x2(row.retentionRel)}, ${pct(row.growthMoM)}). 콘텐츠-시장 적합도 미달 — 자원 투입 보류, 분기 재평가.`,
+      narrative: `${c}는 유입도 완주도 약합니다(ret ${x2(row.retentionRel)}, ${gpct(row.growthMoM)}). 콘텐츠-시장 적합도 미달 — 자원 투입 보류, 분기 재평가.`,
       action: "보류" };
 
   if (L.growth === "low" && (L.watch === "mid" || L.watch === "high"))
     return { ruleId: "R9", label: "📉 식는 시장",
-      narrative: `${c}는 비중은 있으나 직전 대비 꺾였습니다(${pct(row.growthMoM)}). 모멘텀 소실 — 원인(경쟁작·콘텐츠 공백) 점검, 컴백·이벤트로 재점화.`,
+      narrative: `${c}는 비중은 있으나 직전 대비 꺾였습니다(${gpct(row.growthMoM)}). 모멘텀 소실 — 원인(경쟁작·콘텐츠 공백) 점검, 컴백·이벤트로 재점화.`,
       action: "원인 진단 + 재점화" };
 
   return { ruleId: "R10", label: "⚪ 안정·평범",
@@ -319,8 +324,12 @@ export interface FandomFit { level: FandomFitLevel; score: number }
 export function fandomFit(row: CountryRow, pop: CountryRow[]): FandomFit {
   const ret = pctRank(row.retentionRel, pop.map((r) => r.retentionRel));
   const conv = pctRank(row.subPer1k, pop.map((r) => r.subPer1k));
-  // organic(자생 유입)은 best-effort라 없으면 중립 0.5.
-  const org = row.organicShare != null ? clamp01(row.organicShare) : 0.5;
+  // organic 도 백분위로 — ret/conv(백분위)와 단위를 맞춘다. 절대값(0..1) 혼용
+  // 시 organic 평균(~0.3)이 구조적으로 낮아, organic 있는 국가가 null(0.5)
+  // 국가보다 부당하게 낮게 나오는 역인센티브가 생겼다. null 은 중앙=0.5 중립.
+  const orgs = pop.map((r) => r.organicShare).filter((x): x is number => x != null);
+  const org = row.organicShare != null && orgs.length > 0
+    ? pctRank(row.organicShare, orgs) : 0.5;
   const score = 0.4 * ret + 0.35 * conv + 0.25 * org;
   const level: FandomFitLevel = score >= 0.6 ? "strong" : score >= 0.4 ? "ok" : "weak";
   return { level, score };
@@ -440,9 +449,9 @@ export function enrichCountries(raw: CountryRow[]): EnrichedCountry[] {
       tier = exp.score >= 70 ? "candidate" : exp.score >= 50 ? "test" : "watch";
     return {
       row, score: exp.score, tier, drivers: exp.drivers,
-      // 해석/표시는 원값(raw) — 서술 성장%와 드라이버 막대 성장%가 같은 숫자여야
-      // 비전문가가 안 헷갈린다.
-      interpretation: interpretCountry(row, raw),
+      // 분류는 수축(sr/scored)으로 tier·액션과 정합, 서술의 성장% 표시만 원값.
+      // → "검증 후보"인데 액션은 "관망" 같은 모순(원값 high vs 수축 mid)을 차단.
+      interpretation: interpretCountry(sr, scored, row.growthMoM),
       flags: contextFlags(row, raw), warnings: distortionWarnings(row, raw),
       momentum: momentum(sr, scored), quality: quality(row, raw),
       quadrant: quadrant(sr), pri: pri(sr, scored),
@@ -460,7 +469,8 @@ export function headline(enriched: EnrichedCountry[]): string {
   const ok = enriched.filter((e) => !e.insufficient);
   if (ok.length < 3)
     return `데뷔 초기 — 표본 누적 중 (충분국 ${ok.length}개). 진출 결정 보류 권장.`;
-  const pop = ok.map((e) => e.row);
+  // 점유 집중도는 '해외' 기준 — 본진(KR)이 점유 1위라 포함하면 의미 없음.
+  const pop = ok.filter((e) => e.row.country !== "KR").map((e) => e.row);
   const q = bettingQueue(enriched);
   const parts: string[] = [];
   // 광고(유료) 1순위 = 베팅 큐의 첫 슬롯 (그 국가 드릴다운 액션 = 유료 광고).
@@ -481,8 +491,12 @@ export interface BettingQueue {
 }
 /** 순차 베팅 — 유료(L2+)는 동시 2슬롯, 다양성(서로 다른 권역) 적용. */
 export function bettingQueue(enriched: EnrichedCountry[]): BettingQueue {
-  const subtitleEligible = enriched.filter((e) => e.rung === "L1");
-  const paid = enriched.filter((e) => e.rung === "L2" || e.rung === "L3" || e.rung === "L4")
+  // 본진(KR)은 해외 진출 액션 대상이 아니다 — retention_rel 기준선(1.0)이라
+  // 모든 렌즈 상단에 고정되는데 "본진에 진출 광고를 때려라"는 무의미. 액션
+  // 레이어(베팅/헤드라인)에서만 제외, 점수 랭킹·지도엔 본진으로 그대로 노출.
+  const overseas = enriched.filter((e) => e.row.country !== "KR");
+  const subtitleEligible = overseas.filter((e) => e.rung === "L1");
+  const paid = overseas.filter((e) => e.rung === "L2" || e.rung === "L3" || e.rung === "L4")
     .sort((a, b) => b.pri - a.pri);
   // 다양성: 2번째 슬롯은 1번째와 다른 시장 성숙도를 우선. 단 후보가 모두 같은
   // 성숙도면(데뷔 초기 흔함) 슬롯을 비우지 말고 PRI 순으로 채운다(폴백).

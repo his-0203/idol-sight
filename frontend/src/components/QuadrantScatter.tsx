@@ -31,6 +31,13 @@ export function QuadrantScatter({
   const chart = useRef<Chart | null>(null);
   const onSelectRef = useRef(onSelect);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  // selected 는 색/테두리(스타일)만 바꾼다 → 차트 통째 재생성(깜빡임) 대신
+  // ref 로 콜백에 주입하고 아래 effect 에서 update("none")로 재페인트.
+  const selectedRef = useRef(selected);
+  useEffect(() => {
+    selectedRef.current = selected;
+    chart.current?.update("none");
+  }, [selected]);
 
   useEffect(() => {
     if (!canvas.current || countries.length === 0) return;
@@ -101,18 +108,18 @@ export function QuadrantScatter({
           backgroundColor: (cx: any) => {
             const c: EnrichedCountry = cx.raw?._c; if (!c) return "#475569";
             const base = TIER_COLOR[c.tier] ?? "#64748b";
-            const alpha = c.insufficient ? 0.22 : selected === c.row.country ? 0.92 : 0.55;
+            const alpha = c.insufficient ? 0.22 : selectedRef.current === c.row.country ? 0.92 : 0.55;
             return hexA(base, alpha);
           },
           borderColor: (cx: any) => {
             const c: EnrichedCountry = cx.raw?._c; if (!c) return "transparent";
-            if (selected === c.row.country) return "#e2e8f0";
+            if (selectedRef.current === c.row.country) return "#e2e8f0";
             if (c.row.country === HOME) return "#fbbf24";   // 본진 금색
             return "rgba(15,18,22,0.8)";                     // 분리용 어두운 테두리
           },
           borderWidth: (cx: any) => {
             const c: EnrichedCountry = cx.raw?._c;
-            return c && (selected === c.row.country || c.row.country === HOME) ? 2 : 1;
+            return c && (selectedRef.current === c.row.country || c.row.country === HOME) ? 2 : 1;
           },
         }],
       },
@@ -126,12 +133,12 @@ export function QuadrantScatter({
         scales: {
           x: {
             min: xLo, max: xHi,
-            title: { display: true, text: "모멘텀 (전월비 시청 성장)" },
+            title: { display: true, text: "→ 뜨는 중 (전월비 성장)" },
             ticks: { callback: (v: any) => `${Math.round(Number(v) * 100)}%` },
           },
           y: {
             min: yLo, max: yHi,
-            title: { display: true, text: "품질 (한국 본진 대비 유지율)" },
+            title: { display: true, text: "↑ 끝까지 보는 정도 (본진=1.0×)" },
             ticks: { callback: (v: any) => `${Number(v).toFixed(1)}×` },
           },
         },
@@ -157,11 +164,12 @@ export function QuadrantScatter({
     });
 
     return () => { chart.current?.destroy(); chart.current = null; };
-  }, [countries, selected]);
+  }, [countries]);
 
   return (
     <div class="relative h-80">
-      <canvas ref={canvas} role="img" aria-label="국가별 모멘텀 × 품질 사분면" />
+      <canvas ref={canvas} role="img"
+        aria-label="국가별 성장세×끝까지 보는 정도 사분면 시각화. 같은 데이터는 아래 '유망도 점수 랭킹' 목록에서 키보드로 확인할 수 있습니다." />
     </div>
   );
 }

@@ -140,10 +140,12 @@ describe("팬덤 안착력 — 끝까지+전환+자연유입 (성장·크기 무
     const b = fandomFit({ ...C("Y", 0.01, -0.5, 0.9, 7) }, POP).score;
     expect(a).toBeCloseTo(b, 9); // watch_share·growth 달라도 동일
   });
-  it("자연 유입(organic) 높으면 안착력 가산", () => {
-    const lo = fandomFit({ ...C("Z", 0.1, 0.1, 0.9, 6), organicShare: 0.2 }, POP).score;
-    const hi = fandomFit({ ...C("Z", 0.1, 0.1, 0.9, 6), organicShare: 0.9 }, POP).score;
-    expect(hi).toBeGreaterThan(lo);
+  it("자연 유입(organic) 높으면 안착력 가산 (모집단 백분위 기준)", () => {
+    // ret/conv 동일·organic만 다른 모집단 → organic 순위만 점수 가른다.
+    const base = (org: number): CountryRow =>
+      ({ country: "X", watchShare: 0.1, growthMoM: 0.1, retentionRel: 0.9, subPer1k: 6, organicShare: org });
+    const pop = [base(0.2), base(0.5), base(0.9)];
+    expect(fandomFit(base(0.9), pop).score).toBeGreaterThan(fandomFit(base(0.2), pop).score);
   });
 });
 
@@ -213,6 +215,15 @@ describe("enrich + 헤드라인 + 큐", () => {
       expect(metaOf(q.paidSlots[0]!.row.country).market)
         .not.toBe(metaOf(q.paidSlots[1]!.row.country).market);
     }
+  });
+  it("bettingQueue — 본진(KR)은 액션 대상에서 제외", () => {
+    const withKR = [
+      C("KR", 0.5, 0.1, 1.0, 10), // 본진 — 모든 지표 상위
+      C("ID", 0.06, 0.62, 0.81, 8), C("JP", 0.18, 0.04, 1.02, 9), C("DE", 0.015, 0.1, 0.97, 8),
+    ];
+    const q = bettingQueue(enrichCountries(withKR));
+    const all = [...q.paidSlots, ...q.subtitleEligible, ...q.paidQueue].map((e) => e.row.country);
+    expect(all).not.toContain("KR");
   });
   it("bettingQueue — 후보가 다 같은 성숙도여도 슬롯을 비우지 않음(폴백)", () => {
     // ID/TH/PH 모두 growth 시장 → 다양성 후보 없음. 그래도 2슬롯 채워야.
