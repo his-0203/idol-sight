@@ -5,7 +5,7 @@
 //   → 점유집중도 → PRI 우선순위·순차베팅 → 굿즈 → 보류함.
 // 모든 해석/플래그/경고는 점수를 바꾸지 않는다. 표본부족은 분리한다.
 
-import { useMemo, useState } from "preact/hooks";
+import { useMemo, useRef, useState } from "preact/hooks";
 import { EmptyState } from "../components/EmptyState";
 import { Tooltip } from "../components/Tooltip";
 import { QuadrantScatter } from "../components/QuadrantScatter";
@@ -24,9 +24,6 @@ type CountryApi = {
   retention_rel: number; sub_per_1k: number;
   watch_minutes: number | null; organic_share: number | null;
 };
-export type GoodsPreorderApi = Array<{
-  country: string; member_id: number | null; count: number; source: string;
-}>;
 export type AnalyticsApi = {
   snapshot_at: string;
   countries: CountryApi[];
@@ -57,13 +54,15 @@ const RUNG_IDX: Record<string, number> = { L0: 0, L1: 1, L2: 2, L3: 3, L4: 4 };
 function RungBar({ rung }: { rung: string }) {
   const cur = RUNG_IDX[rung] ?? 0;
   return (
-    <div class="flex gap-0.5" title="진출 단계 — 싼 테스트부터 깊은 진출까지">
+    <div class="flex gap-0.5" role="progressbar"
+      aria-label={`진출 단계: ${RUNG_STEPS[cur]} (${cur + 1}/${RUNG_STEPS.length})`}
+      aria-valuenow={cur} aria-valuemin={0} aria-valuemax={RUNG_STEPS.length - 1}>
       {RUNG_STEPS.map((s, i) => (
         <div key={i}
           class={"flex-1 rounded px-1 py-0.5 text-center text-[9px] "
             + (i === cur ? "bg-cyan-500/70 font-semibold text-white"
               : i < cur ? "bg-cyan-500/20 text-cyan-300" : "bg-zinc-800 text-zinc-600")}>
-          {s}
+          {i === cur ? `▸ ${s}` : s}
         </div>
       ))}
     </div>
@@ -84,24 +83,42 @@ export function MarketAnalysis({
 }) {
   // growth_mom null = 직전 30일 데이터 없음(신규). 엔진엔 0으로 넣되(중립),
   // 산점도에는 '성장 알려진' 국가만 그려 데뷔 초기 x=0 무더기를 방지한다.
-  const raw: CountryRow[] = (analytics?.countries ?? []).map((c) => ({
+  // useMemo 로 묶어 매 렌더(클릭·토글) 재계산을 막고 enriched 의존성을 정합화.
+  const raw: CountryRow[] = useMemo(() => (analytics?.countries ?? []).map((c) => ({
     country: c.country, watchShare: c.watch_share, growthMoM: c.growth_mom ?? 0,
     retentionRel: c.retention_rel, subPer1k: c.sub_per_1k,
     watchMinutes: c.watch_minutes, organicShare: c.organic_share,
-  }));
+  })), [analytics]);
   const growthKnown = useMemo(
     () => new Set((analytics?.countries ?? []).filter((c) => c.growth_mom != null).map((c) => c.country)),
     [analytics],
   );
-  const enriched = useMemo(() => enrichCountries(raw), [analytics]);
-  const sufficient = enriched.filter((e) => !e.insufficient);
-  const insufficient = enriched.filter((e) => e.insufficient);
-  const scatterCountries = enriched.filter((e) => growthKnown.has(e.row.country));
+  const enriched = useMemo(() => enrichCountries(raw), [raw]);
+  const derived = useMemo(() => {
+    const sufficient = enriched.filter((e) => !e.insufficient);
+    const overseas = sufficient.filter((e) => e.row.country !== "KR"); // 본진 제외
+    return {
+      sufficient,
+      insufficient: enriched.filter((e) => e.insufficient),
+      scatterCountries: enriched.filter((e) => growthKnown.has(e.row.country)),
+      queue: bettingQueue(enriched),
+      byPri: [...overseas].sort((a, b) => b.pri - a.pri), // 진출 매력도 = 해외만
+      h: hhi(overseas.map((e) => e.row)),                  // 점유 집중도 = 해외
+      cr3pct: Math.round(cr3(overseas.map((e) => e.row)) * 100),
+    };
+  }, [enriched, growthKnown]);
+  const { sufficient, insufficient, scatterCountries, queue, byPri, h, cr3pct } = derived;
   const growthPending = enriched.length - scatterCountries.length;
 
   const [selected, setSelected] = useState<string | null>(null);
   // 비전문가 배려 — 지표 안내 기본 펼침(처음 보는 사람이 용어부터 막히지 않게).
   const [showHelp, setShowHelp] = useState(true);
+  // 지도/점수에서 클릭하면 드릴다운이 화면 밖(위)이라 단절 → 부드럽게 스크롤.
+  const drilldownRef = useRef<HTMLDivElement>(null);
+  const selectCountry = (country: string) => {
+    setSelected(country);
+    requestAnimationFrame(() => drilldownRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+  };
   const sel = enriched.find((e) => e.row.country === selected)
     ?? [...sufficient].sort((a, b) => b.score - a.score)[0]
     ?? enriched[0] ?? null;
@@ -117,9 +134,6 @@ export function MarketAnalysis({
   }
 
   const dPlus = daysToDebut != null && daysToDebut <= 0 ? `D+${-daysToDebut}` : "데뷔 전";
-  const h = hhi(sufficient.map((e) => e.row));
-  const queue = bettingQueue(enriched);
-  const byPri = [...sufficient].sort((a, b) => b.pri - a.pri);
 
   return (
     <div class="space-y-6">
@@ -149,7 +163,7 @@ export function MarketAnalysis({
           <GateCard label="추적 국가" value={`${enriched.length}개국`} />
           <GateCard label="충분 표본" value={`${sufficient.length}개국`} tone="ok" />
           <GateCard label="보류(데이터 부족)" value={`${insufficient.length}개국`} tone="muted" />
-          <GateCard label="점유 집중도(쏠림)" value={`${hhiLabel(h)} · TOP3 ${Math.round(cr3(sufficient.map((e) => e.row)) * 100)}%`} />
+          <GateCard label="해외 점유 쏠림" value={`${hhiLabel(h)} · TOP3 ${cr3pct}%`} />
         </div>
       </details>
 
@@ -166,7 +180,7 @@ export function MarketAnalysis({
             <div class="space-y-1">
               {byPri.slice(0, 8).map((e, i) => (
                 <button key={e.row.country} type="button"
-                  onClick={() => setSelected(e.row.country)}
+                  onClick={() => selectCountry(e.row.country)}
                   class={"flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-zinc-800/60 "
                     + (sel?.row.country === e.row.country ? "bg-zinc-800/80" : "")}>
                   <span class="w-4 shrink-0 text-right text-xs text-zinc-600">{i + 1}</span>
@@ -195,7 +209,7 @@ export function MarketAnalysis({
       </section>
 
       {/* 2) 국가 드릴다운 — '왜' (위 랭킹/아래 지도에서 클릭하면 갱신) */}
-      {sel && <CountryDrilldown e={sel} pop={raw} />}
+      <div ref={drilldownRef}>{sel && <CountryDrilldown e={sel} />}</div>
 
       {/* 3) 시장 지도(사분면) + 유망도 점수(참고·접기) */}
       <section>
@@ -211,7 +225,7 @@ export function MarketAnalysis({
         </p>
         <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
           {scatterCountries.length > 0 ? (
-            <QuadrantScatter countries={scatterCountries} selected={sel?.row.country ?? null} onSelect={setSelected} />
+            <QuadrantScatter countries={scatterCountries} selected={sel?.row.country ?? null} onSelect={selectCountry} />
           ) : (
             <div class="flex h-80 items-center justify-center text-center text-sm text-zinc-500">
               성장 데이터 누적 중 — 30일 윈도우가 차면 지도가 채워집니다.<br />그 전까지는 위 '진출 우선순위'와 아래 점수로 판단하세요.
@@ -225,7 +239,7 @@ export function MarketAnalysis({
           <div class="space-y-1 px-3 pb-3">
             {[...enriched].sort((a, b) => b.score - a.score).slice(0, 12).map((e) => (
               <button key={e.row.country} type="button"
-                onClick={() => setSelected(e.row.country)}
+                onClick={() => selectCountry(e.row.country)}
                 class={"flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-zinc-800/60 "
                   + (sel?.row.country === e.row.country ? "bg-zinc-800/80" : "")}>
                 <span class="w-8 shrink-0 text-sm font-medium text-zinc-300">{e.row.country}</span>
@@ -295,8 +309,7 @@ function QueueRow({ label, items, tone }: { label: string; items: string[]; tone
 }
 
 // ─── 국가 '왜' 드릴다운 ──────────────────────────────────────────────
-function CountryDrilldown({ e, pop }: { e: EnrichedCountry; pop: CountryRow[] }) {
-  void pop;
+function CountryDrilldown({ e }: { e: EnrichedCountry }) {
   const m = metaOf(e.row.country);
   const retArrow = e.row.retentionRel >= 1 ? "🔼 국내보다 더 봄" : "🔻 국내보다 덜 봄";
   const drivers: Array<[string, number, string]> = [
