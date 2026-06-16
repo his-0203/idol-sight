@@ -475,6 +475,10 @@ export function MiiWANBriefing() {
           시각 분리로 "다음에 무엇이 오는가"를 한 눈에. */}
       <MiiWANEventTimeline today={data.today} />
 
+      {/* 종료된 라이브 방송의 채팅을 긁어 긍/부정 대표 멘트 + 비율 추정을
+          방송별로 보여준다. /api/miiwan-live-chat (live_chat_reports). */}
+      <MiiWANLiveChat />
+
       {/* 4) RISK WATCH — virtual-idol critical 카테고리만 뽑아 별도
           섹션. PR/Risk 페이지로 hop 없이 MiiWAN 컨텍스트에서 즉시
           확인. 가장 시급한 시나리오부터 정렬. */}
@@ -1142,6 +1146,153 @@ function MiiWANEventTimeline({ today }: { today: string }) {
         })}
       </ol>
     </section>
+  );
+}
+
+interface LiveChatQuote { quote: string; note?: string }
+interface LiveChatTheme { label: string; polarity: string }
+interface LiveChatReportBody {
+  positive?: LiveChatQuote[];
+  negative?: LiveChatQuote[];
+  themes?: LiveChatTheme[];
+  summary?: string;
+}
+interface LiveChatReport {
+  video_id: string;
+  title: string | null;
+  ended_at: string | null;
+  total_messages: number;
+  sampled: number;
+  positive_ratio: number | null;
+  negative_ratio: number | null;
+  report: LiveChatReportBody | null;
+}
+
+function MiiWANLiveChat() {
+  const [reports, setReports] = useState<LiveChatReport[] | null>(null);
+
+  useEffect(() => {
+    api.miiwanLiveChat()
+      .then((d) => setReports(d?.reports ?? []))
+      .catch(() => setReports([]));
+  }, []);
+
+  if (!reports) {
+    return (
+      <section>
+        <h2 class="section-title mb-3">라이브 채팅 반응</h2>
+        <div class="text-hint text-zinc-500">Loading…</div>
+      </section>
+    );
+  }
+
+  if (reports.length === 0) {
+    return (
+      <section>
+        <h2 class="section-title mb-3">라이브 채팅 반응</h2>
+        <div class="text-hint text-zinc-500">
+          아직 분석된 라이브 방송이 없어요. 방송 종료 후 새벽에 자동 수집됩니다.
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section>
+      <div class="mb-3 flex flex-wrap items-baseline gap-2">
+        <h2 class="section-title">라이브 채팅 반응</h2>
+        <span class="text-hint text-zinc-500">
+          방송 종료 후 채팅 리플레이를 수집 · 비율은 표본 기반 추정
+        </span>
+      </div>
+      <div class="space-y-3">
+        {reports.map((r) => (
+          <LiveChatReportCard key={r.video_id} r={r} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function LiveChatReportCard({ r }: { r: LiveChatReport }) {
+  const pos = Math.round((r.positive_ratio ?? 0) * 100);
+  const neg = Math.round((r.negative_ratio ?? 0) * 100);
+  const neu = Math.max(0, 100 - pos - neg);
+  const body = r.report;
+  const endedDate = r.ended_at ? r.ended_at.slice(0, 10) : "—";
+  return (
+    <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+      <div class="flex flex-wrap items-baseline gap-2">
+        <span class="font-semibold">{r.title ?? "(제목 없음)"}</span>
+        <span class="tabular-nums text-zinc-500">{endedDate}</span>
+        <span class="ml-auto rounded bg-zinc-900/60 px-1.5 text-[11px] tabular-nums text-zinc-300">
+          총 {r.total_messages.toLocaleString()}건 · 표본 {r.sampled.toLocaleString()}
+        </span>
+      </div>
+
+      {/* 긍/부정 비율 바 (추정) */}
+      <div class="mt-2 flex items-center gap-2">
+        <div class="flex h-2.5 flex-1 overflow-hidden rounded-full bg-zinc-800">
+          <div class="bg-emerald-500" style={{ width: `${pos}%` }} />
+          <div class="bg-zinc-600" style={{ width: `${neu}%` }} />
+          <div class="bg-rose-500" style={{ width: `${neg}%` }} />
+        </div>
+        <span class="text-[11px] tabular-nums text-zinc-400">
+          <span class="text-emerald-400">긍정 {pos}%</span>
+          {" · "}
+          <span class="text-rose-400">부정 {neg}%</span>
+          <span class="text-zinc-600"> (추정)</span>
+        </span>
+      </div>
+
+      {body?.summary && (
+        <div class="mt-2 text-sm text-zinc-300">{body.summary}</div>
+      )}
+
+      <div class="mt-2 grid gap-3 md:grid-cols-2">
+        {!!body?.positive?.length && (
+          <div>
+            <div class="mb-1 text-xs font-semibold text-emerald-400">👍 주요 긍정</div>
+            <ul class="space-y-1">
+              {body.positive.slice(0, 5).map((q, i) => (
+                <li key={i} class="rounded border-l-2 border-emerald-500/40 bg-emerald-500/5 px-2 py-1 text-xs text-zinc-300">
+                  {q.quote}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {!!body?.negative?.length && (
+          <div>
+            <div class="mb-1 text-xs font-semibold text-rose-400">👎 주요 부정</div>
+            <ul class="space-y-1">
+              {body.negative.slice(0, 5).map((q, i) => (
+                <li key={i} class="rounded border-l-2 border-rose-500/40 bg-rose-500/5 px-2 py-1 text-xs text-zinc-300">
+                  {q.quote}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {!!body?.themes?.length && (
+        <div class="mt-2 flex flex-wrap gap-1.5">
+          {body.themes.map((t, i) => {
+            const tone = t.polarity === "positive"
+              ? "border-emerald-500/40 text-emerald-200"
+              : t.polarity === "negative"
+              ? "border-rose-500/40 text-rose-200"
+              : "border-zinc-700 text-zinc-400";
+            return (
+              <span key={i} class={`rounded-full border px-2 py-0.5 text-[11px] ${tone}`}>
+                {t.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
