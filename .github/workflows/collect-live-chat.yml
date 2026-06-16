@@ -1,0 +1,38 @@
+name: collect-live-chat
+on:
+  schedule:
+    # live_ccv 가 밤새 기록한 종료 방송을 그날 새벽에 수집한다. GitHub 은
+    # schedule tick 을 ~2.5–3h 지연시킬 수 있어(collect-ccv 실측) 두 트리거를
+    # 둔다: 04:00 가 정상 경로, 12:00 은 리플레이 미준비분 재시도(안전망).
+    - cron: "0 19 * * *"   # KST 04:00 nominal — 정상(그날 밤 종료분 수집)
+    - cron: "0 3 * * *"    # KST 12:00 nominal — 안전망(리플레이 미준비분 재시도)
+  workflow_dispatch:
+
+concurrency:
+  group: collect-live-chat
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+        working-directory: worker
+      - name: collect-live-chat
+        working-directory: worker
+        env:
+          CF_ACCOUNT_ID:  ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:    ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:   ${{ secrets.CF_API_TOKEN }}
+          YT_API_KEY:     ${{ secrets.YT_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: uv run python -m idol_sight collect-live-chat --group miiwan
+      - name: notify on failure
+        if: failure()
+        working-directory: worker
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: uv run python -m idol_sight notify-fail --job collect-live-chat
