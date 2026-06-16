@@ -460,7 +460,6 @@ export function MiiWANBriefing() {
         <MarketAnalysis
           analytics={data.decision.analytics}
           memberPopularity={data.decision.member_popularity}
-          goodsPreorder={data.decision.goods_preorder}
           daysToDebut={data.days_to_debut}
         />
       ) : (<>

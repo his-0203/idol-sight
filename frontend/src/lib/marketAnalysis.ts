@@ -100,7 +100,15 @@ export interface Interpretation {
   ruleId: string; label: string; narrative: string; action: string;
 }
 
-const pct = (x: number) => `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%`;
+// 성장률 표시 포맷터 — 데뷔 초기엔 직전 30일 분모가 ≈0이라 +228996% 같은
+// 무의미한 폭발값이 나온다. ±한계로 캡해 화면이 거짓 신호를 안 주게 한다.
+// (점수/수축은 별도로 처리됨 — 이건 순수 표시용.)
+export const fmtGrowthPct = (x: number): string => {
+  if (x > 3) return ">+300%";
+  if (x < -1) return "-100%";
+  return `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%`;
+};
+const pct = fmtGrowthPct;
 const x2 = (x: number) => `${x.toFixed(2)}×`;
 
 export function interpretCountry(row: CountryRow, pop: CountryRow[]): Interpretation {

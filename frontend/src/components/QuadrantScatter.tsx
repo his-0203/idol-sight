@@ -12,7 +12,7 @@
 
 import { useEffect, useRef } from "preact/hooks";
 import Chart from "chart.js/auto";
-import { percentile, type EnrichedCountry } from "../lib/marketAnalysis";
+import { percentile, fmtGrowthPct, type EnrichedCountry } from "../lib/marketAnalysis";
 
 const TIER_COLOR: Record<string, string> = {
   candidate: "#22d3ee", test: "#a78bfa", watch: "#64748b", insufficient: "#475569",
@@ -154,4 +154,4 @@ function hexA(hex: string, alpha: number): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
-const pct = (x: number) => `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%`;
+const pct = fmtGrowthPct;
