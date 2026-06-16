@@ -126,10 +126,16 @@ CREATE TABLE IF NOT EXISTS live_chat_reports (
 - `/api/miiwan-live-chat` (Cloudflare Pages Function, `frontend/functions/api/`): D1 에서 최근 리포트 N건(`video_id, title, ended_at, total_messages, positive_ratio, negative_ratio, report_json`) 반환. 데이터 없으면 빈 배열(`miiwan.ts` 의 partial-friendly 패턴).
 - `MiiWANBriefing` 에 **"라이브 채팅 반응"** 섹션: 방송 카드마다 긍/부정 비율 바 + 대표 멘트 각 3~5개 + 테마 칩. v1 은 최근 방송 리스트 + 펼침 수준으로 최소화.
 
-## 실행 / cron
+## 실행 / cron — "그날 라이브 → 그날 새벽 수집"
+
+"라이브가 있었는지" 감지는 별도 장치가 필요 없다. `collect-ccv`(KST 17:00–02:00, 30분 cron)가 라이브를 만날 때마다 `live_ccv_samples`에 video_id를 기록하므로, "오늘 방송이 있었다"는 신호는 그날 밤 이미 D1에 쌓인다. 새벽 run은 이 신호를 소비만 한다.
 
 - 새 워크플로 `collect-live-chat.yml`: GitHub Actions, python CLI `collect-live-chat`.
-- 빈도: **하루 2회**(라이브가 KST 심야에 끝나는 점 반영) — KST 04:00 / 12:00 ≈ UTC `0 19 * * *`, `0 3 * * *`. 데뷔 당일 등은 `gh workflow run collect-live-chat.yml` 수동 dispatch.
+- 빈도: **하루 2회**.
+  - **KST 04:00 (UTC `0 19 * * *`) = 정상 경로.** CCV 윈도(~02:00)가 닫힌 직후 + 리플레이 처리 버퍼를 두고 돌아, **그날 밤 종료된 방송을 그 새벽에 바로 수집**한다.
+  - **KST 12:00 (UTC `0 3 * * *`) = 안전망.** 04:00 시점에 리플레이가 아직 준비 안 됐던(또는 run 실패한) 건만 재시도.
+- 데뷔 당일 등은 `gh workflow run collect-live-chat.yml` 수동 dispatch.
+- **리플레이 준비 시간**: 방송 종료 후 YouTube가 VOD를 처리해 채팅 리플레이를 붙이기까지 수 분~1시간. 02:00 종료 → 04:00 수집이면 통상 준비 완료. 미준비면 12:00 안전망이 잡는다. 후보 쿼리의 3일 윈도는 "지연 기본값"이 아니라 **이 재시도 안전망의 상한**(리플레이가 끝내 안 붙는 방송을 무한 재시도하지 않도록 자연 종료)일 뿐, 정상 latency 는 "방송 끝 → 그날 새벽 수 시간 내".
 
 ## 에러 처리
 
