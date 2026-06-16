@@ -10,7 +10,7 @@ import { EmptyState } from "../components/EmptyState";
 import { QuadrantScatter } from "../components/QuadrantScatter";
 import {
   enrichCountries, headline, bettingQueue, hhi, hhiLabel, cr3,
-  QUADRANT_LABEL, RUNG_LABEL, metaOf,
+  QUADRANT_LABEL, RUNG_LABEL, metaOf, fmtGrowthPct,
   type CountryRow, type EnrichedCountry,
 } from "../lib/marketAnalysis";
 import {
@@ -45,10 +45,9 @@ const TIER_TONE: Record<string, string> = {
 };
 
 export function MarketAnalysis({
-  analytics, memberPopularity, goodsPreorder, daysToDebut,
+  analytics, memberPopularity, daysToDebut,
 }: {
-  analytics: AnalyticsApi; memberPopularity: MemberPopApi;
-  goodsPreorder: GoodsPreorderApi; daysToDebut: number | null;
+  analytics: AnalyticsApi; memberPopularity: MemberPopApi; daysToDebut: number | null;
 }) {
   // growth_mom null = 직전 30일 데이터 없음(신규). 엔진엔 0으로 넣되(중립),
   // 산점도에는 '성장 알려진' 국가만 그려 데뷔 초기 x=0 무더기를 방지한다.
@@ -195,7 +194,7 @@ export function MarketAnalysis({
       </section>
 
       {/* 굿즈 */}
-      <GoodsBoard memberPopularity={memberPopularity} analytics={analytics} goodsPreorder={goodsPreorder} />
+      <GoodsBoard memberPopularity={memberPopularity} analytics={analytics} />
 
       {/* 보류함 */}
       {insufficient.length > 0 && (
@@ -239,7 +238,7 @@ function CountryDrilldown({ e, pop }: { e: EnrichedCountry; pop: CountryRow[] })
   void pop;
   const m = metaOf(e.row.country);
   const drivers: Array<[string, number, string]> = [
-    ["성장", e.drivers.growth, `${e.row.growthMoM >= 0 ? "+" : ""}${Math.round(e.row.growthMoM * 100)}%`],
+    ["성장", e.drivers.growth, fmtGrowthPct(e.row.growthMoM)],
     ["유지율", e.drivers.retention, `${e.row.retentionRel.toFixed(2)}× 국내`],
     ["전환", e.drivers.sub, `${e.row.subPer1k.toFixed(1)}/1k`],
     ["점유", e.drivers.share, `${(e.row.watchShare * 100).toFixed(1)}%`],
@@ -311,8 +310,8 @@ function CountryDrilldown({ e, pop }: { e: EnrichedCountry; pop: CountryRow[] })
 }
 
 // ─── 굿즈 보드 (멤버배분 = 공개 프록시 / 수량·가격 = 대기) ──────────
-function GoodsBoard({ memberPopularity, analytics, goodsPreorder }: {
-  memberPopularity: MemberPopApi; analytics: AnalyticsApi; goodsPreorder: GoodsPreorderApi;
+function GoodsBoard({ memberPopularity, analytics }: {
+  memberPopularity: MemberPopApi; analytics: AnalyticsApi;
 }) {
   const alloc = allocateMerch(memberPopularity.map((m) => ({
     memberId: m.member_id, name: m.name, compositeScore: m.composite_score, sufficient: m.sufficient,
@@ -325,44 +324,11 @@ function GoodsBoard({ memberPopularity, analytics, goodsPreorder }: {
     membershipPenetration: analytics?.membership_penetration ?? null,
     hasSuperChat: analytics?.has_super_chat ?? null,
   });
-  // #4 예판 — 국가별 합계 (지불의향 hard signal). 비었으면 안내만.
-  const preByCountry = new Map<string, number>();
-  for (const g of goodsPreorder) preByCountry.set(g.country, (preByCountry.get(g.country) ?? 0) + g.count);
-  const preTop = [...preByCountry.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-  const preTotal = goodsPreorder.reduce((s, g) => s + g.count, 0);
 
   return (
     <section>
       <h3 class="section-title mb-1">굿즈 제작</h3>
       <p class="text-hint mb-3 text-zinc-500">멤버 배분은 공개 인기 데이터로 가동. 총 수량·가격대는 멤버십/슈퍼챗(API 미제공) 연결 후 점등.</p>
-
-      {/* #4 예판/위시리스트 — 지불의향 hard signal */}
-      <div class="mb-3 rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
-        <div class="mb-1 flex items-center gap-2">
-          <span class="text-sm font-semibold text-zinc-300">예판/위시리스트 (국가별)</span>
-          <span class="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">hard signal</span>
-        </div>
-        {preTotal === 0 ? (
-          <p class="text-xs text-zinc-500">
-            데이터 없음 — 시청은 선행지표일 뿐 구매가 아니므로, 소량 예판/위시리스트를
-            띄워 <strong class="text-zinc-400">국가별 실수요</strong>를 측정하세요.
-            위버스샵·자체몰·설문을 <code class="text-zinc-400">goods_preorder</code> 테이블에 적재하면 점등.
-          </p>
-        ) : (
-          <div class="space-y-1">
-            <div class="text-xs text-zinc-500">총 {fmt(preTotal)}건 · 상위 국가</div>
-            {preTop.map(([country, n]) => (
-              <div key={country} class="flex items-center gap-2">
-                <span class="w-8 text-sm text-zinc-300">{country}</span>
-                <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
-                  <div class="h-full rounded bg-emerald-500/60" style={{ width: `${(n / preTop[0]![1]) * 100}%` }} />
-                </div>
-                <span class="w-12 text-right text-xs tabular-nums text-zinc-400">{fmt(n)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
       <div class="grid gap-4 md:grid-cols-[1.3fr_1fr]">
         <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
           <div class="mb-2 text-xs font-semibold text-zinc-400">멤버별 배분 (포카 비율) · <span class="text-amber-300">추정</span></div>
