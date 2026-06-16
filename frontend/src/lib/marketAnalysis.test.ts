@@ -170,10 +170,24 @@ describe("enrich + 헤드라인 + 큐", () => {
     const thin = enrichCountries([C("MX", 0.004, 0.5, 1, 5), C("BR", 0.003, 0.3, 1, 4)]);
     expect(headline(thin)).toMatch(/보류/);
   });
-  it("headline — 충분국 충분하면 자막/PR/점유 요약", () => {
+  it("headline — 충분국 충분하면 추천 액션/점유 요약", () => {
     const h = headline(enrichCountries(POP));
-    expect(h).toMatch(/자막 최우선/);
+    expect(h).toMatch(/(광고 우선|자막 테스트)/);
     expect(h).toMatch(/TOP3/);
+  });
+
+  it("tier 통일 — 시청비중 낮아도(0.3%) 절대 분 충분하면 insufficient 아님", () => {
+    // TW 케이스 회귀: watchShare 0.003(scoreExpansion은 insufficient 처리)이지만
+    // watchMinutes 2100(≥2000) → 분 기준 충분 → tier/action 이 '관찰만' 아님.
+    const tw: CountryRow = {
+      country: "TW", watchShare: 0.003, growthMoM: 1.45, retentionRel: 0.87,
+      subPer1k: 1, watchMinutes: 2100,
+    };
+    const en = enrichCountries([tw, ...POP]);
+    const t = en.find((e) => e.row.country === "TW")!;
+    expect(t.insufficient).toBe(false);
+    expect(t.tier).not.toBe("insufficient");
+    expect(t.action.verb).not.toMatch(/관찰만/);
   });
   it("bettingQueue — 유료 슬롯 최대 2개, 다양성(시장성숙 다름)", () => {
     const q = bettingQueue(enrichCountries(POP));

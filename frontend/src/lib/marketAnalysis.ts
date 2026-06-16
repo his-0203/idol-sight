@@ -409,35 +409,49 @@ export function enrichCountries(raw: CountryRow[]): EnrichedCountry[] {
       retentionRel: sr.retentionRel, subPer1k: sr.subPer1k,
     });
     const pattern = patternFlags(sr, scored);
+    // 표본부족은 marketAnalysis(절대 시청시간) 단일 기준으로 통일한다.
+    // scoreExpansion 은 watchShare<1% 로 insufficient 를 매기는데, 분 기준
+    // 충분한 국가(TW: 0.3%지만 2.1K분)가 그 탓에 tier=insufficient(액션 '관찰만')
+    // 인데 서술은 R6b(검증 후보)로 떠 모순됐다. → 분 기준으로 일원화하고,
+    // watchShare 탓에 insufficient 처리된 경우는 점수로 tier 재판정.
+    const insufficient = isInsufficient(row);
+    let tier: ExpansionTier = exp.tier;
+    if (insufficient) tier = "insufficient";
+    else if (tier === "insufficient")
+      tier = exp.score >= 70 ? "candidate" : exp.score >= 50 ? "test" : "watch";
     return {
-      row, score: exp.score, tier: exp.tier, drivers: exp.drivers,
-      // 해석/표시는 원값(raw) 일관 — 서술의 성장%와 드라이버 막대의 성장%가
-      // 같은 숫자여야 비전문가가 안 헷갈린다. tier(수축 기반)와는 렌즈가 달라
-      // 등급이 1:1 아닐 수 있고, 그게 정상(점수=robust, 서술=실제 패턴).
+      row, score: exp.score, tier, drivers: exp.drivers,
+      // 해석/표시는 원값(raw) — 서술 성장%와 드라이버 막대 성장%가 같은 숫자여야
+      // 비전문가가 안 헷갈린다.
       interpretation: interpretCountry(row, raw),
       flags: contextFlags(row, raw), warnings: distortionWarnings(row, raw),
       momentum: momentum(sr, scored), quality: quality(row, raw),
       quadrant: quadrant(sr), pri: pri(sr, scored),
-      pattern, rung: currentRung(exp.tier, pattern),
-      action: actionCard(row, exp.tier, pattern),
-      insufficient: isInsufficient(row),
+      pattern, rung: currentRung(tier, pattern),
+      action: actionCard(row, tier, pattern),
+      insufficient,
     };
   });
 }
 
-/** 헤드라인 1줄 — 충분표본국만 대상. 너무 적으면 보류 메시지. */
+/** 헤드라인 1줄 — 각 국가의 '실제 추천 액션'(베팅 큐)에서 뽑아 드릴다운과
+ *  일치시킨다. (예: "광고 우선: X" 하면 X 드릴다운 액션도 광고여야 한다.) */
 export function headline(enriched: EnrichedCountry[]): string {
   const ok = enriched.filter((e) => !e.insufficient);
   if (ok.length < 3)
     return `데뷔 초기 — 표본 누적 중 (충분국 ${ok.length}개). 진출 결정 보류 권장.`;
   const pop = ok.map((e) => e.row);
-  const sub = [...ok].sort((a, b) =>
+  const q = bettingQueue(enriched);
+  const parts: string[] = [];
+  // 광고(유료) 1순위 = 베팅 큐의 첫 슬롯 (그 국가 드릴다운 액션 = 유료 광고).
+  if (q.paidSlots[0]) parts.push(`광고 우선: ${q.paidSlots[0].row.country}`);
+  // 자막 테스트 = 자막 단계(L1) 중 자막 ROI(시청량×언어장벽) 최고.
+  const sub = [...q.subtitleEligible].sort((a, b) =>
     subtitlePriority(b.row, pop) - subtitlePriority(a.row, pop))[0];
-  const pr = [...ok].sort((a, b) =>
-    prPriority(b.row, pop) - prPriority(a.row, pop))[0];
+  if (sub) parts.push(`자막 테스트: ${sub.row.country}`);
   const h = hhi(pop);
-  return `자막 최우선: ${sub!.row.country} · PR 점화 후보: ${pr!.row.country}`
-    + ` · 점유 ${hhiLabel(h)}(TOP3 ${Math.round(cr3(pop) * 100)}%) — 충분표본 ${ok.length}개국`;
+  parts.push(`점유 ${hhiLabel(h)}(TOP3 ${Math.round(cr3(pop) * 100)}%)`);
+  return parts.join(" · ") + ` — 충분표본 ${ok.length}개국`;
 }
 
 export interface BettingQueue {
