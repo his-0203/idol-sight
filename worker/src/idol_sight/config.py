@@ -35,6 +35,11 @@ class Settings:
     discord_webhook: str | None
     yt_api_key: str | None
     gemini_api_key: str | None
+    # 미완소년 소유자 OAuth (YouTube Analytics). 미완소년 채널에만 적용 —
+    # 없으면 youtube-analytics 커맨드가 skip 한다. 다른 그룹은 OAuth 없음.
+    miiwan_yt_oauth_client_id: str | None
+    miiwan_yt_oauth_client_secret: str | None
+    miiwan_yt_oauth_refresh_token: str | None
 
 
 def load_settings() -> Settings:
@@ -45,6 +50,9 @@ def load_settings() -> Settings:
         discord_webhook=_optional("DISCORD_WEBHOOK"),
         yt_api_key=_optional("YT_API_KEY"),
         gemini_api_key=_optional("GEMINI_API_KEY"),
+        miiwan_yt_oauth_client_id=_optional("MIIWAN_YT_OAUTH_CLIENT_ID"),
+        miiwan_yt_oauth_client_secret=_optional("MIIWAN_YT_OAUTH_CLIENT_SECRET"),
+        miiwan_yt_oauth_refresh_token=_optional("MIIWAN_YT_OAUTH_REFRESH_TOKEN"),
     )
 
 

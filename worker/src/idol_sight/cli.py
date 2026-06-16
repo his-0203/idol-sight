@@ -619,6 +619,49 @@ def backfill_yt_videos_cmd(
 
 
 @app.command(
+    "youtube-analytics",
+    help="미완소년 소유자 OAuth(YouTube Analytics)로 국가별 시청·유지율·"
+         "구독전환을 수집해 agg_youtube_analytics* 에 적재. 미완소년 전용 — "
+         "MIIWAN_YT_OAUTH_* 시크릿이 없으면 skip. 다른 그룹은 OAuth 없음.",
+)
+def youtube_analytics_cmd(
+    group: str = typer.Option(
+        "miiwan", "--group",
+        help="OAuth 가 연결된 그룹 키. 현재는 miiwan 만 지원.",
+    ),
+) -> None:
+    from idol_sight.collectors.youtube_analytics import (
+        YouTubeAnalyticsCollector,
+    )
+
+    settings = load_settings()
+    cid = settings.miiwan_yt_oauth_client_id
+    secret = settings.miiwan_yt_oauth_client_secret
+    refresh = settings.miiwan_yt_oauth_refresh_token
+    if not (cid and secret and refresh):
+        typer.echo(
+            "MIIWAN_YT_OAUTH_* 미설정 — skip (정상: OAuth 미연결 그룹).")
+        return
+
+    client = _make_d1_client(settings)
+    grp = _load_group(client, group)
+
+    coll = YouTubeAnalyticsCollector(cid, secret, refresh)
+    try:
+        result = coll.collect(grp)
+    except Exception as exc:  # noqa: BLE001 — 단일 그룹, 실패는 비치명적.
+        typer.echo(f"[{group}] youtube-analytics FAIL: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if result.statements:
+        client.batch(result.statements)
+    typer.echo(
+        f"[{group}] youtube-analytics: {result.rows_inserted} rows "
+        f"({result.runtime_ms} ms)"
+    )
+
+
+@app.command(
     "backfill-targets",
     help="Print the list of group keys that need backfilling, as a JSON "
          "array. Used by the matrix workflow's setup job to compute "
