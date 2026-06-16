@@ -36,6 +36,14 @@ import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
 import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
 import { CompetitorOrganicityBar } from "../components/CompetitorOrganicityBar";
+import {
+  scoreExpansion,
+  allocateMerch,
+  estimateDemandFloor,
+  gradeWillingnessToPay,
+  type Confidence,
+  type ExpansionTier,
+} from "../lib/decisionSupport";
 
 type SummaryShape = {
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
@@ -112,6 +120,28 @@ type MiiwanData = {
   benchmarks_by_anchor: Record<AnchorKey, Benchmark[]>;
   alerts: AlertRow[];
   controversy_trend: { current: number; previous: number | null } | null;
+  decision: DecisionData;
+};
+
+// DECISION 탭 데이터. member_popularity는 공개 프록시(지금 가동),
+// analytics는 소유자 OAuth 전용 — 미연결 시 null → empty-state.
+type DecisionData = {
+  member_popularity: Array<{
+    member_id: number; name: string;
+    composite_score: number | null; yt_avg_views: number | null;
+    sufficient: boolean;
+  }>;
+  analytics: {
+    snapshot_at: string;
+    countries: Array<{
+      country: string; watch_share: number; growth_mom: number;
+      retention_rel: number; sub_per_1k: number;
+    }>;
+    returning_viewers_30d: number | null;
+    membership_count: number | null;
+    membership_penetration: number | null;
+    has_super_chat: boolean | null;
+  } | null;
 };
 
 // Controversy thresholds: see src/lib/alerts.ts.
@@ -311,6 +341,243 @@ function fmtBench(
     return "—";
   }
   return fmt(v);
+}
+
+// ─── DECISION 보드 ───────────────────────────────────────────────────
+// 미완소년 공식 채널 데이터 → "해외진출 / 굿즈" 의사결정. 산식은
+// lib/decisionSupport.ts. 두 원칙을 UI에서 강제:
+//   1. 모든 숫자에 신뢰등급 배지(검증됨/추정/표본부족).
+//   2. 선행→커밋이 아니라 선행→테스트 — 액션 카피가 "테스트부터".
+// 굿즈 멤버배분은 공개 프록시로 지금 가동. 해외진출·수요하한·지불의향은
+// 소유자 OAuth 미연결 시 '연결 대기' empty-state (붙는 순간 자동 점등).
+
+const CONF_LABEL: Record<Confidence, string> = {
+  verified: "검증됨", estimated: "추정", insufficient: "표본부족",
+};
+const CONF_TONE: Record<Confidence, string> = {
+  verified: "border-emerald-500/30 bg-emerald-500/15 text-emerald-300",
+  estimated: "border-amber-500/30 bg-amber-500/15 text-amber-300",
+  insufficient: "border-zinc-600/40 bg-zinc-700/30 text-zinc-400",
+};
+function ConfBadge({ c }: { c: Confidence }) {
+  return (
+    <span class={"inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium align-middle "
+      + CONF_TONE[c]}>
+      {CONF_LABEL[c]}
+    </span>
+  );
+}
+
+const TIER_LABEL: Record<ExpansionTier, string> = {
+  candidate: "🟢 진출후보", test: "🟡 테스트권고",
+  watch: "⚪ 관망", insufficient: "🚫 표본부족",
+};
+
+// OAuth 전용 지표용 공통 '연결 대기' 카드.
+function OAuthPendingCard(props: { title: string; what: string }) {
+  return (
+    <div class="rounded-card border border-dashed border-zinc-700 bg-zinc-900/30 p-4">
+      <div class="flex items-center gap-2">
+        <span class="text-sm font-semibold text-zinc-300">{props.title}</span>
+        <ConfBadge c="insufficient" />
+      </div>
+      <p class="mt-1 text-xs text-zinc-500">
+        {props.what} — <strong class="text-zinc-400">공식 채널 OAuth(YouTube Analytics) 연결 시 자동 점등.</strong>
+        {" "}연결법은 <code class="text-zinc-400">docs/youtube-oauth-setup.md</code> 참조.
+      </p>
+    </div>
+  );
+}
+
+// 삼각측량 슬롯 — 선행지표를 확정 전환으로 검증할 외부 입력 자리.
+// B(과거 판매·예약) 데이터가 없어 지금은 미연결 표시.
+function TriangulationNote() {
+  return (
+    <p class="mt-2 text-[11px] leading-relaxed text-zinc-600">
+      외부 검증 입력(예약판매·설문): <span class="text-zinc-500">미연결</span> —
+      시청 신호는 <strong class="text-zinc-400">선행지표</strong>일 뿐 구매가 아님.
+      소량 예약판매·자막 AB로 확정 전환을 검증한 뒤 규모를 닫을 것.
+    </p>
+  );
+}
+
+function ExpansionBoard({ d }: { d: DecisionData }) {
+  const a = d.analytics;
+  if (!a || a.countries.length === 0) {
+    return (
+      <OAuthPendingCard
+        title="국가별 진출 점수"
+        what="국가별 시청점유·성장률·유지율·구독전환은 소유자 전용 지표라 공개 API로 못 봄"
+      />
+    );
+  }
+  const ranked = a.countries
+    .map((c) => scoreExpansion({
+      country: c.country, watchShare: c.watch_share, growthMoM: c.growth_mom,
+      retentionRel: c.retention_rel, subPer1k: c.sub_per_1k,
+    }))
+    .sort((x, y) => y.score - x.score);
+  return (
+    <div class="space-y-2">
+      {ranked.map((r) => (
+        <div key={r.country} class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span class="font-semibold text-zinc-200">{r.country}</span>
+            <span class="text-sm text-zinc-400">{TIER_LABEL[r.tier]}</span>
+            <span class="text-sm tabular-nums text-zinc-300">score {r.score}</span>
+            <ConfBadge c={r.confidence} />
+          </div>
+          <p class="mt-1 text-xs text-zinc-400">{r.action}</p>
+        </div>
+      ))}
+      <p class="text-[11px] text-zinc-600">
+        지리 데이터는 IP/계정 기준 — VPN·교포 수요가 섞일 수 있음(상시 캐비엇).
+      </p>
+    </div>
+  );
+}
+
+function MerchBoard({ d }: { d: DecisionData }) {
+  const alloc = allocateMerch(
+    d.member_popularity.map((m) => ({
+      memberId: m.member_id, name: m.name,
+      compositeScore: m.composite_score, sufficient: m.sufficient,
+    })),
+  ).sort((x, y) => y.sharePct - x.sharePct);
+
+  const a = d.analytics;
+  const demand = estimateDemandFloor({
+    returningViewers30d: a?.returning_viewers_30d ?? null,
+    membershipCount: a?.membership_count ?? null,
+  });
+  const wtp = gradeWillingnessToPay({
+    membershipPenetration: a?.membership_penetration ?? null,
+    hasSuperChat: a?.has_super_chat ?? null,
+  });
+
+  return (
+    <div class="space-y-4">
+      {/* (b) 멤버 배분 — 공개 프록시, 지금 가동 */}
+      <div>
+        <div class="mb-2 flex items-center gap-2">
+          <h4 class="text-sm font-semibold text-zinc-300">멤버별 배분 (포카 비율)</h4>
+          <ConfBadge c="estimated" />
+        </div>
+        {alloc.length === 0 ? (
+          <EmptyState
+            title="멤버 인기 데이터 없음"
+            hint="agg_member_popularity 가 채워지면 배분 비율이 산출됩니다."
+            icon="🧮"
+          />
+        ) : (
+          <div class="space-y-1.5">
+            {alloc.map((m) => (
+              <div key={m.memberId} class="flex items-center gap-2">
+                <span class="w-20 shrink-0 truncate text-sm text-zinc-300">{m.name}</span>
+                <div class="h-3 flex-1 overflow-hidden rounded bg-zinc-800">
+                  <div class="h-full rounded bg-emerald-500/60"
+                       style={{ width: `${m.sharePct.toFixed(1)}%` }} />
+                </div>
+                <span class="w-12 shrink-0 text-right text-sm tabular-nums text-zinc-300">
+                  {m.sharePct.toFixed(1)}%
+                </span>
+                {m.confidence === "insufficient" && <ConfBadge c="insufficient" />}
+              </div>
+            ))}
+            <p class="mt-1 text-[11px] text-zinc-600">
+              하한 10%·상한 평균×2 적용 — 0장(팬덤 정치)·과잉생산 동시 방어.
+              공개 조회 점유 기반이라 '추정' — 구매 선호와 다를 수 있음.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* (a) 수요 하한 — OAuth */}
+      <div>
+        <div class="mb-2 flex items-center gap-2">
+          <h4 class="text-sm font-semibold text-zinc-300">수요 하한 (생산량 밴드)</h4>
+          <ConfBadge c={demand.confidence} />
+        </div>
+        {demand.low == null ? (
+          <OAuthPendingCard
+            title="수요 하한"
+            what="재방문 시청자·멤버십 가입자 수가 필요"
+          />
+        ) : (
+          <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
+            <div class="text-lg font-semibold tabular-nums text-zinc-100">
+              {fmt(demand.low)} ~ {fmt(demand.high)} <span class="text-sm text-zinc-500">개</span>
+            </div>
+            <p class="mt-1 text-xs text-zinc-500">{demand.note}</p>
+          </div>
+        )}
+      </div>
+
+      {/* (c) 지불의향 등급 — OAuth */}
+      <div>
+        <div class="mb-2 flex items-center gap-2">
+          <h4 class="text-sm font-semibold text-zinc-300">지불의향 등급 (가격 라인)</h4>
+          <ConfBadge c={wtp.confidence} />
+        </div>
+        {wtp.tier === "unknown" ? (
+          <OAuthPendingCard
+            title="지불의향"
+            what="멤버십 침투율·슈퍼챗 신호가 필요"
+          />
+        ) : (
+          <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
+            <span class="text-sm font-semibold text-zinc-200">
+              {wtp.tier === "premium" ? "프리미엄 라인 여지" : "보급형 권장"}
+            </span>
+            <p class="mt-1 text-xs text-zinc-500">{wtp.note}</p>
+          </div>
+        )}
+      </div>
+
+      <TriangulationNote />
+    </div>
+  );
+}
+
+type DecisionTab = "expansion" | "merch";
+const DECISION_TABS: Array<{ key: DecisionTab; label: string; desc: string }> = [
+  { key: "expansion", label: "해외 진출",
+    desc: "어느 나라에 베팅할지 — 성장률·유지율·구독전환으로 후보국을 좁히고 자막 AB부터." },
+  { key: "merch", label: "굿즈 제작",
+    desc: "얼마나·누구를·어떤 등급으로 — 멤버배분은 지금 가동, 수량·가격은 OAuth 연결 후." },
+];
+
+function DecisionBoard({ data, accent }: { data: MiiwanData; accent: string }) {
+  const [tab, setTab] = useState<DecisionTab>("expansion");
+  const active = DECISION_TABS.find((t) => t.key === tab) ?? DECISION_TABS[0]!;
+  return (
+    <section>
+      <h2 class="section-title mb-1">전략 의사결정 (DECISION)</h2>
+      <p class="mb-3 text-hint text-zinc-500">
+        공식 채널 데이터를 의사결정으로 — 선행지표일 뿐 구매 확정이 아니므로 모든
+        수치에 신뢰등급이 붙고, 권고는 '커밋'이 아니라 '테스트'다.
+      </p>
+      <div role="tablist" aria-label="decision board"
+           class="mb-3 flex flex-wrap gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+        {DECISION_TABS.map((t) => {
+          const on = t.key === tab;
+          return (
+            <button key={t.key} role="tab" aria-selected={on}
+                    class={"flex-1 min-w-[120px] rounded-md px-3 py-1.5 text-sm font-medium transition "
+                      + (on ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200")}
+                    style={on ? { color: accent } : undefined}
+                    onClick={() => setTab(t.key)}>
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+      <p class="mb-3 text-hint text-zinc-500">{active.desc}</p>
+      {tab === "expansion"
+        ? <ExpansionBoard d={data.decision} />
+        : <MerchBoard d={data.decision} />}
+    </section>
+  );
 }
 
 export function MiiWANBriefing() {
@@ -616,6 +883,11 @@ export function MiiWANBriefing() {
           organicity 정상 = '진짜'지만 '충분·지속'의 증거는 아님.
         </p>
       </section>
+
+      {/* 5c) DECISION — 공식 채널 데이터 → 해외진출 / 굿즈 의사결정.
+          코호트·포스처(시장 위치) 다음, 인사이트(분석가 권고) 앞 — 운영자가
+          "그래서 무엇을 결정하나"를 데이터 바로 옆에서 답하도록 배치. */}
+      <DecisionBoard data={data} accent={accent} />
 
       {/* 6) STRATEGIC INSIGHT — LLM weekly insights, MiiWAN-scoped first. */}
       <section>

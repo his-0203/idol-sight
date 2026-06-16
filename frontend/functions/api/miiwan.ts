@@ -115,6 +115,34 @@ interface InsightRow {
   generated_at: string;
 }
 
+// DECISION 탭 — 굿즈 멤버배분의 공개 프록시. agg_member_popularity의
+// composite_score를 인기 비중으로 쓴다. yt_sufficient=0이면 표본 부족.
+interface MemberPopularityRow {
+  member_id: number;
+  composite_score: number | null;
+  yt_score: number | null;
+  yt_avg_views: number | null;
+  yt_videos: number | null;
+  yt_sufficient: number;
+}
+
+// 미완소년 소유자 OAuth(Analytics) 적재 — migration 0087. OAuth 미연결이면
+// 행이 없어 decision.analytics 가 null → 프론트 empty-state.
+interface YtAnalyticsRow {
+  snapshot_at: string;
+  returning_viewers_30d: number | null;
+  membership_count: number | null;
+  membership_penetration: number | null;
+  has_super_chat: number | null;
+}
+interface YtAnalyticsCountryRow {
+  country: string;
+  watch_share: number;
+  growth_mom: number | null;
+  retention_rel: number | null;
+  sub_per_1k: number;
+}
+
 const safeJson = (s: string | null) => {
   try { return s ? JSON.parse(s) : []; } catch { return []; }
 };
@@ -152,7 +180,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   // controversyTrend: mirrors PRRisk's WoW logic for an in-context risk badge.
   const [
     summary, prevSummary, summaryHistory, health, members, insights, alerts,
-    controversyTrend,
+    controversyTrend, memberPopularity, ytAnalytics, ytAnalyticsCountries,
   ] = await Promise.all([
     d1QueryOne<SummaryRow>(
       env.DB,
@@ -218,6 +246,36 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
                  AND snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?))
           ) AS previous`,
       [TARGET, TARGET, TARGET, TARGET, TARGET],
+    ),
+    // DECISION 탭 — 멤버배분 프록시. 최신 스냅샷의 per-member 인기 점수.
+    d1Query<MemberPopularityRow>(
+      env.DB,
+      `SELECT member_id, composite_score, yt_score, yt_avg_views,
+              yt_videos, yt_sufficient
+         FROM agg_member_popularity
+        WHERE group_key=? AND snapshot_at = (
+          SELECT MAX(snapshot_at) FROM agg_member_popularity WHERE group_key=?)`,
+      [TARGET, TARGET],
+    ),
+    // DECISION 탭 — 미완소년 소유자 OAuth(Analytics). 미연결이면 행 없음.
+    d1QueryOne<YtAnalyticsRow>(
+      env.DB,
+      `SELECT snapshot_at, returning_viewers_30d, membership_count,
+              membership_penetration, has_super_chat
+         FROM agg_youtube_analytics
+        WHERE group_key=? AND snapshot_at = (
+          SELECT MAX(snapshot_at) FROM agg_youtube_analytics WHERE group_key=?)`,
+      [TARGET, TARGET],
+    ),
+    d1Query<YtAnalyticsCountryRow>(
+      env.DB,
+      `SELECT country, watch_share, growth_mom, retention_rel, sub_per_1k
+         FROM agg_youtube_analytics_country
+        WHERE group_key=? AND snapshot_at = (
+          SELECT MAX(snapshot_at) FROM agg_youtube_analytics_country
+           WHERE group_key=?)
+        ORDER BY watch_share DESC`,
+      [TARGET, TARGET],
     ),
   ]);
 
@@ -415,5 +473,40 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     benchmarks_by_anchor: benchmarksByAnchor,
     alerts,
     controversy_trend: controversyTrend,
+    // DECISION 탭 데이터. member_popularity는 공개 프록시(지금 가동),
+    // analytics는 소유자 OAuth 전용 지표 — 연결 전까지 null이라 프론트가
+    // empty-state로 렌더한다. OAuth collector가 채우면 자동 점등.
+    decision: {
+      member_popularity: (() => {
+        const nameOf = new Map(members.map((m) => [m.id, m.name]));
+        return (memberPopularity ?? []).map((r) => ({
+          member_id: r.member_id,
+          name: nameOf.get(r.member_id) ?? `#${r.member_id}`,
+          composite_score: r.composite_score,
+          yt_avg_views: r.yt_avg_views,
+          sufficient: Boolean(r.yt_sufficient),
+        }));
+      })(),
+      // 미완소년 소유자 OAuth(Analytics) 적재분. 행이 없으면 null →
+      // 프론트가 '연결 대기' empty-state. worker youtube-analytics 커맨드가
+      // 채운다 (migration 0087 / collectors/youtube_analytics.py).
+      analytics: (ytAnalytics || (ytAnalyticsCountries ?? []).length > 0)
+        ? {
+            snapshot_at: ytAnalytics?.snapshot_at ?? "",
+            countries: (ytAnalyticsCountries ?? []).map((c) => ({
+              country: c.country,
+              watch_share: c.watch_share,
+              growth_mom: c.growth_mom ?? 0,
+              retention_rel: c.retention_rel ?? 1,
+              sub_per_1k: c.sub_per_1k,
+            })),
+            returning_viewers_30d: ytAnalytics?.returning_viewers_30d ?? null,
+            membership_count: ytAnalytics?.membership_count ?? null,
+            membership_penetration: ytAnalytics?.membership_penetration ?? null,
+            has_super_chat: ytAnalytics?.has_super_chat == null
+              ? null : Boolean(ytAnalytics.has_super_chat),
+          }
+        : null,
+    },
   });
 };

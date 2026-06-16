@@ -42,3 +42,7 @@ scripts/historical_backfill/bigkinds/*.xlsx
 
 # 스케줄러 런타임 락 (로컬 상태, 추적 안 함)
 .claude/scheduled_tasks.lock
+
+# YouTube OAuth refresh token (로컬 1회용, 절대 커밋 금지)
+.miiwan_refresh_token
+.miiwan_secrets.env
