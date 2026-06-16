@@ -873,6 +873,102 @@ def collect_ccv(
     raise typer.Exit(code=0 if result.statements or not result.errors else 1)
 
 
+def _load_live_chat_candidates(client, *, group_key: str, since: str) -> list[str]:
+    """since 이후 CCV 가 기록한 group_key 의 방송 중, 아직 리포트 없는 video_id."""
+    rows = client.execute(
+        "SELECT DISTINCT video_id FROM live_ccv_samples "
+        "WHERE group_key=? AND sampled_at >= ? "
+        "  AND video_id NOT IN (SELECT video_id FROM live_chat_reports)",
+        [group_key, since],
+    )
+    return [r["video_id"] for r in rows if r.get("video_id")]
+
+
+@app.command("collect-live-chat",
+             help="종료된 라이브 방송의 채팅 리플레이를 긁어 긍/부정 리포트 생성.")
+def collect_live_chat(
+    group: str = typer.Option("miiwan", "--group", help="대상 group_key."),
+    now: str | None = typer.Option(None, "--now", help="ISO8601 UTC 기준 시각."),
+    window_days: int = typer.Option(3, "--window-days", help="후보 탐색 윈도(재시도 상한)."),
+    min_age_min: int = typer.Option(30, "--min-age-min", help="종료 후 최소 경과(분)."),
+) -> None:
+    from datetime import timedelta
+
+    import httpx
+
+    from idol_sight.analysis.live_chat_report import build_report
+    from idol_sight.collectors.live_chat import (
+        LiveChatReplayScraper,
+        ended_broadcasts,
+    )
+
+    settings = load_settings()
+    if not settings.yt_api_key:
+        typer.echo("YT_API_KEY unset", err=True)
+        raise typer.Exit(code=2)
+    if not settings.gemini_api_key:
+        typer.echo("GEMINI_API_KEY unset", err=True)
+        raise typer.Exit(code=2)
+
+    client = _make_d1_client(settings)
+    now_dt = (datetime.fromisoformat(now.replace("Z", "+00:00")) if now
+              else datetime.now(UTC))
+    now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    since = (now_dt - timedelta(days=window_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    grp = _load_group(client, group)
+
+    candidates = _load_live_chat_candidates(client, group_key=group, since=since)
+    if not candidates:
+        typer.echo("collect-live-chat: no candidate broadcasts")
+        raise typer.Exit(code=0)
+
+    ended = ended_broadcasts(
+        lambda: httpx.Client(timeout=30.0),
+        api_key=settings.yt_api_key, video_ids=candidates,
+        now_iso=now_iso, min_age_min=min_age_min,
+    )
+
+    scraper = LiveChatReplayScraper()
+    gemini = GeminiClient(api_key=settings.gemini_api_key)
+    reports = 0
+    errors: list[str] = []
+    for vid, meta in ended.items():
+        try:
+            msgs = scraper.scrape(vid)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"scrape {vid}: {exc}")
+            continue
+        if not msgs:
+            continue
+        raw_stmts = [(
+            "INSERT INTO live_chat_messages "
+            "(video_id, group_key, msg_id, offset_ms, author, message) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(video_id, msg_id) DO NOTHING",
+            [vid, group, m["msg_id"], m["offset_ms"], m["author"], m["message"]],
+        ) for m in msgs if m.get("msg_id")]
+        if raw_stmts:
+            client.batch(raw_stmts)
+        try:
+            stmt = build_report(
+                gemini, video_id=vid, group_key=group,
+                group_name_kr=grp.name_kr or grp.name, title=meta["title"],
+                ended_at=meta["ended_at"], messages=msgs, now_iso=now_iso)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"report {vid}: {exc}")
+            continue
+        if stmt:
+            client.batch([stmt])
+            reports += 1
+
+    for e in errors:
+        typer.echo(f"WARN: {e}", err=True)
+    typer.echo(f"collect-live-chat: {reports} report(s) from "
+               f"{len(ended)} ended / {len(candidates)} candidate broadcasts")
+    # 후보가 있었는데 전부 실패한 경우에만 비-0 (live_ccv sentinel 패턴)
+    raise typer.Exit(code=1 if (ended and reports == 0 and errors) else 0)
+
+
 @app.command(
     "backfill-music-show-wins",
     help=(
