@@ -10,7 +10,7 @@ import {
   isInsufficient, quantize, interpretCountry, contextFlags, distortionWarnings,
   quadrant, hhi, cr3, subtitlePriority, prPriority, retentionGate, pri,
   patternFlags, currentRung, actionCard, enrichCountries, headline, bettingQueue,
-  metaOf, shrinkGrowth,
+  metaOf, shrinkGrowth, fandomFit,
 } from "./marketAnalysis";
 
 const C = (country: string, watchShare: number, growthMoM: number,
@@ -127,6 +127,23 @@ describe("파생 지표", () => {
     const high = pri(C("ID", 0.06, 0.62, 0.81, 8), POP);
     const leaky = pri(C("LK", 0.06, 0.62, 0.40, 8), POP); // 동일하나 유지 0.40
     expect(high).toBeGreaterThan(leaky);
+  });
+});
+
+describe("팬덤 안착력 — 끝까지+전환+자연유입 (성장·크기 무관)", () => {
+  it("고유지+고전환 = 안착 좋음, 저유지+저전환 = 약함", () => {
+    expect(fandomFit(C("JP", 0.18, 0.04, 1.02, 9), POP).level).toBe("strong");
+    expect(fandomFit(C("US", 0.14, 0.35, 0.72, 4), POP).level).toBe("weak");
+  });
+  it("성장/크기는 안착에 영향 없음 (같은 유지·전환이면 동일)", () => {
+    const a = fandomFit({ ...C("X", 0.3, 2.0, 0.9, 7) }, POP).score;
+    const b = fandomFit({ ...C("Y", 0.01, -0.5, 0.9, 7) }, POP).score;
+    expect(a).toBeCloseTo(b, 9); // watch_share·growth 달라도 동일
+  });
+  it("자연 유입(organic) 높으면 안착력 가산", () => {
+    const lo = fandomFit({ ...C("Z", 0.1, 0.1, 0.9, 6), organicShare: 0.2 }, POP).score;
+    const hi = fandomFit({ ...C("Z", 0.1, 0.1, 0.9, 6), organicShare: 0.9 }, POP).score;
+    expect(hi).toBeGreaterThan(lo);
   });
 });
 
