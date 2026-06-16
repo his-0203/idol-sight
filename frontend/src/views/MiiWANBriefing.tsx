@@ -127,14 +127,18 @@ type DecisionData = {
   analytics: {
     snapshot_at: string;
     countries: Array<{
-      country: string; watch_share: number; growth_mom: number;
+      country: string; watch_share: number; growth_mom: number | null;
       retention_rel: number; sub_per_1k: number;
+      watch_minutes: number | null; organic_share: number | null;
     }>;
     returning_viewers_30d: number | null;
     membership_count: number | null;
     membership_penetration: number | null;
     has_super_chat: boolean | null;
   } | null;
+  goods_preorder: Array<{
+    country: string; member_id: number | null; count: number; source: string;
+  }>;
 };
 
 // Controversy thresholds: see src/lib/alerts.ts.
@@ -456,6 +460,7 @@ export function MiiWANBriefing() {
         <MarketAnalysis
           analytics={data.decision.analytics}
           memberPopularity={data.decision.member_popularity}
+          goodsPreorder={data.decision.goods_preorder}
           daysToDebut={data.days_to_debut}
         />
       ) : (<>

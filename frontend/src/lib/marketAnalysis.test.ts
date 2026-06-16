@@ -10,7 +10,7 @@ import {
   isInsufficient, quantize, interpretCountry, contextFlags, distortionWarnings,
   quadrant, hhi, cr3, subtitlePriority, prPriority, retentionGate, pri,
   patternFlags, currentRung, actionCard, enrichCountries, headline, bettingQueue,
-  metaOf,
+  metaOf, shrinkGrowth,
 } from "./marketAnalysis";
 
 const C = (country: string, watchShare: number, growthMoM: number,
@@ -28,9 +28,32 @@ const POP: CountryRow[] = [
 ];
 
 describe("표본 게이트", () => {
-  it("watch_share < 0.005 면 insufficient", () => {
+  it("watch_share < 0.005 면 insufficient (절대 분 없을 때)", () => {
     expect(isInsufficient(C("MX", 0.004, 0, 1, 1))).toBe(true);
     expect(isInsufficient(C("JP", 0.18, 0, 1, 1))).toBe(false);
+  });
+  it("#1 절대 시청시간이 있으면 그걸 우선 — 점유 높아도 분이 적으면 부족", () => {
+    expect(isInsufficient({ ...C("XX", 0.2, 0, 1, 1), watchMinutes: 500 })).toBe(true);
+    expect(isInsufficient({ ...C("XX", 0.2, 0, 1, 1), watchMinutes: 9000 })).toBe(false);
+  });
+});
+
+describe("#2 성장 수축", () => {
+  const pop: CountryRow[] = [
+    { ...C("A", 0.4, 0.1, 1, 5), watchMinutes: 100000 },
+    { ...C("B", 0.3, 0.1, 1, 5), watchMinutes: 50000 },
+    { ...C("C", 0.01, 5.0, 1, 5), watchMinutes: 800 }, // 소표본 폭발
+  ];
+  it("소표본 국가의 성장이 0 쪽으로 강하게 당겨짐", () => {
+    const big = shrinkGrowth(pop[0]!, pop);
+    const tiny = shrinkGrowth(pop[2]!, pop);
+    expect(tiny).toBeLessThan(pop[2]!.growthMoM);     // 수축됨
+    expect(big).toBeCloseTo(pop[0]!.growthMoM, 1);    // 큰 표본은 거의 그대로
+    // 폭발(500%)이 큰 표본 성장(10%)보다 낮게 눌릴 수 있음
+    expect(tiny).toBeLessThan(pop[2]!.growthMoM * 0.5);
+  });
+  it("절대 분 없으면 원값 유지", () => {
+    expect(shrinkGrowth(C("Z", 0.1, 0.3, 1, 5), [C("Z", 0.1, 0.3, 1, 5)])).toBe(0.3);
   });
 });
 

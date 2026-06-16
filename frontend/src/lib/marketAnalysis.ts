@@ -21,6 +21,8 @@ export interface CountryRow {
   growthMoM: number;    // 소수
   retentionRel: number; // 국내(KR) 대비, 1.0 = 동등
   subPer1k: number;
+  watchMinutes?: number | null; // 절대 시청시간(분) — 표본 게이트(#1)
+  organicShare?: number | null; // 오가닉(검색+추천) 트래픽 비중(#3)
 }
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
@@ -55,10 +57,23 @@ export function winsorNorm(value: number, population: number[]): number {
 export type Level = "high" | "mid" | "low";
 export interface Levels { watch: Level; growth: Level; retention: Level; sub: Level }
 
-// 표본 부족 임계 — 시청 점유가 이 미만이면 지표가 노이즈.
+// 표본 부족 임계. 절대 시청시간(#1)이 있으면 그걸 우선 — "점유 8%"가
+// 1만분인지 10만분인지로 진출 의미가 완전히 다르다. 없으면 점유로 폴백.
 export const MIN_SAMPLE_SHARE = 0.005;
+export const MIN_SAMPLE_MINUTES = 2000;
 export function isInsufficient(row: CountryRow): boolean {
+  if (row.watchMinutes != null) return row.watchMinutes < MIN_SAMPLE_MINUTES;
   return row.watchShare < MIN_SAMPLE_SHARE;
+}
+
+// #2 성장 베이지안 수축 — 표본(시청시간) 적은 국가의 growth 를 0 쪽으로 당겨
+// "prior≈0 → 폭발" 노이즈를 구조적으로 누른다. 절대 분 데이터 없으면 원값.
+export function shrinkGrowth(row: CountryRow, pop: CountryRow[]): number {
+  if (row.watchMinutes == null) return row.growthMoM;
+  const ms = pop.map((r) => r.watchMinutes).filter((m): m is number => m != null);
+  if (ms.length === 0) return row.growthMoM;
+  const k = Math.max(1, percentile(ms, 0.25)); // 하위 표본일수록 강하게 수축
+  return row.growthMoM * (row.watchMinutes / (row.watchMinutes + k));
 }
 
 export function quantize(row: CountryRow, pop: CountryRow[]): Levels {
@@ -359,18 +374,22 @@ export interface EnrichedCountry {
 }
 
 export function enrichCountries(raw: CountryRow[]): EnrichedCountry[] {
-  return raw.map((row) => {
+  // 정량(점수·모멘텀·PRI·사분면)은 수축된 성장으로 — 노이즈 방어(#2).
+  // 서술·플래그·표시는 원값(raw)으로 — 운영자가 실제값을 본다.
+  const scored = raw.map((r) => ({ ...r, growthMoM: shrinkGrowth(r, raw) }));
+  return raw.map((row, i) => {
+    const sr = scored[i]!;
     const exp = scoreExpansion({
-      country: row.country, watchShare: row.watchShare, growthMoM: row.growthMoM,
-      retentionRel: row.retentionRel, subPer1k: row.subPer1k,
+      country: sr.country, watchShare: sr.watchShare, growthMoM: sr.growthMoM,
+      retentionRel: sr.retentionRel, subPer1k: sr.subPer1k,
     });
-    const pattern = patternFlags(row, raw);
+    const pattern = patternFlags(sr, scored);
     return {
       row, score: exp.score, tier: exp.tier, drivers: exp.drivers,
       interpretation: interpretCountry(row, raw),
       flags: contextFlags(row, raw), warnings: distortionWarnings(row, raw),
-      momentum: momentum(row, raw), quality: quality(row, raw),
-      quadrant: quadrant(row), pri: pri(row, raw),
+      momentum: momentum(sr, scored), quality: quality(row, raw),
+      quadrant: quadrant(sr), pri: pri(sr, scored),
       pattern, rung: currentRung(exp.tier, pattern),
       action: actionCard(row, exp.tier, pattern),
       insufficient: isInsufficient(row),

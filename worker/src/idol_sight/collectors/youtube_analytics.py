@@ -67,12 +67,15 @@ def build_country_rows(
     prior: list[dict[str, Any]],
     group_key: str,
     snapshot_at: str,
+    organic: dict[str, float] | None = None,
 ) -> list[tuple[str, list[Any]]]:
     """국가별 현재/직전 리포트 → agg_youtube_analytics_country INSERT 문.
 
     current/prior 각 행은 index_rows 결과:
       country, estimatedMinutesWatched, views, subscribersGained, averageViewPercentage
+    organic: country → 오가닉(검색+추천) 트래픽 비중 0..1 (best-effort, 없으면 NULL).
     """
+    organic = organic or {}
     total_minutes = sum(
         float(r.get("estimatedMinutesWatched", 0) or 0) for r in current
     ) or 1.0
@@ -110,18 +113,42 @@ def build_country_rows(
             """
             INSERT INTO agg_youtube_analytics_country
               (group_key, snapshot_at, country, watch_share, growth_mom,
-               retention_rel, sub_per_1k)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+               retention_rel, sub_per_1k, watch_minutes, organic_share)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(group_key, snapshot_at, country) DO UPDATE SET
               watch_share=excluded.watch_share,
               growth_mom=excluded.growth_mom,
               retention_rel=excluded.retention_rel,
-              sub_per_1k=excluded.sub_per_1k
+              sub_per_1k=excluded.sub_per_1k,
+              watch_minutes=excluded.watch_minutes,
+              organic_share=excluded.organic_share
             """.strip(),
             [group_key, snapshot_at, country, watch_share, growth_mom,
-             retention_rel, sub_per_1k],
+             retention_rel, sub_per_1k, round(minutes), organic.get(country)],
         ))
     return stmts
+
+
+# 오가닉으로 보는 트래픽 소스 타입 (검색 + 추천 + 채널페이지/알림).
+ORGANIC_SOURCES = {
+    "YT_SEARCH", "RELATED_VIDEO", "SUBSCRIBER", "YT_CHANNEL",
+    "NOTIFICATION", "PLAYLIST",
+}
+
+
+def organic_share_from_traffic(rows: list[dict[str, Any]]) -> float | None:
+    """insightTrafficSourceType 리포트 → 오가닉 조회 비중 0..1.
+
+    rows: index_rows 결과 (insightTrafficSourceType, views).
+    """
+    total = sum(float(r.get("views", 0) or 0) for r in rows)
+    if total <= 0:
+        return None
+    organic = sum(
+        float(r.get("views", 0) or 0)
+        for r in rows if r.get("insightTrafficSourceType") in ORGANIC_SOURCES
+    )
+    return organic / total
 
 
 class YouTubeAnalyticsCollector:
@@ -158,6 +185,25 @@ class YouTubeAnalyticsCollector:
             r.raise_for_status()
             return r.json()
 
+    def _traffic_report(self, token: str, start: str, end: str, country: str) -> dict:
+        """단일 국가의 트래픽 소스 타입별 조회수. country 는 filter 로 (차원
+        조합 제약 회피). 권한/조합 미지원 시 호출부에서 catch."""
+        with self._http_factory() as client:
+            r = client.get(
+                ANALYTICS_URL,
+                params={
+                    "ids": "channel==MINE",
+                    "startDate": start, "endDate": end,
+                    "metrics": "views",
+                    "dimensions": "insightTrafficSourceType",
+                    "filters": f"country=={country}",
+                    "maxResults": 25,
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            r.raise_for_status()
+            return r.json()
+
     def collect(
         self, group: GroupConfig, since: str | None = None,
     ) -> CollectionResult:
@@ -177,7 +223,22 @@ class YouTubeAnalyticsCollector:
         prior = index_rows(self._report(
             token, prior_start.isoformat(), prior_end.isoformat()))
 
-        stmts = build_country_rows(cur, prior, group.key, snapshot_at)
+        # #3 트래픽 소스 — 상위 국가별 오가닉 비중 (best-effort). 차원 조합
+        # 제약·권한 등으로 실패할 수 있어 try/except 로 감싸고, 실패 시
+        # organic_share 는 NULL 로 둔다 (핵심 수집은 절대 깨지 않는다).
+        organic: dict[str, float] = {}
+        top_countries = [r["country"] for r in cur[:12] if r.get("country")]
+        for country in top_countries:
+            try:
+                share = organic_share_from_traffic(index_rows(
+                    self._traffic_report(
+                        token, cur_start.isoformat(), cur_end.isoformat(), country)))
+                if share is not None:
+                    organic[country] = share
+            except Exception as exc:  # noqa: BLE001 — 보조 지표, 비치명적.
+                log.info("traffic-source skip %s: %s", country, exc)
+
+        stmts = build_country_rows(cur, prior, group.key, snapshot_at, organic)
 
         # 채널 단위 행 — 멤버십/재방문은 Analytics API 가 깔끔히 노출하지
         # 않아 현재 NULL. 국가 데이터가 들어왔다는 snapshot 마커 역할 +
