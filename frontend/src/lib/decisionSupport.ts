@@ -48,15 +48,34 @@ const REF_GROWTH = 0.30;   // +30% MoM = 만점
 const REF_SUB_PER_1K = 10; // 1k당 10구독(=1% 전환) = 만점
 const REF_SHARE = 0.15;    // 시청점유 15% = 만점
 
-const W_GROWTH = 0.35;
-const W_RETENTION = 0.30;
-const W_SUB = 0.25;
-const W_SHARE = 0.10;
+export interface ScoreWeights { growth: number; retention: number; sub: number; share: number }
+
+// 데뷔 단계별 가중치(#1). 데뷔 직후(launch)엔 성장률이 분모≈0 노이즈라 신호가
+// 약하고 전 국가가 high로 뭉친다 → 성장 비중을 낮추고 적합도(유지·전환)에 무게.
+// 시간이 지나며 성장이 진짜 신호가 되면 비중을 올린다.
+export type Phase = "launch" | "growth" | "mature";
+export const PHASE_WEIGHTS: Record<Phase, ScoreWeights> = {
+  launch: { growth: 0.15, retention: 0.40, sub: 0.30, share: 0.15 },
+  growth: { growth: 0.30, retention: 0.30, sub: 0.25, share: 0.15 },
+  mature: { growth: 0.35, retention: 0.30, sub: 0.25, share: 0.10 },
+};
+const DEFAULT_WEIGHTS = PHASE_WEIGHTS.mature;
+
+/** 데뷔 후 일수로 단계 판정. daysToDebut: 양수=데뷔 전, 0/음수=데뷔 후. */
+export function phaseOf(daysToDebut: number | null): Phase {
+  if (daysToDebut == null || daysToDebut > 0) return "launch"; // 데뷔 전/직후
+  const dPlus = -daysToDebut;
+  if (dPlus <= 90) return "launch";
+  if (dPlus <= 365) return "growth";
+  return "mature";
+}
 
 // 표본 가드 — 이 미만이면 노이즈로 보고 판단 보류.
 const MIN_WATCH_SHARE = 0.01;
 
-export function scoreExpansion(c: CountryAnalytics): ExpansionResult {
+export function scoreExpansion(
+  c: CountryAnalytics, weights: ScoreWeights = DEFAULT_WEIGHTS,
+): ExpansionResult {
   const drivers = {
     growth: clamp01(c.growthMoM / REF_GROWTH),
     // 유지율은 국내 대비 0.5 → 0, 1.2 → 1 로 매핑.
@@ -67,10 +86,10 @@ export function scoreExpansion(c: CountryAnalytics): ExpansionResult {
 
   const score = Math.round(
     100 *
-      (W_GROWTH * drivers.growth +
-        W_RETENTION * drivers.retention +
-        W_SUB * drivers.sub +
-        W_SHARE * drivers.share),
+      (weights.growth * drivers.growth +
+        weights.retention * drivers.retention +
+        weights.sub * drivers.sub +
+        weights.share * drivers.share),
   );
 
   // 표본부족이 최우선 — 점수가 높아도 데이터가 노이즈면 행동 금지.

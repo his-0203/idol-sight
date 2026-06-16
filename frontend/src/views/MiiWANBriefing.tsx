@@ -130,6 +130,7 @@ type DecisionData = {
       country: string; watch_share: number; growth_mom: number | null;
       retention_rel: number; sub_per_1k: number;
       watch_minutes: number | null; organic_share: number | null;
+      subs_gained: number | null;
     }>;
     returning_viewers_30d: number | null;
     membership_count: number | null;

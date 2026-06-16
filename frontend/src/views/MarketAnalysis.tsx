@@ -9,10 +9,12 @@ import { useMemo, useRef, useState } from "preact/hooks";
 import { EmptyState } from "../components/EmptyState";
 import { Tooltip } from "../components/Tooltip";
 import { QuadrantScatter } from "../components/QuadrantScatter";
+import { RegionDonut, type DonutSegment } from "../components/RegionDonut";
 import {
   enrichCountries, headline, bettingQueue, hhi, hhiLabel, cr3,
   QUADRANT_LABEL, TIER_LABEL_KO, FANDOM_LABEL, metaOf, fmtGrowthPct,
-  type CountryRow, type EnrichedCountry,
+  regionOf, conclusion,
+  type CountryRow, type EnrichedCountry, type ConclusionTone,
 } from "../lib/marketAnalysis";
 import {
   allocateMerch, estimateDemandFloor, gradeWillingnessToPay,
@@ -23,6 +25,7 @@ type CountryApi = {
   country: string; watch_share: number; growth_mom: number | null;
   retention_rel: number; sub_per_1k: number;
   watch_minutes: number | null; organic_share: number | null;
+  subs_gained: number | null;
 };
 export type AnalyticsApi = {
   snapshot_at: string;
@@ -40,6 +43,13 @@ export type MemberPopApi = Array<{
 const TIER_TONE: Record<string, string> = {
   candidate: "text-cyan-300", test: "text-violet-300",
   watch: "text-slate-400", insufficient: "text-zinc-500",
+};
+const CONCLUSION_TONE: Record<ConclusionTone, string> = {
+  go: "border-cyan-500/40 bg-cyan-500/15 text-cyan-200",
+  test: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
+  watch: "border-zinc-600/40 bg-zinc-700/30 text-zinc-300",
+  hold: "border-red-500/40 bg-red-500/15 text-red-200",
+  home: "border-amber-500/40 bg-amber-500/15 text-amber-200",
 };
 
 // 용어 인라인 툴팁 — hover/focus/클릭 시 실제 팝오버(native title 은 지연·
@@ -88,12 +98,13 @@ export function MarketAnalysis({
     country: c.country, watchShare: c.watch_share, growthMoM: c.growth_mom ?? 0,
     retentionRel: c.retention_rel, subPer1k: c.sub_per_1k,
     watchMinutes: c.watch_minutes, organicShare: c.organic_share,
+    subsGained: c.subs_gained,
   })), [analytics]);
   const growthKnown = useMemo(
     () => new Set((analytics?.countries ?? []).filter((c) => c.growth_mom != null).map((c) => c.country)),
     [analytics],
   );
-  const enriched = useMemo(() => enrichCountries(raw), [raw]);
+  const enriched = useMemo(() => enrichCountries(raw, daysToDebut), [raw, daysToDebut]);
   const derived = useMemo(() => {
     const sufficient = enriched.filter((e) => !e.insufficient);
     const overseas = sufficient.filter((e) => e.row.country !== "KR"); // 본진 제외
@@ -113,6 +124,25 @@ export function MarketAnalysis({
   const [selected, setSelected] = useState<string | null>(null);
   // 비전문가 배려 — 지표 안내 기본 펼침(처음 보는 사람이 용어부터 막히지 않게).
   const [showHelp, setShowHelp] = useState(true);
+  const [donutMetric, setDonutMetric] = useState<"subs" | "share" | "minutes">("share");
+  const donut = useMemo(() => {
+    const val = (e: EnrichedCountry) => donutMetric === "subs" ? (e.row.subsGained ?? 0)
+      : donutMetric === "minutes" ? (e.row.watchMinutes ?? 0) : e.row.watchShare;
+    const seg = new Map<string, number>();
+    const ret = new Map<string, { w: number; r: number }>(); // 시청가중 평균 유지율
+    for (const e of enriched) {
+      const reg = regionOf(e.row.country);
+      seg.set(reg, (seg.get(reg) ?? 0) + Math.max(0, val(e)));
+      const w = e.row.watchMinutes ?? e.row.watchShare * 1000;
+      const a = ret.get(reg) ?? { w: 0, r: 0 };
+      a.w += w; a.r += w * e.row.retentionRel; ret.set(reg, a);
+    }
+    return {
+      segments: [...seg.entries()].map(([label, value]) => ({ label, value })),
+      retention: [...ret.entries()].map(([label, { w, r }]) => ({ label, ret: w > 0 ? r / w : 0 }))
+        .sort((a, b) => b.ret - a.ret),
+    };
+  }, [enriched, donutMetric]);
   // 지도/점수에서 클릭하면 드릴다운이 화면 밖(위)이라 단절 → 부드럽게 스크롤.
   const drilldownRef = useRef<HTMLDivElement>(null);
   const selectCountry = (country: string) => {
@@ -210,6 +240,53 @@ export function MarketAnalysis({
 
       {/* 2) 국가 드릴다운 — '왜' (위 랭킹/아래 지도에서 클릭하면 갱신) */}
       <div ref={drilldownRef}>{sel && <CountryDrilldown e={sel} />}</div>
+
+      {/* 2.5) 우리 채널 현황 — 권역별 분포 도넛 (본진 포함, 서술용) */}
+      <section>
+        <h3 class="section-title mb-1">🍩 우리 채널 현황 — 어느 지역에서 보고 구독하나</h3>
+        <p class="text-hint mb-3 text-zinc-500">본진(동아시아) 포함 전체 분포. 토글로 구독·시청 전환.</p>
+        <div role="tablist" class="mb-3 inline-flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+          {([["share", "시청 비중"], ["minutes", "시청 시간"], ["subs", "구독 유입"]] as const).map(([k, label]) => {
+            const on = donutMetric === k;
+            return (
+              <button key={k} role="tab" aria-selected={on}
+                class={"rounded-md px-3 py-1 text-xs font-medium transition "
+                  + (on ? "bg-zinc-800 text-cyan-300" : "text-zinc-400 hover:text-zinc-200")}
+                onClick={() => setDonutMetric(k)}>{label}</button>
+            );
+          })}
+        </div>
+        <div class="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+          <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
+            {donut.segments.some((s) => s.value > 0) ? (
+              <RegionDonut segments={donut.segments as DonutSegment[]}
+                fmt={(v) => donutMetric === "subs" ? `${fmt(Math.round(v))}명`
+                  : donutMetric === "minutes" ? `${fmt(Math.round(v))}분`
+                  : `${(v * 100).toFixed(1)}%`} />
+            ) : (
+              <div class="flex h-56 items-center justify-center text-center text-xs text-zinc-500">
+                {donutMetric === "subs" ? "구독 유입 데이터 누적 중 (다음 수집부터)" : "데이터 없음"}
+              </div>
+            )}
+          </div>
+          <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
+            <div class="mb-2 text-xs font-semibold text-zinc-400">권역별 '끝까지 보는 정도' (본진 대비)</div>
+            <div class="space-y-1.5">
+              {donut.retention.map((r) => (
+                <div key={r.label} class="flex items-center gap-2">
+                  <span class="w-16 shrink-0 truncate text-xs text-zinc-300">{r.label}</span>
+                  <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
+                    <div class={"h-full rounded " + (r.ret >= 1 ? "bg-emerald-500/60" : "bg-amber-500/50")}
+                      style={{ width: `${Math.min(100, (r.ret / 1.5) * 100)}%` }} />
+                  </div>
+                  <span class="w-12 shrink-0 text-right text-xs tabular-nums text-zinc-400">{r.ret.toFixed(2)}×</span>
+                </div>
+              ))}
+            </div>
+            <p class="mt-2 text-[11px] text-zinc-600">1.0× = 본진(한국)과 동등. 길수록 오래(끝까지) 봄.</p>
+          </div>
+        </div>
+      </section>
 
       {/* 3) 시장 지도(사분면) + 유망도 점수(참고·접기) */}
       <section>
@@ -311,6 +388,7 @@ function QueueRow({ label, items, tone }: { label: string; items: string[]; tone
 // ─── 국가 '왜' 드릴다운 ──────────────────────────────────────────────
 function CountryDrilldown({ e }: { e: EnrichedCountry }) {
   const m = metaOf(e.row.country);
+  const concl = conclusion(e);
   const retArrow = e.row.retentionRel >= 1 ? "🔼 국내보다 더 봄" : "🔻 국내보다 덜 봄";
   const drivers: Array<[string, number, string]> = [
     ["뜨는 중?", e.drivers.growth, fmtGrowthPct(e.row.growthMoM)],
@@ -323,15 +401,22 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
   return (
     <section class="rounded-card border-l-4 border border-zinc-800 bg-zinc-900/40 p-4"
       style={{ borderLeftColor: "#22d3ee" }}>
-      <div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h3 class="text-lg font-bold text-zinc-100">{e.row.country}{e.row.country === "KR" && <span class="ml-1 text-xs text-amber-300">본진</span>}</h3>
-        <span class={"text-sm font-semibold " + (TIER_TONE[e.tier] ?? "")}>{e.interpretation.label}</span>
-        <span class="rounded bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-300">{TIER_LABEL_KO[e.tier]} · {e.score}점</span>
-        <span class="text-hint text-zinc-500">{QUADRANT_LABEL[e.quadrant]}</span>
-        <Tooltip content="팬덤이 안착하기 좋은 환경 — 끝까지 보고(몰입)·구독하고(헌신)·자연 유입(자생성)되는가. 성장세·크기는 무관.">
-          <span class="text-xs text-zinc-400">팬덤 안착 {FANDOM_LABEL[e.fandom.level]}</span>
-        </Tooltip>
-        {e.insufficient && <span class="rounded border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">데이터 부족</span>}
+      <div class="mb-3">
+        <div class="mb-1.5 flex items-center gap-2">
+          <h3 class="text-lg font-bold text-zinc-100">{e.row.country}{e.row.country === "KR" && <span class="ml-1 text-xs text-amber-300">본진</span>}</h3>
+        </div>
+        {/* 한 줄 결론 — 주인공 */}
+        <div class={"inline-block rounded-md border px-2.5 py-1 text-sm font-semibold " + CONCLUSION_TONE[concl.tone]}>{concl.text}</div>
+        {/* 근거 — 강등(작게/회색). 5개 척도를 '근거'로 종속. */}
+        <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-500">
+          <span class="text-zinc-600">근거:</span>
+          <span class={TIER_TONE[e.tier] ?? ""}>{e.interpretation.label}</span>
+          <span>· {TIER_LABEL_KO[e.tier]} {e.score}점 · {QUADRANT_LABEL[e.quadrant]} ·</span>
+          <Tooltip content="팬덤이 안착하기 좋은 환경 — 끝까지 보고(몰입)·구독하고(헌신)·자연 유입(자생성)되는가.">
+            <span>팬덤 안착 {FANDOM_LABEL[e.fandom.level]}</span>
+          </Tooltip>
+          {e.insufficient && <span class="text-amber-400">· 데이터 부족</span>}
+        </div>
       </div>
 
       <div class="grid gap-4 md:grid-cols-[1fr_1.2fr]">

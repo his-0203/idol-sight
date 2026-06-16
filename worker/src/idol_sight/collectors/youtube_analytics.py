@@ -118,18 +118,19 @@ def build_country_rows(
             """
             INSERT INTO agg_youtube_analytics_country
               (group_key, snapshot_at, country, watch_share, growth_mom,
-               retention_rel, sub_per_1k, watch_minutes, organic_share)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               retention_rel, sub_per_1k, watch_minutes, organic_share, subs_gained)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(group_key, snapshot_at, country) DO UPDATE SET
               watch_share=excluded.watch_share,
               growth_mom=excluded.growth_mom,
               retention_rel=excluded.retention_rel,
               sub_per_1k=excluded.sub_per_1k,
               watch_minutes=excluded.watch_minutes,
-              organic_share=excluded.organic_share
+              organic_share=excluded.organic_share,
+              subs_gained=excluded.subs_gained
             """.strip(),
             [group_key, snapshot_at, country, watch_share, growth_mom,
-             retention_rel, sub_per_1k, round(minutes), organic.get(country)],
+             retention_rel, sub_per_1k, round(minutes), organic.get(country), round(subs)],
         ))
     return stmts
 
