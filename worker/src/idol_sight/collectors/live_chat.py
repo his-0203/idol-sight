@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -116,7 +116,7 @@ def ended_broadcasts(
     """
     if not video_ids:
         return {}
-    now = _parse_iso(now_iso) or datetime.now(timezone.utc)
+    now = _parse_iso(now_iso) or datetime.now(UTC)
     out: dict[str, dict[str, Any]] = {}
     with http_factory() as client:
         for i in range(0, len(video_ids), VIDEOS_LIST_MAX):
