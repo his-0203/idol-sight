@@ -13,7 +13,10 @@
 // 모든 정규화는 "현재 50개국 모집단(population)" 기준 백분위/min-max 라
 // 데뷔 초기 분포 출렁임에 강건하다.
 
-import { scoreExpansion, type ExpansionTier } from "./decisionSupport";
+import {
+  scoreExpansion, phaseOf, PHASE_WEIGHTS,
+  type ExpansionTier, type Phase,
+} from "./decisionSupport";
 
 export interface CountryRow {
   country: string;
@@ -23,6 +26,7 @@ export interface CountryRow {
   subPer1k: number;
   watchMinutes?: number | null; // 절대 시청시간(분) — 표본 게이트(#1)
   organicShare?: number | null; // 오가닉(검색+추천) 트래픽 비중(#3)
+  subsGained?: number | null;   // 기간 내 구독 증가 — 도넛(지역별 구독 유입)
 }
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
@@ -228,8 +232,30 @@ export const DEFAULT_META: CountryMeta = {
   market: "emerging", langGap: "high", diasporaKr: "low",
   platform: "yt_heavy", tzOverlap: "mid", ease: 0.45,
 };
+
+// 도넛(지역별 분포)용 권역 매핑. 미등록국은 '기타'.
+export const REGION_OF: Record<string, string> = {
+  KR: "동아시아", JP: "동아시아", TW: "동아시아", HK: "동아시아", CN: "동아시아", MO: "동아시아",
+  ID: "동남아", TH: "동남아", VN: "동남아", PH: "동남아", MY: "동남아", SG: "동남아",
+  US: "북미", CA: "북미",
+  MX: "중남미", BR: "중남미", AR: "중남미", CL: "중남미", CO: "중남미", PE: "중남미",
+  GB: "유럽", DE: "유럽", FR: "유럽", ES: "유럽", IT: "유럽", PL: "유럽", NL: "유럽", TR: "유럽",
+  AU: "오세아니아", NZ: "오세아니아",
+  IN: "남아시아", SA: "중동", AE: "중동",
+};
+export const regionOf = (country: string): string => REGION_OF[country] ?? "기타";
 export const metaOf = (country: string): CountryMeta =>
   COUNTRY_META[country] ?? DEFAULT_META;
+
+// #3 진입 용이성을 이산 등급에서 결정론적으로 파생(가짜 정밀도 0.75 vs 0.7 제거)
+// + #2 콘텐츠 진입 비용(언어·시차)으로 분해 — PRI 가 점수(성장·유지·전환·점유)와
+// 안 겹치는 독립 축을 갖게 한다. 콘텐츠 단계(자막·광고) 의사결정용.
+const LANG_EASE: Record<CountryMeta["langGap"], number> = { low: 0.9, mid: 0.6, high: 0.4 };
+const TZ_EASE: Record<CountryMeta["tzOverlap"], number> = { high: 1.0, mid: 0.75, low: 0.55 };
+export function easeContent(country: string): number {
+  const m = metaOf(country);
+  return 0.6 * LANG_EASE[m.langGap] + 0.4 * TZ_EASE[m.tzOverlap];
+}
 
 // 데이터 신호와 교차할 때만 점등 (메타 단독으로는 안 띄움). 최대 2개.
 export function contextFlags(row: CountryRow, pop: CountryRow[]): string[] {
@@ -349,7 +375,8 @@ export function pri(row: CountryRow, pop: CountryRow[]): number {
   // (floor 0.05 는 0.05^0.2≈0.55 라 약점 인자도 큰 기여 → 순위가 뭉쳤음.)
   const reach = Math.max(0.01, pctRank(row.watchShare, pop.map((r) => r.watchShare)));
   const conv = Math.max(0.01, pctRank(row.subPer1k, pop.map((r) => r.subPer1k)));
-  const ease = Math.max(0.01, metaOf(row.country).ease);
+  // 진입 용이성 = 언어·시차 파생(점수와 독립 축). ease 상수 대신 결정론적.
+  const ease = Math.max(0.01, easeContent(row.country));
   const mom = Math.max(0.01, momentum(row, pop));
   const gate = retentionGate(row.retentionRel);
   return Math.pow(reach, 0.25) * Math.pow(conv, 0.30)
@@ -426,16 +453,38 @@ export interface EnrichedCountry {
   insufficient: boolean;
 }
 
-export function enrichCountries(raw: CountryRow[]): EnrichedCountry[] {
+// #4 한 줄 결론 — 매력도/점수/팬덤안착/tier/사분면 5개 척도를 비전문가가 헷갈리지
+// 않게, 국가별 '그래서 뭘 하라'를 한 문장으로. (나머지 척도는 '근거'로 강등.)
+export type ConclusionTone = "go" | "test" | "watch" | "hold" | "home";
+export interface Conclusion { text: string; tone: ConclusionTone }
+export function conclusion(e: EnrichedCountry): Conclusion {
+  if (e.row.country === "KR") return { text: "🏠 본진 — 진출 기준선(대상 아님)", tone: "home" };
+  if (e.insufficient) return { text: "👀 데이터 더 모으기 — 아직 판단 일러", tone: "watch" };
+  if (e.pattern.shallow) return { text: "🛑 보류 — 잠깐 떴다 식는 거품 의심", tone: "hold" };
+  switch (e.rung) {
+    case "L1": return { text: "🈂️ 자막부터 — 관심은 큰데 끝까지 안 봄(언어장벽)", tone: "test" };
+    case "L2": return { text: "🔵 유료 광고 추천 — 뜨는 중 + 진입 쉬움", tone: "go" };
+    case "L3": return { text: "🤝 현지 PR — 자생 반응 확인됨", tone: "go" };
+    case "L4": return { text: "🚀 진출 검토 — 규모 확보", tone: "go" };
+    default: return { text: "👀 지켜보기 — 아직 투자 보류", tone: "watch" };
+  }
+}
+
+export function enrichCountries(
+  raw: CountryRow[], daysToDebut: number | null = null,
+): EnrichedCountry[] {
   // 정량(점수·모멘텀·PRI·사분면)은 수축된 성장으로 — 노이즈 방어(#2).
   // 서술·플래그·표시는 원값(raw)으로 — 운영자가 실제값을 본다.
+  // 데뷔 단계(#1)에 따라 점수 가중치를 바꾼다 (launch=적합도 우선).
+  const phase: Phase = phaseOf(daysToDebut);
+  const weights = PHASE_WEIGHTS[phase];
   const scored = raw.map((r) => ({ ...r, growthMoM: shrinkGrowth(r, raw) }));
   return raw.map((row, i) => {
     const sr = scored[i]!;
     const exp = scoreExpansion({
       country: sr.country, watchShare: sr.watchShare, growthMoM: sr.growthMoM,
       retentionRel: sr.retentionRel, subPer1k: sr.subPer1k,
-    });
+    }, weights);
     const pattern = patternFlags(sr, scored);
     // 표본부족은 marketAnalysis(절대 시청시간) 단일 기준으로 통일한다.
     // scoreExpansion 은 watchShare<1% 로 insufficient 를 매기는데, 분 기준

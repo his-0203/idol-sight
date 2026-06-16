@@ -143,6 +143,7 @@ interface YtAnalyticsCountryRow {
   sub_per_1k: number;
   watch_minutes: number | null;
   organic_share: number | null;
+  subs_gained: number | null;
 }
 
 const safeJson = (s: string | null) => {
@@ -273,7 +274,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     d1Query<YtAnalyticsCountryRow>(
       env.DB,
       `SELECT country, watch_share, growth_mom, retention_rel, sub_per_1k,
-              watch_minutes, organic_share
+              watch_minutes, organic_share, subs_gained
          FROM agg_youtube_analytics_country
         WHERE group_key=? AND snapshot_at = (
           SELECT MAX(snapshot_at) FROM agg_youtube_analytics_country
@@ -517,6 +518,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
               sub_per_1k: c.sub_per_1k,
               watch_minutes: c.watch_minutes,
               organic_share: c.organic_share,
+              subs_gained: c.subs_gained,
             })),
             returning_viewers_30d: ytAnalytics?.returning_viewers_30d ?? null,
             membership_count: ytAnalytics?.membership_count ?? null,

@@ -96,9 +96,10 @@ def test_watch_minutes_and_organic_stored():
     rows = build_country_rows(current, [], "miiwan", "2026-06-16T00:00:00Z",
                               organic={"JP": 0.82})
     p = _params(rows[0])
-    # params: [..., sub_per_1k, watch_minutes, organic_share]
+    # params: [..., sub_per_1k, watch_minutes, organic_share, subs_gained]
     assert p[7] == 1201          # round(1200.7)
     assert p[8] == 0.82
+    assert p[9] == 30            # round(subscribersGained)
 
 
 def test_organic_share_from_traffic():

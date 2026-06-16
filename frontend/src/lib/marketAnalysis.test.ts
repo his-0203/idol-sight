@@ -10,8 +10,9 @@ import {
   isInsufficient, quantize, interpretCountry, contextFlags, distortionWarnings,
   quadrant, hhi, cr3, subtitlePriority, prPriority, retentionGate, pri,
   patternFlags, currentRung, actionCard, enrichCountries, headline, bettingQueue,
-  metaOf, shrinkGrowth, fandomFit,
+  metaOf, shrinkGrowth, fandomFit, conclusion, easeContent, regionOf,
 } from "./marketAnalysis";
+import { phaseOf, scoreExpansion, PHASE_WEIGHTS } from "./decisionSupport";
 
 const C = (country: string, watchShare: number, growthMoM: number,
   retentionRel: number, subPer1k: number): CountryRow =>
@@ -127,6 +128,38 @@ describe("파생 지표", () => {
     const high = pri(C("ID", 0.06, 0.62, 0.81, 8), POP);
     const leaky = pri(C("LK", 0.06, 0.62, 0.40, 8), POP); // 동일하나 유지 0.40
     expect(high).toBeGreaterThan(leaky);
+  });
+});
+
+describe("#1 단계별 가중치 / #2,#3 ease / #4 결론", () => {
+  it("phaseOf — 데뷔 전/직후 launch, D+90~365 growth, 이후 mature", () => {
+    expect(phaseOf(null)).toBe("launch");
+    expect(phaseOf(5)).toBe("launch");      // 데뷔 전
+    expect(phaseOf(-30)).toBe("launch");    // D+30
+    expect(phaseOf(-200)).toBe("growth");   // D+200
+    expect(phaseOf(-500)).toBe("mature");   // D+500
+  });
+  it("launch 가중치는 성장<유지 — 고성장·저유지보다 저성장·고유지가 높음", () => {
+    const hiGrowth = { country: "A", watchShare: 0.1, growthMoM: 0.5, retentionRel: 0.7, subPer1k: 5 };
+    const hiRet = { country: "B", watchShare: 0.1, growthMoM: 0.0, retentionRel: 1.2, subPer1k: 5 };
+    const w = PHASE_WEIGHTS.launch;
+    expect(scoreExpansion(hiRet, w).score).toBeGreaterThan(scoreExpansion(hiGrowth, w).score);
+  });
+  it("easeContent — 언어격차 낮고 시차 겹치면 높음", () => {
+    expect(easeContent("PH")).toBeGreaterThan(easeContent("BR")); // 영어권·시차 vs 언어·시차 먼
+  });
+  it("regionOf — 권역 매핑 + 미등록 기타", () => {
+    expect(regionOf("JP")).toBe("동아시아");
+    expect(regionOf("ID")).toBe("동남아");
+    expect(regionOf("ZZ")).toBe("기타");
+  });
+  it("conclusion — KR 본진, insufficient 데이터더, L2 광고 추천", () => {
+    const en = enrichCountries([
+      C("KR", 0.5, 0.1, 1.0, 10), C("ID", 0.06, 0.62, 0.9, 9),
+      C("JP", 0.18, 0.04, 1.02, 9), C("MX", 0.003, 0.5, 1.0, 5),
+    ]);
+    expect(conclusion(en.find((e) => e.row.country === "KR")!).tone).toBe("home");
+    expect(conclusion(en.find((e) => e.row.country === "MX")!).text).toMatch(/데이터/);
   });
 });
 
