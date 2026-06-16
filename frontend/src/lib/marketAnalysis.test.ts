@@ -160,8 +160,10 @@ describe("#1 단계별 가중치 / #2,#3 ease / #4 결론", () => {
     ]);
     const adv = weaknessAdvice(en.find((e) => e.row.country === "US")!);
     expect(adv.driver).toMatch(/끝까지/);
-    expect(adv.fix).toMatch(/자막/);
-    expect(adv.why).toMatch(/언어/);
+    expect(adv.hypotheses.length).toBeGreaterThanOrEqual(2);     // 2~3개 가설
+    expect(adv.hypotheses[0]!.likely).toBe(true);                // 유력이 먼저
+    expect(adv.hypotheses.some((h) => /자막/.test(h.fix))).toBe(true);
+    expect(adv.hypotheses.some((h) => /언어/.test(h.why))).toBe(true);
   });
   it("conclusion — KR 본진, insufficient 데이터더, L2 광고 추천", () => {
     const en = enrichCountries([
