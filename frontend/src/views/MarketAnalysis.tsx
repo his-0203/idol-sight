@@ -13,7 +13,7 @@ import { RegionDonut, type DonutSegment } from "../components/RegionDonut";
 import {
   enrichCountries, headline, bettingQueue, hhi, hhiLabel, cr3,
   QUADRANT_LABEL, TIER_LABEL_KO, FANDOM_LABEL, metaOf, fmtGrowthPct,
-  conclusion,
+  conclusion, weaknessAdvice,
   type CountryRow, type EnrichedCountry, type ConclusionTone,
 } from "../lib/marketAnalysis";
 import {
@@ -387,6 +387,7 @@ function QueueRow({ label, items, tone }: { label: string; items: string[]; tone
 function CountryDrilldown({ e }: { e: EnrichedCountry }) {
   const m = metaOf(e.row.country);
   const concl = conclusion(e);
+  const adv = weaknessAdvice(e);
   const retArrow = e.row.retentionRel >= 1 ? "🔼 국내보다 더 봄" : "🔻 국내보다 덜 봄";
   const drivers: Array<[string, number, string]> = [
     ["뜨는 중?", e.drivers.growth, fmtGrowthPct(e.row.growthMoM)],
@@ -457,11 +458,16 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
           {e.warnings.map((w, i) => (
             <p key={i} class="rounded border border-amber-500/20 bg-amber-500/[0.06] px-2 py-1 text-xs text-amber-300/90">⚠️ 주의: {w}</p>
           ))}
+          {/* 약점 진단 — 왜 약한지 + 어떻게 해결 */}
+          <div class="rounded border border-amber-500/25 bg-amber-500/[0.05] p-2.5">
+            <div class="mb-1 text-xs font-semibold text-amber-300">⚠ 약점: {adv.driver}</div>
+            <div class="text-xs text-zinc-300"><span class="text-zinc-500">왜 →</span> {adv.why}</div>
+            <div class="mt-1 text-xs text-zinc-300"><span class="text-emerald-400">해결 →</span> {adv.fix}</div>
+          </div>
           {/* 약점 → 처방 연결 + 액션 카드 */}
           <div class="rounded border border-cyan-700/40 bg-cyan-500/[0.05] p-2.5">
             <div class="mb-1 text-xs text-zinc-400">
-              가장 약한 곳: <strong class="text-amber-300">{weakest[0]}</strong>
-              <span class="mx-1 text-cyan-400">➜ 그래서 할 일</span>
+              <span class="text-cyan-400">➜ 그래서 지금 할 일</span>
             </div>
             <div class="text-sm font-medium text-zinc-100">{e.action.verb}</div>
             <div class="mt-1.5"><RungBar rung={e.action.costTier} /></div>
