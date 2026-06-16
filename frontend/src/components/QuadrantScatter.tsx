@@ -55,6 +55,22 @@ export function QuadrantScatter({
 
     const quadrantPlugin = {
       id: "quadrant",
+      // 4분면 색 배경 — '어느 칸이 좋은가'를 학습 없이 색으로 전달.
+      beforeDatasetsDraw(ch: any) {
+        const { ctx, chartArea: a, scales } = ch;
+        const x0 = Math.max(a.left, Math.min(a.right, scales.x.getPixelForValue(0)));
+        const y1 = Math.max(a.top, Math.min(a.bottom, scales.y.getPixelForValue(1.0)));
+        ctx.save();
+        const fill = (x: number, y: number, w: number, h: number, c: string) => {
+          ctx.fillStyle = c; ctx.fillRect(x, y, w, h);
+        };
+        // 우상=초록(명당), 우하=빨강(거품), 좌상=파랑(육성), 좌하=회색(관망)
+        fill(x0, a.top, a.right - x0, y1 - a.top, "rgba(34,197,94,0.07)");
+        fill(x0, y1, a.right - x0, a.bottom - y1, "rgba(239,68,68,0.06)");
+        fill(a.left, a.top, x0 - a.left, y1 - a.top, "rgba(59,130,246,0.06)");
+        fill(a.left, y1, x0 - a.left, a.bottom - y1, "rgba(100,116,139,0.05)");
+        ctx.restore();
+      },
       afterDraw(ch: any) {
         const { ctx, chartArea: a, scales } = ch;
         const x0 = scales.x.getPixelForValue(0);
@@ -68,8 +84,8 @@ export function QuadrantScatter({
         ctx.fillStyle = "rgba(148,163,184,0.55)";
         ctx.font = "11px ui-sans-serif, system-ui";
         ctx.textAlign = "right"; ctx.textBaseline = "top";
-        ctx.fillText("공략 1순위", a.right - 6, a.top + 4);
-        ctx.textBaseline = "bottom"; ctx.fillText("거품 의심", a.right - 6, a.bottom - 4);
+        ctx.fillText("✅ 공략 1순위", a.right - 6, a.top + 4);
+        ctx.textBaseline = "bottom"; ctx.fillText("⚠️ 거품 의심", a.right - 6, a.bottom - 4);
         ctx.textAlign = "left"; ctx.textBaseline = "top";
         ctx.fillText("안정·육성", a.left + 6, a.top + 4);
         ctx.textBaseline = "bottom"; ctx.fillText("관망", a.left + 6, a.bottom - 4);

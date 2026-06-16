@@ -82,9 +82,11 @@ export function quantize(row: CountryRow, pop: CountryRow[]): Levels {
   const lvl = (v: number, hi: number, lo: number): Level =>
     v >= hi ? "high" : v <= lo ? "low" : "mid";
   return {
-    // watch_share high = 규모 있는 시장 (≥10% 또는 상위25%). R8(큰데안봄) vs
-    // R2(언어장벽)를 규모로 가른다.
-    watch: (row.watchShare >= 0.10 || row.watchShare >= percentile(shares, 0.75))
+    // watch_share high = 규모 있는 시장. ≥10%(절대) 또는 상위25%이되 최소 2%는
+    // 넘어야 함 — 데뷔 초기 점유가 잘게 쪼개지면 상위25%가 2%대로 내려가
+    // 작은 시장이 'high(규모 있음)'로 오분류돼 R8 자막예산을 오배정하던 문제 방어.
+    watch: (row.watchShare >= 0.10
+      || (row.watchShare >= percentile(shares, 0.75) && row.watchShare >= 0.02))
       ? "high" : row.watchShare < MIN_SAMPLE_SHARE ? "low" : "mid",
     // growth: +30% 이상 high, +5% 이하(정체·하락) low.
     growth: lvl(row.growthMoM, 0.30, 0.05),
@@ -153,6 +155,13 @@ export function interpretCountry(row: CountryRow, pop: CountryRow[]): Interpreta
     return { ruleId: "R6", label: "📈 얕은 바이럴",
       narrative: `${c}는 조회는 늘지만(${pct(row.growthMoM)}) 구독 전환이 약합니다. 알고리즘/쇼츠 바이럴 유입 가능성 — 휘발 위험, 코어 전환 장치 필요.`,
       action: "구독 유도 CTA·롱폼 연결" };
+
+  // R6b — 고성장 + 중간 완주 + 전환 약하지 않음. 명백한 유망 시장인데 R10으로
+  // 새던 빠짐(gap) 보강.
+  if (L.growth === "high" && L.retention === "mid")
+    return { ruleId: "R6b", label: "📈 성장 유망(검증)",
+      narrative: `${c}는 빠르게 크고(${pct(row.growthMoM)}) 완주·전환도 나쁘지 않습니다. 검증 가치 큰 후보 — 소액 테스트로 핵심 시장 승급 여부 확인.`,
+      action: "유료 도달 소액 테스트" };
 
   if (L.retention === "low" && (L.growth === "mid" || L.growth === "low"))
     return { ruleId: "R7", label: "🧊 적합도 낮음",
@@ -263,9 +272,15 @@ export function quality(row: CountryRow, pop: CountryRow[]): number {
   return clamp01(0.6 * r + 0.4 * s);
 }
 
+// 비전문가용 등급 라벨 (tier 영문키 → 쉬운 한국어).
+export const TIER_LABEL_KO: Record<ExpansionTier, string> = {
+  candidate: "0순위", test: "검증중", watch: "지켜보기", insufficient: "데이터 부족",
+};
+
 export type Quadrant = "invest" | "nurture" | "watch" | "deprioritize";
 export const QUADRANT_LABEL: Record<Quadrant, string> = {
-  invest: "공략 1순위", nurture: "안정·육성", watch: "유입O 유지X(거품 의심)", deprioritize: "관망",
+  invest: "✅ 공략 1순위", nurture: "🔷 안정·육성",
+  watch: "⚠️ 거품 의심", deprioritize: "⚪ 관망",
 };
 export function quadrant(row: CountryRow): Quadrant {
   const rising = row.growthMoM > 0;
@@ -303,10 +318,12 @@ export function retentionGate(retentionRel: number): number {
   return 0.3 + ((retentionRel - 0.5) / 0.2) * 0.7; // 0.5~0.7 선형
 }
 export function pri(row: CountryRow, pop: CountryRow[]): number {
-  const reach = Math.max(0.05, pctRank(row.watchShare, pop.map((r) => r.watchShare)));
-  const conv = Math.max(0.05, pctRank(row.subPer1k, pop.map((r) => r.subPer1k)));
-  const ease = Math.max(0.05, metaOf(row.country).ease);
-  const mom = Math.max(0.05, momentum(row, pop));
+  // floor 0.01 — 0 으로 PRI 전체가 죽는 것만 막고, 변별력은 보존한다.
+  // (floor 0.05 는 0.05^0.2≈0.55 라 약점 인자도 큰 기여 → 순위가 뭉쳤음.)
+  const reach = Math.max(0.01, pctRank(row.watchShare, pop.map((r) => r.watchShare)));
+  const conv = Math.max(0.01, pctRank(row.subPer1k, pop.map((r) => r.subPer1k)));
+  const ease = Math.max(0.01, metaOf(row.country).ease);
+  const mom = Math.max(0.01, momentum(row, pop));
   const gate = retentionGate(row.retentionRel);
   return Math.pow(reach, 0.25) * Math.pow(conv, 0.30)
     * Math.pow(ease, 0.25) * Math.pow(mom, 0.20) * gate;
@@ -394,6 +411,9 @@ export function enrichCountries(raw: CountryRow[]): EnrichedCountry[] {
     const pattern = patternFlags(sr, scored);
     return {
       row, score: exp.score, tier: exp.tier, drivers: exp.drivers,
+      // 해석/표시는 원값(raw) 일관 — 서술의 성장%와 드라이버 막대의 성장%가
+      // 같은 숫자여야 비전문가가 안 헷갈린다. tier(수축 기반)와는 렌즈가 달라
+      // 등급이 1:1 아닐 수 있고, 그게 정상(점수=robust, 서술=실제 패턴).
       interpretation: interpretCountry(row, raw),
       flags: contextFlags(row, raw), warnings: distortionWarnings(row, raw),
       momentum: momentum(sr, scored), quality: quality(row, raw),
@@ -430,13 +450,15 @@ export function bettingQueue(enriched: EnrichedCountry[]): BettingQueue {
   const subtitleEligible = enriched.filter((e) => e.rung === "L1");
   const paid = enriched.filter((e) => e.rung === "L2" || e.rung === "L3" || e.rung === "L4")
     .sort((a, b) => b.pri - a.pri);
+  // 다양성: 2번째 슬롯은 1번째와 다른 시장 성숙도를 우선. 단 후보가 모두 같은
+  // 성숙도면(데뷔 초기 흔함) 슬롯을 비우지 말고 PRI 순으로 채운다(폴백).
   const slots: EnrichedCountry[] = [];
-  for (const e of paid) {
-    if (slots.length >= 2) break;
-    // 다양성: 2번째 슬롯은 1번째와 다른 시장 성숙도.
-    if (slots.length === 1
-      && metaOf(slots[0]!.row.country).market === metaOf(e.row.country).market) continue;
-    slots.push(e);
+  if (paid[0]) slots.push(paid[0]);
+  if (slots.length === 1) {
+    const diverse = paid.slice(1).find(
+      (e) => metaOf(e.row.country).market !== metaOf(slots[0]!.row.country).market);
+    const second = diverse ?? paid[1]; // 다양성 후보 없으면 PRI 2위로 폴백
+    if (second) slots.push(second);
   }
   return {
     subtitleEligible,

@@ -90,12 +90,20 @@ describe("allocateMerch — 멤버 배분 비율 (공개 프록시)", () => {
     expect(lowest.sharePct).toBeGreaterThan(0);
   });
 
-  it("상한 cap — 한 멤버가 평균의 2배를 넘지 못함 (과잉생산 방어)", () => {
-    const out = allocateMerch(members);
-    const mean = 100 / members.length;
+  it("상한 cap — water-filling 으로 정확히 평균×2 이하 (재정규화 위반 없음)", () => {
+    // 극단 분포: 한 멤버가 압도적이어도 cap 을 깨면 안 됨 (구 코드 버그 회귀).
+    const skewed: MemberPopularity[] = [
+      { memberId: 1, name: "A", compositeScore: 1000, sufficient: true },
+      { memberId: 2, name: "B", compositeScore: 1, sufficient: true },
+      { memberId: 3, name: "C", compositeScore: 1, sufficient: true },
+    ];
+    const out = allocateMerch(skewed);
+    const mean = 100 / skewed.length;
     const top = Math.max(...out.map((m) => m.sharePct));
-    // 캡 후 재정규화로 미세 초과는 허용 — 10% 여유
-    expect(top).toBeLessThanOrEqual(mean * 2 * 1.1);
+    const bottom = Math.min(...out.map((m) => m.sharePct));
+    expect(top).toBeLessThanOrEqual(mean * 2 + 0.01);   // 상한 엄수
+    expect(bottom).toBeGreaterThanOrEqual(10 - 0.01);    // 하한 엄수
+    expect(out.reduce((s, m) => s + m.sharePct, 0)).toBeCloseTo(100, 1);
   });
 
   it("yt_sufficient=false 멤버는 insufficient로 표기", () => {

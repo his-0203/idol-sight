@@ -137,6 +137,12 @@ describe("패턴 + 액션 사다리", () => {
     expect(p.shallow).toBe(true);
     expect(currentRung("test", p)).toBe("L0");
   });
+  it("R6b — 고성장+중간유지+전환 약하지않음이 R10으로 안 샘", () => {
+    // growth high, retention mid(0.88), sub 중간 → R6b (구버전은 R10 추락)
+    const r = interpretCountry(C("XX", 0.05, 0.5, 0.88, 6), POP);
+    expect(r.ruleId).toBe("R6b");
+  });
+
   it("insufficient → L0 액션금지 카드", () => {
     const card = actionCard(C("MX", 0.004, 0.78, 0.95, 12), "insufficient",
       patternFlags(C("MX", 0.004, 0.78, 0.95, 12), POP));
@@ -176,5 +182,14 @@ describe("enrich + 헤드라인 + 큐", () => {
       expect(metaOf(q.paidSlots[0]!.row.country).market)
         .not.toBe(metaOf(q.paidSlots[1]!.row.country).market);
     }
+  });
+  it("bettingQueue — 후보가 다 같은 성숙도여도 슬롯을 비우지 않음(폴백)", () => {
+    // ID/TH/PH 모두 growth 시장 → 다양성 후보 없음. 그래도 2슬롯 채워야.
+    const sameMarket = [
+      C("ID", 0.06, 0.6, 0.9, 9), C("TH", 0.05, 0.5, 0.9, 8), C("PH", 0.04, 0.4, 0.9, 8),
+    ];
+    const q = bettingQueue(enrichCountries(sameMarket));
+    const paidCount = q.paidSlots.length + q.paidQueue.length;
+    if (paidCount >= 2) expect(q.paidSlots.length).toBe(2);
   });
 });
