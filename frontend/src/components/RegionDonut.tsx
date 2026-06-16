@@ -6,13 +6,13 @@ import Chart from "chart.js/auto";
 
 export interface DonutSegment { label: string; value: number }
 
-// 권역 고정 색 — 다크 테마 대비.
-const REGION_COLOR: Record<string, string> = {
-  동아시아: "#22d3ee", 동남아: "#34d399", 북미: "#a78bfa", 중남미: "#fbbf24",
-  유럽: "#f472b6", 오세아니아: "#60a5fa", 남아시아: "#f87171", 중동: "#c084fc",
-  기타: "#64748b",
-};
-const colorOf = (label: string) => REGION_COLOR[label] ?? "#64748b";
+// 슬라이스 색 팔레트 — 국가별 등 임의 라벨에 순서대로 입힌다. '기타'는 회색.
+const PALETTE = [
+  "#22d3ee", "#34d399", "#a78bfa", "#fbbf24", "#f472b6",
+  "#60a5fa", "#f87171", "#c084fc", "#2dd4bf", "#fb923c",
+];
+const colorAt = (label: string, i: number) =>
+  label.startsWith("기타") ? "#475569" : PALETTE[i % PALETTE.length]!;
 
 export function RegionDonut({
   segments, centerLabel, fmt,
@@ -36,7 +36,7 @@ export function RegionDonut({
         labels: data.map((d) => d.label),
         datasets: [{
           data: data.map((d) => d.value),
-          backgroundColor: data.map((d) => colorOf(d.label)),
+          backgroundColor: data.map((d, i) => colorAt(d.label, i)),
           borderColor: "#0b0f14", borderWidth: 2,
         }],
       },

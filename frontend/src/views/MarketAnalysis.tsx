@@ -13,7 +13,7 @@ import { RegionDonut, type DonutSegment } from "../components/RegionDonut";
 import {
   enrichCountries, headline, bettingQueue, hhi, hhiLabel, cr3,
   QUADRANT_LABEL, TIER_LABEL_KO, FANDOM_LABEL, metaOf, fmtGrowthPct,
-  regionOf, conclusion,
+  conclusion,
   type CountryRow, type EnrichedCountry, type ConclusionTone,
 } from "../lib/marketAnalysis";
 import {
@@ -128,20 +128,18 @@ export function MarketAnalysis({
   const donut = useMemo(() => {
     const val = (e: EnrichedCountry) => donutMetric === "subs" ? (e.row.subsGained ?? 0)
       : donutMetric === "minutes" ? (e.row.watchMinutes ?? 0) : e.row.watchShare;
-    const seg = new Map<string, number>();
-    const ret = new Map<string, { w: number; r: number }>(); // 시청가중 평균 유지율
-    for (const e of enriched) {
-      const reg = regionOf(e.row.country);
-      seg.set(reg, (seg.get(reg) ?? 0) + Math.max(0, val(e)));
-      const w = e.row.watchMinutes ?? e.row.watchShare * 1000;
-      const a = ret.get(reg) ?? { w: 0, r: 0 };
-      a.w += w; a.r += w * e.row.retentionRel; ret.set(reg, a);
-    }
-    return {
-      segments: [...seg.entries()].map(([label, value]) => ({ label, value })),
-      retention: [...ret.entries()].map(([label, { w, r }]) => ({ label, ret: w > 0 ? r / w : 0 }))
-        .sort((a, b) => b.ret - a.ret),
-    };
+    // 국가별 분포(권역으로 뭉치지 않고 세분화) — 상위 9개국 + '기타'.
+    const items = enriched.map((e) => ({ country: e.row.country, value: Math.max(0, val(e)) }))
+      .filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
+    const TOP = 9;
+    const segments = items.slice(0, TOP).map((x) => ({ label: x.country, value: x.value }));
+    const restSum = items.slice(TOP).reduce((s, x) => s + x.value, 0);
+    if (restSum > 0) segments.push({ label: `기타 ${items.length - TOP}개국`, value: restSum });
+    // '오래 보는 곳' 순위 — 충분국, 유지율 내림차순 상위 8.
+    const retention = enriched.filter((e) => !e.insufficient)
+      .map((e) => ({ label: e.row.country, ret: e.row.retentionRel }))
+      .sort((a, b) => b.ret - a.ret).slice(0, 8);
+    return { segments, retention };
   }, [enriched, donutMetric]);
   // 지도/점수에서 클릭하면 드릴다운이 화면 밖(위)이라 단절 → 부드럽게 스크롤.
   const drilldownRef = useRef<HTMLDivElement>(null);
@@ -243,8 +241,8 @@ export function MarketAnalysis({
 
       {/* 2.5) 우리 채널 현황 — 권역별 분포 도넛 (본진 포함, 서술용) */}
       <section>
-        <h3 class="section-title mb-1">🍩 우리 채널 현황 — 어느 지역에서 보고 구독하나</h3>
-        <p class="text-hint mb-3 text-zinc-500">본진(동아시아) 포함 전체 분포. 토글로 구독·시청 전환.</p>
+        <h3 class="section-title mb-1">🍩 우리 채널 현황 — 어느 나라에서 보고 구독하나</h3>
+        <p class="text-hint mb-3 text-zinc-500">국가별 분포(상위 9개국 + 기타), 본진 포함. 토글로 구독·시청 전환.</p>
         <div role="tablist" class="mb-3 inline-flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
           {([["share", "시청 비중"], ["minutes", "시청 시간"], ["subs", "구독 유입"]] as const).map(([k, label]) => {
             const on = donutMetric === k;
@@ -270,7 +268,7 @@ export function MarketAnalysis({
             )}
           </div>
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
-            <div class="mb-2 text-xs font-semibold text-zinc-400">권역별 '끝까지 보는 정도' (본진 대비)</div>
+            <div class="mb-2 text-xs font-semibold text-zinc-400">오래 보는 곳 순위 (끝까지 보는 정도, 본진 대비)</div>
             <div class="space-y-1.5">
               {donut.retention.map((r) => (
                 <div key={r.label} class="flex items-center gap-2">
