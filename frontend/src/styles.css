@@ -84,6 +84,9 @@
 .kpi-debutwin-score { font-weight: 700; font-size: 1.1em; }
 .kpi-debutwin-note { font-size: 0.7em; color: #6b7280; margin-top: 2px; }
 .kpi-debutwin.loading { opacity: 0.5; }
+/* V2.50 thin-sample (scored < 3): shrunk headline, visibly caveated. */
+.kpi-debutwin-cell.thin-sample .kpi-debutwin-score { opacity: 0.72; }
+.kpi-debutwin-thin { font-size: 0.7em; color: #a1a1aa; vertical-align: super; margin-left: 1px; }
 
 /* ---------- DebutWindowVideoTable + SignalPanel (dark zinc theme) ----------
    The whole section lives inside `rounded-lg border border-zinc-800 p-3` so
@@ -459,6 +462,9 @@
 .cob-footer { font-size: 0.72em; color: #71717a; margin-top: 12px; }
 .cob-fallback-note { color: #a1a1aa; }
 .cob-fallback-note.legacy { color: #fbbf24; }
+/* V2.50 thin-sample marker (scored < 3) — shrunk/neutral-corrected score. */
+.cob-thin-tag { font-size: 0.7em; color: #a1a1aa; vertical-align: super; margin-left: 1px; }
+.cob-thin-legend { color: #a1a1aa; }
 
 @media (max-width: 720px) {
   .cob-row { grid-template-columns: 80px 1fr 60px; }

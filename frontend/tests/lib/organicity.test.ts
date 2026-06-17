@@ -5,9 +5,11 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_ORGANICITY_MODE,
   ORGANIC_NEUTRAL_COLOR,
+  THIN_SAMPLE_MAX,
   VERDICT_COLOR,
   VERDICT_THRESHOLDS,
   headlineOrganicScore,
+  isThinSample,
   scoreColor,
   scoreToVerdict,
   verdictColor,
@@ -66,8 +68,45 @@ describe("organicity shared scale", () => {
       headlineOrganicScore({
         organic_score_mean: null,
         organic_score_mean_simple: null,
+        organic_score_mean_shrunk: null,
       }),
     ).toBeNull();
+  });
+
+  // V2.50: the headline is the thin-sample-shrunk mean — a 1-video bucket whose
+  // raw simple mean is 90 must surface its shrunk value (~64), not the
+  // confident 90, so "few organic videos" can't read as organic_strong.
+  it("headlineOrganicScore prefers the shrunk mean when present", () => {
+    expect(
+      headlineOrganicScore({
+        organic_score_mean: 90,
+        organic_score_mean_simple: 90,
+        organic_score_mean_shrunk: 63.75,
+      }),
+    ).toBe(63.75);
+  });
+
+  it("headlineOrganicScore falls back to the raw simple mean on pre-0092 rows", () => {
+    // shrunk absent (older summary row) → raw simple mean.
+    expect(
+      headlineOrganicScore({
+        organic_score_mean: 35,
+        organic_score_mean_simple: 82,
+      }),
+    ).toBe(82);
+  });
+
+  // V2.50 thin-sample flag: buckets below THIN_SAMPLE_MAX scored videos are
+  // flagged so a confident-looking headline from 1-2 videos is visibly caveated.
+  it("isThinSample flags buckets below the scored-count threshold", () => {
+    expect(THIN_SAMPLE_MAX).toBe(3);
+    expect(isThinSample(0)).toBe(true);
+    expect(isThinSample(1)).toBe(true);
+    expect(isThinSample(2)).toBe(true);
+    expect(isThinSample(3)).toBe(false);
+    expect(isThinSample(10)).toBe(false);
+    expect(isThinSample(null)).toBe(true);
+    expect(isThinSample(undefined)).toBe(true);
   });
 
   // Cross-language drift guard: the frontend thresholds must match the worker's
@@ -92,5 +131,22 @@ describe("organicity shared scale", () => {
       expect(m, `worker threshold for ${verdict} not found`).toBeTruthy();
       expect(Number(m![1])).toBe(threshold);
     }
+  });
+
+  // V2.50: the shrunk headline math lives in the worker, but organicity.ts
+  // documents the prior (55 = borderline midpoint) and pseudocount (k=3). Pin
+  // them so a worker recalibration that silently changes the headline behavior
+  // can't drift away from the frontend's documented contract.
+  it("worker shrinkage constants match the documented prior/pseudocount", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const py = readFileSync(
+      resolve(here, "../../../worker/src/idol_sight/analysis/debut_window.py"),
+      "utf8",
+    );
+    expect(py).toMatch(/ORGANICITY_PRIOR\s*=\s*55\.0/);
+    expect(py).toMatch(/ORGANICITY_SHRINKAGE_K\s*=\s*3\.0/);
+    // The neutral prior must sit in the borderline tier (55..69) so a shrunk
+    // thin bucket reads as "unproven", never organic.
+    expect(scoreToVerdict(55)).toBe("borderline");
   });
 });

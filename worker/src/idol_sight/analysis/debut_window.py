@@ -25,6 +25,8 @@ __all__ = [
     "WINDOW_BUCKETS",
     "WEIGHTS",
     "VERDICT_TIERS",
+    "ORGANICITY_PRIOR",
+    "ORGANICITY_SHRINKAGE_K",
     "bucket_for",
     "compute_organic_score",
     "build_video_organicity",
@@ -116,6 +118,40 @@ WEIGHTS_NO_VELOCITY: Mapping[str, float] = MappingProxyType(_WEIGHTS_NO_VELOCITY
 # an abnormal balance (farm) or genuinely dead engagement drags it to paid.
 _SHORT_WEIGHTS_RAW = {"engagement": 0.4, "balance": 0.6}
 SHORT_WEIGHTS: Mapping[str, float] = MappingProxyType(_SHORT_WEIGHTS_RAW)
+
+
+# Thin-sample shrinkage (V2.50, 2026-06-17). A bucket's headline organicity is
+# the simple mean of its scored videos — volume-independent BY DESIGN
+# (organicity answers "is the engagement authentic?", not "is the group
+# growing / posting enough?"; growth lives in the separate Growth Trajectory
+# layer, V2.43). But a bucket with only 1-2 scored videos yields a
+# confident-looking mean from almost no evidence, so a group that posts
+# few-but-organic videos reads as "thriving" when it is merely "not obviously
+# paid" — the exact "오가닉이라는 이유로 높은 점수" failure an operator flagged.
+# We shrink the simple mean toward a neutral prior (the borderline midpoint)
+# with pseudocount k: a thin bucket is pulled toward neutral, and the pull
+# vanishes as real video volume accumulates (n≫k → shrunk ≈ raw). The raw means
+# (organic_score_mean / _simple) stay stored untouched — the shrunk value is the
+# headline, the raw values remain available as the catalog/reach lenses.
+# scored_video_count (the true sample size behind the mean, excluding
+# insufficient_data) is stored alongside so the frontend can flag thin buckets.
+ORGANICITY_PRIOR = 55.0          # borderline midpoint (neutral posture)
+ORGANICITY_SHRINKAGE_K = 3.0     # pseudocount: n=1 → ¾ pulled to prior, n=9 → ¼
+
+
+def _shrink_toward_prior(simple_mean: float | None, scored_n: int) -> float | None:
+    """Bayesian shrinkage of a bucket's simple mean toward the neutral prior.
+
+    Returns None when there is no scored evidence (mirrors the raw means, which
+    are also None for an all-insufficient_data bucket). shrunk =
+    (n·mean + k·prior) / (n + k): n=1 mean=90 → 63.75 (borderline, not
+    organic_strong); n=10 mean=90 → 81.9 (essentially unchanged).
+    """
+    if simple_mean is None or scored_n <= 0:
+        return None
+    return (
+        scored_n * simple_mean + ORGANICITY_SHRINKAGE_K * ORGANICITY_PRIOR
+    ) / (scored_n + ORGANICITY_SHRINKAGE_K)
 
 
 # V2.42: groups without an announced debut_date can't be windowed (no anchor
@@ -495,8 +531,9 @@ INSERT INTO debut_window_organicity_summary
    organic_score_mean_simple,
    organic_strong_ratio, organic_ratio, borderline_ratio,
    suspect_ratio, likely_paid_ratio,
-   total_views, total_engagement, computed_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   total_views, total_engagement,
+   scored_video_count, organic_score_mean_shrunk, computed_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, window_bucket) DO UPDATE SET
   video_count=excluded.video_count,
   long_form_count=excluded.long_form_count,
@@ -512,6 +549,8 @@ ON CONFLICT(group_key, window_bucket) DO UPDATE SET
   likely_paid_ratio=excluded.likely_paid_ratio,
   total_views=excluded.total_views,
   total_engagement=excluded.total_engagement,
+  scored_video_count=excluded.scored_video_count,
+  organic_score_mean_shrunk=excluded.organic_score_mean_shrunk,
   computed_at=excluded.computed_at
 """
 
@@ -560,6 +599,12 @@ def build_summary(client: _Executor) -> CollectionResult:
         score_mean_long, _ = _weighted_or_simple_mean(scored_long)
         score_mean_short, _ = _weighted_or_simple_mean(scored_short)
 
+        # Thin-sample headline: shrink the simple mean toward the neutral prior
+        # so a 1-2 video bucket can't show a confident organic_strong. scored_n
+        # is the true sample size behind the mean (excludes insufficient_data).
+        scored_n = len(scored)
+        score_mean_shrunk = _shrink_toward_prior(score_mean_simple, scored_n)
+
         if scored:
             n = len(scored)
             strong_ratio = sum(1 for r in scored if r["verdict"] == "organic_strong") / n
@@ -585,7 +630,8 @@ def build_summary(client: _Executor) -> CollectionResult:
             score_mean, score_mean_long, score_mean_short, score_mean_simple,
             strong_ratio, organic_ratio, borderline_ratio,
             suspect_ratio, likely_ratio,
-            total_views, total_engagement, now,
+            total_views, total_engagement,
+            scored_n, score_mean_shrunk, now,
         ]))
 
     return CollectionResult(

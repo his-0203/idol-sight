@@ -317,7 +317,8 @@
 > 🟢 **쉽게**: 시기(버킷)별 평균 오가닉 점수. 기본은 **'영상 한 개씩 평균(simple)'** — 고조회 영상 1개가 평균을 좌우하지 못하게(view-weighted는 토글로). 채점 보류 영상은 평균에서 제외.
 
 (group, bucket)별: `organic_score_mean`(view-weighted, scored만), `organic_score_mean_simple`(count 기반 simple), long/short 별도 mean, 5종 verdict 비율(분모=scored 수), total_views/engagement(insufficient 포함).
-- **헤드라인 렌즈** (V2.40, `organicity.ts:53`): `DEFAULT_ORGANICITY_MODE="all_simple"` → `organic_score_mean_simple`(고조회 아웃라이어 1개가 버킷 지배하는 것 방지). view-weighted는 toggle.
+- **헤드라인 렌즈** (V2.40, `organicity.ts:53`): `DEFAULT_ORGANICITY_MODE="all_simple"` → 실제 표시는 V2.50 의 `organic_score_mean_shrunk`(simple mean 의 thin-sample 수축, pre-0092 행은 simple 로 폴백). 고조회 아웃라이어 1개가 버킷 지배하는 것 방지. view-weighted는 toggle.
+- **thin-sample 수축** (V2.50): `scored_video_count`(scored 표본 수) 저장 + `organic_score_mean_shrunk = (n·simple + k·55)/(n+k)`, k=3, prior=55. scored 1~2개 버킷이 자신만만한 organic_strong 을 못 내게 중립으로 당김 — 볼륨 늘면 자동 소멸(n≫k → raw). raw mean 은 보존. `scored < 3` 은 프런트 `*` 배지. organicity 는 진정성 축이라 성장/볼륨 판정은 성장 탭 소관.
 - `insufficient_data`는 video_count/total엔 포함, mean·비율 분모엔 제외. 요약은 full DELETE 후 재집계.
 
 ---

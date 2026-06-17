@@ -19,6 +19,7 @@
 - **ER = "세기" 신호 / like:comment 균형 = "진정성(organic vs 조작)" 신호.** 낮은 ER 자체가 paid 를 뜻하지 않음(콜드 도달일 수 있음).
 - Shorts(V2.37): ER floor/ceil 0.5%/9%, balance 정상대 15~78, velocity 미사용, 가중 eng0.4/bal0.6. Long-form: 별도 모델(velocity 포함).
 - **한계**: 정상 유료 광고(콜드 실시청자)와 오가닉 저ER 은 비중만으로 구분 불가. verdict 는 추정 → 외부 사용 전 인간 검증. 임계값은 1회 스냅샷 캘리브 → 데이터 축적 시 재보정.
+- **볼륨 무관 (의도) + thin-sample 보정(V2.50)**: organic_score 는 영상 1개의 *진정성*만 보며 볼륨·성장과 무관하다 — "적게 올리고 오가닉이면 고득점" 은 성장 부재를 점수가 못 잡는 게 아니라 **organicity 가 다루는 축이 아니기 때문**(성장은 별도 *성장 궤적* 레이어). 다만 버킷 헤드라인(simple mean)이 scored 1~2개에서 자신만만한 organic_strong 을 내던 문제를 막기 위해, 헤드라인은 **중립 prior(55)로 수축**한다: `shrunk = (n·mean + k·55)/(n+k)`, k=3 (`debut_window.py` ORGANICITY_PRIOR/ORGANICITY_SHRINKAGE_K). raw mean(catalog/reach 렌즈)은 보존, `scored_video_count < 3` 버킷은 프런트에서 `*` 로 표시. **"성장하는가" 판정은 organicity 가 아니라 성장 탭을 본다.**
 
 ## 커뮤니티 / 여론
 

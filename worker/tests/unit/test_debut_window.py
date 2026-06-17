@@ -677,6 +677,58 @@ def test_build_summary_groups_by_bucket_with_view_weighted_mean():
         60_000 + 2_000 + 30_000 + 1_000 + 12_000 + 600
         + 4_000 + 50 + 10_000 + 100 + 1 + 0
     )
+    # V2.50 thin-sample columns (appended before computed_at):
+    #   p[16] scored_video_count = 5 (excludes vid6 insufficient_data)
+    #   p[17] organic_score_mean_shrunk = (5*59 + 3*55)/(5+3) = 460/8 = 57.5
+    assert p[16] == 5
+    assert abs(p[17] - 57.5) < 0.01
+    assert p[18] == p[18] and isinstance(p[18], str)  # computed_at now last
+
+
+def test_build_summary_shrinks_thin_bucket_toward_neutral_prior():
+    """V2.50: a bucket with a single scored video must not show a confident
+    organic_strong headline. The simple mean (90) is shrunk toward the neutral
+    prior (55) with pseudocount k=3 → (1*90 + 3*55)/(1+3) = 63.75 (borderline).
+    scored_video_count is stored so the frontend can flag the thin sample.
+
+    This is the operator-flagged failure: 'few organic videos → high score
+    despite no growth'. Shrinkage pulls thin buckets toward neutral; it
+    vanishes as real volume accumulates (see the 5-video bucket test, 59→57.5).
+    """
+    client = _client({
+        "FROM debut_window_video_organicity": [
+            {"group_key": "miiwan", "window_bucket": "D-Day", "is_short": 1,
+             "view_count": 40_000, "organic_score": 90, "verdict": "organic_strong",
+             "like_count": 2_400, "comment_count": 60},
+        ],
+    })
+    result = build_summary(client)
+    upserts = [s for s in result.statements
+               if "INSERT INTO debut_window_organicity_summary" in s[0]]
+    assert len(upserts) == 1
+    p = upserts[0][1]
+    assert p[8] == 90.0          # raw simple mean stays untouched
+    assert p[16] == 1            # scored_video_count
+    assert abs(p[17] - 63.75) < 0.01  # shrunk headline → borderline, not strong
+
+
+def test_build_summary_shrunk_is_none_when_all_insufficient_data():
+    """V2.50: an all-insufficient_data bucket has no scored evidence, so both
+    the raw simple mean and the shrunk headline are None (no fake prior leak)."""
+    client = _client({
+        "FROM debut_window_video_organicity": [
+            {"group_key": "miiwan", "window_bucket": "D-Day", "is_short": 1,
+             "view_count": 50, "organic_score": None, "verdict": "insufficient_data",
+             "like_count": 1, "comment_count": 0},
+        ],
+    })
+    result = build_summary(client)
+    upserts = [s for s in result.statements
+               if "INSERT INTO debut_window_organicity_summary" in s[0]]
+    p = upserts[0][1]
+    assert p[8] is None          # raw simple mean None
+    assert p[16] == 0            # scored_video_count
+    assert p[17] is None         # shrunk None (no prior leak)
 
 
 def test_build_summary_prunes_stale_rows_with_leading_delete():
