@@ -157,6 +157,61 @@ def organic_share_from_traffic(rows: list[dict[str, Any]]) -> float | None:
     return organic / total
 
 
+def build_subscriber_split(
+    rows: list[dict[str, Any]],
+) -> dict[str, float] | None:
+    """subscribedStatus 리포트 → 구독/비구독 시청시간 비중.
+
+    rows: index_rows 결과 (subscribedStatus ∈ {SUBSCRIBED, UNSUBSCRIBED},
+    estimatedMinutesWatched). returning_viewers(API 미노출)의 실용 대체재 —
+    "구독자가 머무는 코어 vs 신규 유입" 을 시청시간으로 본다.
+    데이터 없으면 None (채널 행은 그대로 NULL 유지).
+    """
+    by_status = {
+        r.get("subscribedStatus"): float(r.get("estimatedMinutesWatched", 0) or 0)
+        for r in rows
+    }
+    sub = by_status.get("SUBSCRIBED", 0.0)
+    unsub = by_status.get("UNSUBSCRIBED", 0.0)
+    total = sub + unsub
+    if total <= 0:
+        return None
+    return {
+        "subscribed_watch_share": sub / total,
+        "unsubscribed_watch_share": unsub / total,
+    }
+
+
+def build_demographics_rows(
+    rows: list[dict[str, Any]],
+    group_key: str,
+    snapshot_at: str,
+) -> list[tuple[str, list[Any]]]:
+    """ageGroup×gender 리포트 → agg_youtube_analytics_demographics INSERT.
+
+    rows: index_rows 결과 (ageGroup, gender, viewerPercentage). viewerPercentage
+    는 0..100. 굿즈/타겟 코어팬 결정 입력 (소유자 전용 — 공개 API 미노출).
+    """
+    stmts: list[tuple[str, list[Any]]] = []
+    for r in rows:
+        age = r.get("ageGroup")
+        gender = r.get("gender")
+        if not age or not gender:
+            continue
+        pct = float(r.get("viewerPercentage", 0) or 0)
+        stmts.append((
+            """
+            INSERT INTO agg_youtube_analytics_demographics
+              (group_key, snapshot_at, age_group, gender, viewer_pct)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(group_key, snapshot_at, age_group, gender) DO UPDATE SET
+              viewer_pct=excluded.viewer_pct
+            """.strip(),
+            [group_key, snapshot_at, age, gender, round(pct, 2)],
+        ))
+    return stmts
+
+
 class YouTubeAnalyticsCollector:
     source = "youtube-analytics"
 
@@ -210,6 +265,42 @@ class YouTubeAnalyticsCollector:
             r.raise_for_status()
             return r.json()
 
+    def _subscribed_report(self, token: str, start: str, end: str) -> dict:
+        """구독 상태별 시청시간 (returning 시청자 대체재). best-effort."""
+        with self._http_factory() as client:
+            r = client.get(
+                ANALYTICS_URL,
+                params={
+                    "ids": "channel==MINE",
+                    "startDate": start, "endDate": end,
+                    "metrics": "estimatedMinutesWatched",
+                    "dimensions": "subscribedStatus",
+                    "maxResults": 10,
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            r.raise_for_status()
+            return r.json()
+
+    def _demographics_report(self, token: str, start: str, end: str) -> dict:
+        """연령×성별 시청 비중(viewerPercentage). best-effort.
+
+        viewerPercentage 는 다른 metric 과 혼합 불가라 단독 호출한다."""
+        with self._http_factory() as client:
+            r = client.get(
+                ANALYTICS_URL,
+                params={
+                    "ids": "channel==MINE",
+                    "startDate": start, "endDate": end,
+                    "metrics": "viewerPercentage",
+                    "dimensions": "ageGroup,gender",
+                    "maxResults": 50,
+                },
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            r.raise_for_status()
+            return r.json()
+
     def collect(
         self, group: GroupConfig, since: str | None = None,
     ) -> CollectionResult:
@@ -246,18 +337,39 @@ class YouTubeAnalyticsCollector:
 
         stmts = build_country_rows(cur, prior, group.key, snapshot_at, organic)
 
-        # 채널 단위 행 — 멤버십/재방문은 Analytics API 가 깔끔히 노출하지
-        # 않아 현재 NULL. 국가 데이터가 들어왔다는 snapshot 마커 역할 +
-        # 추후 지표 확보 시 채울 자리.
+        # 시청자 구성 (migration 0091) — 둘 다 best-effort. 권한/조합 제약 시
+        # 핵심 국가 수집을 깨지 않도록 try/except 로 감싼다 (traffic 와 동일).
+        split: dict[str, float] | None = None
+        try:
+            split = build_subscriber_split(index_rows(self._subscribed_report(
+                token, cur_start.isoformat(), cur_end.isoformat())))
+        except Exception as exc:  # noqa: BLE001 — 보조 지표, 비치명적.
+            log.info("subscribed-status skip: %s", exc)
+        try:
+            stmts.extend(build_demographics_rows(
+                index_rows(self._demographics_report(
+                    token, cur_start.isoformat(), cur_end.isoformat())),
+                group.key, snapshot_at))
+        except Exception as exc:  # noqa: BLE001 — 보조 지표, 비치명적.
+            log.info("demographics skip: %s", exc)
+
+        # 채널 단위 행 — returning/멤버십/슈퍼챗은 API 미노출로 NULL 유지.
+        # 구독/비구독 시청 비중(subscribedStatus)은 0091 로 수집되면 채운다
+        # (returning 시청자의 실용 대체재). 없으면 NULL.
+        sub_share = split["subscribed_watch_share"] if split else None
+        unsub_share = split["unsubscribed_watch_share"] if split else None
         stmts.append((
             """
             INSERT INTO agg_youtube_analytics
               (group_key, snapshot_at, returning_viewers_30d,
-               membership_count, membership_penetration, has_super_chat)
-            VALUES (?, ?, NULL, NULL, NULL, NULL)
-            ON CONFLICT(group_key, snapshot_at) DO NOTHING
+               membership_count, membership_penetration, has_super_chat,
+               subscribed_watch_share, unsubscribed_watch_share)
+            VALUES (?, ?, NULL, NULL, NULL, NULL, ?, ?)
+            ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
+              subscribed_watch_share=excluded.subscribed_watch_share,
+              unsubscribed_watch_share=excluded.unsubscribed_watch_share
             """.strip(),
-            [group.key, snapshot_at],
+            [group.key, snapshot_at, sub_share, unsub_share],
         ))
 
         runtime_ms = int((perf_counter() - started) * 1000)

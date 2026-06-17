@@ -44,7 +44,8 @@ def _stub_db():
         [],   # hanteo_weekly sales (comeback_boost)
         [],   # youtube_videos weekly upload counts (comeback_boost)
         [],   # community_posts titles (community_keywords_topic)
-        [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows (build_context 끝)
+        [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows
+        [],   # miiwan owner youtube (build_context 끝) — 빈 결과 → 키 생략
     ]
     return db
 
@@ -270,7 +271,8 @@ def _stub_db_with_signals():
         [],   # hanteo_weekly sales (comeback_boost)
         [],   # youtube_videos weekly upload counts (comeback_boost)
         [],   # community_posts titles (community_keywords_topic)
-        [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows (build_context 끝)
+        [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows
+        [],   # miiwan owner youtube (build_context 끝) — 빈 결과 → 키 생략
     ]
     return db
 
@@ -430,6 +432,7 @@ def test_generate_weekly_defaults_to_final_kind():
 
 def test_debut_countdown_labels():
     from datetime import date
+
     from idol_sight.llm.weekly import _debut_countdown
     rows = [
         {"key": "miiwan", "debut_date": "2026-06-16"},  # 미래 → D-8
@@ -448,15 +451,190 @@ def test_debut_countdown_labels():
 
 def test_debut_countdown_empty():
     from datetime import date
+
     from idol_sight.llm.weekly import _debut_countdown
     assert _debut_countdown([], date(2026, 6, 8)) == {}
+
+
+# ── 미완소년 소유자 YouTube 데이터 주입 (2026-06-17) ──────────────────────────
+
+def _owner_row(country, **kw):
+    base = {
+        "country": country, "watch_share": 0.2, "growth_mom": 0.1,
+        "retention_rel": 1.1, "sub_per_1k": 5.0, "watch_minutes": 1000,
+        "organic_share": 0.7, "subs_gained": 50,
+        "snapshot_at": "2026-06-16T12:00:00Z",
+    }
+    base.update(kw)
+    return base
+
+
+def test_format_owner_youtube_ranks_and_labels():
+    from datetime import date
+
+    from idol_sight.llm.weekly import _format_owner_youtube
+    rows = [
+        _owner_row("KR", watch_share=0.10, growth_mom=-0.05),
+        _owner_row("JP", watch_share=0.30, growth_mom=0.12, retention_rel=1.24,
+                   organic_share=0.71, sub_per_1k=6.2),
+        _owner_row("US", watch_share=0.20, growth_mom=None),  # 신규 진입
+    ]
+    out = _format_owner_youtube(rows, date(2026, 6, 17))
+    assert out is not None
+    cs = out["countries"]
+    # watch_share 내림차순: JP(0.30) > US(0.20) > KR(0.10)
+    assert [c["country"] for c in cs] == ["JP", "US", "KR"]
+    jp = cs[0]
+    assert jp["watch_share_pct"] == 30.0
+    assert jp["retention_rel"] == 1.24
+    assert jp["organic_share_pct"] == 71          # 0.71*100 반올림
+    assert jp["sub_per_1k"] == 6.2
+    assert jp["growth_label"] == "+12%"
+    assert cs[2]["growth_label"] == "−5%"         # KR 음수
+    assert cs[1]["growth_label"] == "신규(측정 보류)"  # US None → 신규
+    assert out["age_days"] == 1
+
+
+def test_format_owner_youtube_low_sample_flag():
+    from datetime import date
+
+    from idol_sight.llm.weekly import _format_owner_youtube
+    rows = [
+        _owner_row("JP", watch_minutes=5000),
+        _owner_row("BR", watch_minutes=30),   # < 60 → 소표본
+    ]
+    out = _format_owner_youtube(rows, date(2026, 6, 17))
+    assert out is not None
+    by = {c["country"]: c for c in out["countries"]}
+    assert by["JP"]["low_sample"] is False
+    assert by["BR"]["low_sample"] is True
+
+
+def test_format_owner_youtube_null_metrics_preserved():
+    from datetime import date
+
+    from idol_sight.llm.weekly import _format_owner_youtube
+    rows = [_owner_row("PH", retention_rel=None, organic_share=None)]
+    out = _format_owner_youtube(rows, date(2026, 6, 17))
+    assert out is not None
+    c = out["countries"][0]
+    # NULL 은 0 으로 치환하지 않고 그대로 None (LLM 이 '0/하락' 오독 금지)
+    assert c["retention_rel"] is None
+    assert c["organic_share_pct"] is None
+
+
+def test_format_owner_youtube_stale_returns_none():
+    from datetime import date
+
+    from idol_sight.llm.weekly import _format_owner_youtube
+    rows = [_owner_row("JP", snapshot_at="2026-06-01T12:00:00Z")]
+    # 16일 경과 > stale_days(7) → 통째로 None (수집 중단 환각 방지)
+    assert _format_owner_youtube(rows, date(2026, 6, 17)) is None
+
+
+def test_format_owner_youtube_empty_returns_none():
+    from datetime import date
+
+    from idol_sight.llm.weekly import _format_owner_youtube
+    assert _format_owner_youtube([], date(2026, 6, 17)) is None
+
+
+def test_format_owner_youtube_top_n_caps():
+    from datetime import date
+
+    from idol_sight.llm.weekly import _format_owner_youtube
+    rows = [_owner_row(f"C{i}", watch_share=i / 100) for i in range(1, 13)]
+    out = _format_owner_youtube(rows, date(2026, 6, 17), top_n=8)
+    assert out is not None
+    assert len(out["countries"]) == 8
+    # 상위 8개 (watch_share 큰 순) — C12..C5
+    assert out["countries"][0]["country"] == "C12"
+
+
+def test_build_context_injects_owner_youtube_when_present():
+    """owner youtube 행이 있으면 build_context 가 miiwan_youtube 키를 채운다."""
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import MagicMock
+
+    from idol_sight.llm.weekly import build_context
+    today = (datetime.now(UTC) + timedelta(hours=9)).date()
+    snap = today.isoformat() + "T12:00:00Z"  # 신선 — stale 컷 회피
+    db = MagicMock()
+    db.execute.side_effect = [
+        [],  # last_7d
+        [],  # prev_7d
+        [],  # hanteo
+        [],  # market
+        [],  # top_news
+        [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows
+        [   # miiwan owner youtube — 국가 (present → audience 쿼리도 이어짐)
+            {"country": "JP", "watch_share": 0.3, "growth_mom": 0.1,
+             "retention_rel": 1.2, "sub_per_1k": 6.0, "watch_minutes": 9000,
+             "organic_share": 0.7, "subs_gained": 100, "snapshot_at": snap},
+        ],
+        [   # audience: 채널 구독 분리
+            {"subscribed_watch_share": 0.6, "unsubscribed_watch_share": 0.4,
+             "snapshot_at": snap},
+        ],
+        [   # audience: 인구통계
+            {"age_group": "age18-24", "gender": "female", "viewer_pct": 40.0},
+        ],
+    ]
+    ctx = build_context(
+        db, week_start="2026-06-07", week_end="2026-06-13",
+        signals_by_group={},
+    )
+    assert "miiwan_youtube" in ctx
+    assert ctx["miiwan_youtube"]["countries"][0]["country"] == "JP"
+    # audience(구독 분리 + 인구통계)도 덧붙는다.
+    aud = ctx["miiwan_youtube"]["audience"]
+    assert aud["subscribed_watch_share_pct"] == 60
+    assert aud["top_demographics"][0]["age_group"] == "age18-24"
+
+
+def test_format_owner_audience_subscriber_and_demographics():
+    from idol_sight.llm.weekly import _format_owner_audience
+    channel = {"subscribed_watch_share": 0.62, "unsubscribed_watch_share": 0.38}
+    demo = [
+        {"age_group": "age25-34", "gender": "male", "viewer_pct": 10.0},
+        {"age_group": "age18-24", "gender": "female", "viewer_pct": 42.5},
+    ]
+    out = _format_owner_audience(channel, demo)
+    assert out is not None
+    assert out["subscribed_watch_share_pct"] == 62
+    assert out["unsubscribed_watch_share_pct"] == 38
+    # viewer_pct 내림차순 → female 18-24 가 먼저
+    assert out["top_demographics"][0]["gender"] == "female"
+    assert out["top_demographics"][0]["viewer_pct"] == 42.5
+
+
+def test_format_owner_audience_none_when_empty():
+    from idol_sight.llm.weekly import _format_owner_audience
+    assert _format_owner_audience(None, []) is None
+    # 구독 분리 NULL + 인구통계 없음 → None
+    assert _format_owner_audience(
+        {"subscribed_watch_share": None}, []) is None
+
+
+def test_prompt_weekly_includes_owner_youtube_guards():
+    """PROMPT_WEEKLY 에 owner youtube 핵심 가드/지표 표현이 들어있는지 sanity."""
+    from idol_sight.llm.prompts import PROMPT_WEEKLY
+    assert "miiwan_youtube" in PROMPT_WEEKLY
+    # 핵심 가드 — 상대 share, 30일 롤링 시간축, 경쟁사 비교 불가, 페이드 단정 금지
+    assert "상대" in PROMPT_WEEKLY and "롤링" in PROMPT_WEEKLY
+    assert "watch_share" in PROMPT_WEEKLY
+    assert "retention_rel" in PROMPT_WEEKLY
+    assert "organic_share" in PROMPT_WEEKLY
+    # 경쟁사 owner 데이터 부재 가드
+    assert "경쟁사" in PROMPT_WEEKLY
 
 
 def test_build_context_includes_debut_countdown():
     """build_context 가 groups.debut_date 를 조회해 debut_countdown 을
     컨텍스트에 주입한다 (LLM 이 데뷔 D-N 을 환각하지 않게 ground-truth 제공)."""
-    from idol_sight.llm.weekly import build_context
     from unittest.mock import MagicMock
+
+    from idol_sight.llm.weekly import build_context
     db = MagicMock()
     # build_context 의 execute 순서: last_7d, prev_7d, hanteo, market,
     # top_news (5개), signals_by_group={} 주입 → compute_group_signals 미호출,
@@ -468,12 +646,15 @@ def test_build_context_includes_debut_countdown():
         [],  # market
         [],  # top_news
         [{"key": "miiwan", "debut_date": "2026-06-16"}],  # debut rows
+        [],  # miiwan owner youtube — 빈 결과 → 키 생략
     ]
     ctx = build_context(
         db, week_start="2026-06-07", week_end="2026-06-13",
         signals_by_group={},  # 주입 → compute_group_signals 미호출
     )
     assert "debut_countdown" in ctx
+    # owner youtube 데이터 없음 → 컨텍스트 키 자체가 빠진다.
+    assert "miiwan_youtube" not in ctx
     assert "miiwan" in ctx["debut_countdown"]
     cd = ctx["debut_countdown"]["miiwan"]
     assert cd["debut_date"] == "2026-06-16"

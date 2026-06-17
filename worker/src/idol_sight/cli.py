@@ -992,11 +992,14 @@ def collect_live_chat(
     raise typer.Exit(code=1 if (ended and reports == 0 and errors) else 0)
 
 
-@app.command("rebuild-live-chat-reports",
-             help="저장된 raw 채팅으로 기존 리포트를 재스크레이핑 없이 재분류·갱신(스키마 변경 후 백필).")
+@app.command(
+    "rebuild-live-chat-reports",
+    help="저장된 raw 채팅으로 기존 리포트를 재스크레이핑 없이 "
+         "재분류·갱신(스키마 변경 후 백필).")
 def rebuild_live_chat_reports(
     group: str = typer.Option("miiwan", "--group", help="대상 group_key."),
-    video_id: str | None = typer.Option(None, "--video-id", help="특정 방송만(미지정 시 그룹 전체)."),
+    video_id: str | None = typer.Option(
+        None, "--video-id", help="특정 방송만(미지정 시 그룹 전체)."),
     now: str | None = typer.Option(None, "--now", help="ISO8601 UTC 기준 시각."),
 ) -> None:
     from idol_sight.analysis.live_chat_report import build_report
@@ -1174,8 +1177,12 @@ def challenge_scan() -> None:
 @app.command("analyze-weekly", help="Run weekly analysis: hanteo, market_share, member_pop, llm.")
 def analyze_weekly(
     week_start: str = typer.Option(..., "--week-start", help="YYYY-MM-DD (Sunday)"),
-    week_end: str   = typer.Option(..., "--week-end",   help="YYYY-MM-DD (Saturday for final, Wed for interim)"),
-    kind: str       = typer.Option("final", "--kind", click_type=click.Choice(["final", "interim"]), help="final (일=완결주 결산) | interim (수=중간점검)"),
+    week_end: str = typer.Option(
+        ..., "--week-end",
+        help="YYYY-MM-DD (Saturday for final, Wed for interim)"),
+    kind: str = typer.Option(
+        "final", "--kind", click_type=click.Choice(["final", "interim"]),
+        help="final (일=완결주 결산) | interim (수=중간점검)"),
 ) -> None:
     settings = load_settings()
     client = _make_d1_client(settings)

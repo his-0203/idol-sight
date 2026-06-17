@@ -1,7 +1,8 @@
 """Tests for growth trajectory analysis module."""
 import json
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from idol_sight.analysis.growth_trajectory import (
     MIN_HISTORY_DAYS,
@@ -317,7 +318,9 @@ def test_posture_weakest_excludes_unknown_pillars():
 ])
 def test_posture_label_vocabulary(dirs, accs, expected):
     keys = ["reach", "engagement", "community", "sentiment"]
-    pillars = [_pillar(k, d, a) for k, d, a in zip(keys, dirs, accs)]
+    pillars = [
+        _pillar(k, d, a) for k, d, a in zip(keys, dirs, accs, strict=False)
+    ]
     label, _ = synthesize_posture(pillars)
     assert label == expected
 

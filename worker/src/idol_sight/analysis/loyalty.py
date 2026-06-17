@@ -60,7 +60,9 @@ def score_from_conversion(rate: float) -> float:
         return LOYALTY_ANCHORS[0][1]
     if rate >= LOYALTY_ANCHORS[-1][0]:
         return LOYALTY_ANCHORS[-1][1]
-    for (r0, s0), (r1, s1) in zip(LOYALTY_ANCHORS, LOYALTY_ANCHORS[1:]):
+    for (r0, s0), (r1, s1) in zip(
+        LOYALTY_ANCHORS, LOYALTY_ANCHORS[1:], strict=False,
+    ):
         if r0 <= rate <= r1:
             frac = (rate - r0) / (r1 - r0)
             return s0 + frac * (s1 - s0)

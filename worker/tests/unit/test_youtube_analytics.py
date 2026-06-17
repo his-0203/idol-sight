@@ -7,6 +7,8 @@ HTTP 는 건드리지 않고 build_country_rows / index_rows 만 — 국가별 �
 
 from idol_sight.collectors.youtube_analytics import (
     build_country_rows,
+    build_demographics_rows,
+    build_subscriber_split,
     index_rows,
     organic_share_from_traffic,
 )
@@ -124,6 +126,39 @@ def test_sub_per_1k_zero_when_no_views():
     ]
     rows = build_country_rows(current, [], "miiwan", "2026-06-16T00:00:00Z")
     assert _params(rows[0])[6] == 0.0
+
+
+def test_build_subscriber_split_shares():
+    rows = [
+        {"subscribedStatus": "SUBSCRIBED", "estimatedMinutesWatched": 700},
+        {"subscribedStatus": "UNSUBSCRIBED", "estimatedMinutesWatched": 300},
+    ]
+    out = build_subscriber_split(rows)
+    assert out is not None
+    assert abs(out["subscribed_watch_share"] - 0.7) < 1e-9
+    assert abs(out["unsubscribed_watch_share"] - 0.3) < 1e-9
+
+
+def test_build_subscriber_split_none_when_empty():
+    assert build_subscriber_split([]) is None
+    assert build_subscriber_split(
+        [{"subscribedStatus": "SUBSCRIBED", "estimatedMinutesWatched": 0}]) is None
+
+
+def test_build_demographics_rows_insert():
+    rows = [
+        {"ageGroup": "age18-24", "gender": "female", "viewerPercentage": 42.5},
+        {"ageGroup": "age25-34", "gender": "male", "viewerPercentage": 12.3},
+        {"ageGroup": "", "gender": "female", "viewerPercentage": 5.0},  # 빈 age → 스킵
+    ]
+    stmts = build_demographics_rows(rows, "miiwan", "2026-06-17T00:00:00Z")
+    assert len(stmts) == 2          # 빈 age 행 제외
+    sql, params = stmts[0]
+    assert "agg_youtube_analytics_demographics" in sql
+    # params: [group, snapshot, age_group, gender, viewer_pct]
+    assert params[2] == "age18-24"
+    assert params[3] == "female"
+    assert params[4] == 42.5
 
 
 def test_retention_rel_falls_back_to_overall_avg_when_no_kr():

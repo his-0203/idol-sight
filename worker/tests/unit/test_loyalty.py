@@ -1,8 +1,12 @@
 import pytest
+
 from idol_sight.analysis.loyalty import (
-    median, score_from_conversion, ccv_trend, compute_loyalty,
-    build_fan_loyalty, subscribers_at,
-    WINDOW_DAYS, TREND_FLAT_BAND, MIN_BROADCASTS_FOR_TREND,
+    build_fan_loyalty,
+    ccv_trend,
+    compute_loyalty,
+    median,
+    score_from_conversion,
+    subscribers_at,
 )
 
 
@@ -169,8 +173,10 @@ def test_build_fan_loyalty_produces_row_per_tracked_group():
              "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 1500},
         ],
         subs=[
-            {"group_key": "miiwan", "yt_subscribers": 100_000, "snapshot_at": "2026-06-07T00:00:00Z"},
-            {"group_key": "plave", "yt_subscribers": 1_000_000, "snapshot_at": "2026-06-07T00:00:00Z"},
+            {"group_key": "miiwan", "yt_subscribers": 100_000,
+             "snapshot_at": "2026-06-07T00:00:00Z"},
+            {"group_key": "plave", "yt_subscribers": 1_000_000,
+             "snapshot_at": "2026-06-07T00:00:00Z"},
         ],
     )
     res = build_fan_loyalty(client)
@@ -188,8 +194,10 @@ def test_build_fan_loyalty_picks_latest_nonnull_subscribers():
         samples=[{"group_key": "miiwan", "video_id": "a",
                   "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 1500}],
         subs=[
-            {"group_key": "miiwan", "yt_subscribers": 50_000, "snapshot_at": "2026-06-01T00:00:00Z"},
-            {"group_key": "miiwan", "yt_subscribers": 100_000, "snapshot_at": "2026-06-07T00:00:00Z"},
+            {"group_key": "miiwan", "yt_subscribers": 50_000,
+             "snapshot_at": "2026-06-01T00:00:00Z"},
+            {"group_key": "miiwan", "yt_subscribers": 100_000,
+             "snapshot_at": "2026-06-07T00:00:00Z"},
         ],
     )
     res = build_fan_loyalty(client)

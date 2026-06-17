@@ -95,7 +95,13 @@ def build_context(
     )
     today_kst = (datetime.now(UTC) + timedelta(hours=9)).date()
     debut_countdown = _debut_countdown(debut_rows, today_kst)
-    return {
+    # 미완소년 소유자 OAuth(YouTube Analytics) 데이터 — 매일 갱신되는 30일
+    # 롤링 국가 지표. 인사이트 LLM 이 해외 시청·유지율·오가닉·구독전환을
+    # 근거로 ipx_action/insight 를 쓸 수 있게 ground-truth 로 주입한다.
+    # (debut_countdown 과 같은 사전 가공 패턴 — raw 숫자 환각 차단.) miiwan
+    # 전용이라 다른 그룹엔 행이 없고, 데이터 없으면 키 자체가 빠진다.
+    owner_youtube = _fetch_owner_youtube(db, today_kst)
+    ctx: dict[str, Any] = {
         "week": {"start": week_start, "end": week_end},
         "report_kind": report_kind,
         "debut_countdown": debut_countdown,
@@ -106,6 +112,9 @@ def build_context(
         "top_news_by_group": top_news,
         "signals_by_group": _serialize_signals_for_llm(signals_by_group),
     }
+    if owner_youtube:
+        ctx["miiwan_youtube"] = owner_youtube
+    return ctx
 
 
 def _serialize_signals_for_llm(
@@ -144,7 +153,7 @@ def _shift_iso_date(iso_date: str, days: int) -> str:
     return (d + timedelta(days=days)).isoformat()
 
 
-def _debut_countdown(rows: list[dict], today: "date") -> dict[str, dict]:
+def _debut_countdown(rows: list[dict], today: date) -> dict[str, dict]:
     """groups 행 [{key, debut_date}] → {key: {debut_date, days_to_debut, label}}.
 
     label: 데뷔 전(days>0)=D-{n}, 당일(0)=D-DAY, 데뷔 후(days<0)=D+{n}.
@@ -165,6 +174,177 @@ def _debut_countdown(rows: list[dict], today: "date") -> dict[str, dict]:
             label = f"D+{abs(days)}"
         out[r["key"]] = {"debut_date": ds, "days_to_debut": days, "label": label}
     return out
+
+
+# 소유자 YouTube 데이터 주입 파라미터. 데뷔 초기 소표본·롤링 노이즈 가드.
+OWNER_YT_TOP_N = 8            # watch_share 상위 N개국만 (토큰 절약 + 롱테일 노이즈 차단)
+OWNER_YT_STALE_DAYS = 7       # 최신 스냅샷이 이보다 오래되면 제외 (수집 중단 환각 방지)
+OWNER_YT_MIN_WATCH_MINUTES = 60  # 절대 시청분 미만이면 소표본 플래그 (비율 폭증 차단)
+
+
+def _growth_label(v: float | None) -> str:
+    """growth_mom(소수) → 사람이 읽는 라벨. None=신규 진입(분모≈0, 측정 보류).
+
+    데뷔 직후 신규국은 직전 30일 시청이 미미해 비율이 폭발하므로 collector 가
+    None 으로 둔다 (youtube_analytics.py). 그 의미를 LLM 에 명시적으로 넘겨
+    '0% 성장'으로 오독하지 않게 한다.
+    """
+    if v is None:
+        return "신규(측정 보류)"
+    pct = round(v * 100)
+    return f"{'+' if pct >= 0 else '−'}{abs(pct)}%"
+
+
+def _format_owner_youtube(
+    rows: list[dict],
+    today: date,
+    *,
+    top_n: int = OWNER_YT_TOP_N,
+    stale_days: int = OWNER_YT_STALE_DAYS,
+    min_watch_minutes: int = OWNER_YT_MIN_WATCH_MINUTES,
+) -> dict | None:
+    """agg_youtube_analytics_country 최신 스냅샷 행 → LLM ground-truth dict.
+
+    raw 숫자를 그대로 넘기지 않고 사전 가공한다 (debut_countdown 패턴):
+      - watch_share → 퍼센트, growth_mom → 라벨(None=신규 표기),
+      - watch_minutes < min_watch_minutes 인 국가는 low_sample=True 플래그
+        (비율 지표를 추세로 단정하지 못하게),
+      - 최신 스냅샷이 stale_days 보다 오래되면 통째로 None (수집 중단 시
+        옛 데이터를 '이번 주'로 환각하는 것 방지).
+    데이터가 없거나 stale 이면 None — 호출부는 컨텍스트 키를 생략한다.
+    """
+    if not rows:
+        return None
+    snapshot_at = rows[0].get("snapshot_at")
+    age_days: int | None = None
+    if snapshot_at:
+        snap_date = date.fromisoformat(snapshot_at[:10])
+        age_days = (today - snap_date).days
+        if age_days > stale_days:
+            return None
+    ranked = sorted(
+        rows, key=lambda r: (r.get("watch_share") or 0.0), reverse=True,
+    )[:top_n]
+    countries: list[dict] = []
+    for r in ranked:
+        country = r.get("country")
+        if not country:
+            continue
+        wm = r.get("watch_minutes")
+        countries.append({
+            "country": country,
+            "watch_share_pct": round((r.get("watch_share") or 0.0) * 100, 1),
+            "watch_minutes": wm,
+            "retention_rel": (round(r["retention_rel"], 2)
+                              if r.get("retention_rel") is not None else None),
+            "organic_share_pct": (round(r["organic_share"] * 100)
+                                  if r.get("organic_share") is not None else None),
+            "sub_per_1k": (round(r["sub_per_1k"], 1)
+                           if r.get("sub_per_1k") is not None else None),
+            "growth_label": _growth_label(r.get("growth_mom")),
+            "subs_gained": r.get("subs_gained"),
+            "low_sample": (wm is not None and wm < min_watch_minutes),
+        })
+    if not countries:
+        return None
+    return {
+        "window": "최근 30일 롤링 누적 (소유자 YouTube Analytics, 매일 갱신 — "
+                  "주간 일~토/일~수 윈도우와 다른 시간축)",
+        "snapshot_at": snapshot_at,
+        "age_days": age_days,
+        "note": "watch_share 는 해외 국가 간 상대 비중(합≈100%). 경쟁사는 "
+                "OAuth 가 없어 이 데이터가 없으니 국가별 비교는 미완소년 "
+                "자기 시계열로만. low_sample=true 국가는 표본 부족 — 추세 "
+                "단정 금지.",
+        "countries": countries,
+    }
+
+
+def _format_owner_audience(
+    channel_row: dict | None,
+    demo_rows: list[dict],
+    *,
+    top_n: int = 6,
+) -> dict | None:
+    """시청자 구성(migration 0091) → LLM dict.
+
+    - 구독/비구독 시청 비중 (returning 시청자 대체재): 코어 팬 vs 신규 유입.
+    - 연령×성별 상위 분포: 굿즈·타겟 코어팬 결정 입력.
+    둘 다 없으면 None.
+    """
+    out: dict = {}
+    if channel_row and channel_row.get("subscribed_watch_share") is not None:
+        out["subscribed_watch_share_pct"] = round(
+            channel_row["subscribed_watch_share"] * 100)
+        unsub = channel_row.get("unsubscribed_watch_share")
+        if unsub is not None:
+            out["unsubscribed_watch_share_pct"] = round(unsub * 100)
+    if demo_rows:
+        ranked = sorted(
+            demo_rows, key=lambda r: (r.get("viewer_pct") or 0.0), reverse=True,
+        )[:top_n]
+        top = [
+            {"age_group": r.get("age_group"), "gender": r.get("gender"),
+             "viewer_pct": round(r.get("viewer_pct") or 0.0, 1)}
+            for r in ranked if r.get("age_group") and r.get("gender")
+        ]
+        if top:
+            out["top_demographics"] = top
+    return out or None
+
+
+def _fetch_owner_audience(db: _Executor) -> dict | None:
+    """최신 채널 구독 분리 + 인구통계 조회 → _format_owner_audience.
+
+    migration 0091 미적용 시 컬럼/테이블이 없어 throw 할 수 있으므로 호출부
+    (_fetch_owner_youtube) 가 try/except 로 graceful degrade 한다.
+    """
+    channel = db.execute(
+        "SELECT subscribed_watch_share, unsubscribed_watch_share, snapshot_at "
+        "FROM agg_youtube_analytics WHERE group_key='miiwan' "
+        "ORDER BY snapshot_at DESC LIMIT 1",
+        [],
+    )
+    demo = db.execute(
+        "SELECT age_group, gender, viewer_pct "
+        "FROM agg_youtube_analytics_demographics "
+        "WHERE group_key='miiwan' "
+        "  AND snapshot_at=(SELECT MAX(snapshot_at) "
+        "                   FROM agg_youtube_analytics_demographics "
+        "                   WHERE group_key='miiwan') "
+        "ORDER BY viewer_pct DESC",
+        [],
+    )
+    return _format_owner_audience(channel[0] if channel else None, demo)
+
+
+def _fetch_owner_youtube(db: _Executor, today: date) -> dict | None:
+    """미완소년 최신 스냅샷 국가 지표 조회 후 _format_owner_youtube 로 가공.
+
+    국가 데이터가 있으면 시청자 구성(audience: 구독분리·인구통계)도 덧붙인다.
+    """
+    rows = db.execute(
+        "SELECT country, watch_share, growth_mom, retention_rel, sub_per_1k, "
+        "       watch_minutes, organic_share, subs_gained, snapshot_at "
+        "FROM agg_youtube_analytics_country "
+        "WHERE group_key='miiwan' "
+        "  AND snapshot_at=(SELECT MAX(snapshot_at) "
+        "                   FROM agg_youtube_analytics_country "
+        "                   WHERE group_key='miiwan') "
+        "ORDER BY watch_share DESC",
+        [],
+    )
+    owner = _format_owner_youtube(rows, today)
+    if owner is None:
+        return None
+    try:
+        audience = _fetch_owner_audience(db)
+    except Exception as exc:  # noqa: BLE001 — 0091 미적용 시 graceful degrade.
+        log.info("owner audience skip (migration 0091?): %s", exc)
+        audience = None
+    if audience:
+        owner["audience"] = audience
+    return owner
 
 
 def generate_weekly(

@@ -1,5 +1,6 @@
-import pytest
 from datetime import date, timedelta
+
+import pytest
 
 from idol_sight.analysis.health_score import (
     DEFAULT_REFS,

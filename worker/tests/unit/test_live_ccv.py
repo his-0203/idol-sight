@@ -155,7 +155,9 @@ def test_collect_global_no_live_is_noop():
 
     def handler(url, params):
         if "feeds/videos.xml" in url:
-            return _FakeResp(text="<feed><entry><yt:videoId>aaaaaaaaaaa</yt:videoId></entry></feed>")
+            return _FakeResp(
+                text="<feed><entry><yt:videoId>aaaaaaaaaaa"
+                     "</yt:videoId></entry></feed>")
         # video exists but is not live
         return _FakeResp(payload={"items": [
             {"id": "aaaaaaaaaaa",

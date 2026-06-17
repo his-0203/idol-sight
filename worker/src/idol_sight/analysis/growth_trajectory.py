@@ -60,7 +60,7 @@ def _ols_slope(ys: list[float]) -> float:
     xs = list(range(n))
     mx = sum(xs) / n
     my = sum(ys) / n
-    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    num = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=False))
     den = sum((x - mx) ** 2 for x in xs)
     return num / den if den else 0.0
 

@@ -556,12 +556,110 @@ EXEMPLARS:
 *본문 작성 기준점* 으로만 강제."""
 
 
+# 미완소년 소유자 YouTube Analytics(OAuth) 데이터 활용 가드 + few-shot.
+# 컨텍스트의 miiwan_youtube 는 공개 API 로는 못 보는 소유자 전용 정확값이라
+# (시청시간·유지율·트래픽 소스 실측) ipx_action/insight 의 근거를 추측에서
+# ground-truth 로 끌어올린다. 단 비율·롤링·소표본·경쟁사 부재 함정이 많아
+# 가드를 강하게 건다 (organicity/growth/loyalty 가 V2.36~2.48 에서 겪은 함정의
+# 국가 버전 — 같은 신중함을 연장).
+_OWNER_YOUTUBE_GUIDELINES = """\
+MiiWAN OWNER YOUTUBE DATA — miiwan_youtube 컨텍스트 활용 규칙:
+
+컨텍스트에 miiwan_youtube 가 있으면(없을 수도 있다 — 그러면 이 블록 무시),
+미완소년 채널의 *소유자 전용* YouTube Analytics 국가 지표다. 공개 API 로는
+못 보는 정확값 — 해외진출/콘텐츠/팬덤 인사이트의 1차 근거로 쓴다.
+
+구조:
+  { "window": "최근 30일 롤링 누적 ...", "snapshot_at": "...", "age_days": N,
+    "note": "...", "countries": [
+      { "country":"JP", "watch_share_pct":18.0, "watch_minutes":12345,
+        "retention_rel":1.24, "organic_share_pct":71, "sub_per_1k":6.2,
+        "growth_label":"+12%"|"−5%"|"신규(측정 보류)", "subs_gained":210,
+        "low_sample": false }, ... ] }
+
+지표 뜻 (운영자 친화 자연어로 풀어쓸 것):
+  - watch_share_pct : 해외 시청시간 중 그 나라 비중 (조회수 아닌 *시청시간*).
+  - retention_rel   : 국내(KR) 평균시청률 대비 그 나라가 '끝까지 보는' 정도
+                      (1.0 = 국내 동등, 1.2 = 국내보다 20% 더 끝까지).
+  - organic_share_pct: 검색+추천+구독 등 자연 유입 비중 (외부/공유와 구분).
+  - sub_per_1k      : 1,000 조회당 구독 순증 (조회→구독 전환 효율).
+  - growth_label    : 직전 30일 대비 시청시간 증감.
+
+필수 가드 (어기면 카드 폐기):
+  ① 시간축: miiwan_youtube 는 **최근 30일 롤링 누적**이다. 주간 일~토/일~수
+     윈도우(agg_summary)와 다른 시간축 — "이번 주 시청 X" 로 단정 금지.
+     "최근 30일 기준 ..." 로 프레이밍.
+  ② 상대 share: watch_share 는 해외 국가 간 *상대* 비중(합≈100%). 한 나라
+     상승 = 다른 나라 하락일 수 있다. "JP 시청 감소" 로 단정 말고 절대값
+     watch_minutes 를 함께 인용.
+  ③ NULL ≠ 0: growth_label "신규(측정 보류)" 는 직전 시청이 미미한 신규
+     진입국 (분모≈0) 이지 '성장 0%' 가 아니다. retention_rel/organic_share_pct
+     가 null 이면 '측정 보류/미노출' 로, 절대 0·하락으로 읽지 말 것.
+  ④ 소표본: low_sample=true 국가는 절대 시청분이 적어 비율이 ±1 이벤트에
+     출렁인다. 순위·추세를 단정하지 말고 "표본 적어 잠정" 으로 다룰 것.
+  ⑤ 경쟁사 비교 불가: 이 소유자 데이터는 **미완소년에만** 있다. "일본에서
+     PLAVE 보다 시청 높다" 류는 데이터로 불가능 — 절대 쓰지 말 것. 비교는
+     미완소년 자기 국가 간 / 자기 시계열로만.
+  ⑥ organic 낮음 ≠ 페이드: 데뷔 직후 회사 유료 푸시는 정상이다. organic_share
+     가 낮아도 '조작/구매' 로 단정 금지 (휴리스틱·정황일 뿐 — Streisand/false
+     positive 원칙 연장). "초기 외부 유입 비중 높음, 자생 전환은 후행 관찰" 식.
+  ⑦ interim(수): 데뷔 초기 첫 주 분포는 화제성 스파이크지 정착 분포가 아니다.
+     interim 카드는 "관찰" 까지만, 추세·처방 단정은 결산(final)에서.
+
+few-shot EXEMPLARS (가공 예시 — 숫자는 예시):
+
+  ① 해외진출 우선순위 (type='ipx_action', scope='miiwan')
+    title: "일본 자막·프로모션 1순위 — 최근 30일 해외 시청 2위·몰입 최고"
+    body:  "[Abyss 마케팅] 이번 주 금요일까지 일본어 자막을 전 MV·예능
+            클립에 소급 적용한다. 최근 30일 기준 일본 해외 시청시간 비중
+            **18%**(2위)인데 끝까지 보는 정도가 국내 대비 **1.24배**로
+            추적국 최고, 검색·추천 자연 유입도 71%로 우세 — 일회성 화제가
+            아니라 지속 팬덤 형성 신호. 4주 후 일본 watch_share·구독전환
+            Δ 로 효과 측정."
+    ai_comment: "조회 SOV 엔 안 보이던 몰입형 시장 — 자막 우선 투자 근거."
+
+  ② 국내↔해외 디커플링 (type='insight', scope='miiwan')
+    body:  "한터 초동·국내 점유는 견조하나, 최근 30일 해외 시청 몰입은
+            결이 다르다. 미국은 1k조회당 구독전환 **6.2명**으로 일본(3.0)의
+            2배지만 끝까지 보는 정도는 0.88로 국내보다 낮아, '도달은 크나
+            깊이는 얕은' 신규 유입 시장 신호. 짧은 후킹형 숏폼이 미국 유입을,
+            롱폼이 일본 몰입을 담당하는 국가별 포맷 분리 가능성 시사 (표본
+            축적 후 재확인 필요)."
+    ai_comment: "국내 지표엔 안 잡히는 해외 첫 투어·포맷 분기 후보."
+
+  ③ 팬덤 진정성 교차 (type='insight', scope='miiwan')
+    body:  "데뷔 직후 해외 상위국 자연 유입 비중이 평균 **63%**로, 공개
+            데이터 기반 organicity 방향과 일치. 외부·공유 트래픽이 과반이
+            아니라는 점은 일시적 외부 푸시보다 자생 유입이 받쳐줄 가능성을
+            시사 (소유자 트래픽소스 실측, 단 30일 롤링·데뷔 초기 소표본이라
+            확정 아님)."
+    ai_comment: "유입 진정성 양호 신호 — 다음 주 구독전환 후행 관찰."
+
+audience (선택 — miiwan_youtube.audience 가 있을 때만):
+  { "subscribed_watch_share_pct": 60, "unsubscribed_watch_share_pct": 40,
+    "top_demographics": [ {"age_group":"age18-24","gender":"female",
+                           "viewer_pct":42.5}, ... ] }
+  - subscribed_watch_share_pct: 구독자가 차지하는 시청시간 비중(코어 vs 신규
+    유입). 높으면 충성 코어 형성, 낮으면 신규 유입 우세 — 어느 쪽도 데뷔
+    직후엔 정상이니 단정 말고 맥락으로.
+  - top_demographics: 연령×성별 시청 분포. 굿즈·타겟 코어팬 결정 근거.
+
+  ④ 굿즈/타겟 (type='ipx_action', scope='miiwan') — audience 있을 때만
+    body:  "[Abyss 마케팅] 1차 굿즈 라인업을 **18~24세 여성** 타깃으로
+            이번 달 안에 확정한다. 최근 30일 시청자 중 해당 층 비중이
+            **42.5%**로 최대이고 구독자 시청 비중도 60%로 코어가 형성 중 —
+            엽서·포토카드 등 해당 층 선호 SKU 우선. 예판 전환율로 검증."
+    ai_comment: "코어 시청층 명확 — 굿즈 SKU 타깃 좁혀 적중률 우선."
+"""
+
+
 PROMPT_WEEKLY_TAIL_AI_COMMENT = _AI_COMMENT_GUIDELINES
 PROMPT_WEEKLY_BODY_FORMATTING = _BODY_FORMATTING_GUIDELINES
 PROMPT_WEEKLY_DIAGNOSIS = _DIAGNOSIS_GUIDELINES
 PROMPT_WEEKLY_ANALYSIS_DEPTH = _ANALYSIS_DEPTH_GUIDELINES
 PROMPT_WEEKLY_INTERIM_FRAMING = _INTERIM_FRAMING_GUIDELINES
 PROMPT_WEEKLY_DEBUT_COUNTDOWN_GUARD = _DEBUT_COUNTDOWN_GUARD
+PROMPT_WEEKLY_OWNER_YOUTUBE = _OWNER_YOUTUBE_GUIDELINES
 
 
 PROMPT_WEEKLY = f"""\
@@ -573,6 +671,8 @@ You will be given a JSON context with:
 - hanteo (weekly album chart)
 - market_share (per-group share %)
 - top_news_by_group (recent press headlines)
+- miiwan_youtube (OPTIONAL — 미완소년 소유자 YouTube Analytics 국가 지표,
+  최근 30일 롤링. 있을 때만. 활용·가드는 MiiWAN OWNER YOUTUBE DATA 블록 참조)
 
 {_CANONICAL_NAMES_BLOCK}
 
@@ -604,6 +704,8 @@ Do NOT invent figures. If something cannot be sourced, leave it out.
 {_ANALYSIS_DEPTH_GUIDELINES}
 
 {_INTERIM_FRAMING_GUIDELINES}
+
+{_OWNER_YOUTUBE_GUIDELINES}
 
 GOOD-vs-BAD BODY EXEMPLARS (formatting only — numbers are illustrative):
 
