@@ -1,0 +1,44 @@
+name: rebuild-live-chat-reports
+# 저장된 raw 채팅으로 기존 라이브 채팅 리포트를 재스크레이핑 없이 재분류·갱신한다.
+# 스키마/프롬프트 변경 후 백필용 — 수동 디스패치 전용(스케줄 없음).
+on:
+  workflow_dispatch:
+    inputs:
+      video_id:
+        description: "특정 방송만 재생성(비우면 그룹 전체)"
+        required: false
+        default: ""
+
+concurrency:
+  group: rebuild-live-chat-reports
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+        working-directory: worker
+      - name: rebuild-live-chat-reports
+        working-directory: worker
+        env:
+          CF_ACCOUNT_ID:  ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:    ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:   ${{ secrets.CF_API_TOKEN }}
+          YT_API_KEY:     ${{ secrets.YT_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "${{ inputs.video_id }}" ]; then
+            uv run python -m idol_sight rebuild-live-chat-reports --group miiwan --video-id "${{ inputs.video_id }}"
+          else
+            uv run python -m idol_sight rebuild-live-chat-reports --group miiwan
+          fi
+      - name: notify on failure
+        if: failure()
+        working-directory: worker
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: uv run python -m idol_sight notify-fail --job rebuild-live-chat-reports
