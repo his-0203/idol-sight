@@ -25,7 +25,8 @@ import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { colorOf } from "../design/groups";
-import { formatKST, formatKSTDate } from "../lib/datetime";
+import { formatKST, formatKSTDate, todayKST } from "../lib/datetime";
+import { liveDateIndex, monthMatrix, type AvailEntry } from "../lib/liveChatCalendar";
 import {
   ALERT_RULE_LABEL as RULE_LABEL,
   ALERT_SEVERITY_TONE as SEVERITY_TONE,
@@ -1154,6 +1155,8 @@ interface LiveChatTheme { label: string; polarity: string }
 interface LiveChatReportBody {
   positive?: LiveChatQuote[];
   negative?: LiveChatQuote[];
+  positive_all?: string[];
+  negative_all?: string[];
   themes?: LiveChatTheme[];
   summary?: string;
 }
@@ -1169,15 +1172,35 @@ interface LiveChatReport {
 }
 
 function MiiWANLiveChat() {
-  const [reports, setReports] = useState<LiveChatReport[] | null>(null);
+  const [available, setAvailable] = useState<AvailEntry[] | null>(null);
+  const [report, setReport] = useState<LiveChatReport | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+  const [calOpen, setCalOpen] = useState(false);
+  // 달력이 보여줄 월(0-based). null 이면 선택 리포트(또는 오늘) 월로 lazy 초기화.
+  const [cursor, setCursor] = useState<{ y: number; m: number } | null>(null);
 
+  // 최초 로드: 전체 날짜(available) + 최신 리포트(report)
   useEffect(() => {
     api.miiwanLiveChat()
-      .then((d) => setReports(d?.reports ?? []))
-      .catch(() => setReports([]));
+      .then((d) => { setAvailable(d?.available ?? []); setReport(d?.report ?? null); })
+      .catch(() => { setAvailable([]); setReport(null); });
   }, []);
 
-  if (!reports) {
+  const idx = useMemo(() => liveDateIndex(available ?? []), [available]);
+  const selectedDate = report?.ended_at ? formatKSTDate(report.ended_at) : null;
+
+  function pick(dateStr: string) {
+    const vid = idx.byDate.get(dateStr);
+    setCalOpen(false);
+    if (!vid || vid === report?.video_id) return;
+    setLoadingReport(true);
+    api.miiwanLiveChat(vid)
+      .then((d) => { if (d?.report) setReport(d.report); })
+      .catch(() => {})
+      .finally(() => setLoadingReport(false));
+  }
+
+  if (!available) {
     return (
       <section>
         <h2 class="section-title mb-3">라이브 채팅 반응</h2>
@@ -1186,7 +1209,7 @@ function MiiWANLiveChat() {
     );
   }
 
-  if (reports.length === 0) {
+  if (available.length === 0) {
     return (
       <section>
         <h2 class="section-title mb-3">라이브 채팅 반응</h2>
@@ -1197,20 +1220,113 @@ function MiiWANLiveChat() {
     );
   }
 
+  // 달력 기준 월: cursor 우선, 없으면 선택 리포트(또는 오늘) 월
+  const anchor = selectedDate ?? todayKST();
+  const [ayS = "1970", amS = "1"] = anchor.split("-");
+  const view = cursor ?? { y: Number(ayS), m: Number(amS) - 1 };
+  const stepMonth = (delta: number) => {
+    const d = new Date(Date.UTC(view.y, view.m + delta, 1));
+    setCursor({ y: d.getUTCFullYear(), m: d.getUTCMonth() });
+  };
+
   return (
     <section>
-      <div class="mb-3 flex flex-wrap items-baseline gap-2">
+      <div class="mb-3 flex flex-wrap items-center gap-2">
         <h2 class="section-title">라이브 채팅 반응</h2>
         <span class="text-hint text-zinc-500">
           방송 종료 후 채팅 리플레이를 수집 · 비율은 표본 기반 추정
         </span>
+        <div class="relative ml-auto">
+          <button
+            type="button"
+            onClick={() => { setCursor(null); setCalOpen((o) => !o); }}
+            class="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900/60 px-2 py-1 text-xs text-zinc-300 hover:border-zinc-500"
+            title="라이브가 있었던 날짜 선택"
+          >
+            <span>📅</span>
+            <span class="tabular-nums">{selectedDate ?? "날짜"}</span>
+            <span class="text-zinc-600">▾</span>
+          </button>
+          {calOpen && (
+            <LiveChatCalendar
+              year={view.y}
+              month0={view.m}
+              liveDates={idx.dates}
+              selected={selectedDate}
+              onPrev={() => stepMonth(-1)}
+              onNext={() => stepMonth(1)}
+              onPick={pick}
+              onClose={() => setCalOpen(false)}
+            />
+          )}
+        </div>
       </div>
-      <div class="space-y-3">
-        {reports.map((r) => (
-          <LiveChatReportCard key={r.video_id} r={r} />
-        ))}
+      <div class={loadingReport ? "opacity-50 transition-opacity" : ""}>
+        {report
+          ? <LiveChatReportCard r={report} />
+          : <div class="text-hint text-zinc-500">리포트를 불러오지 못했어요.</div>}
       </div>
     </section>
+  );
+}
+
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+function LiveChatCalendar(
+  { year, month0, liveDates, selected, onPrev, onNext, onPick, onClose }: {
+    year: number; month0: number; liveDates: Set<string>; selected: string | null;
+    onPrev: () => void; onNext: () => void;
+    onPick: (d: string) => void; onClose: () => void;
+  },
+) {
+  const weeks = monthMatrix(year, month0);
+  return (
+    <>
+      {/* click-away backdrop */}
+      <div class="fixed inset-0 z-10" onClick={onClose} />
+      <div class="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-zinc-700 bg-zinc-900 p-2 shadow-xl">
+        <div class="mb-1 flex items-center justify-between">
+          <button type="button" onClick={onPrev}
+            class="rounded px-2 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">‹</button>
+          <span class="text-xs font-semibold tabular-nums text-zinc-200">
+            {year}.{String(month0 + 1).padStart(2, "0")}
+          </span>
+          <button type="button" onClick={onNext}
+            class="rounded px-2 py-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100">›</button>
+        </div>
+        <div class="grid grid-cols-7 gap-0.5 text-center text-[10px] text-zinc-500">
+          {WEEKDAYS.map((w) => <div key={w} class="py-0.5">{w}</div>)}
+        </div>
+        <div class="grid grid-cols-7 gap-0.5">
+          {weeks.flat().map((day, i) => {
+            if (!day) return <div key={i} />;
+            const dnum = Number(day.slice(8, 10));
+            const hasLive = liveDates.has(day);
+            const isSel = day === selected;
+            const base = "h-7 rounded text-xs tabular-nums transition-colors";
+            if (!hasLive) {
+              return (
+                <div key={i} class={`${base} flex items-center justify-center text-zinc-700`}>
+                  {dnum}
+                </div>
+              );
+            }
+            const tone = isSel
+              ? "bg-emerald-500 font-semibold text-zinc-950"
+              : "bg-emerald-500/15 font-medium text-emerald-300 hover:bg-emerald-500/30";
+            return (
+              <button key={i} type="button" onClick={() => onPick(day)}
+                class={`${base} ${tone}`} title={`${day} 라이브 채팅 반응`}>
+                {dnum}
+              </button>
+            );
+          })}
+        </div>
+        <div class="mt-1.5 flex items-center gap-1 text-[10px] text-zinc-500">
+          <span class="inline-block h-2 w-2 rounded-sm bg-emerald-500/40" /> 라이브 있던 날
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1291,6 +1407,48 @@ function LiveChatReportCard({ r }: { r: LiveChatReport }) {
             );
           })}
         </div>
+      )}
+
+      {(!!body?.positive_all?.length || !!body?.negative_all?.length) && (
+        <details class="group mt-2">
+          <summary class="cursor-pointer list-none text-xs text-zinc-400 hover:text-zinc-200">
+            <span class="group-open:hidden">▸ 표본 채팅 전체 보기</span>
+            <span class="hidden group-open:inline">▾ 표본 채팅 접기</span>
+            <span class="ml-1 tabular-nums text-zinc-600">
+              (긍정 {body?.positive_all?.length ?? 0} · 부정 {body?.negative_all?.length ?? 0})
+            </span>
+          </summary>
+          <div class="mt-2 grid gap-3 md:grid-cols-2">
+            {!!body?.positive_all?.length && (
+              <div>
+                <div class="mb-1 text-xs font-semibold text-emerald-400">
+                  👍 긍정 표본 {body.positive_all.length}건
+                </div>
+                <ul class="max-h-72 space-y-1 overflow-y-auto pr-1">
+                  {body.positive_all.map((m, i) => (
+                    <li key={i} class="rounded border-l-2 border-emerald-500/30 bg-emerald-500/5 px-2 py-1 text-xs text-zinc-300">
+                      {m}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!!body?.negative_all?.length && (
+              <div>
+                <div class="mb-1 text-xs font-semibold text-rose-400">
+                  👎 부정 표본 {body.negative_all.length}건
+                </div>
+                <ul class="max-h-72 space-y-1 overflow-y-auto pr-1">
+                  {body.negative_all.map((m, i) => (
+                    <li key={i} class="rounded border-l-2 border-rose-500/30 bg-rose-500/5 px-2 py-1 text-xs text-zinc-300">
+                      {m}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </details>
       )}
     </div>
   );

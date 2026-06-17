@@ -884,6 +884,29 @@ def _load_live_chat_candidates(client, *, group_key: str, since: str) -> list[st
     return [r["video_id"] for r in rows if r.get("video_id")]
 
 
+def _load_report_targets(client, *, group_key: str, video_id: str | None) -> list[dict]:
+    """재생성 대상 리포트(video_id+meta). video_id 지정 시 그 방송만."""
+    if video_id is not None:
+        sql = ("SELECT video_id, title, ended_at FROM live_chat_reports "
+               "WHERE group_key = ? AND video_id = ?")
+        params = [group_key, video_id]
+    else:
+        sql = ("SELECT video_id, title, ended_at FROM live_chat_reports "
+               "WHERE group_key = ? ORDER BY ended_at DESC")
+        params = [group_key]
+    return [dict(r) for r in client.execute(sql, params)]
+
+
+def _load_stored_messages(client, video_id: str) -> list[dict]:
+    """저장된 raw 채팅을 scraper 출력과 같은 모양으로 로드(재스크레이핑 없이 재분류)."""
+    rows = client.execute(
+        "SELECT msg_id, offset_ms, author, message FROM live_chat_messages "
+        "WHERE video_id = ? ORDER BY offset_ms",
+        [video_id],
+    )
+    return [dict(r) for r in rows]
+
+
 @app.command("collect-live-chat",
              help="종료된 라이브 방송의 채팅 리플레이를 긁어 긍/부정 리포트 생성.")
 def collect_live_chat(
@@ -967,6 +990,59 @@ def collect_live_chat(
                f"{len(ended)} ended / {len(candidates)} candidate broadcasts")
     # 후보가 있었는데 전부 실패한 경우에만 비-0 (live_ccv sentinel 패턴)
     raise typer.Exit(code=1 if (ended and reports == 0 and errors) else 0)
+
+
+@app.command("rebuild-live-chat-reports",
+             help="저장된 raw 채팅으로 기존 리포트를 재스크레이핑 없이 재분류·갱신(스키마 변경 후 백필).")
+def rebuild_live_chat_reports(
+    group: str = typer.Option("miiwan", "--group", help="대상 group_key."),
+    video_id: str | None = typer.Option(None, "--video-id", help="특정 방송만(미지정 시 그룹 전체)."),
+    now: str | None = typer.Option(None, "--now", help="ISO8601 UTC 기준 시각."),
+) -> None:
+    from idol_sight.analysis.live_chat_report import build_report
+
+    settings = load_settings()
+    if not settings.gemini_api_key:
+        typer.echo("GEMINI_API_KEY unset", err=True)
+        raise typer.Exit(code=2)
+
+    client = _make_d1_client(settings)
+    now_dt = (datetime.fromisoformat(now.replace("Z", "+00:00")) if now
+              else datetime.now(UTC))
+    now_iso = now_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    grp = _load_group(client, group)
+
+    targets = _load_report_targets(client, group_key=group, video_id=video_id)
+    if not targets:
+        typer.echo("rebuild-live-chat-reports: no existing reports")
+        raise typer.Exit(code=0)
+
+    gemini = GeminiClient(api_key=settings.gemini_api_key)
+    reports = 0
+    errors: list[str] = []
+    for t in targets:
+        vid = t["video_id"]
+        msgs = _load_stored_messages(client, vid)
+        if not msgs:
+            errors.append(f"no stored messages {vid}")
+            continue
+        try:
+            stmt = build_report(
+                gemini, video_id=vid, group_key=group,
+                group_name_kr=grp.name_kr or grp.name, title=t.get("title"),
+                ended_at=t.get("ended_at"), messages=msgs, now_iso=now_iso)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"report {vid}: {exc}")
+            continue
+        if stmt:
+            client.batch([stmt])
+            reports += 1
+
+    for e in errors:
+        typer.echo(f"WARN: {e}", err=True)
+    typer.echo(f"rebuild-live-chat-reports: {reports} report(s) rebuilt "
+               f"/ {len(targets)} target(s)")
+    raise typer.Exit(code=1 if (reports == 0 and errors) else 0)
 
 
 @app.command(

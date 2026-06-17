@@ -33,6 +33,8 @@ REPORT_SCHEMA: dict[str, Any] = {
             "quote": {"type": "string"}, "note": {"type": "string"}}, "required": ["quote"]}},
         "negative_quotes": {"type": "array", "items": {"type": "object", "properties": {
             "quote": {"type": "string"}, "note": {"type": "string"}}, "required": ["quote"]}},
+        "positive_idx": {"type": "array", "items": {"type": "integer"}},
+        "negative_idx": {"type": "array", "items": {"type": "integer"}},
         "themes": {"type": "array", "items": {"type": "object", "properties": {
             "label": {"type": "string"}, "polarity": {"type": "string"}},
             "required": ["label", "polarity"]}},
@@ -54,6 +56,10 @@ From the SAMPLE of chat messages, produce:
   - positive_quotes / negative_quotes: the 3-5 MOST representative real
     messages for each side. Quote them VERBATIM from the sample; do not
     invent or paraphrase.
+  - positive_idx / negative_idx: classify EVERY clearly-positive and
+    clearly-negative message by its 0-based position in the SAMPLE
+    `messages` array. Return only the indices (integers), not the text.
+    Put each index in at most one list; leave neutral/ambiguous ones out.
   - themes: a few recurring topics, each tagged polarity
     positive|negative|neutral.
   - summary: one or two Korean sentences capturing the overall reaction.
@@ -64,6 +70,19 @@ Judge by the most likely fan reading. When ambiguous, treat as neutral
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip()
+
+
+def _resolve_idx(idx: Any, texts: list[str]) -> list[str]:
+    """LLM 이 준 표본 인덱스를 원문(verbatim)으로 해석. 범위 밖·비정수는 무시, 입력 순서 보존."""
+    if not isinstance(idx, list):
+        return []
+    out: list[str] = []
+    for i in idx:
+        if isinstance(i, bool) or not isinstance(i, int):
+            continue
+        if 0 <= i < len(texts):
+            out.append(texts[i])
+    return out
 
 
 def _sample(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -107,9 +126,12 @@ def build_report(
     }
     parsed = gemini.generate(
         system_prompt=PROMPT, context=context, response_schema=REPORT_SCHEMA)
+    texts = context["messages"]
     report = {
         "positive": parsed.get("positive_quotes") or [],
         "negative": parsed.get("negative_quotes") or [],
+        "positive_all": _resolve_idx(parsed.get("positive_idx"), texts),
+        "negative_all": _resolve_idx(parsed.get("negative_idx"), texts),
         "themes": parsed.get("themes") or [],
         "summary": parsed.get("summary") or "",
     }

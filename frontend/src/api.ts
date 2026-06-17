@@ -31,7 +31,9 @@ export const api = {
   insights:    (week?: string) =>
     getJson<any>("/api/insights" + (week ? `?week=${encodeURIComponent(week)}` : "")),
   miiwan:      () => getJson<any>("/api/miiwan"),
-  miiwanLiveChat: () => getJson<any>("/api/miiwan-live-chat"),
+  miiwanLiveChat: (videoId?: string) =>
+    getJson<any>("/api/miiwan-live-chat" +
+      (videoId ? `?video_id=${encodeURIComponent(videoId)}` : "")),
   debutCurve:  (metric = "yt_subscribers", from = -60, to = 180) =>
     getJson<any>(`/api/debut-curve?metric=${encodeURIComponent(metric)}&from=${from}&to=${to}`),
   groupEvents: (group?: string, from?: string, to?: string) => {
