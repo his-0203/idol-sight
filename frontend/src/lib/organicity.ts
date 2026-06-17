@@ -61,17 +61,37 @@ export function verdictColor(v: string | null | undefined): string {
 // silently desync — the same hazard this file's header warns about.
 export const DEFAULT_ORGANICITY_MODE = "all_simple" as const;
 
-/** The two per-bucket mean variants returned by /api/debut-window/summary. */
+// V2.50 thin-sample shrinkage. organicity is volume-independent BY DESIGN
+// (authenticity, not growth — growth lives in the Growth Trajectory layer), so
+// a bucket with 1-2 scored videos shows a confident organic_strong from almost
+// no evidence: "few organic videos → high score despite no growth" (operator
+// flag). The worker now stores organic_score_mean_shrunk — the simple mean
+// pulled toward the neutral prior (55) with pseudocount k=3, vanishing as real
+// volume accumulates — and scored_video_count, the true sample size. Buckets
+// below THIN_SAMPLE_MAX scored videos are flagged in the UI. Mirrors the worker
+// constants in debut_window.py (ORGANICITY_PRIOR / ORGANICITY_SHRINKAGE_K);
+// drift is guarded by tests/lib/organicity.test.ts.
+export const THIN_SAMPLE_MAX = 3; // scored_video_count < this → thin sample
+
+/** True when a bucket's scored sample is too thin to trust its headline. */
+export function isThinSample(scoredVideoCount: number | null | undefined): boolean {
+  return (scoredVideoCount ?? 0) < THIN_SAMPLE_MAX;
+}
+
+/** The per-bucket mean variants returned by /api/debut-window/summary. */
 export interface OrganicityMeans {
   organic_score_mean: number | null;        // view-weighted (reach lens)
-  organic_score_mean_simple: number | null; // count-based (catalog lens, default)
+  organic_score_mean_simple: number | null; // count-based (catalog lens)
+  // V2.50 headline: simple mean shrunk toward neutral for thin buckets. Null on
+  // pre-0092 rows → headlineOrganicScore falls back to the raw simple mean.
+  organic_score_mean_shrunk?: number | null;
 }
 
 /**
- * Headline organic score for a summary row: the count-based simple mean.
- * Both variants are null together (computed from the same scored set), so no
- * fallback is needed — a null here means the bucket has no scored videos.
+ * Headline organic score for a summary row: the thin-sample-shrunk simple mean
+ * (V2.50), falling back to the raw simple mean when shrunk is absent (pre-0092
+ * rows). Null means the bucket has no scored videos.
  */
 export function headlineOrganicScore(row: OrganicityMeans): number | null {
-  return row.organic_score_mean_simple ?? null;
+  return row.organic_score_mean_shrunk ?? row.organic_score_mean_simple ?? null;
 }

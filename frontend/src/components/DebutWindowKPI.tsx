@@ -1,14 +1,16 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
-import { headlineOrganicScore, scoreColor } from "../lib/organicity";
+import { headlineOrganicScore, isThinSample, scoreColor } from "../lib/organicity";
 import { DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 
 interface SummaryRow {
   group_key: string;
   window_bucket: string;
   video_count: number;
+  scored_video_count: number;
   organic_score_mean: number | null;
   organic_score_mean_simple: number | null;
+  organic_score_mean_shrunk: number | null;
   organic_strong_ratio: number | null;
   organic_ratio: number | null;
   borderline_ratio: number | null;
@@ -59,20 +61,25 @@ export function DebutWindowKPI({ groupKey }: Props) {
           const score = row ? headlineOrganicScore(row) : null;
           const display = score === null ? "—" : Math.round(score).toString();
           const weighted = row?.organic_score_mean;
+          // V2.50: thin bucket (scored < 3) → the headline is shrunk toward
+          // neutral and visibly caveated so a 1-2 video "오가닉 고득점" isn't
+          // read as real strength.
+          const thin = !!row && score !== null && isThinSample(row.scored_video_count);
           const tooltip = row
-            ? `${row.video_count} videos · `
+            ? `${row.video_count} videos (scored ${row.scored_video_count}) · `
               + `strong ${pct(row.organic_strong_ratio)} · `
               + `organic ${pct(row.organic_ratio)} · `
               + `border ${pct(row.borderline_ratio)} · `
               + `suspect ${pct(row.suspect_ratio)} · `
               + `paid ${pct(row.likely_paid_ratio)} · `
               + `reach-wtd ${weighted === null || weighted === undefined ? "—" : Math.round(weighted)}`
+              + (thin ? " · 표본 적음 — 중립 보정된 점수" : "")
             : "no data";
           return (
-            <div class="kpi-debutwin-cell" key={b} title={tooltip}>
+            <div class={`kpi-debutwin-cell${thin ? " thin-sample" : ""}`} key={b} title={tooltip}>
               <div class="kpi-debutwin-bucket">{b}</div>
               <div class="kpi-debutwin-score" style={{ color: scoreColor(score) }}>
-                {display}
+                {display}{thin && <span class="kpi-debutwin-thin" aria-label="표본 적음">*</span>}
               </div>
             </div>
           );

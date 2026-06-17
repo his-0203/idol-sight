@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
-import { DEFAULT_ORGANICITY_MODE, scoreColor } from "../lib/organicity";
+import { DEFAULT_ORGANICITY_MODE, isThinSample, scoreColor } from "../lib/organicity";
 import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 
 // V2.49: 표시 탭은 summary 응답의 window 메타 (롤링 창) — 정적 타입 대신
@@ -39,7 +39,9 @@ interface SummaryRow {
   organic_score_mean_long: number | null;
   organic_score_mean_short: number | null;
   organic_score_mean_simple: number | null;
+  organic_score_mean_shrunk: number | null;
   video_count: number;
+  scored_video_count: number;
   long_form_count: number;
   short_form_count: number;
 }
@@ -50,13 +52,18 @@ interface DisplayRow {
   group_key: string;
   score: number | null;
   sample_count: number;
+  scored_count: number;
+  thin: boolean;
   display_mode: DisplayMode;
   shown_bucket: string;
 }
 
 function scoreFor(row: SummaryRow, mode: Mode): number | null {
   if (mode === "all_weighted") return row.organic_score_mean;
-  if (mode === "all_simple")   return row.organic_score_mean_simple;
+  // V2.50: the default "All · simple mean" is the thin-sample-shrunk headline
+  // (falls back to the raw simple mean on pre-0092 rows). The type-split and
+  // view-weighted lenses stay raw — shrinkage is defined for the headline only.
+  if (mode === "all_simple")   return row.organic_score_mean_shrunk ?? row.organic_score_mean_simple;
   if (mode === "long")         return row.organic_score_mean_long;
   return row.organic_score_mean_short;
 }
@@ -85,10 +92,13 @@ function pickDisplayRow(
 ): DisplayRow {
   const exact = byBucket.get(selected);
   if (exact && scoreFor(exact, mode) !== null) {
+    const sample = sampleCountFor(exact, mode);
     return {
       group_key: groupKey,
       score: scoreFor(exact, mode),
-      sample_count: sampleCountFor(exact, mode),
+      sample_count: sample,
+      scored_count: exact.scored_video_count,
+      thin: isThinSample(sample),
       display_mode: "exact",
       shown_bucket: selected,
     };
@@ -98,10 +108,13 @@ function pickDisplayRow(
     const b = bucketsOrdered[i]!;
     const row = byBucket.get(b);
     if (row && scoreFor(row, mode) !== null) {
+      const sample = sampleCountFor(row, mode);
       return {
         group_key: groupKey,
         score: scoreFor(row, mode),
-        sample_count: sampleCountFor(row, mode),
+        sample_count: sample,
+        scored_count: row.scored_video_count,
+        thin: isThinSample(sample),
         display_mode: "current",
         shown_bucket: b,
       };
@@ -111,6 +124,8 @@ function pickDisplayRow(
     group_key: groupKey,
     score: null,
     sample_count: 0,
+    scored_count: 0,
+    thin: false,
     display_mode: "none",
     shown_bucket: selected,
   };
@@ -201,11 +216,14 @@ export function CompetitorOrganicityBar() {
           const label = r.score === null ? "N/A" : Math.round(r.score).toString();
           const isFallback = r.display_mode === "current";
           const fillClass = "cob-bar-fill" + (isFallback ? " fallback" : "");
+          const thinNote = r.thin && r.display_mode !== "none"
+            ? " · 표본 적음 — 중립 보정된 점수"
+            : "";
           const tooltip = r.display_mode === "none"
             ? `${MODE_LABEL[mode]}: 데이터 없음`
             : isFallback
-              ? `선택 버킷 데이터 없음 — 현재 시점(${r.shown_bucket}) 점수 표시 · ${r.sample_count} videos`
-              : `${r.sample_count} videos`;
+              ? `선택 버킷 데이터 없음 — 현재 시점(${r.shown_bucket}) 점수 표시 · ${r.sample_count} videos${thinNote}`
+              : `${r.sample_count} videos${thinNote}`;
           return (
             <div class={`cob-row ${isOurs ? "ours" : ""}`} key={r.group_key} title={tooltip}>
               <div class="cob-name">{r.group_key.toUpperCase()}</div>
@@ -215,6 +233,9 @@ export function CompetitorOrganicityBar() {
               </div>
               <div class="cob-score">
                 <span class="cob-score-value">{label}</span>
+                {r.thin && r.score !== null && (
+                  <span class="cob-thin-tag" aria-label="표본 적음">*</span>
+                )}
                 {isFallback && (
                   <span class="cob-current-tag">@{r.shown_bucket}</span>
                 )}
@@ -233,6 +254,7 @@ export function CompetitorOrganicityBar() {
         )}
         <br />
         organicity = 진정성(비율) 신호 · 조회수 규모와 무관 — 막대 길이는 "진짜인가"지 "큰가"가 아님.
+        {" "}<span class="cob-thin-legend">* 표본 적음(scored &lt; 3) — 중립으로 보정된 점수, 성장·볼륨은 성장 탭 참고.</span>
       </div>
     </section>
   );

@@ -36,6 +36,8 @@ interface SummaryRow {
   organic_score_mean_long: number | null;
   organic_score_mean_short: number | null;
   organic_score_mean_simple: number | null;
+  organic_score_mean_shrunk: number | null;
+  scored_video_count: number;
   organic_strong_ratio: number | null;
   organic_ratio: number | null;
   borderline_ratio: number | null;
@@ -108,6 +110,15 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
         THEN SUM(COALESCE(organic_score_mean_simple, 0) * video_count) * 1.0
              / SUM(video_count)
         ELSE NULL END        AS organic_score_mean_simple,
+      -- V2.50 thin-sample headline: shrunk mean weighted by scored_video_count
+      -- (its true sample size), NULL when no scored evidence. scored_video_count
+      -- summed so the frontend can flag thin buckets. Pre-0092 rows carry NULL
+      -- shrunk → frontend falls back to organic_score_mean_simple.
+      CASE WHEN SUM(scored_video_count) > 0
+        THEN SUM(COALESCE(organic_score_mean_shrunk, 0) * scored_video_count) * 1.0
+             / SUM(scored_video_count)
+        ELSE NULL END        AS organic_score_mean_shrunk,
+      COALESCE(SUM(scored_video_count), 0) AS scored_video_count,
       CASE WHEN SUM(video_count) > 0
         THEN SUM(COALESCE(organic_strong_ratio, 0) * video_count) * 1.0
              / SUM(video_count)
