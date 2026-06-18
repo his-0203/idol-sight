@@ -64,6 +64,16 @@ From the SAMPLE of chat messages, produce:
     positive|negative|neutral.
   - summary: one or two Korean sentences capturing the overall reaction.
 
+What counts as 'negative':
+  - ONLY messages hostile TO the member/group: insults, profanity,
+    malicious mockery, hate, demeaning or attacking remarks.
+
+What does NOT count as negative (treat as neutral, NOT negative):
+  - Concern or worry FOR the member's wellbeing — health, fatigue,
+    safety, condition (e.g. "컨디션 안 좋아 보여 걱정돼", "무리하지 마",
+    "감기 조심해", "쉬어가면서 해"). This is protective affection, not
+    criticism, even when phrased anxiously or with negative words.
+
 Judge by the most likely fan reading. When ambiguous, treat as neutral
 (exclude from both ratios)."""
 

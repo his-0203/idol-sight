@@ -59,13 +59,19 @@ slang, sarcasm, and abbreviations.
 
 For each title classify into exactly one of:
   - positive    — clear fan support, compliment, hype, celebration
-  - negative    — clear criticism, complaint, dissatisfaction
+  - negative    — hostile criticism: insults, profanity, malicious
+                  mockery, hate, demeaning or attacking remarks toward
+                  the member/group
   - controversy — 논란, scandal, leak, 의혹, 사건, 폭로
   - neutral     — news, info, schedule, factual update
 
 Rules:
   - Titles in Korean OR mixed Korean/English. Slang and abbreviations
     are fine — judge by the most likely fan reading.
+  - Concern or worry FOR the member's wellbeing (health, fatigue,
+    safety, condition — e.g. "건강 걱정된다", "무리하지 마", "쉬어가며 해")
+    is NOT negative. It is protective affection; classify as 'neutral'
+    even when phrased anxiously or with negative-sounding words.
   - When ambiguous, prefer 'neutral' over guessing.
   - 'controversy' is a STRONG label — only use it when there is a
     clear scandal/issue marker, not for ordinary criticism.
