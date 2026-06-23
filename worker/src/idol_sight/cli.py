@@ -1480,10 +1480,12 @@ def _recompute_health_scores(
     # 반영 — 단발(low_confidence)·insufficient 는 신호가 얇아 점수 보류(카드
     # 표시는 별개). 테이블 미적용(migration 0084 전)이면 graceful — health
     # 스코어링이 통째로 죽지 않게 빈 dict 로 폴백.
+    # V2.52: PLAVE 는 COALESCE 로 score_ceiling(Weverse 포함 천장) 우선.
     try:
         loyalty_rows = client.execute(
-            "SELECT group_key, score FROM agg_fan_loyalty "
-            "WHERE basis='scored' AND score IS NOT NULL"
+            "SELECT group_key, COALESCE(score_ceiling, score) AS score "
+            "FROM agg_fan_loyalty "
+            "WHERE basis='scored' AND COALESCE(score_ceiling, score) IS NOT NULL"
         )
         loyalty_by_key = {r["group_key"]: r["score"] for r in loyalty_rows}
     except Exception as exc:
