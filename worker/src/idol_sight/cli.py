@@ -423,15 +423,25 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
         # V2.46: 라이브 CCV 기반 팬 충성도. live_ccv_samples + 구독자로
         # 전환율 점수화. melon 미참조라 skip_derived 블록에 위치. health
         # score보다 먼저 실행되어 _recompute_health_scores가 읽는다.
+        # V2.52: build 가 groups.ccv_ceiling_estimate(0095) 를 읽으므로,
+        # 마이그레이션 미적용 시 throw 를 잡아 aggregate 전체(특히 이후의
+        # _recompute_health_scores)가 죽지 않게 한다. frontend group API 의
+        # ceiling .catch(()=>null) 와 대칭. 배포↔마이그레이션 graceful 규칙.
         from idol_sight.analysis.loyalty import build_fan_loyalty
-        fl = build_fan_loyalty(client)
-        if fl.statements:
-            bs = client.batch(fl.statements)
-            if bs.statements_executed != bs.statements_sent:
-                typer.echo(f"partial fan_loyalty write: "
-                           f"{bs.statements_executed}/{bs.statements_sent}", err=True)
-                raise typer.Exit(code=1)
-        typer.echo(f"fan_loyalty: wrote {len(fl.statements)} rows")
+        try:
+            fl = build_fan_loyalty(client)
+        except Exception as exc:
+            typer.echo(f"[warn] fan_loyalty skipped (build 실패, 0095 미적용 가능): {exc}",
+                       err=True)
+            fl = None
+        if fl is not None:
+            if fl.statements:
+                bs = client.batch(fl.statements)
+                if bs.statements_executed != bs.statements_sent:
+                    typer.echo(f"partial fan_loyalty write: "
+                               f"{bs.statements_executed}/{bs.statements_sent}", err=True)
+                    raise typer.Exit(code=1)
+            typer.echo(f"fan_loyalty: wrote {len(fl.statements)} rows")
     else:
         typer.echo("skip-derived: agg_group_combined / velocity / reactivity skipped")
 
