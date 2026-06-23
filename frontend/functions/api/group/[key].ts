@@ -259,7 +259,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     (b.release_week_start ?? "").localeCompare(a.release_week_start ?? ""));
 
   // V2.46: 팬 충성도 (ccv_tracked 그룹만 row 존재). 테이블 미적용 시 graceful.
-  const [fanLoyalty, loyaltyBroadcasts] = await Promise.all([
+  const [fanLoyalty, loyaltyBroadcasts, loyaltyCeiling] = await Promise.all([
     d1QueryOne<{
       conversion_rate: number | null; peak_ccv_median: number | null;
       broadcast_count: number; subscribers: number | null;
@@ -278,6 +278,15 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
       + "AND sampled_at >= datetime('now','-56 days') "
       + "GROUP BY video_id ORDER BY last_at DESC LIMIT 12", [key])
       .catch(() => [] as { video_id: string; peak: number; last_at: string }[]),
+    // V2.52: Weverse 천장 ceiling 컬럼 — 별도 쿼리로 분리. 0095 미적용 시
+    // 이 쿼리만 실패(null)하고 floor 카드는 정상 렌더(회귀 방지).
+    d1QueryOne<{
+      conversion_rate_ceiling: number | null; score_ceiling: number | null;
+      ccv_ceiling: number | null;
+    }>(env.DB,
+      "SELECT conversion_rate_ceiling, score_ceiling, ccv_ceiling "
+      + "FROM agg_fan_loyalty WHERE group_key=?", [key])
+      .catch(() => null),
   ]);
 
   return jsonResponse({
@@ -310,7 +319,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     health_history: healthHistory,      // 30d sparkline points
     summary_history: summaryHistory,    // 30d KPI sparkline points
     fan_loyalty: fanLoyalty
-      ? { ...fanLoyalty, broadcasts: [...loyaltyBroadcasts].reverse() }  // 오래된→최신
+      ? { ...fanLoyalty, ...(loyaltyCeiling ?? {}),
+          broadcasts: [...loyaltyBroadcasts].reverse() }  // 오래된→최신
       : null,
   });
 };
