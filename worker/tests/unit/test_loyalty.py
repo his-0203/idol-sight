@@ -208,3 +208,44 @@ def test_build_fan_loyalty_picks_latest_nonnull_subscribers():
     #     매칭 → 1500/50000 = 0.03. 표시 subscribers 는 최신 non-null(100k).
     assert miiwan[1] == pytest.approx(0.03)    # conversion_rate (시점 매칭: 1500/50000)
     assert miiwan[4] == 100_000                 # subscribers (최신 non-null, 표시용)
+
+
+def test_compute_loyalty_ceiling_scored():
+    # floor: peak median 1500 / 1,000,000 구독자 = 0.15% → score 20 (하한 클램프).
+    # ceiling: 150,000 / 1,000,000 = 15% → score 100 (상한 클램프).
+    samples = [
+        {"video_id": "a", "sampled_at": "2026-06-01T10:00:00Z", "concurrent_viewers": 1000},
+        {"video_id": "b", "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 2000},
+    ]
+    out = compute_loyalty(samples, subscribers=1_000_000, ceiling_estimate=150_000)
+    # floor 불변
+    assert out["peak_ccv_median"] == 1500.0
+    assert out["conversion_rate"] == pytest.approx(0.0015)
+    assert out["score"] == pytest.approx(20.0)
+    assert out["basis"] == "scored"
+    # ceiling 산출
+    assert out["ccv_ceiling"] == 150_000
+    assert out["conversion_rate_ceiling"] == pytest.approx(0.15)
+    assert out["score_ceiling"] == pytest.approx(100.0)
+
+
+def test_compute_loyalty_no_ceiling_estimate_fields_none():
+    samples = [
+        {"video_id": "a", "sampled_at": "2026-06-01T10:00:00Z", "concurrent_viewers": 1500},
+        {"video_id": "b", "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 1500},
+    ]
+    out = compute_loyalty(samples, subscribers=100_000)  # ceiling_estimate 미지정
+    assert out["conversion_rate_ceiling"] is None
+    assert out["score_ceiling"] is None
+    assert out["ccv_ceiling"] is None
+    assert out["score"] == pytest.approx(50.0)  # floor 불변
+
+
+def test_compute_loyalty_ceiling_skipped_when_insufficient():
+    # 방송 0개 → insufficient. ceiling_estimate 가 있어도 ceiling 산출 안 함
+    # (실제 라이브 활동 없으면 순수 추정만으로 점수 부여 금지).
+    out = compute_loyalty([], subscribers=1_000_000, ceiling_estimate=150_000)
+    assert out["basis"] == "insufficient"
+    assert out["ccv_ceiling"] is None
+    assert out["score_ceiling"] is None
+    assert out["conversion_rate_ceiling"] is None

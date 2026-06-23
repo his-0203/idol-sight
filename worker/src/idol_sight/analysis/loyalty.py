@@ -109,6 +109,7 @@ def subscribers_at(series: list[tuple[str, int]], at: str) -> int | None:
 def compute_loyalty(
     samples: list[dict[str, Any]], subscribers: int | None,
     subs_at: Callable[[str], int | None] | None = None,
+    ceiling_estimate: int | None = None,
 ) -> dict[str, Any]:
     """그룹의 윈도우-내 CCV 샘플 + 구독자 → 충성도 row 필드 dict.
 
@@ -125,6 +126,8 @@ def compute_loyalty(
         "broadcast_count": 0, "subscribers": subscribers,
         "score": None, "basis": "insufficient",
         "ccv_trend_pct": None, "trend_basis": "unknown",
+        "conversion_rate_ceiling": None, "score_ceiling": None,
+        "ccv_ceiling": None,
     }
     # 방송별 peak + 방송 시점(최초 샘플) 집계.
     by_video: dict[str, dict[str, Any]] = {}
@@ -170,6 +173,15 @@ def compute_loyalty(
     pct, tbasis = ccv_trend(chrono)
     base["ccv_trend_pct"] = (round(pct, 4) if pct is not None else None)
     base["trend_basis"] = tbasis
+
+    # Weverse 포함 천장(ceiling) — flat 운영자 추정치. floor 가 산정된
+    # 경우(broadcast_count≥1, subscribers 유효)에만, 최신 구독자를 분모로
+    # 1회 산출한다. score/사다리/trend(floor)는 위에서 이미 YouTube 실측으로 확정.
+    if ceiling_estimate and ceiling_estimate > 0:
+        conv_ceil = ceiling_estimate / subscribers
+        base["conversion_rate_ceiling"] = conv_ceil
+        base["score_ceiling"] = round(score_from_conversion(conv_ceil), 2)
+        base["ccv_ceiling"] = ceiling_estimate
     return base
 
 
