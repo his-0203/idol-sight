@@ -249,3 +249,35 @@ def test_compute_loyalty_ceiling_skipped_when_insufficient():
     assert out["ccv_ceiling"] is None
     assert out["score_ceiling"] is None
     assert out["conversion_rate_ceiling"] is None
+
+
+def test_build_fan_loyalty_injects_ceiling_for_configured_group():
+    client = _FakeClient(
+        tracked=[{"key": "plave", "ccv_ceiling_estimate": 150_000},
+                 {"key": "miiwan", "ccv_ceiling_estimate": None}],
+        samples=[
+            {"group_key": "plave", "video_id": "a",
+             "sampled_at": "2026-06-01T10:00:00Z", "concurrent_viewers": 2000},
+            {"group_key": "plave", "video_id": "b",
+             "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 2000},
+            {"group_key": "miiwan", "video_id": "c",
+             "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 1500},
+        ],
+        subs=[
+            {"group_key": "plave", "yt_subscribers": 1_000_000,
+             "snapshot_at": "2026-06-07T00:00:00Z"},
+            {"group_key": "miiwan", "yt_subscribers": 100_000,
+             "snapshot_at": "2026-06-07T00:00:00Z"},
+        ],
+    )
+    res = build_fan_loyalty(client)
+    params_by_group = {st[1][0]: st[1] for st in res.statements[1:]}
+    # INSERT 컬럼 끝 3개: conversion_rate_ceiling, score_ceiling, ccv_ceiling
+    plave = params_by_group["plave"]
+    assert plave[-1] == 150_000                      # ccv_ceiling
+    assert plave[-2] == pytest.approx(100.0)         # score_ceiling (15% → 클램프)
+    assert plave[-3] == pytest.approx(0.15)          # conversion_rate_ceiling
+    miiwan = params_by_group["miiwan"]
+    assert miiwan[-1] is None                        # 천장 미설정 → None
+    assert miiwan[-2] is None
+    assert miiwan[-3] is None

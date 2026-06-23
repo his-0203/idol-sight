@@ -191,7 +191,7 @@ class _Executor(Protocol):
 
 _CLEAR_SQL = "DELETE FROM agg_fan_loyalty"
 
-_TRACKED_SQL = "SELECT key FROM groups WHERE ccv_tracked=1"
+_TRACKED_SQL = "SELECT key, ccv_ceiling_estimate FROM groups WHERE ccv_tracked=1"
 
 _SUBS_SQL = (
     "SELECT group_key, yt_subscribers, snapshot_at FROM agg_summary "
@@ -202,8 +202,9 @@ _INSERT_SQL = """
 INSERT INTO agg_fan_loyalty
   (group_key, conversion_rate, peak_ccv_median, broadcast_count,
    subscribers, score, basis, ccv_trend_pct, trend_basis,
-   window_days, snapshot_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   window_days, snapshot_at,
+   conversion_rate_ceiling, score_ceiling, ccv_ceiling)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -218,7 +219,10 @@ def build_fan_loyalty(client: _Executor) -> CollectionResult:
         "%Y-%m-%dT%H:%M:%SZ"
     )
 
-    tracked = [r["key"] for r in client.execute(_TRACKED_SQL)]
+    tracked = [
+        (r["key"], r.get("ccv_ceiling_estimate"))
+        for r in client.execute(_TRACKED_SQL)
+    ]
 
     sample_rows = client.execute(
         "SELECT group_key, video_id, sampled_at, concurrent_viewers "
@@ -241,18 +245,21 @@ def build_fan_loyalty(client: _Executor) -> CollectionResult:
         series.sort(key=lambda x: x[0])
 
     statements: list[tuple[str, list[Any]]] = [(_CLEAR_SQL, [])]
-    for gk in tracked:
+    for gk, ceiling in tracked:
         series = subs_series_by_group.get(gk, [])
         latest = series[-1][1] if series else None
         out = compute_loyalty(
             samples_by_group.get(gk, []), latest,
             subs_at=(lambda at, s=series: subscribers_at(s, at)) if series else None,
+            ceiling_estimate=ceiling,
         )
         statements.append((_INSERT_SQL, [
             gk, out["conversion_rate"], out["peak_ccv_median"],
             out["broadcast_count"], out["subscribers"], out["score"],
             out["basis"], out["ccv_trend_pct"], out["trend_basis"],
             WINDOW_DAYS, now,
+            out["conversion_rate_ceiling"], out["score_ceiling"],
+            out["ccv_ceiling"],
         ]))
 
     return CollectionResult(
