@@ -241,7 +241,7 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
             />
           </section>
 
-          {data.fan_loyalty && <FanLoyaltyCard loyalty={data.fan_loyalty} />}
+          {data.fan_loyalty && <FanLoyaltyCard loyalty={data.fan_loyalty} groupKey={groupKey!} />}
 
           <PlatformReactivity summary={data.summary} />
 

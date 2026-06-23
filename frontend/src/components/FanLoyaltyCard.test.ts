@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { trendLabel, fmtPct, barWidthPct, medianRowIndex } from "./FanLoyaltyCard";
+import { trendLabel, fmtPct, barWidthPct, medianRowIndex,
+         ccvPlatformNote, fmtCeilingMan } from "./FanLoyaltyCard";
 
 type B = { video_id: string; peak: number; last_at: string };
 const b = (peak: number): B => ({ video_id: `v${peak}`, peak, last_at: "2026-06-07T05:00:00Z" });
@@ -57,5 +58,22 @@ describe("medianRowIndex", () => {
   it("peakMedian 이 null 이면 null", () => {
     const rows = [b(1620), b(1180), b(1050)];
     expect(medianRowIndex(rows, null)).toBeNull();
+  });
+});
+
+describe("ccvPlatformNote", () => {
+  it("plave 는 Weverse 노트, 그 외는 undefined", () => {
+    const note = ccvPlatformNote("plave");
+    expect(note?.platform).toBe("Weverse");
+    expect(note?.bandText).toBe("10만~20만");
+    expect(ccvPlatformNote("miiwan")).toBeUndefined();
+  });
+});
+
+describe("fmtCeilingMan", () => {
+  it("천장 추정치를 만 단위로", () => {
+    expect(fmtCeilingMan(150000)).toBe("15만");
+    expect(fmtCeilingMan(200000)).toBe("20만");
+    expect(fmtCeilingMan(null)).toBe("—");
   });
 });

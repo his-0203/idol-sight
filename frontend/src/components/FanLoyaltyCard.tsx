@@ -11,7 +11,29 @@ export interface FanLoyalty {
   ccv_trend_pct: number | null;
   trend_basis: "rising" | "falling" | "flat" | "unknown";
   window_days: number;
+  conversion_rate_ceiling?: number | null;
+  score_ceiling?: number | null;
+  ccv_ceiling?: number | null;
   broadcasts: Broadcast[];
+}
+
+/** 그룹별 외부 플랫폼 CCV 주석. YouTube CCV 만 수집하므로, 다른 플랫폼
+ *  동시 송출 비중이 큰 그룹은 floor(YouTube)임을 명시한다. 현재 PLAVE
+ *  (Weverse)만. 후속으로 ISEDOL/STELLIVE(SOOP/치지직) 확장 가능. */
+const CCV_PLATFORM_NOTES: Record<string, { platform: string; bandText: string }> = {
+  plave: { platform: "Weverse", bandText: "10만~20만" },
+};
+
+export function ccvPlatformNote(groupKey: string | undefined):
+  { platform: string; bandText: string } | undefined {
+  if (!groupKey) return undefined;
+  return CCV_PLATFORM_NOTES[groupKey];
+}
+
+/** 천장 CCV 추정치를 "N만" 으로. null → "—". */
+export function fmtCeilingMan(ccv: number | null | undefined): string {
+  if (ccv == null) return "—";
+  return `${Math.round(ccv / 10000)}만`;
 }
 
 export function fmtPct(rate: number | null): string {
@@ -67,9 +89,13 @@ function scoreColor(score: number | null): string {
 }
 
 
-export function FanLoyaltyCard({ loyalty }: { loyalty: FanLoyalty }) {
+export function FanLoyaltyCard(
+  { loyalty, groupKey }: { loyalty: FanLoyalty; groupKey?: string },
+) {
   const { basis, score, conversion_rate, trend_basis, ccv_trend_pct,
-          broadcast_count, window_days, broadcasts, peak_ccv_median } = loyalty;
+          broadcast_count, window_days, broadcasts, peak_ccv_median,
+          score_ceiling, conversion_rate_ceiling, ccv_ceiling } = loyalty;
+  const platformNote = ccvPlatformNote(groupKey);
 
   // Ladder rows: newest on top. API hands us oldest→newest, so reverse.
   const rows = [...broadcasts].reverse();
@@ -104,6 +130,15 @@ export function FanLoyaltyCard({ loyalty }: { loyalty: FanLoyalty }) {
               {trendLabel(trend_basis, ccv_trend_pct)}
             </div>
           </div>
+
+          {score_ceiling != null && (
+            <div class="mt-1 text-data text-zinc-400">
+              그룹 간 비교 기준
+              {platformNote ? ` (${platformNote.platform} 포함 천장 ~${fmtCeilingMan(ccv_ceiling)})` : ""}
+              : <span class="font-semibold text-zinc-200">{Math.round(score_ceiling)}점</span>
+              {" · "}{fmtPct(conversion_rate_ceiling ?? null)}
+            </div>
+          )}
 
           {rows.length > 0 && (
             <div class="mt-3 border-t border-zinc-800/70 pt-2.5">
@@ -153,6 +188,14 @@ export function FanLoyaltyCard({ loyalty }: { loyalty: FanLoyalty }) {
 
       {basis === "low_confidence" && (
         <div class="mt-1 text-hint text-amber-500/80">단발 방송 기준 — 신뢰도 낮음</div>
+      )}
+      {platformNote && ccv_ceiling != null && (
+        <div class="mt-2 rounded border border-amber-500/30 bg-amber-500/5 p-2 text-hint text-amber-200/90">
+          ⚠ CCV는 YouTube 동시 시청자만 수집(하한). {groupKey?.toUpperCase()}는 {platformNote.platform} 동시
+          송출 비중이 커 실제 동시 시청자 {platformNote.bandText} 추정. 그룹 간 충성도
+          비교에는 {platformNote.platform} 포함 추정 천장(평균 {fmtCeilingMan(ccv_ceiling)}) 사용.
+          {platformNote.platform} 수치는 미수집 운영자 추정치.
+        </div>
       )}
       <div class="mt-2 text-hint text-zinc-500">
         충성도 = 구독자 중 라이브 전환율(규모 무관). 절대 시청자 수와 별개.
