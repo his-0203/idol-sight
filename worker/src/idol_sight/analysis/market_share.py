@@ -11,16 +11,21 @@ an artifact of that, not a reflection of real attention split.
 V2 normalizes each signal independently before mixing them so that no
 one source can dominate. Each component is converted to a unit-less
 [0, 1] cohort rank (linear-interpolated percentile across the active
-groups), then weighted, then re-normalized to a 0–100 share. Cumulative
-and momentum components stay separate so the BI can show both
-"long-term standing" and "this-week motion".
+groups), then weighted, then re-normalized to a 0–100 share. A signal
+whose cohort-wide values are all identical (including the all-zero case)
+carries no ranking information, so it contributes nothing and the
+remaining weights are re-normalized over the signals that are actually
+available — it does NOT inject a uniform 0.5 constant that would flatten
+the distribution toward uniform. Cumulative and momentum components stay
+separate so the BI can show both "long-term standing" and "this-week
+motion".
 
 Input shape (per group):
-  - yt_views, comm_total, news, twitter (cumulative window)
+  - yt_views, comm_total, news, subscribers (cumulative window)
   - delta_yt_views, delta_comm, delta_news (this-week motion)
 
 Weights (sum = 1.0):
-  yt_views 30%, comm 25%, news 20%, subscribers 15%, twitter 10%
+  yt_views 33%, comm 28%, news 22%, subscribers 17%
 
 Output dataclass field names stay ``cum``/``mom``/``final`` so
 downstream code (agg_market_share table, frontend) keeps working —
@@ -36,30 +41,40 @@ ALPHA_CUM = 0.6
 BETA_MOM = 0.4
 
 # Cohort-relative weights for the SOV mix. They must sum to 1.0.
+# Twitter was dropped from the formula (collection is permanently dead);
+# its old 0.10 weight is redistributed proportionally across the four
+# surviving signals.
 SOV_WEIGHTS = {
-    "yt_views":   0.30,
-    "community":  0.25,
-    "news":       0.20,
-    "subscribers": 0.15,
-    "twitter":    0.10,
+    "yt_views":    0.33,
+    "community":   0.28,
+    "news":        0.22,
+    "subscribers": 0.17,
 }
 assert abs(sum(SOV_WEIGHTS.values()) - 1.0) < 1e-9
 
 
-def _percentile_rank(values: list[float]) -> list[float]:
+def _percentile_rank(values: list[float]) -> list[float | None]:
     """Linear percentile rank in [0, 1] preserving input order.
 
-    Tied values get the average of their ranks (so 5 zeros all map to
-    the same fraction). Returns a list aligned to ``values``. Empty list
-    → empty list. Single value → [1.0] (it's the cohort's only point).
+    Tied values get the average of their ranks. Returns a list aligned to
+    ``values``. Empty list → empty list. Single value → [1.0] (it's the
+    cohort's only point).
+
+    If every value is identical (this includes the all-zero case — e.g. a
+    signal nobody collected this week), the signal carries no ranking
+    information: every element is ``None`` so callers can drop it instead
+    of injecting a uniform 0.5 constant that would flatten the SOV
+    distribution toward uniform.
     """
     n = len(values)
     if n == 0:
         return []
     if n == 1:
         return [1.0]
+    if all(v == values[0] for v in values):
+        return [None] * n
     indexed = sorted(range(n), key=lambda i: values[i])
-    ranks = [0.0] * n
+    ranks: list[float | None] = [0.0] * n
     i = 0
     while i < n:
         j = i
@@ -68,14 +83,29 @@ def _percentile_rank(values: list[float]) -> list[float]:
         # Average rank for the tie group, normalized so max → 1.0.
         avg_rank = (i + j) / 2.0
         for k in range(i, j + 1):
-            ranks[indexed[k]] = avg_rank / (n - 1) if n > 1 else 1.0
+            ranks[indexed[k]] = avg_rank / (n - 1)
         i = j + 1
     return ranks
 
 
-def _compose_score(group_ranks: dict[str, float]) -> float:
-    """Weighted sum of the 5 normalized cohort ranks → cohort SOV [0,1]."""
-    return sum(SOV_WEIGHTS[k] * group_ranks.get(k, 0.0) for k in SOV_WEIGHTS)
+def _compose_score(group_ranks: dict[str, float | None]) -> float:
+    """Weighted average of the *available* normalized cohort ranks → SOV [0,1].
+
+    A signal whose cohort-wide values are all identical (or all zero)
+    yields a ``None`` rank (see ``_percentile_rank``) and is dropped here;
+    the remaining weights are re-normalized over the signals that are
+    actually present. If no signal is available the score is 0 (no
+    constant is injected).
+    """
+    num = 0.0
+    denom = 0.0
+    for k, w in SOV_WEIGHTS.items():
+        r = group_ranks.get(k)
+        if r is None:
+            continue
+        num += w * r
+        denom += w
+    return num / denom if denom > 0 else 0.0
 
 
 @dataclass
@@ -99,7 +129,7 @@ def compute_market_share(
     ``groups`` accepts two shapes for backwards compatibility:
 
     1. New (preferred): each item carries the raw cohort signals
-       (yt_views, comm_total, news, subscribers, twitter,
+       (yt_views, comm_total, news, subscribers,
        delta_yt_views, delta_comm, delta_news). The function computes
        per-signal percentile ranks across the cohort and mixes them per
        SOV_WEIGHTS.
@@ -127,19 +157,18 @@ def _compute_sov(
         "community":  [float(g.get("comm_total", 0) or 0) for g in groups],
         "news":       [float(g.get("news", 0) or 0) for g in groups],
         "subscribers": [float(g.get("subscribers", 0) or 0) for g in groups],
-        "twitter":    [float(g.get("twitter", 0) or 0) for g in groups],
     }
     cum_ranks = {sig: _percentile_rank(vals) for sig, vals in cum_signal.items()}
 
     # Momentum: delta of the high-volume signals only (yt/community/news).
-    # Twitter/subscribers don't deliver useful weekly deltas yet — we'd be
-    # comparing two snapshots that may both be empty.
+    # Subscribers don't deliver useful weekly deltas yet — we'd be comparing
+    # two snapshots that may both be empty — so it stays all-zero and is
+    # dropped automatically by the all-equal → no-contribution rule.
     mom_signal = {
         "yt_views":   [max(float(g.get("delta_yt_views", 0) or 0), 0.0) for g in groups],
         "community":  [max(float(g.get("delta_comm", 0) or 0), 0.0) for g in groups],
         "news":       [max(float(g.get("delta_news", 0) or 0), 0.0) for g in groups],
         "subscribers": [0.0] * len(groups),
-        "twitter":    [0.0] * len(groups),
     }
     mom_ranks = {sig: _percentile_rank(vals) for sig, vals in mom_signal.items()}
 
