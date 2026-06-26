@@ -146,6 +146,38 @@ interface YtAnalyticsCountryRow {
   subs_gained: number | null;
 }
 
+// P2a 찐팬 활동량 — 신규 수집 0(기존 live_chat_messages·youtube_video_stats
+// 재가공). agg_live_activity_summary(그룹 1행 헤드라인) + agg_live_activity
+// (방송별 추이). 마이그레이션(0096 예정) 미적용이면 쿼리만 실패(.catch)하고
+// fan_activity=null → 프론트가 '축적 중' empty-state. loyalty 미러.
+interface LiveActivitySummaryRow {
+  generated_at: string;
+  window_days: number;
+  broadcast_count: number;
+  median_unique_chatters: number | null;
+  median_msgs_per_chatter: number | null;
+  median_returning_rate: number | null;
+  median_peak_msgs_per_min: number | null;
+  core_fan_count: number | null;
+  core_fan_share: number | null;
+  est_engaged_fans: number | null;
+  est_active_core: number | null;
+  view_through: number | null;
+  like_rate: number | null;
+  comment_rate: number | null;
+  basis: "scored" | "low_confidence" | "insufficient";
+}
+interface LiveActivityBroadcastRow {
+  video_id: string;
+  ended_at: string | null;
+  unique_chatters: number;
+  total_messages: number;
+  msgs_per_chatter: number | null;
+  peak_msgs_per_min: number | null;
+  returning_rate: number | null;
+  basis: string;
+}
+
 const safeJson = (s: string | null) => {
   try { return s ? JSON.parse(s) : []; } catch { return []; }
 };
@@ -184,7 +216,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const [
     summary, prevSummary, summaryHistory, health, members, insights, alerts,
     controversyTrend, memberPopularity, ytAnalytics, ytAnalyticsCountries,
-    goodsPreorder,
+    goodsPreorder, liveActivitySummary, liveActivityBroadcasts,
   ] = await Promise.all([
     d1QueryOne<SummaryRow>(
       env.DB,
@@ -290,6 +322,27 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         GROUP BY country, member_id, source`,
       [TARGET],
     ),
+    // P2a 찐팬 활동량 — summary(헤드라인) + 방송별 추이. 둘 다 MiiWAN 만 실질
+    // 데이터. 테이블 미적용 시 .catch 로 graceful(null/[]) → 카드 '축적 중'.
+    d1QueryOne<LiveActivitySummaryRow>(
+      env.DB,
+      `SELECT generated_at, window_days, broadcast_count,
+              median_unique_chatters, median_msgs_per_chatter,
+              median_returning_rate, median_peak_msgs_per_min,
+              core_fan_count, core_fan_share,
+              est_engaged_fans, est_active_core,
+              view_through, like_rate, comment_rate, basis
+         FROM agg_live_activity_summary WHERE group_key=?`,
+      [TARGET],
+    ).catch(() => null),
+    d1Query<LiveActivityBroadcastRow>(
+      env.DB,
+      `SELECT video_id, ended_at, unique_chatters, total_messages,
+              msgs_per_chatter, peak_msgs_per_min, returning_rate, basis
+         FROM agg_live_activity
+        WHERE group_key=? ORDER BY ended_at ASC LIMIT 24`,
+      [TARGET],
+    ).catch(() => [] as LiveActivityBroadcastRow[]),
   ]);
 
   // 5) Cohort benchmarks anchored at seven points in the debut timeline:
@@ -533,5 +586,11 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         count: Number(g.count ?? 0), source: g.source,
       })),
     },
+    // P2a 찐팬 활동량 — measured 라이브 코어 + estimated 영상 참여. 점수 아님
+    // (현황 표시). summary 행 없으면 null → 카드 '라이브 데이터 축적 중'.
+    // broadcasts 는 시간순(오래된→최신), 카드가 최신-위로 reverse.
+    fan_activity: liveActivitySummary
+      ? { ...liveActivitySummary, broadcasts: liveActivityBroadcasts }
+      : null,
   });
 };
