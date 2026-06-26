@@ -173,3 +173,86 @@ def test_build_agg_summary_passes_null_when_channel_stats_missing():
     # Other counts still flow.
     assert by_group["wegosix"][7] == 100   # dc_total_posts
     assert by_group["wegosix"][10] == 12   # naver
+
+
+def test_controversy_count_sourced_from_community_sentiment():
+    """교정 후 의도된 차이: controversy_count는 community_posts
+    (sentiment='controversy')의 최근 윈도우 카운트에서 나온다. 과거
+    twitter type='controversy'는 더 이상 기여하지 않는다 — 이 fixture의
+    twitter controversy_count=99 는 무시돼야 한다.
+    """
+    client = _client_returning({
+        "platform": [
+            {"group_key": "plave", "platform": "dc", "n": 1000},
+        ],
+        "naver_articles": [],
+        "youtube_channel_stats": [],
+        "youtube_video_stats": [],
+        # community controversy windowed query (distinct needle).
+        "sentiment='controversy'": [
+            {"group_key": "plave", "n": 3},
+        ],
+        # legacy twitter source — its controversy_count must NOT leak.
+        "twitter_posts": [
+            {"group_key": "plave", "n": 30, "controversy_count": 99},
+        ],
+    })
+    result = build_agg_summary(client, snapshot_at="2026-06-27T00:00:00Z")
+    by_group = {params[0]: params for _sql, params in result.statements}
+    # controversy (index 12) == community window count, NOT twitter's 99.
+    assert by_group["plave"][12] == 3
+    # twitter column (index 11) still carries the twitter post count.
+    assert by_group["plave"][11] == 30
+
+
+def test_twitter_posts_no_longer_contributes_controversy():
+    """교정 전 값 고정 회귀: twitter type='controversy'만 있고 community
+    controversy가 윈도우에 없으면 controversy_count는 0 — twitter 기여가
+    완전히 끊겼음을 핀한다(과거 소스가 다시 살아나면 이 테스트가 깨진다).
+    """
+    client = _client_returning({
+        "platform": [
+            {"group_key": "plave", "platform": "dc", "n": 500},
+        ],
+        "naver_articles": [],
+        "youtube_channel_stats": [],
+        "youtube_video_stats": [],
+        # no community controversy rows in the recency window.
+        "sentiment='controversy'": [],
+        "twitter_posts": [
+            {"group_key": "plave", "n": 42, "controversy_count": 17},
+        ],
+    })
+    result = build_agg_summary(client, snapshot_at="2026-06-27T00:00:00Z")
+    by_group = {params[0]: params for _sql, params in result.statements}
+    assert by_group["plave"][12] == 0      # twitter controversy ignored
+    assert by_group["plave"][11] == 42     # twitter count preserved
+
+
+def test_controversy_query_is_windowed_to_recent_posted_at():
+    """누적 붕괴 방지: controversy 카운트는 전체 누적이 아니라 최근
+    CONTROVERSY_WINDOW_DAYS(posted_at 기준) 윈도우로 산출돼야 한다. 윈도우
+    밖 과거 controversy는 DB단 datetime('now', ?) 컷오프로 제외된다 — 그
+    컷오프 계약을 SQL/param 수준에서 고정한다(mock은 SQL을 실행하지 않으므로
+    윈도우 자체는 계약으로 핀; 실제 배제는 community_posts.posted_at 비교가
+    수행).
+    """
+    from idol_sight.analysis.agg_summary import CONTROVERSY_WINDOW_DAYS
+    client = _client_returning({
+        "sentiment='controversy'": [{"group_key": "plave", "n": 2}],
+        "twitter_posts": [],
+    })
+    build_agg_summary(client, snapshot_at="2026-06-27T00:00:00Z")
+
+    controversy_calls = [
+        c for c in client.execute.call_args_list
+        if "sentiment='controversy'" in c.args[0]
+    ]
+    assert len(controversy_calls) == 1
+    sql = controversy_calls[0].args[0]
+    params = controversy_calls[0].args[1]
+    # sourced from community_posts, filtered to controversy, windowed.
+    assert "community_posts" in sql
+    assert "posted_at >= datetime('now'" in sql
+    # the window is the configured trailing window, not all-time.
+    assert params == [f"-{CONTROVERSY_WINDOW_DAYS} days"]
