@@ -203,3 +203,35 @@ describe("parseInsightBody — humanize 자동 적용", () => {
     expect(tokens.some((t) => t.kind === "group" && t.key === "plave")).toBe(true);
   });
 });
+
+// frontend/src/lib/insightFormat.test.ts 끝에 append.
+// 회귀: GroupInsightSection 이 LLM 원문(`**굵게**`·WoW·z=·organic_growth)을
+// 그대로 노출하던 표시 버그(값 불변) 수정 후, 이 섹션은 Insights/WeeklyUpdate
+// 와 동일하게 humanizeInsightText(title) + InsightBody(=parseInsightBody)(body)
+// 를 거친다. 뷰는 node 환경(DOM 없음)이라 렌더 테스트 불가 → 컴포넌트가
+// 의존하는 '변환 계약'을 lib 단에서 핀.
+describe("GroupContent 전략 인사이트 — humanize/InsightBody 계약 (P1 3.7)", () => {
+  const rawTitle = "**플레이브** organic_growth z=2.3 급증";
+  const rawBody =
+    "**플레이브** 주간 구독자 z=2.3, 조회수 WoW +48% 동반 상승. " +
+    "유력 가설은 **organic_growth** 가능성.";
+
+  it("title 은 humanizeInsightText 로 전문 용어/enum 제거", () => {
+    const out = humanizeInsightText(rawTitle);
+    expect(out).not.toContain("organic_growth");
+    expect(out).not.toMatch(/\bz\s*=/);
+    expect(out).toContain("자연 유입 성장");
+  });
+
+  it("body 토큰(InsightBody 내부 parseInsightBody)에 enum/통계 용어 잔존 없음", () => {
+    const tokens = parseInsightBody(rawBody);
+    const joined = tokens
+      .map((t) => (t.kind === "text" ? t.text : t.kind === "tone" ? t.text : t.label))
+      .join("");
+    expect(joined).not.toContain("organic_growth");
+    expect(joined).not.toContain("WoW");
+    expect(joined).not.toMatch(/\bz\s*=/);
+    expect(joined).toContain("자연 유입 성장");
+    expect(joined).toContain("지난 주 대비 48% 증가");
+  });
+});
