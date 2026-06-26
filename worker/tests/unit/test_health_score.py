@@ -651,3 +651,30 @@ def test_ritual_penalty_preserved_when_hanteo_absent_under_dead_music_show():
     # factor = 0.375 × 30 = 11.25. 페널티가 유지되어 30.0에 못 미친다.
     assert score.factors["ritual"] == pytest.approx(11.25)
     assert score.factors["ritual"] < 30.0
+
+
+def test_community_metric_dead_cohort_wide_is_dropped_not_zeroed():
+    """P1 주석 정정 회귀가드(동작 불변) — sparse-collector defense는
+    'paused since V2.11' 단정과 무관하게 코호트 전체에서 죽은 metric을
+    재분배로 처리한다. community(dc/theqoo/instiz)가 코호트-dead일 때
+    intimacy가 community 0/REF 페널티를 먹지 않고 engagement 단독으로
+    재정규화되는지 고정(주석 편집이 코드 영역을 건드리지 않았음을 보증).
+
+    _factor_inputs를 직접 호출해 per_group_live 교집합을 우회하고
+    _wmean redistribute 동작만 검증한다.
+    """
+    agg = _agg(
+        yt_subscribers=300_000, yt_total_views=30_000_000,
+        likes_total=2_000_000, comments_total=200_000,
+        dc_total_posts=0, theqoo_posts=0, instiz_posts=0,  # community dead
+        naver_total_news=80,
+    )
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 500,
+            "music_show_wins": 5.0}
+    # community 미포함(코호트-dead) → _wmean redistribute → engagement 단독.
+    fi_dead = _factor_inputs(agg, refs, live_metrics={"quality"})
+    # community 포함(코호트-alive, per-group 0) → 0 기여, weight 페널티.
+    fi_live = _factor_inputs(agg, refs, live_metrics={"quality", "community"})
+    # dead일 때 intimacy가 더 높아야(재분배 vs 페널티).
+    assert fi_dead["intimacy"] > fi_live["intimacy"]

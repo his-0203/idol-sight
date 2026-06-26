@@ -145,9 +145,9 @@ FACTOR_BONUS_MAX = 10
 FACTOR_DENOM = 100 + FACTOR_BONUS_MAX  # = 110
 
 # Sparse-collector defense: when a metric column has zero signal across
-# the entire cohort (typically because its collector is offline — e.g.
-# dc/theqoo/instiz scrapers paused since V2.11), it gets dropped from the
-# Health Score formula entirely. Otherwise every group eats a 0/REF
+# the entire cohort — e.g. a collector is temporarily offline, or the
+# metric is a not-yet-live stub (music_show_wins) — it gets dropped from
+# the Health Score formula entirely. Otherwise every group eats a 0/REF
 # normalization on that axis and intimacy / community factors collapse —
 # the heaviest-weighted bands hit segmentary (40) and confederation (55)
 # the worst. Dropping the dead metric and renormalizing the remaining
