@@ -378,7 +378,7 @@ def _check_controversy_spike(sig: dict) -> Hypothesis | None:
     if co["controversy_count_z"] >= CONTROVERSY_Z_THRESHOLD:
         evidence.append(Evidence(
             "controversy_count_z", co["controversy_count_z"],
-            f"controversy 트윗 z={co['controversy_count_z']:.1f}",
+            f"논란 신호 z={co['controversy_count_z']:.1f}",
         ))
     if co["negative_ratio_z"] >= CONTROVERSY_Z_THRESHOLD:
         evidence.append(Evidence(

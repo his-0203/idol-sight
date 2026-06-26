@@ -243,7 +243,7 @@ def rule_controversy_spike(
             severity="critical",
             title=f"{gk} controversy 급증 ({before}→{cur})",
             body=(f"전 주 대비 {ratio:.1f}× 증가. "
-                  f"PR/리스크 탭에서 트윗 출처를 즉시 확인하세요. "
+                  f"PR/리스크 탭에서 커뮤니티 논란 게시물 출처를 즉시 확인하세요. "
                   f"※ 자동 알림이므로 인간 검증 후 대응 권장 (false positive "
                   f"시 Streisand effect)."),
         ))
