@@ -7,6 +7,7 @@ from idol_sight.analysis.weekly_diagnosis import (
     GroupSignals,
     Hypothesis,
     classify_hypotheses,
+    _is_lit,
 )
 
 
@@ -776,3 +777,64 @@ def test_controversy_spike_twitter_axis_gone_no_false_light():
     }
     hyps = classify_hypotheses(sig)
     assert not any(h.key == "controversy_spike" for h in hyps)
+
+
+# ── Task 4: 서브컬처 진단 복원(옵션 b) ──
+
+def _sub_axis(*, z: float = 0.0, t: float = 0.0, w: float | None = None) -> dict:
+    """서브컴처 그룹 entry — _is_lit 가 category_z 축을 무시해야 함."""
+    return {"category_z": z, "temporal_z": t, "wow_pct": w, "category": "subculture"}
+
+
+def test_is_lit_subculture_excludes_category_z():
+    """P1 (2): 서브컴처 entry 는 category_z 축을 점등에서 제외.
+    동일 값이라도 K-POP 은 category_z 로 점등, 서브컴처는 점등 안 됨."""
+    sub_entry = _sub_axis(z=2.5, t=0.3, w=0.01)
+    assert _is_lit(sub_entry, wow_threshold=0.05) is False
+    kpop_entry = {**sub_entry, "category": "kpop"}
+    assert _is_lit(kpop_entry, wow_threshold=0.05) is True
+
+
+def test_is_lit_subculture_lights_via_temporal():
+    """서브컴처는 temporal_z 로 점등 (category_z 죽어도 무관)."""
+    assert _is_lit(_sub_axis(z=0.0, t=1.8, w=None), wow_threshold=0.05) is True
+
+
+def test_is_lit_subculture_lights_via_wow():
+    """서브컴처는 wow_pct 로도 점등."""
+    assert _is_lit(_sub_axis(z=0.0, t=0.0, w=0.07), wow_threshold=0.05) is True
+
+
+def test_is_lit_default_category_is_kpop_unchanged():
+    """category 키 부재 entry (기존 호출부/유닛테스트) → kpop 동작 불변."""
+    entry = {"category_z": 2.0, "temporal_z": 0.3, "wow_pct": 0.01}
+    assert _is_lit(entry, wow_threshold=0.05) is True
+
+
+def test_subculture_organic_growth_lit_via_temporal_only():
+    """서브컴처 그룹이 cross-sectional category_z 없이 temporal_z 만으로 organic 점등.
+    교정 후: category 분기로 subs/views/news/community 4축이 temporal 로 살아남 →
+    market_share_z(=0) 없이도 4개 점등 → organic_growth high."""
+    sig = _base_signal_bundle()
+    sig["subs"]      = _sub_axis(t=2.1)
+    sig["views"]     = _sub_axis(t=1.8)
+    sig["news"]      = _sub_axis(t=1.7)
+    sig["community"] = _sub_axis(t=1.6)
+    sig["er_wow"] = 0.02
+    hyps = classify_hypotheses(sig)
+    assert any(h.key == "organic_growth" for h in hyps)
+
+
+def test_kpop_organic_growth_unchanged_via_category_z():
+    """K-POP 동작 불변 회귀: category_z 축으로 4+1 점등 시 organic high."""
+    sig = _base_signal_bundle()
+    sig["subs"]      = _axis(z=1.8)
+    sig["views"]     = _axis(z=2.0)
+    sig["news"]      = _axis(z=1.6)
+    sig["community"] = _axis(z=1.7)
+    sig["market_share_z"] = 1.5
+    sig["er_wow"] = 0.02
+    hyps = classify_hypotheses(sig)
+    organic = next((h for h in hyps if h.key == "organic_growth"), None)
+    assert organic is not None
+    assert organic.confidence == "high"

@@ -79,12 +79,19 @@ def _is_lit(
 ) -> bool:
     """sig dict 의 한 entry (subs/views/news/community 형식) 가 3-축 OR 판정.
 
-    sig_entry: {"category_z": float, "temporal_z": float, "wow_pct": float | None}
+    sig_entry: {"category_z": float, "temporal_z": float, "wow_pct": float | None,
+                "category": "kpop" | "subculture"}
     셋 중 *하나만* 점등이면 True. routine 변동은 모든 축 미달, 진짜 spike 는
     어느 한 축에서 잡힘 — cohort 분포 비대칭 (kpop vs subculture) 영향 제거.
+
+    서브컴처 코호트는 표본 2개라 cross-sectional category_z 가 구조적으로
+    노이즈(또는 CATEGORY_COHORT_MIN 미달 시 0 fallback) — 점등 필수 축에서
+    category_z 를 빼고 temporal_z + wow_pct (그룹 자기 history) 로만 판정한다.
+    K-POP 은 3-축 전부 사용 (불변). category 키 부재 시 'kpop' 으로 취급.
     """
-    if sig_entry.get("category_z", 0.0) >= z_threshold:
-        return True
+    if sig_entry.get("category") != "subculture":
+        if sig_entry.get("category_z", 0.0) >= z_threshold:
+            return True
     if sig_entry.get("temporal_z", 0.0) >= z_threshold:
         return True
     wow = sig_entry.get("wow_pct")
@@ -808,6 +815,7 @@ def compute_group_signals(
             "category_z": _S.cohort_z_score(now_val, cohort_vals),
             "temporal_z": _S.temporal_z_score(now_val, history_vals),
             "wow_pct":    _S.wow_pct(now_val, prev_val if prev else None),
+            "category":   category_by_group.get(gk, "kpop"),
         }
 
     out: dict[str, GroupSignals] = {}
