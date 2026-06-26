@@ -159,6 +159,13 @@ FACTOR_DENOM = 100 + FACTOR_BONUS_MAX  # = 110
 # window" — i.e. real loss of the ritual signal — not "redistribute the
 # 0.5 weight to news so a single naver hit count carries the whole
 # factor". Reach / Mobilization / Intimacy keep redistribute=True.
+#
+# P1: music_show_wins is the one ritual signal exempt from this. Its
+# collector is a stub (dead across the whole cohort), so leaving its
+# 0.20 weight in the denominator capped ritual at 0.80 for every
+# group. When music_show is cohort-dead the ritual block drops its
+# part so the weight redistributes; when it's cohort-alive but a
+# single group has no wins, the part stays as a genuine penalty.
 _ALL_METRICS = frozenset({
     "subscribers", "views", "news", "quality", "community", "hanteo",
     "music_show_wins", "chart_peak", "chart_depth",
@@ -462,6 +469,7 @@ def _recent_bonus(v90: int, v30: int) -> tuple[float, dict]:
 def _factor_inputs(
     agg: dict[str, Any], r: dict[str, float],
     live_metrics: set[str] | frozenset[str] | None = None,
+    cohort_live: set[str] | frozenset[str] | None = None,
 ) -> dict[str, float]:
     """Compute the [0, 1] saturated value for each 4-factor component
     BEFORE multiplying by the group-model weight. Returns a dict keyed
@@ -474,6 +482,12 @@ def _factor_inputs(
     awareness — e.g. unit tests).
     """
     L = live_metrics if live_metrics is not None else _ALL_METRICS
+    # Cohort-level liveness (before the per-group intersection). Lets the
+    # ritual factor tell "music_show is dead across the WHOLE cohort"
+    # (stub collector → redistribute its weight) apart from "this one
+    # group has no wins while others do" (a genuine penalty). Defaults to
+    # L for direct callers (unit tests) that pass no separate cohort set.
+    CL = cohort_live if cohort_live is not None else L
     sub_n = _normalize(agg.get("yt_subscribers", 0), r["subscribers"])
     view_n = _normalize(agg.get("yt_total_views", 0), r["views"])
     # V2.17: news는 log1p scale. 영문/한글 표기 비대칭 + naver hit count
@@ -578,13 +592,29 @@ def _factor_inputs(
         # 첫날 PLAVE 케이스(realtime 6곡 / day 1곡 진입)에서 best rank
         # 단독으로는 곡 깊이 변별이 안 됨을 발견. 차트 축 0.20을
         # peak/depth 반반 배정.
-        "ritual": _wmean([
-            (hanteo_n,      0.50, "hanteo"          in L),
-            (news_n,        0.10, "news"            in L),
-            (music_show_n,  0.20, "music_show_wins" in L),
-            (chart_peak_n,  0.10, "chart_peak"      in L),
-            (chart_depth_n, 0.10, "chart_depth"     in L),
-        ], redistribute=False),
+        # P1: hanteo/news/chart_peak/chart_depth stay redistribute=False
+        # (absence = real ritual loss → penalty). music_show_wins is the
+        # exception: its collector is a stub, so when it's dead across
+        # the WHOLE cohort (not in CL) its 0.20 weight used to sit in the
+        # denominator and cap ritual at 0.80 for everyone (corporate
+        # groups chronically ~6% low on total). We drop the part in that
+        # case so the weight redistributes (penalty 0). When music_show
+        # is cohort-alive but THIS group has no wins, the part stays
+        # (alive=False) and reads as a genuine penalty.
+        "ritual": _wmean(
+            [
+                (hanteo_n,      0.50, "hanteo"      in L),
+                (news_n,        0.10, "news"        in L),
+                (chart_peak_n,  0.10, "chart_peak"  in L),
+                (chart_depth_n, 0.10, "chart_depth" in L),
+            ]
+            + (
+                [(music_show_n, 0.20, "music_show_wins" in L)]
+                if "music_show_wins" in CL
+                else []
+            ),
+            redistribute=False,
+        ),
         # Mobilization — active output (cadence + views) + album-driven
         # initial-sales signal + subs. cadence carries 0.25 weight as
         # the always-alive internal signal; v30 stays in the additive
@@ -663,7 +693,7 @@ def compute_health_score(
     #    multiplied by the controversy factor (so a scandal compresses
     #    *all four* dimensions, not just risk).
     risk_factor = _controversy_factor(agg.get("controversy_count", 0))
-    fi = _factor_inputs(agg, r, live_metrics=L)
+    fi = _factor_inputs(agg, r, live_metrics=L, cohort_live=cohort_L)
     factor_scores = {
         name: round(fi[name] * weights[name] * risk_factor, 2)
         for name in ("reach", "ritual", "mobilization", "intimacy")
