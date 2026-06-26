@@ -18,7 +18,6 @@ from idol_sight.analysis.weekly_diagnosis_signals import (
     negative_keyword_z,
     organicity_paid_ratio,
     reactivity_dominant_platform,
-    twitter_controversy_z,
     video_upload_z,
     views_per_sub,
     views_per_sub_wow_drop,
@@ -324,13 +323,6 @@ def test_negative_keyword_z_zero_signal():
     past_weekly_neg_totals: list[float] = [10, 12, 8]
     z = negative_keyword_z(now_keywords, past_weekly_neg_totals)
     assert z < 0
-
-
-def test_twitter_controversy_z():
-    """twitter_posts type='controversy' 카운트 z-score."""
-    cohort: list[float] = [1, 2, 0, 1, 3, 2, 1]   # 평균 1.43, sd~1.0
-    z = twitter_controversy_z(now_count=8, cohort_counts=cohort)
-    assert z > 4.0
 
 
 def test_negative_keywords_list_includes_canonical():

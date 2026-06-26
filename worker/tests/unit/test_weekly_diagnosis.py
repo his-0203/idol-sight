@@ -34,7 +34,7 @@ def _base_signal_bundle() -> dict:
         "comeback":           {"event_match": None, "music_streak": 0,
                                "hanteo_sales": 0, "chart_peak": None,
                                "video_upload_z": 0.0},
-        "controversy":        {"keyword_z": 0.0, "twitter_z": 0.0,
+        "controversy":        {"keyword_z": 0.0,
                                "controversy_count_z": 0.0,
                                "negative_ratio_z": 0.0},
         "news_z_prev_week":           0.0,
@@ -205,7 +205,7 @@ def test_controversy_one_signal_high():
     """controversy_count_z=2.1 단독 점등 → high."""
     sig = _base_signal_bundle()
     sig["controversy"] = {
-        "keyword_z": 0.3, "twitter_z": 0.5,
+        "keyword_z": 0.3,
         "controversy_count_z": 2.1, "negative_ratio_z": 0.4,
     }
     hyps = classify_hypotheses(sig)
@@ -218,7 +218,7 @@ def test_controversy_keyword_z_lit():
     """community_keywords negative_keyword_z=2.5 → 점등 high."""
     sig = _base_signal_bundle()
     sig["controversy"] = {
-        "keyword_z": 2.5, "twitter_z": 0.0,
+        "keyword_z": 2.5,
         "controversy_count_z": 0.0, "negative_ratio_z": 0.0,
     }
     hyps = classify_hypotheses(sig)
@@ -412,27 +412,25 @@ def test_compute_group_signals_organic_growth_e2e():
         # 7) community_keywords (과거 10주, plave 의 부정 키워드 분포)
         [{"week": "w1", "neg_total": 5}, {"week": "w2", "neg_total": 8},
          {"week": "w3", "neg_total": 6}, {"week": "w4", "neg_total": 7}],
-        # 8) twitter controversy (now + past)
+        # 8) irrelevant flags
         [],
-        # 9) irrelevant flags
+        # 9) agg_member_pop_meta (now + prev — plave 는 corporate single-channel, dead)
         [],
-        # 10) agg_member_pop_meta (now + prev — plave 는 corporate single-channel, dead)
-        [],
-        # 11) groups 메타 (rev 3) — corporate=kpop cohort
+        # 10) groups 메타 (rev 3) — corporate=kpop cohort
         [
             {"group_key": "plave",  "group_model": "corporate"},
             {"group_key": "isedol", "group_model": "segmentary"},
             {"group_key": "skinz",  "group_model": "corporate"},
         ],
-        # 12) agg_summary history (rev 3) — 빈 history (temporal_z = 0)
+        # 11) agg_summary history (rev 3) — 빈 history (temporal_z = 0)
         [],
-        # 13) agg_market_share — 빈 결과 (market_share_z = 0)
+        # 12) agg_market_share — 빈 결과 (market_share_z = 0)
         [],
-        # 14) hanteo_weekly sales (comeback_boost) — 빈 결과 (hanteo_sales = 0)
+        # 13) hanteo_weekly sales (comeback_boost) — 빈 결과 (hanteo_sales = 0)
         [],
-        # 15) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
+        # 14) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
         [],
-        # 16) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
+        # 15) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
         [],
     ]
     result = compute_group_signals(db=db, week_start="2026-04-22", week_end="2026-04-28")
@@ -543,22 +541,22 @@ def test_compute_group_signals_deduplicates_multi_row():
              "yt_likes_total": 780_000, "yt_comments_total": 145_000,
              "naver_total_news": 55, "data_source": "live"},
         ],
-        # 3-10) 나머지 8개 쿼리는 빈 결과
-        [], [], [], [], [], [], [], [],
-        # 11) groups 메타 (rev 3) — plave/isedol 모두 corporate 처리해서 cohort=2 → category_z=0
+        # 3-9) 나머지 7개 쿼리는 빈 결과
+        [], [], [], [], [], [], [],
+        # 10) groups 메타 (rev 3) — plave/isedol 모두 corporate 처리해서 cohort=2 → category_z=0
         [
             {"group_key": "plave",  "group_model": "corporate"},
             {"group_key": "isedol", "group_model": "corporate"},
         ],
-        # 12) agg_summary history (rev 3) — 빈 history
+        # 11) agg_summary history (rev 3) — 빈 history
         [],
-        # 13) agg_market_share — 빈 결과
+        # 12) agg_market_share — 빈 결과
         [],
-        # 14) hanteo_weekly sales (comeback_boost) — 빈 결과 (hanteo_sales = 0)
+        # 13) hanteo_weekly sales (comeback_boost) — 빈 결과 (hanteo_sales = 0)
         [],
-        # 15) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
+        # 14) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
         [],
-        # 16) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
+        # 15) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
         [],
     ]
     result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")
@@ -695,14 +693,14 @@ def test_compute_group_signals_subculture_falls_back_to_temporal():
              "yt_likes_total": 1_900_000, "yt_comments_total": 295_000,
              "naver_total_news": 95, "data_source": "live"},
         ],
-        # 3-10) 빈 결과
-        [], [], [], [], [], [], [], [],
-        # 11) groups 메타 — 두 그룹 모두 subculture (segmentary/confederation)
+        # 3-9) 빈 결과
+        [], [], [], [], [], [], [],
+        # 10) groups 메타 — 두 그룹 모두 subculture (segmentary/confederation)
         [
             {"group_key": "isedol",   "group_model": "segmentary"},
             {"group_key": "stellive", "group_model": "confederation"},
         ],
-        # 12) agg_summary history — isedol 의 직전 8주 평탄
+        # 11) agg_summary history — isedol 의 직전 8주 평탄
         [
             {"group_key": "isedol", "snapshot_at": "2026-06-18T00:00:00Z",
              "yt_subscribers": 850_000, "yt_total_views": 170_000_000,
@@ -717,13 +715,13 @@ def test_compute_group_signals_subculture_falls_back_to_temporal():
              "naver_total_news": 88,
              "dc_total_posts": 92, "theqoo_posts": 46, "instiz_posts": 24},
         ],
-        # 13) agg_market_share — 빈 결과
+        # 12) agg_market_share — 빈 결과
         [],
-        # 14) hanteo_weekly sales (comeback_boost) — 빈 결과 (hanteo_sales = 0)
+        # 13) hanteo_weekly sales (comeback_boost) — 빈 결과 (hanteo_sales = 0)
         [],
-        # 15) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
+        # 14) youtube_videos weekly upload counts — 빈 결과 (video_upload_z = 0)
         [],
-        # 16) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
+        # 15) community_posts titles — 빈 결과 (community_keywords_topic = neutral)
         [],
     ]
     result = compute_group_signals(db=db, week_start="2026-06-29", week_end="2026-07-05")
@@ -736,3 +734,45 @@ def test_compute_group_signals_subculture_falls_back_to_temporal():
     assert isedol.deltas["subs_z"] == 0.0
     # wow_pct 가 양수 (subs 가 history 대비 증가)
     assert isedol.deltas["subs_wow"] > 0
+
+
+# ---------------------------------------------------------------------------
+# P1 §3.5 — twitter_controversy_z 심볼 제거 + controversy_spike 재소싱 신호 검증
+# ---------------------------------------------------------------------------
+import idol_sight.analysis.weekly_diagnosis_signals as _Smod
+
+
+def test_twitter_controversy_z_removed_from_module():
+    """P1: twitter 수집 불가 확정 → twitter_controversy_z 산식 축 완전 제거.
+    교정 전: cohort_z_score 래퍼가 존재했음. 교정 후: 심볼 자체가 없어야 함."""
+    assert not hasattr(_Smod, "twitter_controversy_z")
+
+
+def test_controversy_spike_no_twitter_input():
+    """P1: controversy 시그널 dict 에 twitter_z 키가 아예 없어도 동작.
+    교정 후: 재소싱된 controversy_count_z + community 부정 키워드로만 점등."""
+    sig = _base_signal_bundle()
+    sig["controversy"] = {
+        "keyword_z": 2.6,
+        "controversy_count_z": 2.2,
+        "negative_ratio_z": 0.1,
+    }
+    hyps = classify_hypotheses(sig)
+    co = next((h for h in hyps if h.key == "controversy_spike"), None)
+    assert co is not None
+    assert co.confidence == "high"
+    assert not any("twitter" in e.key.lower() for e in co.evidence)
+
+
+def test_controversy_spike_twitter_axis_gone_no_false_light():
+    """교정 전/후 차이 고정: '오직 twitter_z 만 컸던' 상황은 이제 점등 불가.
+    교정 전: twitter_z>=2.0 단독으로 controversy_spike 가 high 로 점등했다.
+    교정 후: twitter 축 제거 → 나머지 z 가 모두 임계 미만이면 점등 안 함(None)."""
+    sig = _base_signal_bundle()
+    sig["controversy"] = {
+        "keyword_z": 0.0,
+        "controversy_count_z": 0.0,
+        "negative_ratio_z": 0.0,
+    }
+    hyps = classify_hypotheses(sig)
+    assert not any(h.key == "controversy_spike" for h in hyps)

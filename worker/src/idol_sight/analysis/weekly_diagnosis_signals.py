@@ -367,14 +367,6 @@ def community_keyword_topic(titles: list[str], *, min_hits: int = 2) -> str:
     return best if counts[best] >= min_hits else "neutral"
 
 
-def twitter_controversy_z(now_count: int, cohort_counts: list[float]) -> float:
-    """twitter_posts type='controversy' 의 주간 카운트 z-score.
-
-    controversy_spike 가설의 직접 시그널 (community_keywords 와 OR 결합).
-    """
-    return cohort_z_score(value=float(now_count), cohort=cohort_counts)
-
-
 IRRELEVANT_RATIO_THRESHOLD = 0.15
 DATA_SOURCE_BACKFILL_MAJORITY = 0.5
 
