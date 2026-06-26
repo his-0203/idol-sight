@@ -197,3 +197,46 @@ def test_prompt_weekly_no_forward_looking_debut_anchor():
     from idol_sight.llm.prompts import PROMPT_WEEKLY
     assert "오늘부터 D-30" not in PROMPT_WEEKLY
     assert "총 30건" not in PROMPT_WEEKLY
+
+
+# worker/tests/unit/test_prompts.py 에 append (기존 substring-pin 컨벤션 미러).
+def test_prompt_weekly_includes_wegosix_uryael_roster():
+    # P1 3.7 — WE GO-6 / 유아렐(UR:L) 이 표준 그룹명 표·body formatting
+    # 표·scope enum 에서 누락돼 배지 매칭 실패·음차 환각이 났다. 세 위치
+    # 모두에 추가됐는지 핀. 한/영 표기는 frontend GROUP_LEXICON
+    # (insightFormat.ts) · design/groups.ts 가 단일 출처 — 영문 WE GO-6·UR:L,
+    # 한국어 위고식스·유아렐.
+    from idol_sight.llm.prompts import (
+        PROMPT_WEEKLY,
+        PROMPT_WEEKLY_BODY_FORMATTING,
+    )
+    # (1) 표준 그룹명 표 + (2) body formatting 표 — 한/영 표기 모두
+    for token in ("WE GO-6", "위고식스", "UR:L", "유아렐"):
+        assert token in PROMPT_WEEKLY, f"canonical roster missing: {token}"
+        assert token in PROMPT_WEEKLY_BODY_FORMATTING, (
+            f"body formatting roster missing: {token}"
+        )
+    # (3) scope enum — group_key 소문자 표기
+    for key in ("wegosix", "uryael"):
+        assert key in PROMPT_WEEKLY, f"scope enum missing group_key: {key}"
+
+
+def test_body_formatting_guidelines_lists_all_ten_groups():
+    # 기존 test_body_formatting_guidelines_lists_group_lexicon(8그룹)의
+    # 확장판 — 10그룹 전체 한/영 쌍을 핀(frontend GROUP_KEYS 와 1:1).
+    from idol_sight.llm.prompts import PROMPT_WEEKLY_BODY_FORMATTING
+    pairs = [
+        ("PLAVE", "플레이브"),
+        ("ISEDOL", "이세계아이돌"),
+        ("STELLIVE", "스텔라이브"),
+        ("SKINZ", "스킨즈"),
+        ("MY:RAKL", "미라클"),
+        ("OWIS", "오위스"),
+        ("MiiWAN", "미완소년"),
+        ("B:DAWN", "비던"),
+        ("WE GO-6", "위고식스"),
+        ("UR:L", "유아렐"),
+    ]
+    for en, ko in pairs:
+        assert en in PROMPT_WEEKLY_BODY_FORMATTING, f"missing EN form: {en}"
+        assert ko in PROMPT_WEEKLY_BODY_FORMATTING, f"missing KO form: {ko}"
