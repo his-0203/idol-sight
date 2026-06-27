@@ -105,7 +105,7 @@ function tableSortValue(key: TableSortKey, k: string, g: any, shares: Record<str
 // 표 컬럼 용어 도움말 — 새 사용자가 "무슨 값·어떻게 산출됐나" 알 수 있게.
 const HELP = {
   group:     "색 = 그룹 식별 · '자사' 배지 = MiiWAN(우리 그룹). 행 클릭 = 그룹 심층 페이지.",
-  grade:     "건강 점수(0~10)의 등급(S>A>B>C>D). Reach·Ritual·Mobilize·Intimacy 4축 가중합. 옆 숫자는 원점수, PRE = 데뷔 3개월 미만(집계 전).",
+  grade:     "건강 점수(0~10)의 등급(S>A>B>C>D). Reach·Ritual·Mobilize·Intimacy 4축 가중합. 옆 숫자는 원점수, PRE = 데뷔 전(또는 점수 집계 전·활동량 부족).",
   awareness: "인지 폭(0~100, '얼마나 많이 알려졌나'). 카테고리 리더 대비 구독·조회·뉴스를 log 정규화. #N = 카테고리 내 순위.",
   core:      "추정 코어 = 최근 56일 영상별 '좋아요' 중앙값(고유 반응 팬 근사). 추정 휴리스틱 — 실측 아님.",
   quad:      "넓이(인지도)×깊이(추정 코어) 사분면. 진성강세=둘 다 높음 · 광고형/바이럴=넓지만 얕음 · 니치 충성=좁지만 깊음 · 저조=둘 다 낮음 (카테고리 중앙값 기준).",
