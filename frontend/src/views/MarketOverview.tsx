@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
 import { api } from "../api";
 import { fmt } from "../format";
-import { writeState } from "../router";
+import { writeState, readState, onStateChange } from "../router";
 import { FreshnessBadge } from "../components/FreshnessBadge";
 import { ExportMenu } from "../components/ExportMenu";
 import { ShareLink } from "../components/ShareLink";
@@ -136,7 +136,9 @@ export function MarketOverview() {
   const [share, setShare] = useState<any>(null);
   const [meta, setMeta] = useState<any>(null);
   const [excludePlave, setExcludePlave] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<"all" | Category>("all");
+  const [activeCategory, setActiveCategory] = useState<"all" | Category>(readState().category);
+  // 사이드바 코호트 항목이 router category를 바꾸면 뷰 동기화(remount 없이).
+  useEffect(() => onStateChange((s) => setActiveCategory(s.category)), []);
   const [sortMode, setSortMode] = useState<"health" | "awareness">("health");
   // Callback ref + state so we know precisely when the canvas mounts.
   // The previous useRef approach + useEffect [share, excludePlave] race-
