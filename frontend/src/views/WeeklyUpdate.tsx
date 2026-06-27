@@ -2,17 +2,9 @@
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
 import { fmt } from "../format";
-import { DataSourceDetails, type RawRef } from "../components/Tooltip";
-import { InsightBody } from "../components/InsightBody";
-import { GroupBadge } from "../components/GroupBadge";
-import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
-import { colorOf } from "../design/groups";
-import { formatKST } from "../lib/datetime";
-
-// scope/type 칩의 의미 라벨. type 은 한국어 표기로 가독성 ↑.
-const TYPE_LABEL: Record<string, string> = {
-  weekly: "주간", insight: "인사이트", ipx_action: "IPX 액션",
-};
+import type { RawRef } from "../components/Tooltip";
+import { InsightCard } from "../components/InsightCard";
+import { humanizeInsightText } from "../lib/insightFormat";
 
 export function WeeklyUpdate() {
   const [data, setData] = useState<any>(null);
@@ -22,6 +14,12 @@ export function WeeklyUpdate() {
   if (!data) return <div class="text-zinc-500">Loading…</div>;
   const weekStart = data.hanteo?.[0]?.week_start ?? data.insights?.[0]?.week_start ?? null;
   const weekEnd = data.hanteo?.[0]?.week_end ?? null;
+
+  // 결정 브리프 lede (R2#2): ai_comment 있거나 ipx_action 인 항목 최대 2개.
+  const ledeItems: any[] = (data.insights as any[]).filter(
+    (i: any) => i.ai_comment || i.type === "ipx_action",
+  ).slice(0, 2);
+
   return (
     <div class="space-y-6">
       <div>
@@ -33,70 +31,42 @@ export function WeeklyUpdate() {
 
       {data.insights.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
-          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">Weekly Insights ({data.insights.length})</h3>
+          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">
+            이번 주 주요 신호 ({data.insights.length})
+          </h3>
+
+          {/* 결정 브리프 lede — 주목할 액션 1-2개 상단 고정 */}
+          {ledeItems.length > 0 && (
+            <div class="mb-3 rounded border border-violet-500/20 bg-violet-500/5 px-3 py-2">
+              <p class="text-label text-zinc-400 mb-1.5">이번 주 주목할 액션:</p>
+              <ul class="space-y-1">
+                {ledeItems.map((i: any) => (
+                  <li key={i.id} class="text-body text-zinc-300 leading-snug">
+                    <span class="font-medium">{humanizeInsightText(i.title)}</span>
+                    {i.ai_comment && (
+                      <span class="ml-1 text-hint text-zinc-400 italic">
+                        — {humanizeInsightText(i.ai_comment)}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <ul class="space-y-2.5 text-sm">
-            {data.insights.map((i: any) => {
+            {(data.insights as any[]).map((i: any) => {
               const refs: RawRef[] = (() => {
                 try { return JSON.parse(i.source_refs_json ?? "[]"); }
                 catch { return []; }
               })();
-              const aiComment: string | null = i.ai_comment
-                ? humanizeInsightText(i.ai_comment)
-                : null;
-              // 카드 좌측 accent bar 색은 본문에 등장한 첫 그룹의 컬러
-              // (없으면 zinc fallback). 그룹별 카드 식별이 한 눈에.
-              const bodyGroups = extractGroupKeys(i.body);
-              const accentKey = bodyGroups[0] ?? null;
               return (
-                <li
+                <InsightCard
                   key={i.id}
-                  class="rounded-md border border-zinc-800/60 bg-zinc-900/30 px-3 py-2.5 border-l-4"
-                  style={{ borderLeftColor: colorOf(accentKey) }}
-                >
-                  {/* 1) 상단 라인 — 그룹 뱃지(들) + scope/type 칩 + KST */}
-                  <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
-                    {bodyGroups.slice(0, 3).map((k) => (
-                      <GroupBadge key={k} groupKey={k} size="sm" />
-                    ))}
-                    <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] uppercase tracking-wider text-zinc-400">
-                      {TYPE_LABEL[i.type] ?? i.type ?? "weekly"}
-                    </span>
-                    <span class="text-zinc-600">·</span>
-                    <span>{i.scope}</span>
-                    {i.week_start && (
-                      <>
-                        <span class="text-zinc-600">·</span>
-                        <span class="tabular-nums">{i.week_start}</span>
-                      </>
-                    )}
-                    {i.generated_at && (
-                      <span
-                        class="ml-auto text-[10px] text-zinc-500 tabular-nums"
-                        title={formatKST(i.generated_at)}
-                      >
-                        {formatKST(i.generated_at)}
-                      </span>
-                    )}
-                  </div>
-                  {/* 2) Title — 강한 weight, tracking-tight 로 위계 */}
-                  <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">
-                    {humanizeInsightText(i.title)}
-                  </div>
-                  {/* 3) Body — 그룹 뱃지/톤 강조 포함 */}
-                  <InsightBody
-                    body={i.body}
-                    class="mt-1 block text-sm leading-relaxed text-zinc-400"
-                  />
-                  {/* 4) AI 코멘트 — 옅은 배경 / 인용구 */}
-                  {aiComment && (
-                    <div class="mt-2 rounded border-l-2 border-violet-500/40 bg-violet-500/5 px-2 py-1 text-[12px] italic text-zinc-300">
-                      <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
-                      {aiComment}
-                    </div>
-                  )}
-                  {/* 5) 메타/출처 — details 폴딩 (작은 글씨) */}
-                  <DataSourceDetails refs={refs} />
-                </li>
+                  insight={i}
+                  sourceRefs={refs}
+                  showTimestamp={true}
+                />
               );
             })}
           </ul>

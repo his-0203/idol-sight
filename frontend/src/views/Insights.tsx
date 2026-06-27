@@ -1,18 +1,10 @@
 // frontend/src/views/Insights.tsx
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
-import { DataSourceDetails, type RawRef } from "../components/Tooltip";
-import { formatKST, formatKSTDate } from "../lib/datetime";
-import { InsightBody } from "../components/InsightBody";
-import { GroupBadge } from "../components/GroupBadge";
-import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
-import { colorOf } from "../design/groups";
-
-const TYPE_LABEL: Record<string, string> = {
-  weekly: "주간",
-  insight: "인사이트",
-  ipx_action: "IPX 액션",
-};
+import type { RawRef } from "../components/Tooltip";
+import { formatKSTDate } from "../lib/datetime";
+import { InsightCard } from "../components/InsightCard";
+import { extractGroupKeys, TYPE_LABEL } from "../lib/insightFormat";
 
 const STORAGE_KEY = "idol-sight.insights.lastSeen";
 
@@ -54,11 +46,22 @@ export function Insights() {
     );
   }, [data, typeFilter, scopeFilter]);
 
+  // 자사 우선 (R2#7): 본문에 "miiwan" 그룹 키가 포함된 항목을 상단 고정.
+  const ownFiltered = useMemo(
+    () => filtered.filter((i: any) => extractGroupKeys(i.body).includes("miiwan")),
+    [filtered],
+  );
+  const otherFiltered = useMemo(
+    () => filtered.filter((i: any) => !extractGroupKeys(i.body).includes("miiwan")),
+    [filtered],
+  );
+
   if (err) return <div class="text-rose-400">불러오기 실패: {err}</div>;
   if (!data) return <div class="text-zinc-500">Loading…</div>;
 
   return (
     <div class="space-y-3">
+      {/* 필터 바 — N건 카운트는 섹션 제목으로 이동 */}
       <div class="flex flex-wrap items-center gap-2 text-sm">
         <span class="text-zinc-500">유형</span>
         <FilterChip active={typeFilter == null} onClick={() => setTypeFilter(null)}>전체</FilterChip>
@@ -75,70 +78,58 @@ export function Insights() {
             {s}
           </FilterChip>
         ))}
-
-        <span class="ml-auto text-xs text-zinc-500">{filtered.length}건</span>
       </div>
 
-      <ul class="space-y-2.5 text-sm">
-        {filtered.map((i: any) => {
-          const isNew = lastSeen && i.generated_at > lastSeen;
-          // 본문에서 검출된 그룹 → 좌측 accent bar 색 + 헤더 뱃지.
-          const bodyGroups = extractGroupKeys(i.body);
-          const accentKey = bodyGroups[0] ?? null;
-          return (
-            <li
-              key={i.id}
-              class={"rounded-lg border bg-zinc-900/30 px-3 py-2.5 border-l-4 " +
-                (isNew ? "border-emerald-500/40 bg-emerald-500/5" : "border-zinc-800")}
-              style={{ borderLeftColor: colorOf(accentKey) }}
-            >
-              {/* 1) 상단 라인 — 그룹 뱃지 + scope/type 칩 + KST + NEW */}
-              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
-                {bodyGroups.slice(0, 3).map((k) => (
-                  <GroupBadge key={k} groupKey={k} size="sm" />
-                ))}
-                <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] uppercase tracking-wider text-zinc-400">
-                  {TYPE_LABEL[i.type] ?? i.type}
-                </span>
-                {i.report_kind === "interim" && (
-                  <span class="rounded bg-amber-500/15 px-1.5 py-[1px] text-[10px] tracking-wider text-amber-300">
-                    중간점검
-                  </span>
-                )}
-                <span class="text-zinc-600">·</span>
-                <span>{i.scope}</span>
-                <span class="text-zinc-600">·</span>
-                <span
-                  class="tabular-nums"
-                  title={i.generated_at ? formatKST(i.generated_at) : undefined}
-                >
-                  {i.week_start ?? formatKSTDate(i.generated_at)}
-                </span>
-                {isNew && (
-                  <span class="ml-auto rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-[1px] text-[10px] uppercase tracking-wider text-emerald-300">NEW</span>
-                )}
-              </div>
-              {/* 2) Title */}
-              <div class="mt-1 text-base font-semibold tracking-tight text-zinc-100">{humanizeInsightText(i.title)}</div>
-              {/* 3) Body — 그룹 뱃지/톤 강조 포함 */}
-              <InsightBody
-                body={i.body}
-                class="mt-1 block text-sm leading-relaxed text-zinc-400"
-              />
-              {/* 4) AI 코멘트 */}
-              {i.ai_comment && (
-                <div class="mt-2 rounded border-l-2 border-violet-500/40 bg-violet-500/5 px-2 py-1 text-[12px] italic text-zinc-300">
-                  <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">AI</span>
-                  {humanizeInsightText(i.ai_comment)}
-                </div>
-              )}
-              {/* 5) 메타/출처 */}
-              <DataSourceDetails refs={(i.source_refs ?? []) as RawRef[]} />
-            </li>
-          );
-        })}
-      </ul>
-      {filtered.length === 0 && <div class="text-zinc-500">조건에 맞는 인사이트 없음.</div>}
+      {filtered.length === 0 && (
+        <div class="text-zinc-500">조건에 맞는 인사이트 없음.</div>
+      )}
+
+      {/* 자사 섹션 */}
+      {ownFiltered.length > 0 && (
+        <section class="space-y-2">
+          <p class="text-label text-own font-medium">자사 ({ownFiltered.length}건)</p>
+          <ul class="space-y-2.5 text-sm">
+            {ownFiltered.map((i: any) => {
+              const isNew = !!(lastSeen && i.generated_at > lastSeen);
+              return (
+                <InsightCard
+                  key={i.id}
+                  insight={i}
+                  sourceRefs={(i.source_refs ?? []) as RawRef[]}
+                  dateDisplay={i.week_start ?? formatKSTDate(i.generated_at)}
+                  isNew={isNew}
+                  showInterim={i.report_kind === "interim"}
+                  isOwn={true}
+                />
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
+      {/* 시장 섹션 */}
+      {otherFiltered.length > 0 && (
+        <section class="space-y-2">
+          <p class="text-label text-zinc-500">
+            {ownFiltered.length > 0 ? `시장 (${otherFiltered.length}건)` : `전체 (${otherFiltered.length}건)`}
+          </p>
+          <ul class="space-y-2.5 text-sm">
+            {otherFiltered.map((i: any) => {
+              const isNew = !!(lastSeen && i.generated_at > lastSeen);
+              return (
+                <InsightCard
+                  key={i.id}
+                  insight={i}
+                  sourceRefs={(i.source_refs ?? []) as RawRef[]}
+                  dateDisplay={i.week_start ?? formatKSTDate(i.generated_at)}
+                  isNew={isNew}
+                  showInterim={i.report_kind === "interim"}
+                />
+              );
+            })}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }
