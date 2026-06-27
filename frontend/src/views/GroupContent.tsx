@@ -10,14 +10,10 @@ import { FanLoyaltyCard } from "../components/FanLoyaltyCard";
 import { Sparkline } from "../components/Sparkline";
 import { DebutWindowVideoTable } from "../components/DebutWindowVideoTable";
 import { MelonChartHistory } from "../components/MelonChartHistory";
-import { formatKST, formatKSTDate, todayKST, daysBetweenKST } from "../lib/datetime";
+import { formatKSTDate, todayKST, daysBetweenKST } from "../lib/datetime";
 import { gradeRingClass } from "../design/grades";
-import {
-  ALERT_RULE_LABEL as GROUP_ALERT_RULE_LABEL,
-  ALERT_SEVERITY_TONE as GROUP_ALERT_TONE,
-} from "../lib/alerts";
-import { InsightBody } from "../components/InsightBody";
-import { humanizeInsightText } from "../lib/insightFormat";
+import { ALERT_SEVERITY_TONE as GROUP_ALERT_TONE } from "../lib/alerts";
+import { writeState } from "../router";
 
 // WoW delta helper — null-safe so a missing prev_summary (group has
 // fewer than 7 days of history) renders nothing instead of "▲ NaN".
@@ -118,6 +114,19 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
           const gPct = Math.round((cvActive.group_subs / total) * 100);
           return `그룹 ${gPct}% / 멤버 ${100 - gPct}%`;
         })();
+        const alertCount = data.alerts?.length ?? 0;
+        const insightCount = data.insights?.length ?? 0;
+        const alertWorstSev: string = alertCount > 0
+          ? (["critical", "warn", "info"].find(
+              (s) => data.alerts.some((a: any) => a.severity === s)
+            ) ?? "info")
+          : "info";
+        const latestInsight = insightCount > 0
+          ? (data.insights as Array<{ id: number; title: string; body: string;
+              scope: string; type: string; generated_at: string }>)
+              .reduce((best, i) =>
+                i.generated_at > best.generated_at ? i : best, data.insights[0])
+          : null;
         return (
         <>
           <section class="rounded-lg border border-zinc-800 p-3">
@@ -187,12 +196,27 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
 
           <GroupSignals data={data} />
 
-          {(data.alerts?.length ?? 0) > 0 && (
-            <GroupAlertSection alerts={data.alerts} controversyTrend={data.controversy_trend} />
-          )}
-
-          {(data.insights?.length ?? 0) > 0 && (
-            <GroupInsightSection insights={data.insights} />
+          {(alertCount > 0 || insightCount > 0) && (
+            <div class="flex flex-wrap gap-2">
+              {alertCount > 0 && (
+                <button
+                  type="button"
+                  class={`rounded border px-3 py-1.5 text-label cursor-pointer hover:opacity-80 ${GROUP_ALERT_TONE[alertWorstSev]}`}
+                  onClick={() => writeState({ tab: "risk", group: groupKey! })}
+                >
+                  활성 알림 {alertCount}건 → PR/Risk
+                </button>
+              )}
+              {insightCount > 0 && latestInsight && (
+                <button
+                  type="button"
+                  class="rounded border border-violet-500/40 bg-violet-500/5 px-3 py-1.5 text-label text-violet-200 cursor-pointer hover:bg-violet-500/10"
+                  onClick={() => writeState({ tab: "insights" })}
+                >
+                  전략 인사이트 {insightCount}건 (최신 {formatKSTDate(latestInsight.generated_at)}) →
+                </button>
+              )}
+            </div>
           )}
 
           {/* KPI section — segmented control lives in the header so the
@@ -266,85 +290,89 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
 
           <PlatformReactivity summary={data.summary} />
 
-          <ContentFormatMatrix videos={data.yt_top15 ?? []} />
-
           <GroupEventTimeline groupKey={groupKey!} />
 
-          <AlbumLifecycle albums={data.albums ?? []} />
+          <details class="card p-2">
+            <summary class="cursor-pointer text-data text-zinc-300">상세 분석 ▾</summary>
+            <div class="mt-3 space-y-3">
+              <ContentFormatMatrix videos={data.yt_top15 ?? []} />
 
-          <section class="rounded-lg border border-zinc-800 p-3">
-            <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2">
-              <h3 class="section-title">멜론 차트 진입 추이</h3>
-              <span class="text-hint text-zinc-500">
-                곡 단위 trajectory. 일간(06 KST) / TOP100(22 KST) 탭으로 화력 시점 비교. Y축 역축(위=상위).
-              </span>
-            </div>
-            <MelonChartHistory groupKey={groupKey!} />
-          </section>
+              <AlbumLifecycle albums={data.albums ?? []} />
 
-          {!isSubculture && (
-            <section class="rounded-lg border border-zinc-800 p-3">
-              <div class="mb-2 flex flex-wrap items-center gap-2">
-                <h3 class="section-title">데뷔 구간 영상 진정성</h3>
-                <span class="text-hint text-zinc-500">
-                  데뷔 전후 60일 영상별 진정성 점수·판정. 행 클릭 시 신호 상세.
-                </span>
-              </div>
-              <DebutWindowVideoTable groupKey={groupKey!} />
-            </section>
-          )}
+              <section class="rounded-lg border border-zinc-800 p-3">
+                <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2">
+                  <h3 class="section-title">멜론 차트 진입 추이</h3>
+                  <span class="text-hint text-zinc-500">
+                    곡 단위 trajectory. 일간(06 KST) / TOP100(22 KST) 탭으로 화력 시점 비교. Y축 역축(위=상위).
+                  </span>
+                </div>
+                <MelonChartHistory groupKey={groupKey!} />
+              </section>
 
-
-          <section class="rounded-lg border border-zinc-800 p-3">
-            <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2 text-sm">
-              <h3 class="section-title">YouTube 상위 15</h3>
-              <div class="flex flex-wrap items-center gap-1">
-                {CONTENT_FILTERS.map((f) => (
-                  <button
-                    key={f.key}
-                    type="button"
-                    class={"rounded-md border px-2 py-0.5 text-xs transition-colors " +
-                           (contentFilter === f.key
-                             ? "border-violet-500 bg-violet-500/10 text-violet-300"
-                             : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
-                    onClick={() => setContentFilter(f.key)}
-                  >{f.label}</button>
-                ))}
-              </div>
-              <ExportMenu rows={filteredYt} filenameBase={`${groupKey}-yt-top15`} />
-            </div>
-            <div class="overflow-x-auto">
-              <table class="w-full text-xs">
-                <thead><tr class="text-left text-zinc-500">
-                  <th class="py-1">#</th>
-                  <th>제목</th>
-                  <th>유형</th>
-                  <th class="text-right">24h</th>
-                  <th class="text-right">조회수</th>
-                  <th class="text-right">좋아요</th>
-                </tr></thead>
-                <tbody>
-                  {filteredYt.map((v: any, i: number) => (
-                    <tr key={v.video_id} class="border-t border-zinc-800/60">
-                      <td class="py-1">{i + 1}</td>
-                      <td class="max-w-md truncate">{v.title}</td>
-                      <td><span class="rounded bg-zinc-800 px-1.5 text-xs">{v.content_type ?? "—"}</span></td>
-                      <td class="text-right tabular-nums">
-                        <VelocityCell
-                          v24={v.view_count_24h}
-                          ratio={v.viral_velocity_ratio} />
-                      </td>
-                      <td class="text-right tabular-nums">{fmt(v.views)}</td>
-                      <td class="text-right tabular-nums">{fmt(v.likes)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {filteredYt.length === 0 && (
-                <div class="py-4 text-center text-xs text-zinc-500">필터 결과 없음</div>
+              {!isSubculture && (
+                <section class="rounded-lg border border-zinc-800 p-3">
+                  <div class="mb-2 flex flex-wrap items-center gap-2">
+                    <h3 class="section-title">데뷔 구간 영상 진정성</h3>
+                    <span class="text-hint text-zinc-500">
+                      데뷔 전후 60일 영상별 진정성 점수·판정. 행 클릭 시 신호 상세.
+                    </span>
+                  </div>
+                  <DebutWindowVideoTable groupKey={groupKey!} />
+                </section>
               )}
+
+              <section class="rounded-lg border border-zinc-800 p-3">
+                <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2 text-sm">
+                  <h3 class="section-title">YouTube 상위 15</h3>
+                  <div class="flex flex-wrap items-center gap-1">
+                    {CONTENT_FILTERS.map((f) => (
+                      <button
+                        key={f.key}
+                        type="button"
+                        class={"rounded-md border px-2 py-0.5 text-xs transition-colors " +
+                               (contentFilter === f.key
+                                 ? "border-violet-500 bg-violet-500/10 text-violet-300"
+                                 : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
+                        onClick={() => setContentFilter(f.key)}
+                      >{f.label}</button>
+                    ))}
+                  </div>
+                  <ExportMenu rows={filteredYt} filenameBase={`${groupKey}-yt-top15`} />
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-xs">
+                    <thead><tr class="text-left text-zinc-500">
+                      <th class="py-1">#</th>
+                      <th>제목</th>
+                      <th>유형</th>
+                      <th class="text-right">24h</th>
+                      <th class="text-right">조회수</th>
+                      <th class="text-right">좋아요</th>
+                    </tr></thead>
+                    <tbody>
+                      {filteredYt.map((v: any, i: number) => (
+                        <tr key={v.video_id} class="border-t border-zinc-800/60">
+                          <td class="py-1">{i + 1}</td>
+                          <td class="max-w-md truncate">{v.title}</td>
+                          <td><span class="rounded bg-zinc-800 px-1.5 text-xs">{v.content_type ?? "—"}</span></td>
+                          <td class="text-right tabular-nums">
+                            <VelocityCell
+                              v24={v.view_count_24h}
+                              ratio={v.viral_velocity_ratio} />
+                          </td>
+                          <td class="text-right tabular-nums">{fmt(v.views)}</td>
+                          <td class="text-right tabular-nums">{fmt(v.likes)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {filteredYt.length === 0 && (
+                    <div class="py-4 text-center text-xs text-zinc-500">필터 결과 없음</div>
+                  )}
+                </div>
+              </section>
             </div>
-          </section>
+          </details>
         </>
         );
       })()}
@@ -1115,74 +1143,3 @@ function DDayBadge({ debutDate }: { debutDate: string }) {
 }
 
 
-// Alert rule labels / severity tones: see src/lib/alerts.ts (shared with
-// PRRisk and MiiWANBriefing so per-group detail surfaces the worker's actual
-// critical signals with identical labeling).
-
-function GroupAlertSection(props: {
-  alerts: Array<{ alert_key: string; rule: string; severity: string;
-                  title: string; body: string; fired_at: string }>;
-  controversyTrend: { current: number; previous: number | null } | null | undefined;
-}) {
-  return (
-    <section>
-      <div class="mb-2 flex items-baseline gap-2">
-        <h3 class="section-title">위기 모니터 (14일)</h3>
-        <span class="text-hint text-zinc-500">
-          worker 가 발화한 알림 — 별도 PR/Risk 페이지로 이동 없이 그룹 컨텍스트에서 확인.
-        </span>
-      </div>
-      <ul class="space-y-2">
-        {props.alerts.map((a) => (
-          <li key={a.alert_key}
-              class={`rounded border-l-2 p-2.5 text-sm ${GROUP_ALERT_TONE[a.severity] ?? GROUP_ALERT_TONE.info}`}>
-            <div class="flex items-baseline gap-2">
-              <span class="rounded bg-zinc-900/60 px-1.5 text-[11px] text-zinc-300">
-                {GROUP_ALERT_RULE_LABEL[a.rule] ?? a.rule}
-              </span>
-              <span class="font-semibold">{a.title}</span>
-              <span class="ml-auto text-hint text-zinc-500" title={formatKST(a.fired_at)}>
-                {formatKST(a.fired_at)}
-              </span>
-            </div>
-            <div class="mt-1 text-xs text-zinc-400">{a.body}</div>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-
-// scope/type 칩의 의미 라벨 — 다른 인사이트 뷰(Insights/WeeklyUpdate)와 동일.
-const TYPE_LABEL: Record<string, string> = {
-  weekly: "주간", insight: "인사이트", ipx_action: "IPX 액션",
-};
-
-function GroupInsightSection(props: {
-  insights: Array<{ id: number; title: string; body: string;
-                    scope: string; type: string; generated_at: string }>;
-}) {
-  return (
-    <section>
-      <div class="mb-2 flex items-baseline gap-2">
-        <h3 class="section-title">전략 인사이트 (LLM weekly · 30일)</h3>
-        <span class="text-hint text-zinc-500">
-          이 그룹 scope 로 생성된 LLM 분석 — 시장 전체 인사이트는 MarketOverview 에 별도.
-        </span>
-      </div>
-      <ul class="space-y-2">
-        {props.insights.map((i) => (
-          <li key={i.id}
-              class="card">
-            <div class="text-hint text-zinc-500">
-              {TYPE_LABEL[i.type] ?? i.type} · {formatKSTDate(i.generated_at)}
-            </div>
-            <div class="mt-0.5 font-semibold">{humanizeInsightText(i.title)}</div>
-            <InsightBody body={i.body} class="mt-1 block text-sm text-zinc-400" />
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
