@@ -6,8 +6,8 @@ from idol_sight.analysis.weekly_diagnosis import (
     HYPOTHESIS_KEYS,
     GroupSignals,
     Hypothesis,
-    classify_hypotheses,
     _is_lit,
+    classify_hypotheses,
 )
 
 
@@ -574,7 +574,6 @@ def test_compute_group_signals_deduplicates_multi_row():
 # rev 3 — _is_lit OR helper + 3-축 시나리오 + subculture fallback
 # ---------------------------------------------------------------------------
 
-from idol_sight.analysis.weekly_diagnosis import _is_lit
 
 
 def test_is_lit_category_z_only():
