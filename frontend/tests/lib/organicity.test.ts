@@ -150,3 +150,115 @@ describe("organicity shared scale", () => {
     expect(scoreToVerdict(55)).toBe("borderline");
   });
 });
+
+import {
+  computeGroupOrganicities,
+  organicityCaveat,
+  organicityScoreFor,
+  selectGroupOrganicity,
+  type OrganicitySummaryRow,
+} from "../../src/lib/organicity";
+
+function row(p: Partial<OrganicitySummaryRow> & { group_key: string; window_bucket: string }): OrganicitySummaryRow {
+  return {
+    organic_score_mean: null, organic_score_mean_long: null,
+    organic_score_mean_short: null, organic_score_mean_simple: null,
+    organic_score_mean_shrunk: null, video_count: 0, scored_video_count: 0,
+    long_form_count: 0, short_form_count: 0, ...p,
+  };
+}
+
+describe("selectGroupOrganicity (bucket fallback collapse)", () => {
+  const buckets = ["D-20", "D-Day", "D+20"] as const;
+
+  it("exact: selected bucket has a score for the mode", () => {
+    const m = new Map([
+      ["D-Day", row({ group_key: "g", window_bucket: "D-Day", organic_score_mean_simple: 72, organic_score_mean_shrunk: 72, video_count: 10, scored_video_count: 10 })],
+    ]);
+    const r = selectGroupOrganicity(m, "D-Day", "all_simple", "g", buckets);
+    expect(r.score).toBe(72);
+    expect(r.display_mode).toBe("exact");
+    expect(r.thin).toBe(false);
+  });
+
+  it("current: selected bucket empty → newest non-null bucket", () => {
+    const m = new Map([
+      ["D-20", row({ group_key: "g", window_bucket: "D-20", organic_score_mean_simple: 60, organic_score_mean_shrunk: 60, video_count: 5, scored_video_count: 5 })],
+    ]);
+    const r = selectGroupOrganicity(m, "D+20", "all_simple", "g", buckets);
+    expect(r.score).toBe(60);
+    expect(r.display_mode).toBe("current");
+    expect(r.shown_bucket).toBe("D-20");
+  });
+
+  it("none: no scoreable bucket for the mode", () => {
+    const m = new Map([
+      ["D-Day", row({ group_key: "g", window_bucket: "D-Day" })],
+    ]);
+    const r = selectGroupOrganicity(m, "D-Day", "all_simple", "g", buckets);
+    expect(r.score).toBeNull();
+    expect(r.display_mode).toBe("none");
+  });
+
+  it("thin sample flagged when scored < 3", () => {
+    const m = new Map([
+      ["D-Day", row({ group_key: "g", window_bucket: "D-Day", organic_score_mean_simple: 90, organic_score_mean_shrunk: 90, video_count: 2, scored_video_count: 2 })],
+    ]);
+    const r = selectGroupOrganicity(m, "D-Day", "all_simple", "g", buckets);
+    expect(r.thin).toBe(true);
+  });
+});
+
+describe("organicityScoreFor (all_simple uses shrunk headline)", () => {
+  it("falls back to raw simple mean when shrunk null", () => {
+    expect(organicityScoreFor(row({ group_key: "g", window_bucket: "b", organic_score_mean_simple: 50, organic_score_mean_shrunk: null }), "all_simple")).toBe(50);
+    expect(organicityScoreFor(row({ group_key: "g", window_bucket: "b", organic_score_mean_simple: 50, organic_score_mean_shrunk: 58 }), "all_simple")).toBe(58);
+  });
+});
+
+describe("computeGroupOrganicities", () => {
+  const buckets = ["D-Day", "D+20"];
+  const rows = [
+    row({ group_key: "a", window_bucket: "D-Day", organic_score_mean_simple: 80, organic_score_mean_shrunk: 80, video_count: 9, scored_video_count: 9 }),
+    row({ group_key: "b", window_bucket: "D-Day", organic_score_mean_simple: 30, organic_score_mean_shrunk: 30, video_count: 9, scored_video_count: 9 }),
+    row({ group_key: "x", window_bucket: "D-Day", organic_score_mean_simple: 99, organic_score_mean_shrunk: 99, video_count: 9, scored_video_count: 9 }),
+  ];
+
+  it("returns one entry per group, excluding excludeGroups", () => {
+    const m = computeGroupOrganicities(rows, { buckets, currentBucket: "D-Day", mode: "all_simple", excludeGroups: new Set(["x"]) });
+    expect(m.size).toBe(2);
+    expect(m.get("a")!.score).toBe(80);
+    expect(m.has("x")).toBe(false);
+  });
+
+  it("ignores rows in buckets not in the display list", () => {
+    const extra = [...rows, row({ group_key: "c", window_bucket: "D-999", organic_score_mean_simple: 50, organic_score_mean_shrunk: 50, video_count: 9, scored_video_count: 9 })];
+    const m = computeGroupOrganicities(extra, { buckets, currentBucket: "D-Day", mode: "all_simple" });
+    expect(m.has("c")).toBe(false);
+  });
+});
+
+describe("organicityCaveat", () => {
+  const g = (score: number | null, scoredCount = 9): import("../../src/lib/organicity").GroupOrganicity =>
+    ({ group_key: "g", score, sample_count: 9, scored_count: scoredCount, thin: false, display_mode: "exact", shown_bucket: "D-Day" });
+
+  it("shows for caution tiers, hides for organic/strong", () => {
+    expect(organicityCaveat(g(35)).show).toBe(true);   // likely_paid
+    expect(organicityCaveat(g(35)).label).toBe("유료 의심↑");
+    expect(organicityCaveat(g(50)).show).toBe(true);   // suspect
+    expect(organicityCaveat(g(50)).label).toBe("유료 의심");
+    expect(organicityCaveat(g(60)).show).toBe(true);   // borderline
+    expect(organicityCaveat(g(60)).label).toBe("오가닉성 주의");
+    expect(organicityCaveat(g(75)).show).toBe(false);  // organic
+    expect(organicityCaveat(g(90)).show).toBe(false);  // organic_strong
+    // scored_count gate: caution tier shown at 3 scored, hidden at 2 scored.
+    expect(organicityCaveat(g(35, 3)).show).toBe(true);
+    expect(organicityCaveat(g(35, 2)).show).toBe(false);
+  });
+
+  it("hides when thin (scored_count < 3), null score, or missing", () => {
+    expect(organicityCaveat(g(35, 2)).show).toBe(false); // scored_count=2 → thin by scored → hidden
+    expect(organicityCaveat(g(null)).show).toBe(false);
+    expect(organicityCaveat(undefined).show).toBe(false);
+  });
+});

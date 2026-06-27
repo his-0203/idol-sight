@@ -12,6 +12,16 @@ import { DebutWindowKPI } from "../components/DebutWindowKPI";
 import { colorOf, fillOf } from "../design/groups";
 import { gradeClasses } from "../design/grades";
 import { fmtScale, fmtTooltipCallback } from "../design/chart-defaults";
+import { BreadthDepthQuadrant } from "../components/BreadthDepthQuadrant";
+import type { QuadrantInput } from "../lib/breadthDepth";
+import {
+  DEFAULT_ORGANICITY_MODE,
+  computeGroupOrganicities,
+  organicityCaveat,
+  type GroupOrganicity,
+  type OrganicitySummaryRow,
+} from "../lib/organicity";
+import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 
 // Category derived from worker's group_model taxonomy (migration 0007).
 //   corporate     → K-POP (album-cycle, 음방, 컴백)
@@ -145,6 +155,23 @@ export function MarketOverview() {
     api.meta().then(setMeta);
   }, []);
 
+  const [orgRows, setOrgRows] = useState<OrganicitySummaryRow[] | null>(null);
+  const [orgBuckets, setOrgBuckets] = useState<string[]>(DEFAULT_DISPLAY_BUCKETS);
+  const [orgCurrent, setOrgCurrent] = useState<string>(DEFAULT_CURRENT_BUCKET);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.debutWindowSummary<OrganicitySummaryRow>().then((r) => {
+      if (cancelled) return;
+      if (r.window?.buckets?.length) {
+        setOrgBuckets(r.window.buckets);
+        setOrgCurrent(r.window.current_bucket);
+      }
+      setOrgRows(r.rows);
+    }).catch(() => { if (!cancelled) setOrgRows([]); });
+    return () => { cancelled = true; };
+  }, []);
+
   // Market share trend (line, color = group). We dropped the stacked-area
   // + log-scale combo because stacking + log is mathematically meaningless
   // (you cannot add log values), and a line per group reads more cleanly
@@ -190,6 +217,14 @@ export function MarketOverview() {
 
   const sharesByKey = useMemo(() => latestShareMap(share?.rows), [share]);
   const deltas = useMemo(() => shareDeltaByKey(share?.rows), [share]);
+
+  // group_key → GroupOrganicity (current rolling bucket, count-based headline).
+  const orgByKey = useMemo<Map<string, GroupOrganicity>>(() => {
+    if (!orgRows) return new Map();
+    return computeGroupOrganicities(orgRows, {
+      buckets: orgBuckets, currentBucket: orgCurrent, mode: DEFAULT_ORGANICITY_MODE,
+    });
+  }, [orgRows, orgBuckets, orgCurrent]);
 
   // Split into category buckets and rank within each. The same sort
   // function is reused so cross-section ordering is internally
@@ -285,6 +320,18 @@ export function MarketOverview() {
               <span class="text-hint text-zinc-500">{CATEGORY_HINT[category]}</span>
               <span class="ml-auto text-hint text-zinc-500">{entries.length}그룹</span>
             </div>
+            <div class="mb-2">
+              <BreadthDepthQuadrant
+                points={entries.reduce<QuadrantInput[]>((acc, [key, g]: any) => {
+                  const x = g.awareness?.score;
+                  const y = g.core_fan_estimate?.est_active_core;
+                  if (x != null && y != null) {
+                    acc.push({ key, name: g.name, x, y, caveat: organicityCaveat(orgByKey.get(key)).show });
+                  }
+                  return acc;
+                }, [])}
+              />
+            </div>
             <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
               {entries.map(([key, g]: any, i: number) => {
                 const hs = g.health_score;
@@ -355,6 +402,19 @@ export function MarketOverview() {
                         <span class="text-zinc-600" title="신호 부족 — 인지도 산정 제외">—</span>
                       )}
                     </div>
+                    {(() => {
+                      const cav = organicityCaveat(orgByKey.get(key));
+                      if (!cav.show) return null;
+                      return (
+                        <div
+                          class="mt-0.5 flex items-center gap-1 text-[10px] text-orange-400/90"
+                          title="영상 카탈로그 organicity가 주의 구간 — 광고로 산 도달 가능성. 인지도 점수에는 반영 안 됨(직교 참고 신호)."
+                        >
+                          <span aria-hidden="true">⚠</span>
+                          <span>{cav.label}</span>
+                        </div>
+                      );
+                    })()}
                     {g.core_fan_estimate != null && (
                       <div
                         class="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-zinc-500"

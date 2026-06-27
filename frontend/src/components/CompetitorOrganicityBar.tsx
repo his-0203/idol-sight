@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
-import { DEFAULT_ORGANICITY_MODE, isThinSample, scoreColor } from "../lib/organicity";
+import { computeGroupOrganicities, DEFAULT_ORGANICITY_MODE, isThinSample, organicityScoreFor, organicitySampleCountFor, scoreColor, selectGroupOrganicity, type GroupOrganicity, type OrganicityMode, type OrganicitySummaryRow } from "../lib/organicity";
 import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 
 // V2.49: 표시 탭은 summary 응답의 window 메타 (롤링 창) — 정적 타입 대신
@@ -23,113 +23,15 @@ const EXCLUDED_GROUPS = new Set<string>(["isedol", "stellive", "uryael"]);
 // Score mode = which mean column to render. V2 (migration 0054) adds
 // type-split and simple variants so users can defuse Shorts-vs-Long mix
 // and view-weighted-single-video dominance.
-type Mode = "all_weighted" | "all_simple" | "long" | "short";
 
-const MODE_LABEL: Record<Mode, string> = {
+const MODE_LABEL: Record<OrganicityMode, string> = {
   all_weighted: "전체·조회수 가중",
   all_simple:   "전체·단순평균",
   long:         "롱폼만",
   short:        "숏폼만",
 };
 
-interface SummaryRow {
-  group_key: string;
-  window_bucket: string;
-  organic_score_mean: number | null;
-  organic_score_mean_long: number | null;
-  organic_score_mean_short: number | null;
-  organic_score_mean_simple: number | null;
-  organic_score_mean_shrunk: number | null;
-  video_count: number;
-  scored_video_count: number;
-  long_form_count: number;
-  short_form_count: number;
-}
-
-type DisplayMode = "exact" | "current" | "none";
-
-interface DisplayRow {
-  group_key: string;
-  score: number | null;
-  sample_count: number;
-  scored_count: number;
-  thin: boolean;
-  display_mode: DisplayMode;
-  shown_bucket: string;
-}
-
-function scoreFor(row: SummaryRow, mode: Mode): number | null {
-  if (mode === "all_weighted") return row.organic_score_mean;
-  // V2.50: the default "All · simple mean" is the thin-sample-shrunk headline
-  // (falls back to the raw simple mean on pre-0092 rows). The type-split and
-  // view-weighted lenses stay raw — shrinkage is defined for the headline only.
-  if (mode === "all_simple")   return row.organic_score_mean_shrunk ?? row.organic_score_mean_simple;
-  if (mode === "long")         return row.organic_score_mean_long;
-  return row.organic_score_mean_short;
-}
-
-function sampleCountFor(row: SummaryRow, mode: Mode): number {
-  if (mode === "long")  return row.long_form_count;
-  if (mode === "short") return row.short_form_count;
-  return row.video_count;
-}
-
 // score → color: see src/lib/organicity.ts (single source of truth).
-
-// Pick what to display for a single group under selected (bucket, mode).
-// - exact: the selected bucket has a non-null score for this mode.
-// - current: selected bucket empty for this mode → fall back to the group's
-//   chronologically latest bucket whose mode column is non-null (bucketsOrdered
-//   reverse iteration: newest → oldest). 모든 bucket 이 균등 20일 폭이라
-//   별도 extended tier 불필요 (V2.34).
-// - none: the group has no scoreable data in any bucket for this mode.
-function pickDisplayRow(
-  byBucket: Map<string, SummaryRow>,
-  selected: Bucket,
-  mode: Mode,
-  groupKey: string,
-  bucketsOrdered: readonly string[],
-): DisplayRow {
-  const exact = byBucket.get(selected);
-  if (exact && scoreFor(exact, mode) !== null) {
-    const sample = sampleCountFor(exact, mode);
-    return {
-      group_key: groupKey,
-      score: scoreFor(exact, mode),
-      sample_count: sample,
-      scored_count: exact.scored_video_count,
-      thin: isThinSample(sample),
-      display_mode: "exact",
-      shown_bucket: selected,
-    };
-  }
-  // 균등 폭 bucketsOrdered 를 chronologically newest → oldest 로 순회.
-  for (let i = bucketsOrdered.length - 1; i >= 0; i--) {
-    const b = bucketsOrdered[i]!;
-    const row = byBucket.get(b);
-    if (row && scoreFor(row, mode) !== null) {
-      const sample = sampleCountFor(row, mode);
-      return {
-        group_key: groupKey,
-        score: scoreFor(row, mode),
-        sample_count: sample,
-        scored_count: row.scored_video_count,
-        thin: isThinSample(sample),
-        display_mode: "current",
-        shown_bucket: b,
-      };
-    }
-  }
-  return {
-    group_key: groupKey,
-    score: null,
-    sample_count: 0,
-    scored_count: 0,
-    thin: false,
-    display_mode: "none",
-    shown_bucket: selected,
-  };
-}
 
 export function CompetitorOrganicityBar() {
   // V2.49: 기본 탭 = 서버가 내려준 "오늘(anchor 기준) 버킷" — 데뷔 전엔
@@ -138,15 +40,15 @@ export function CompetitorOrganicityBar() {
   // V2.40 Finding 3: default to the count-based simple mean so one high-view
   // paid outlier (the PLUMA teaser) can't dominate a bucket. view-weighted
   // stays one click away. See src/lib/organicity.DEFAULT_ORGANICITY_MODE.
-  const [mode, setMode] = useState<Mode>(DEFAULT_ORGANICITY_MODE);
-  const [allRows, setAllRows] = useState<SummaryRow[] | null>(null);
+  const [mode, setMode] = useState<OrganicityMode>(DEFAULT_ORGANICITY_MODE);
+  const [allRows, setAllRows] = useState<OrganicitySummaryRow[] | null>(null);
   const [buckets, setBuckets] = useState<string[]>(DEFAULT_DISPLAY_BUCKETS);
   const [defaultBucket, setDefaultBucket] = useState<string>(DEFAULT_CURRENT_BUCKET);
   const bucket = picked ?? defaultBucket;
 
   useEffect(() => {
     let cancelled = false;
-    api.debutWindowSummary<SummaryRow>().then((r) => {
+    api.debutWindowSummary<OrganicitySummaryRow>().then((r) => {
       if (cancelled) return;
       if (r.window?.buckets?.length) {
         setBuckets(r.window.buckets);
@@ -159,19 +61,12 @@ export function CompetitorOrganicityBar() {
     return () => { cancelled = true; };
   }, []);
 
-  const display = useMemo<DisplayRow[]>(() => {
+  const display = useMemo<GroupOrganicity[]>(() => {
     if (!allRows) return [];
-    const byGroup = new Map<string, Map<string, SummaryRow>>();
-    for (const r of allRows) {
-      if (EXCLUDED_GROUPS.has(r.group_key)) continue;
-      if (!buckets.includes(r.window_bucket)) continue;
-      const b = r.window_bucket;
-      let m = byGroup.get(r.group_key);
-      if (!m) { m = new Map(); byGroup.set(r.group_key, m); }
-      m.set(b, r);
-    }
-    return Array.from(byGroup.keys()).map((k) =>
-      pickDisplayRow(byGroup.get(k)!, bucket, mode, k, buckets),
+    return Array.from(
+      computeGroupOrganicities(allRows, {
+        buckets, currentBucket: bucket, mode, excludeGroups: EXCLUDED_GROUPS,
+      }).values(),
     );
   }, [allRows, bucket, mode, buckets]);
 
@@ -202,7 +97,7 @@ export function CompetitorOrganicityBar() {
       </div>
       <div class="cob-mode-picker">
         점수 기준:
-        {(Object.keys(MODE_LABEL) as Mode[]).map((m) => (
+        {(Object.keys(MODE_LABEL) as OrganicityMode[]).map((m) => (
           <button type="button"
                   key={m}
                   class={m === mode ? "active" : ""}
