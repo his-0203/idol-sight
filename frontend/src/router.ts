@@ -2,11 +2,12 @@ export interface RouterState {
   tab: "market" | "weekly" | "content" | "members" | "community" | "risk" | "growth" | "insights" | "miiwan" | "shorts" | "status";
   group: string | null;
   period: number | null;        // days; null = all
+  category: "all" | "kpop" | "subculture";
   theme: "dark" | "light";
 }
 
 const DEFAULT: RouterState = {
-  tab: "market", group: null, period: 7, theme: "dark",
+  tab: "market", group: null, period: 7, category: "all", theme: "dark",
 };
 
 export function readState(): RouterState {
@@ -17,6 +18,7 @@ export function readState(): RouterState {
     period: params.get("period") != null
       ? (params.get("period") === "0" ? null : Number(params.get("period")))
       : DEFAULT.period,
+    category: (params.get("category") as RouterState["category"]) || DEFAULT.category,
     theme: (params.get("theme") as RouterState["theme"]) || DEFAULT.theme,
   };
 }
@@ -29,6 +31,7 @@ export function writeState(patch: Partial<RouterState>): void {
   if (next.group) params.set("group", next.group);
   if (next.period == null) params.set("period", "0");
   else if (next.period !== DEFAULT.period) params.set("period", String(next.period));
+  if (next.category !== DEFAULT.category) params.set("category", next.category);
   if (next.theme !== "dark") params.set("theme", next.theme);
   location.hash = "#" + params.toString();
 }
