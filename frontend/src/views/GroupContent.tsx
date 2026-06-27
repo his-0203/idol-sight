@@ -11,6 +11,7 @@ import { Sparkline } from "../components/Sparkline";
 import { DebutWindowVideoTable } from "../components/DebutWindowVideoTable";
 import { MelonChartHistory } from "../components/MelonChartHistory";
 import { formatKST, formatKSTDate, todayKST, daysBetweenKST } from "../lib/datetime";
+import { gradeRingClass } from "../design/grades";
 import {
   ALERT_RULE_LABEL as GROUP_ALERT_RULE_LABEL,
   ALERT_SEVERITY_TONE as GROUP_ALERT_TONE,
@@ -31,11 +32,6 @@ function seriesOf(history: any[] | undefined, field: string): number[] | undefin
   if (!history || history.length < 2) return undefined;
   return history.map((r) => Number(r[field] ?? 0));
 }
-
-const GRADE_RING: Record<string, string> = {
-  S: "ring-emerald-500", A: "ring-blue-500", B: "ring-violet-500",
-  C: "ring-amber-500", D: "ring-red-500", PRE: "ring-zinc-500",
-};
 
 type ContentFilter = "all" | "MV" | "Cover" | "Short" | "Live";
 const CONTENT_FILTERS: Array<{ key: ContentFilter; label: string }> = [
@@ -112,7 +108,7 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
         <>
           <section class="rounded-lg border border-zinc-800 p-3">
             <div class="flex items-center gap-4">
-              <div class={`grid h-20 w-20 place-items-center rounded-full bg-zinc-950 ring-2 ${GRADE_RING[hasHealth ? hs.grade : "PRE"]}`}>
+              <div class={`grid h-20 w-20 place-items-center rounded-full bg-zinc-950 ring-2 ${gradeRingClass(hasHealth ? hs.grade : "PRE")}`}>
                 <div class="text-2xl font-bold tabular-nums">
                   {hasHealth ? hs.total : (fallback != null ? fmt(fallback) : "—")}
                 </div>

@@ -9,11 +9,11 @@
 export const GROUP_COLORS = {
   plave:    "#ec4899", // pink-500   — flagship, warmest
   isedol:   "#22c55e", // green-500
-  stellive: "#06b6d4", // cyan-500
+  stellive: "#818cf8", // indigo-400 — 자사 MiiWAN 청록(#75d7d1)과 충돌 회피 (was cyan)
   skinz:    "#f59e0b", // amber-500
   myrakl:   "#a855f7", // purple-500
   owis:     "#3b82f6", // blue-500
-  miiwan:   "#14b8a6", // teal-500   — MiiWAN brand
+  miiwan:   "#75d7d1", // 자사 MiiWAN 메인 정체성 (가시성 우선, 2026-06 확정 · was teal #14b8a6)
   bdawn:    "#ef4444", // red-500
   wegosix:  "#f97316", // orange-500 — 23rd Century Kids virtual boy group
   uryael:   "#84cc16", // lime-500   — UR:L (유아렐) Sandbox Network 첫 버추얼
