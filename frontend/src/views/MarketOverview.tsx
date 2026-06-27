@@ -87,6 +87,36 @@ export function sortByAwareness(
   });
 }
 
+// ── 표 컬럼 클릭 정렬 ──────────────────────────────────────────────────
+export type TableSortKey = "grade" | "awareness" | "core" | "sov";
+export interface TableSort { key: TableSortKey; dir: 1 | -1 } // dir 1=내림차순, -1=오름차순
+
+function tableSortValue(key: TableSortKey, k: string, g: any, shares: Record<string, number>): number | null {
+  switch (key) {
+    case "grade":     return g.health_score?.total ?? null;
+    case "awareness": return g.awareness?.score ?? null;
+    case "core":      return g.core_fan_estimate?.est_engaged_fans ?? null;
+    case "sov":       return shares[k] ?? null;
+  }
+}
+
+/** ts=null이면 기본 순서(sortByRank=등급순) 유지. 값 없는 그룹은 방향과 무관하게 항상 뒤로. */
+export function sortEntriesBy(
+  entries: Array<[string, any]>,
+  ts: TableSort | null,
+  shares: Record<string, number>,
+): Array<[string, any]> {
+  if (!ts) return entries;
+  return [...entries].sort(([ka, ga], [kb, gb]) => {
+    const a = tableSortValue(ts.key, ka, ga, shares);
+    const b = tableSortValue(ts.key, kb, gb, shares);
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    return (b - a) * ts.dir;
+  });
+}
+
 function latestShareMap(
   shareRows: Array<{ week_end: string; group_key: string; final: number }> | undefined,
 ): Record<string, number> {
@@ -126,7 +156,11 @@ export function MarketOverview() {
   const [activeCategory, setActiveCategory] = useState<"all" | Category>(readState().category);
   // 사이드바 코호트 항목이 router category를 바꾸면 뷰 동기화(remount 없이).
   useEffect(() => onStateChange((s) => setActiveCategory(s.category)), []);
-  const [sortMode, setSortMode] = useState<"health" | "awareness">("health");
+  const [tableSort, setTableSort] = useState<TableSort | null>(null);
+  const toggleSort = (key: TableSortKey) =>
+    setTableSort((ts) => (ts && ts.key === key ? { key, dir: (ts.dir === 1 ? -1 : 1) as 1 | -1 } : { key, dir: 1 }));
+  const sortInd = (key: TableSortKey) =>
+    tableSort?.key === key ? (tableSort.dir === 1 ? " ▼" : " ▲") : "";
   // Callback ref + state so we know precisely when the canvas mounts.
   // The previous useRef approach + useEffect [share, excludePlave] race-
   // condition'd on first load: useEffect would fire before the canvas was
@@ -225,12 +259,12 @@ export function MarketOverview() {
     const kpop = all.filter(([, g]: any) => categoryOf(g.group_model) === "kpop");
     const sub  = all.filter(([, g]: any) => categoryOf(g.group_model) === "subculture");
     const sorter = (e: Array<[string, any]>) =>
-      sortMode === "awareness" ? sortByAwareness(e) : sortByRank(e, sharesByKey);
+      sortByRank(e, sharesByKey); // 기본 = 등급순. 컬럼 클릭 정렬은 렌더 시 sortEntriesBy로 덮어씀.
     return {
       kpop:       sorter(kpop),
       subculture: sorter(sub),
     };
-  }, [market, sharesByKey, sortMode]);
+  }, [market, sharesByKey]);
 
   if (!market) return <div class="p-4 text-zinc-500">Loading…</div>;
 
@@ -274,26 +308,10 @@ export function MarketOverview() {
         ))}
       </div>
 
-      {/* Sort mode toggle */}
-      <div class="flex flex-wrap items-center gap-2 text-sm">
-        <span class="text-zinc-500">정렬</span>
-        {([
-          { key: "health" as const,    label: "등급순" },
-          { key: "awareness" as const, label: "인지도순" },
-        ]).map((s) => (
-          <button
-            key={s.key}
-            type="button"
-            onClick={() => setSortMode(s.key)}
-            class={"rounded-md border px-3 py-1 text-xs transition-colors " +
-              (sortMode === s.key
-                ? "border-sky-500 bg-sky-500/10 text-sky-300"
-                : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
-          >{s.label}</button>
-        ))}
-        <span class="text-hint text-zinc-500">
-          인지도 = 절대적으로 얼마나 알려졌나(카테고리 순위). 아래 관심 점유율은 그룹들 사이 상대 비중.
-        </span>
+      {/* 정렬 안내 — 표 헤더 클릭으로 정렬 (기본=등급순) */}
+      <div class="flex flex-wrap items-center gap-2 text-hint text-zinc-500">
+        <span>표 헤더(<b class="text-zinc-400">등급·인지도·추정코어·SoV</b>)를 클릭해 정렬 · 기본 등급순.</span>
+        <span>인지도 = 카테고리 순위, 관심 점유율(SoV) = 그룹 간 상대 비중.</span>
       </div>
 
       {/* ① 개요 KPI strip */}
@@ -346,7 +364,7 @@ export function MarketOverview() {
             <div class="mb-2 flex flex-wrap items-baseline gap-2">
               <h3 class="section-title">{CATEGORY_LABEL[category]}</h3>
               <span class="text-hint text-zinc-500">{CATEGORY_HINT[category]}</span>
-              <span class="ml-auto text-hint text-zinc-500">{entries.length}그룹 · {sortMode === "awareness" ? "인지도순" : "등급순"}</span>
+              <span class="ml-auto text-hint text-zinc-500">{entries.length}그룹</span>
             </div>
             <div class="card overflow-x-auto p-0">
               <table class="w-full text-data">
@@ -354,16 +372,16 @@ export function MarketOverview() {
                   <tr class="border-b border-zinc-800">
                     <th class="px-3 py-2 text-left font-medium">#</th>
                     <th class="px-2 py-2 text-left font-medium">그룹</th>
-                    <th class="px-2 py-2 text-left font-medium">등급</th>
-                    <th class="px-2 py-2 text-right font-medium">인지도</th>
-                    <th class="px-2 py-2 text-right font-medium">추정 코어</th>
+                    <th class="px-2 py-2 text-left font-medium cursor-pointer select-none hover:text-zinc-300" onClick={() => toggleSort("grade")}>등급{sortInd("grade")}</th>
+                    <th class="px-2 py-2 text-right font-medium cursor-pointer select-none hover:text-zinc-300" onClick={() => toggleSort("awareness")}>인지도{sortInd("awareness")}</th>
+                    <th class="px-2 py-2 text-right font-medium cursor-pointer select-none hover:text-zinc-300" onClick={() => toggleSort("core")}>추정 코어{sortInd("core")}</th>
                     <th class="px-2 py-2 text-left font-medium">넓이×깊이</th>
-                    <th class="px-2 py-2 text-right font-medium">SoV</th>
+                    <th class="px-2 py-2 text-right font-medium cursor-pointer select-none hover:text-zinc-300" onClick={() => toggleSort("sov")}>SoV{sortInd("sov")}</th>
                     <th class="px-2 py-2 text-left font-medium">주의</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {entries.map(([key, g]: any, i: number) => {
+                  {sortEntriesBy(entries, tableSort, sharesByKey).map(([key, g]: any, i: number) => {
                     const hs = g.health_score;
                     const grade = hs?.grade ?? "PRE";
                     const total = hs?.total;
