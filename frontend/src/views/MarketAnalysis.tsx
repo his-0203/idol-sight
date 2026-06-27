@@ -122,10 +122,8 @@ export function MarketAnalysis({
   const growthPending = enriched.length - scatterCountries.length;
 
   const [selected, setSelected] = useState<string | null>(null);
-  // 비전문가 배려 — 지표 안내. 최초 방문 시 닫힌 상태로 시작하고, 한 번 열어본 뒤 닫으면 localStorage에 기억.
-  const [showHelp, setShowHelp] = useState(() => {
-    try { return localStorage.getItem("ma-help-seen") !== "1"; } catch { return false; }
-  });
+  // 비전문가 배려 — 지표 안내는 기본 닫힘(첫 화면 단순화). 필요할 때 펼친다.
+  const [showHelp, setShowHelp] = useState(false);
   const [donutMetric, setDonutMetric] = useState<"subs" | "share" | "minutes">("share");
   const donut = useMemo(() => {
     const val = (e: EnrichedCountry) => donutMetric === "subs" ? (e.row.subsGained ?? 0)
@@ -175,11 +173,7 @@ export function MarketAnalysis({
             <div class="text-sm font-semibold text-zinc-100">{headline(enriched)}</div>
             <div class="mt-0.5 text-[11px] text-zinc-500">아래는 "왜 그런지" 근거입니다. 모르는 용어는 오른쪽 ? 를 보세요.</div>
           </div>
-          <button type="button" onClick={() => setShowHelp((v) => {
-              const next = !v;
-              if (!next) { try { localStorage.setItem("ma-help-seen", "1"); } catch { /* ignore */ } }
-              return next;
-            })}
+          <button type="button" onClick={() => setShowHelp((v) => !v)}
             aria-expanded={showHelp}
             class="shrink-0 rounded-full border border-zinc-600 px-2 py-0.5 text-xs text-zinc-400 hover:border-zinc-400 hover:text-zinc-200">
             {showHelp ? "✕ 닫기" : "? 지표 안내"}
