@@ -355,6 +355,33 @@ export function MarketOverview() {
                         <span class="text-zinc-600" title="신호 부족 — 인지도 산정 제외">—</span>
                       )}
                     </div>
+                    {g.core_fan_estimate != null && (
+                      <div
+                        class="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-zinc-500"
+                        title="좋아요·댓글 기반 추정 — 라이브 측정과 다른 축, 비교 아닌 참고"
+                      >
+                        <span class="rounded border border-zinc-700 px-1 text-[9px] text-zinc-600">
+                          추정
+                        </span>
+                        <span>코어팬</span>
+                        {g.core_fan_estimate.est_engaged_fans != null ? (
+                          <span class="tabular-nums">
+                            ~{fmt(g.core_fan_estimate.est_engaged_fans)}
+                          </span>
+                        ) : (
+                          <span class="text-zinc-600">—</span>
+                        )}
+                        {g.core_fan_estimate.est_active_core != null && (
+                          <>
+                            <span class="text-zinc-600">·</span>
+                            <span>적극</span>
+                            <span class="tabular-nums">
+                              ~{fmt(g.core_fan_estimate.est_active_core)}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
                     {categoryOf(g.group_model) === "kpop" && (
                       <DebutWindowKPI groupKey={key} />
                     )}
