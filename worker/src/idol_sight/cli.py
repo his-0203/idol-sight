@@ -1059,6 +1059,52 @@ def rebuild_live_chat_reports(
 
 
 @app.command(
+    "build-live-activity",
+    help=(
+        "MiiWAN 찐팬 활동량 지표 산출 (P2a). 저장된 live_chat_messages"
+        "(방송별 고유 챗터·챗터당 메시지·분당 피크·재방문) + youtube_video_stats"
+        "(추정 관여 팬/적극 코어/시청 전환) 재가공으로 agg_live_activity / "
+        "agg_live_activity_summary 에 멱등 rebuild. 신규 수집 0 — 기존 데이터 "
+        "재가공. live_chat 데이터가 있는 그룹만 실질 산출 = miiwan."
+    ),
+)
+def build_live_activity_cmd(
+    group: str = typer.Option(
+        "miiwan", "--group",
+        help="대상 group_key. 현재 live_chat 수집은 miiwan 만.",
+    ),
+    window_days: int = typer.Option(
+        56, "--window-days",
+        help="코어팬·추정 영상 참여 윈도(일). 설계 기본 56.",
+    ),
+) -> None:
+    from idol_sight.analysis.live_activity import build_live_activity
+
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    try:
+        result = build_live_activity(
+            client, group_key=group, window_days=window_days,
+        )
+    except Exception as exc:  # noqa: BLE001 — 단일 그룹, 마이그레이션 미적용 등 비치명적.
+        typer.echo(f"[{group}] build-live-activity FAIL: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if result.statements:
+        bs = client.batch(result.statements)
+        if bs.statements_executed != bs.statements_sent:
+            typer.echo(
+                f"partial live_activity write: "
+                f"{bs.statements_executed}/{bs.statements_sent}",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+    typer.echo(
+        f"[{group}] build-live-activity: wrote {len(result.statements)} rows"
+    )
+
+
+@app.command(
     "backfill-music-show-wins",
     help=(
         "Backfill 음방 1위 events from Naver news + Gemini structured "

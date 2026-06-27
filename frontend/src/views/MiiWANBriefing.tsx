@@ -37,6 +37,7 @@ import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
 import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
 import { CompetitorOrganicityBar } from "../components/CompetitorOrganicityBar";
+import { FanActivityCard, type FanActivity } from "../components/FanActivityCard";
 import { MarketAnalysis } from "./MarketAnalysis";
 
 type SummaryShape = {
@@ -115,6 +116,8 @@ type MiiwanData = {
   alerts: AlertRow[];
   controversy_trend: { current: number; previous: number | null } | null;
   decision: DecisionData;
+  // P2a 찐팬 활동량 — agg_live_activity_summary 행 없으면 null(카드 '축적 중').
+  fan_activity: FanActivity | null;
 };
 
 // DECISION 탭 데이터. member_popularity는 공개 프록시(지금 가동),
@@ -479,6 +482,11 @@ export function MiiWANBriefing() {
       {/* 종료된 라이브 방송의 채팅을 긁어 긍/부정 대표 멘트 + 비율 추정을
           방송별로 보여준다. /api/miiwan-live-chat (live_chat_reports). */}
       <MiiWANLiveChat />
+
+      {/* P2a 찐팬 활동량 — 라이브 채팅 measured 코어 + 영상 estimated 참여.
+          /api/miiwan 의 fan_activity (신규 수집 0, 기존 데이터 재가공).
+          summary 행 없으면 null 이라 카드 자체를 숨긴다. */}
+      {data.fan_activity && <FanActivityCard activity={data.fan_activity} />}
 
       {/* 4) RISK WATCH — virtual-idol critical 카테고리만 뽑아 별도
           섹션. PR/Risk 페이지로 hop 없이 MiiWAN 컨텍스트에서 즉시
