@@ -10,6 +10,7 @@ import {
   CONTROVERSY_SPIKE_MIN_COUNT,
   CONTROVERSY_SPIKE_MULTIPLIER,
 } from "../lib/alerts";
+import { sentimentBadge } from "../lib/sentiment";
 
 function wowDelta(curr: number | null | undefined, prev: number | null | undefined): number | null {
   if (curr == null || prev == null) return null;
@@ -232,14 +233,24 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
         <section class="rounded-lg border border-zinc-800 p-3">
           <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">최근 뉴스</h3>
           <ul class="space-y-1 text-xs">
-            {news.map((n: any, i: number) => (
-              <li key={i}>
-                <a class="hover:underline" href={n.url} target="_blank" rel="noopener">{n.title}</a>
-                <span class="ml-2 text-zinc-500" title={n.published_at ? formatKST(n.published_at) : undefined}>
-                  {n.source ?? ""} · {formatKSTDate(n.published_at)}
-                </span>
-              </li>
-            ))}
+            {news.map((n: any, i: number) => {
+              // naver_articles carries no sentiment column (DB schema has none;
+              // sentiment lives only on community_posts). badge is always null
+              // here — this is intentionally a safe no-op, forward-compatible
+              // if the column is ever added.
+              const badge = sentimentBadge(n.sentiment);
+              return (
+                <li key={i}>
+                  {badge && (
+                    <span class={`mr-1 rounded border px-1.5 text-[11px] ${badge.cls}`}>{badge.label}</span>
+                  )}
+                  <a class="hover:underline" href={n.url} target="_blank" rel="noopener">{n.title}</a>
+                  <span class="ml-2 text-zinc-500" title={n.published_at ? formatKST(n.published_at) : undefined}>
+                    {n.source ?? ""} · {formatKSTDate(n.published_at)}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

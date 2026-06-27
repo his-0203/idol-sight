@@ -1,8 +1,8 @@
 // MarketAnalysis — MiiWAN 브리핑의 '시장 분석' 서브뷰.
 //
 // 단순 점수 나열을 거부하고, 4개 설계 에이전트 합의를 화면으로:
-//   헤드라인(자동요약) → 신뢰게이트 → 사분면(어디를) → 국가 드릴다운('왜')
-//   → 점유집중도 → PRI 우선순위·순차베팅 → 굿즈 → 보류함.
+//   헤드라인(자동요약) → 신뢰게이트 → PRI 우선순위·순차베팅 → 사분면(어디를)
+//   → 국가 드릴다운('왜') → 점유집중도 → 굿즈 → 보류함.
 // 모든 해석/플래그/경고는 점수를 바꾸지 않는다. 표본부족은 분리한다.
 
 import { useMemo, useRef, useState } from "preact/hooks";
@@ -122,8 +122,10 @@ export function MarketAnalysis({
   const growthPending = enriched.length - scatterCountries.length;
 
   const [selected, setSelected] = useState<string | null>(null);
-  // 비전문가 배려 — 지표 안내 기본 펼침(처음 보는 사람이 용어부터 막히지 않게).
-  const [showHelp, setShowHelp] = useState(true);
+  // 비전문가 배려 — 지표 안내. 최초 방문 시 닫힌 상태로 시작하고, 한 번 열어본 뒤 닫으면 localStorage에 기억.
+  const [showHelp, setShowHelp] = useState(() => {
+    try { return localStorage.getItem("ma-help-seen") !== "1"; } catch { return false; }
+  });
   const [donutMetric, setDonutMetric] = useState<"subs" | "share" | "minutes">("share");
   const donut = useMemo(() => {
     const val = (e: EnrichedCountry) => donutMetric === "subs" ? (e.row.subsGained ?? 0)
@@ -173,7 +175,11 @@ export function MarketAnalysis({
             <div class="text-sm font-semibold text-zinc-100">{headline(enriched)}</div>
             <div class="mt-0.5 text-[11px] text-zinc-500">아래는 "왜 그런지" 근거입니다. 모르는 용어는 오른쪽 ? 를 보세요.</div>
           </div>
-          <button type="button" onClick={() => setShowHelp((v) => !v)}
+          <button type="button" onClick={() => setShowHelp((v) => {
+              const next = !v;
+              if (!next) { try { localStorage.setItem("ma-help-seen", "1"); } catch { /* ignore */ } }
+              return next;
+            })}
             aria-expanded={showHelp}
             class="shrink-0 rounded-full border border-zinc-600 px-2 py-0.5 text-xs text-zinc-400 hover:border-zinc-400 hover:text-zinc-200">
             {showHelp ? "✕ 닫기" : "? 지표 안내"}
@@ -514,7 +520,6 @@ function GoodsBoard({ memberPopularity, analytics }: {
 
   return (
     <section>
-      <h3 class="section-title mb-1">굿즈 제작</h3>
       <p class="text-hint mb-3 text-zinc-500">멤버 배분은 공개 인기 데이터로 가동. 총 수량·가격대는 멤버십/슈퍼챗(API 미제공) 연결 후 점등.</p>
       <div class="grid gap-4 md:grid-cols-[1.3fr_1fr]">
         <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">

@@ -6,6 +6,7 @@ import { ExportMenu } from "../components/ExportMenu";
 import { EmptyState } from "../components/EmptyState";
 import { GroupTabs } from "../components/GroupTabs";
 import { formatKST, formatKSTDate } from "../lib/datetime";
+import { type Sentiment, SENTIMENT_BADGE } from "../lib/sentiment";
 
 // Notices, vote/poll templates, and other sticky moderator posts dominate
 // "top by views" lists without reflecting fan activity, so we hide them by
@@ -24,15 +25,6 @@ const tsOf = (p: any): number | null => {
   const t = Date.parse(s);
   return Number.isFinite(t) ? t : null;
 };
-type Sentiment = "positive" | "negative" | "controversy" | "neutral" | null | undefined;
-
-const SENTIMENT_BADGE: Record<Exclude<Sentiment, null | undefined>, { label: string; cls: string }> = {
-  positive:    { label: "긍정", cls: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300" },
-  negative:    { label: "부정", cls: "border-orange-500/40 bg-orange-500/10 text-orange-300" },
-  controversy: { label: "논란", cls: "border-red-500/40 bg-red-500/10 text-red-300" },
-  neutral:     { label: "중립", cls: "border-zinc-700 bg-zinc-800/40 text-zinc-400" },
-};
-
 export function Community({ groupKey, period }: { groupKey: string | null; period: number | null }) {
   const [data, setData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);

@@ -104,6 +104,15 @@ export function Members({ groupKey }: { groupKey: string | null }) {
   // re-expressed, and HHI raw is N-dependent (see worker
   // member_popularity.py docstring) so its absolute number means
   // different things across groups.
+  const top1Pct = data.top1_share != null ? Math.round(data.top1_share * 100) : null;
+  const evennessPct = data.evenness != null ? Math.round(data.evenness * 100) : null;
+  const verdictText =
+    top1Pct != null && top1Pct >= 50
+      ? `최상위 멤버 쏠림 (Top1 ${top1Pct}%) — 솔로 스케줄 과부하 리스크 점검 권고`
+      : evennessPct != null && evennessPct >= 75
+      ? "균형 분산 — 팬덤 응집력 안정"
+      : "멤버 간 점수 차이가 있으나 특정 쏠림 없음 — 현 활동 추이 모니터링 권고";
+
   return (
     <div class="space-y-4">
       <GroupTabs />
@@ -120,6 +129,10 @@ export function Members({ groupKey }: { groupKey: string | null }) {
           hint="최상위 멤버 점유율 (상세는 표 1행 참조)"
         />
       </section>
+      <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-xs">
+        <span class="text-label mr-2">해석</span>
+        <span class="text-zinc-500">{verdictText}</span>
+      </div>
       <section class="rounded-lg border border-zinc-800 p-3">
         <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">멤버 복합 점수</h3>
         <div class="h-48 md:h-64"><canvas ref={canvas}></canvas></div>
