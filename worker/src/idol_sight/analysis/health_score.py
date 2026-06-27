@@ -8,7 +8,7 @@ REF values used to be hard-coded (subs=1M, views=200M, quality=10M,
 community=200K, news=500). That made PLAVE saturate at 1.0 across all
 five dimensions while every other group landed at 0.05–0.3 — the BI
 lost discrimination power for the bottom seven groups. We now compute
-REF dynamically from the cohort's p90 (the 90th-percentile value across
+REF dynamically from the cohort's p75 (the 75th-percentile value across
 all active groups in the same snapshot), so the scale stretches
 naturally as the market grows. ``compute_dynamic_refs`` returns the
 REFs and ``compute_health_score`` accepts a ``refs`` dict to use

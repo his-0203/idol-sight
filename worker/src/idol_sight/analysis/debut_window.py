@@ -190,7 +190,7 @@ def _compute_engagement_score(engagement_rate: float, is_short: bool) -> int:
 
 def _compute_balance_score(like_comment_ratio: float, is_short: bool) -> int:
     """0-100 score. Type-split normal zones (V2 calibration):
-    long-form 10-50, shorts 20-150. Outside zone penalizes farms."""
+    long-form 10-50, shorts 15-78. Outside zone penalizes farms."""
     r = like_comment_ratio
     if is_short:
         lo, hi = BALANCE_NORMAL_SHORT_LO, BALANCE_NORMAL_SHORT_HI
@@ -455,8 +455,9 @@ def _days_between(debut_date: str, published_at: str) -> int:
 
 def build_video_organicity(client: _Executor) -> CollectionResult:
     """Score every video in each group with a debut_date, return upsert
-    statements. V3.1 (2026-05-25): all videos scored — Pre/Post buckets
-    catch ±60d outside videos. Idempotent on video_id."""
+    statements. V3.1 (2026-05-25): all videos scored. Pre + 산술 D+N(20일 폭
+    무한)이 전 기간을 커버한다. Post catch-all은 V2.49에서 폐기(d>=10은
+    산술 D+20k 무한 생성). Idempotent on video_id."""
     rows = client.execute(_FETCH_VIDEOS_SQL)
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     statements: list[tuple[str, list[Any]]] = []
