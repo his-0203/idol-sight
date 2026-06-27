@@ -27,7 +27,7 @@
 |---|---|---|---|
 | `dc_total_posts` / `theqoo_posts` / `instiz_posts` | 플랫폼별 수집 글 수 | **누적**(무윈도) | agg_summary 가 누적 집계 — "이번 주"가 아니라 전체 누적. WoW 는 스냅샷 간 delta 로 봐야 함 |
 | `negative_ratio` | (negative+controversy)/classified | **누적**(community 누적집계와 일관) | 위와 동일하게 누적. 단독 윈도화는 보류(설계 결정 대기) |
-| `controversy_count` | 논란 분류 트윗/글 수 | 스냅샷 | — |
+| `controversy_count` | `community_posts` `sentiment='controversy'` **14일 트레일링 윈도(누적 아님)**, `CONTROVERSY_WINDOW_DAYS=14` | 14일 윈도 | Twitter 제거 후 community로 재소싱. 누적 아님 — 누적 시 `_controversy_factor` 0 고착, Health 페널티 무제한 누적 방지 |
 | `community_keywords_topic` | external(방송)/self(자체)/negative/neutral 분류 | 최근 7일 제목 | first-pass lexicon(운영자 calibration 여지) |
 
 ## 알림 (위기 감지) — Streisand 민감
@@ -46,8 +46,35 @@
 
 ## SOV / Health
 
-- **SOV (Share of Voice · 발언/관심 점유)**: 여러 신호에서의 *언급·관심 점유도*를 나타내는 합성 지표(시장점유율과 무관). 신호별 percentile rank와 z-score를 혼합(단일 고볼륨 신호 지배 방지). 카테고리 코호트(kpop/subculture) 내 비교.
+- **SOV (Share of Voice · 발언/관심 점유)**: 여러 신호에서의 *언급·관심 점유도*를 나타내는 합성 지표(시장점유율과 무관). 신호 4종(조회·커뮤·뉴스·구독)의 **percentile-rank만** 사용(z-score는 `weekly_diagnosis`의 `market_share_z`에만, SOV 산식과 무관). `SOV_WEIGHTS` = yt_views 0.33 / community 0.28 / news 0.22 / subscribers 0.17. 카테고리 코호트(kpop/subculture) 내 비교. *Twitter는 수집 종료로 완전 제거.*
 - **Health Score**: 4-factor(Reach/RitualVictory/Mobilization/Intimacy) group_model별 가중. ref 동적(percentile). 산식 정의는 `HealthSpec.tsx` 모달.
+
+## Fan Loyalty (라이브 CCV 충성도)
+
+| 지표 | 정의 | 윈도 | 신뢰도·한계 |
+|---|---|---|---|
+| `fan_loyalty.conversion_rate` | `median(방송별 peak CCV ÷ 방송 시점 구독자)`. 방송 시점 구독자는 방송 `first_at` 기준 최근 스냅샷(V2.48 방송시점 매칭) | 56일 | 라이브 안 한 그룹은 scored 없음(페널티 0) |
+| `fan_loyalty.score` | `LOYALTY_ANCHORS` 선형보간 0–100. first-pass — 라이브 데이터 축적 후 보정 예정 | 56일 | `basis='scored'`(방송 ≥2회)만 Health Intimacy 주입 |
+| `fan_loyalty.peak_ccv_median` | `median(방송별 최고 동접수)` — 규모 신호(점수와 직교) | 56일 | CCV 절대값은 구독자 규모에 비례 |
+| `fan_loyalty.basis` | `broadcast_count==0 또는 subs≤0 → insufficient` / `==1 → low_confidence` / `≥2 → scored` | — | low_confidence/insufficient는 Health 비주입 |
+
+## Live Activity (찐팬 활동량 — P2a)
+
+| 지표 | 정의 | 윈도 | 신뢰도·한계 |
+|---|---|---|---|
+| `live_activity.unique_chatters` | 방송별 고유 채팅 작성자 수(측정값) | 56일(WINDOW_DAYS) | measured — 수집 채팅 데이터에 종속 |
+| `live_activity.returning_rate` | 직전 방송 챗터 집합 재방문 비율. 최초 방송 → None | 56일 | 방송 간격·화제성에 따라 편차 큼 |
+| `live_activity.core_fan_count` | 56일 윈도 내 ≥2방송 등장 코어팬 수 | 56일 | 방송 ≥2건만 계산 |
+| `live_activity.est_engaged_fans` | `median(likes)` 기반 추정 참여 팬 수(외형 신호) | 56일 | estimated — 추정치, 인간 판단 대체 아님 |
+| `live_activity.basis` | `방송 0 → insufficient / 1 → low_confidence / ≥2 → scored` | — | scored만 향후 Health 주입 예정 |
+
+## Awareness Index (인지도 지수 — P2b)
+
+| 지표 | 정의 | 윈도 | 신뢰도·한계 |
+|---|---|---|---|
+| `awareness.score` | `구독 0.50 + 조회 0.35 + 뉴스 0.15` (각 카테고리 리더 대비 log1p 정규화) × 100. 데뷔 전 포함 | 스냅샷 | 리더 대비 상대값 — zero-sum 아님. 검색량 미포함(향후 추가) |
+| `awareness.rank` | 카테고리(kpop/subculture) 내 score 내림차순. 동점 → 구독자 큰 쪽 우선 | 스냅샷 | 카테고리 분리 — kpop/subculture 간 직접 비교 불가 |
+| `awareness.basis` | 구독·조회 모두 None/0 → `insufficient` / 그 외 → `scored` | — | — |
 
 ## 시간대 주의
 
