@@ -34,6 +34,11 @@ interface CoreFanEstimateRow {
   est_active_core: number | null; basis: string;
 }
 
+interface LoyaltyRow {
+  group_key: string; conversion_rate: number | null;
+  peak_ccv_median: number | null; broadcast_count: number; basis: string;
+}
+
 const safeJson = (s: string | null) => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
@@ -118,6 +123,12 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_core_fan_estimate)`)
     .catch(() => [] as CoreFanEstimateRow[]);
 
+  // 시청전환율 = median peak 라이브 동접(CCV) ÷ 구독자. agg_fan_loyalty는 group_key PK(그룹당 1행).
+  const loyalty = await d1Query<LoyaltyRow>(env.DB,
+    `SELECT group_key, conversion_rate, peak_ccv_median, broadcast_count, basis
+       FROM agg_fan_loyalty`)
+    .catch(() => [] as LoyaltyRow[]);
+
   const sumByKey: Record<string, SummaryRow> = {};
   for (const s of sums) sumByKey[s.group_key] = s;
   const prevSumByKey: Record<string, SummaryRow> = {};
@@ -128,6 +139,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   for (const a of awareness) awarenessByKey[a.group_key] = a;
   const cfByKey: Record<string, CoreFanEstimateRow> = {};
   for (const cf of coreFanEstimates) cfByKey[cf.group_key] = cf;
+  const loyaltyByKey: Record<string, LoyaltyRow> = {};
+  for (const l of loyalty) loyaltyByKey[l.group_key] = l;
 
   const out: Record<string, unknown> = {};
   for (const g of groups) {
@@ -139,6 +152,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     };
     const aw = awarenessByKey[g.key];
     const cf = cfByKey[g.key];
+    const ld = loyaltyByKey[g.key];
     out[g.key] = {
       name: g.name, name_kr: g.name_kr, debut_date: g.debut_date,
       group_model: g.group_model ?? "corporate",
@@ -171,6 +185,14 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       core_fan_estimate: cf && cf.basis === "scored" ? {
         est_engaged_fans: cf.est_engaged_fans,
         est_active_core: cf.est_active_core,
+      } : null,
+      // 시청전환율 = median peak 라이브 동접(CCV) ÷ 구독자. CCV 미수집(서브컬처 등)·
+      // insufficient(방송 부족)는 null → 표에서 '—'.
+      view_conversion: ld && ld.conversion_rate != null && ld.basis !== "insufficient" ? {
+        rate: ld.conversion_rate,
+        peak_ccv: ld.peak_ccv_median,
+        broadcasts: ld.broadcast_count,
+        basis: ld.basis,
       } : null,
     };
   }
