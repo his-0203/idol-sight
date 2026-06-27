@@ -23,30 +23,10 @@ import {
 } from "../lib/organicity";
 import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 
-// Category derived from worker's group_model taxonomy (migration 0007).
-//   corporate     → K-POP (album-cycle, 음방, 컴백)
-//   segmentary    → 서브컬처 (왁타버스 위성)
-//   confederation → 서브컬처 (V-tuber 우산)
-// Splitting cards into category sections is what keeps ranks readable.
-// Mixing PLAVE (corporate K-pop) and STELLIVE (V-tuber confederation) on
-// one ranked grid implies they compete on the same plane, which they
-// don't — their KPIs are weighted differently in Health Score itself.
-type Category = "kpop" | "subculture";
-
-const CATEGORY_LABEL: Record<Category, string> = {
-  kpop:       "K-POP",
-  subculture: "서브컬처",
-};
-
-const CATEGORY_HINT: Record<Category, string> = {
-  kpop:       "Corporate (음반·음방·컴백 사이클)",
-  subculture: "Segmentary / Confederation (스트리밍·라이브·V-tuber)",
-};
-
-function categoryOf(groupModel: string | null | undefined): Category {
-  if (groupModel === "segmentary" || groupModel === "confederation") return "subculture";
-  return "kpop";
-}
+// 카테고리 분류는 lib/category로 추출(GroupSwitcher와 공유). 카드를 카테고리
+// 섹션으로 나눠야 순위가 읽힌다 — PLAVE(corporate)와 STELLIVE(confederation)를
+// 한 평면에 섞으면 같은 면에서 경쟁하는 것처럼 보이지만 Health 가중이 다르다.
+import { categoryOf, CATEGORY_LABEL, CATEGORY_HINT, type Category } from "../lib/category";
 
 // Grade ordering — used as the primary sort key inside each category
 // section so the operator sees ranks at a glance. PRE (pre-debut) is
