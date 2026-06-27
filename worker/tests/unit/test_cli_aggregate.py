@@ -9,6 +9,8 @@ COALESCE preserves melon) and recompute health_scores. Adding
 cuts a ~5min run down to <30s, eliminating chronic 10-min timeouts.
 """
 
+import pytest
+import typer
 from unittest.mock import MagicMock, patch
 
 from idol_sight.cli import _recompute_health_scores, _run_aggregate
@@ -144,3 +146,92 @@ def test_skip_derived_skips_debut_window_stages(
 
     mock_dw_video.assert_not_called()
     mock_dw_summary.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# P2b: 인지도 지수(Awareness Index) — agg_summary 파생, always-run, graceful 가드.
+# ---------------------------------------------------------------------------
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.platform_reactivity.compute_reactivity")
+@patch("idol_sight.analysis.video_velocity.compute_velocity")
+@patch("idol_sight.analysis.group_combined.build_agg_group_combined")
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+@patch("idol_sight.analysis.awareness.build_awareness")
+def test_default_runs_awareness(
+    mock_awareness, mock_summary, mock_combined, mock_velocity,
+    mock_reactivity, mock_health,
+):
+    """awareness is built on the default daily aggregate, keyed at the same
+    snapshot as agg_summary (it's an agg_summary derivative). The keyword arg
+    mirrors the worker signature build_awareness(client, *, snapshot_at)."""
+    mock_summary.return_value = _stub_build_result()
+    mock_combined.return_value = _stub_build_result()
+    mock_velocity.return_value = _stub_build_result()
+    mock_reactivity.return_value = []
+    mock_awareness.return_value = _stub_build_result()
+    client = _make_client()
+
+    _run_aggregate(client, snap="2026-05-12T00:00:00Z")
+
+    mock_awareness.assert_called_once_with(client, snapshot_at="2026-05-12T00:00:00Z")
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+@patch("idol_sight.analysis.awareness.build_awareness")
+def test_skip_derived_still_runs_awareness(
+    mock_awareness, mock_summary, mock_health,
+):
+    """awareness lives in the always-run section (alongside health_scores), so
+    the skip-derived 2nd aggregate in the melon-chart sandwich still refreshes
+    it — unlike combined/velocity/reactivity which are skipped."""
+    mock_summary.return_value = _stub_build_result()
+    mock_awareness.return_value = _stub_build_result()
+    client = _make_client()
+
+    _run_aggregate(client, snap="2026-05-12T00:00:00Z", skip_derived=True)
+
+    mock_awareness.assert_called_once_with(client, snapshot_at="2026-05-12T00:00:00Z")
+    mock_health.assert_called_once_with(client, "2026-05-12T00:00:00Z")
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+@patch("idol_sight.analysis.awareness.build_awareness")
+def test_awareness_build_failure_does_not_kill_aggregate(
+    mock_awareness, mock_summary, mock_health,
+):
+    """Deploy↔migration graceful rule (mirrors fan_loyalty): if agg_awareness
+    (0097) isn't applied yet, build/INSERT throws — but aggregate must not die,
+    and the downstream _recompute_health_scores must still run."""
+    mock_summary.return_value = _stub_build_result()
+    mock_awareness.side_effect = RuntimeError("no such table: agg_awareness")
+    client = _make_client()
+
+    # must NOT raise
+    _run_aggregate(client, snap="2026-05-12T00:00:00Z", skip_derived=True)
+
+    mock_health.assert_called_once_with(client, "2026-05-12T00:00:00Z")
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+@patch("idol_sight.analysis.awareness.build_awareness")
+def test_awareness_partial_write_hard_fails(
+    mock_awareness, mock_summary, mock_health,
+):
+    """A genuine partial write (statements_executed != statements_sent) must
+    still hard-fail with typer.Exit — the graceful except re-raises typer.Exit
+    so the partial-write guard is preserved (only build/missing-table errors
+    are swallowed). skip_derived isolates the batch to awareness only."""
+    mock_summary.return_value = _stub_build_result()
+    mock_awareness.return_value = _stub_build_result(
+        [("INSERT INTO agg_awareness (...) VALUES (...)", [])]
+    )
+    client = _make_client()
+    client.batch.return_value = MagicMock(statements_executed=0, statements_sent=1)
+
+    with pytest.raises(typer.Exit):
+        _run_aggregate(client, snap="2026-05-12T00:00:00Z", skip_derived=True)

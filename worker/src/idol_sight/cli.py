@@ -325,7 +325,8 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
       2. agg_group_combined    (skipped when ``skip_derived``)
       3. video_velocity        (skipped when ``skip_derived``)
       4. platform_reactivity   (skipped when ``skip_derived``)
-      5. agg_health_scores     (always)
+      5. agg_awareness (P2b)   (always — agg_summary derivative, graceful)
+      6. agg_health_scores     (always)
 
     The 2nd aggregate in the collect-daily/melon-chart sandwich passes
     ``skip_derived=True`` because stages 2–4 don't read melon fields, so
@@ -445,6 +446,33 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
     else:
         typer.echo("skip-derived: agg_group_combined / velocity / reactivity skipped")
 
+    # P2b: 인지도 지수(Awareness Index). agg_summary 파생(구독·조회·뉴스)이므로
+    # health_scores 와 동일한 always-run 위치 — skip_derived 2nd aggregate 도
+    # 갱신한다(agg_summary 가 melon COALESCE 로 재upsert 되는 샌드위치 패턴과
+    # 정합). 카테고리(K-POP/서브컬처)별 분리 랭킹이며, 점수 산식 변경이 아닌
+    # 신규 표시 지표다. 신규 수집 0 — agg_summary 최신 스냅샷 재가공.
+    # V2.52 fan_loyalty 와 동일한 배포↔마이그레이션 graceful 규칙: 신규 테이블
+    # agg_awareness(0097)가 아직 적용되지 않은 배포에서 build/INSERT throw 가
+    # aggregate 전체(특히 이후의 _recompute_health_scores)를 죽이지 않도록
+    # 감싼다(import 도 try 안 — P2b 점진 롤아웃 중 모듈/테이블 부재 모두 흡수).
+    # 단, 부분쓰기 가드(statements_executed != statements_sent)의 typer.Exit 은
+    # 재raise 해 하드 실패를 보존한다.
+    try:
+        from idol_sight.analysis.awareness import build_awareness
+        aw = build_awareness(client, snapshot_at=snap)
+        if aw.statements:
+            bs = client.batch(aw.statements)
+            if bs.statements_executed != bs.statements_sent:
+                typer.echo(f"partial awareness write: "
+                           f"{bs.statements_executed}/{bs.statements_sent}", err=True)
+                raise typer.Exit(code=1)
+        typer.echo(f"awareness: wrote {len(aw.statements)} rows")
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        typer.echo(f"[warn] awareness skipped (build/write 실패, 0097 미적용 가능): {exc}",
+                   err=True)
+
     # V2.19.2: refresh agg_health_scores at the same daily cadence as
     # agg_summary so melon-chart UPDATEs (and any other agg_summary
     # change) surface on the dashboard within hours instead of waiting
@@ -454,6 +482,45 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
     # ON CONFLICT and recomputes against the COALESCE-preserved row).
     n_health = _recompute_health_scores(client, snap)
     typer.echo(f"health_scores: wrote {n_health} rows")
+
+
+@app.command(
+    "build-awareness",
+    help="Rebuild agg_awareness for one snapshot (P2b 인지도 지수, standalone).",
+)
+def build_awareness_cmd(
+    snapshot_at: str | None = typer.Option(
+        None,
+        "--snapshot-at",
+        help=(
+            "UTC timestamp like 2026-05-07T12:00:00Z. Defaults to the latest "
+            "agg_summary snapshot — awareness is an agg_summary derivative, so "
+            "the current UTC hour would usually miss the snapshot. Pass an "
+            "explicit value to rebuild a historical snapshot (time series)."
+        ),
+    ),
+) -> None:
+    """Standalone awareness rebuild. The daily path runs it inside
+    ``_run_aggregate`` (agg_summary 직후); this command is for manual reruns /
+    backfilling a past snapshot without re-running the whole aggregate."""
+    from idol_sight.analysis.awareness import build_awareness
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    snap = snapshot_at
+    if snap is None:
+        latest = client.execute("SELECT MAX(snapshot_at) AS m FROM agg_summary")
+        snap = (latest[0].get("m") if latest else None)
+        if not snap:
+            typer.echo("no agg_summary snapshot found", err=True)
+            raise typer.Exit(code=1)
+    aw = build_awareness(client, snapshot_at=snap)
+    if aw.statements:
+        bs = client.batch(aw.statements)
+        if bs.statements_executed != bs.statements_sent:
+            typer.echo(f"partial awareness write: "
+                       f"{bs.statements_executed}/{bs.statements_sent}", err=True)
+            raise typer.Exit(code=1)
+    typer.echo(f"awareness: wrote {len(aw.statements)} rows at {snap}")
 
 
 @app.command(

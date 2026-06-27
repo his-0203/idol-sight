@@ -54,4 +54,67 @@ describe("/api/market", () => {
     const body = await res.json() as any;
     expect(body.groups.miiwan.health_score).toBeNull();
   });
+
+  // P2b — Awareness Index surfaced on each group.
+  it("includes awareness.{score,category_rank} for scored groups", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+      if (sql.includes("FROM agg_awareness"))
+        return [{ group_key: "plave", awareness_score: 87.4,
+                  category_rank: 1, basis: "scored" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.groups.plave.awareness).toEqual({ score: 87.4, category_rank: 1 });
+  });
+
+  it("nulls awareness score/rank when basis=insufficient", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "wegosix", name: "WeGoSix", name_kr: "위고식스" }];
+      if (sql.includes("FROM agg_awareness"))
+        return [{ group_key: "wegosix", awareness_score: null,
+                  category_rank: null, basis: "insufficient" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.groups.wegosix.awareness).toEqual({ score: null, category_rank: null });
+  });
+
+  it("awareness is null when no agg_awareness row exists", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "miiwan", name: "MiiWAN", name_kr: "미완소년" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.groups.miiwan.awareness).toBeNull();
+  });
+
+  // P2b Critical fix — migration 0097 미배포 환경에서 agg_awareness 테이블이 없어도
+  // /api/market 전체가 500이 되지 않고 200 + awareness:null 로 응답해야 한다.
+  it("agg_awareness query reject (no such table) → 200 with awareness:null, other data intact", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+      if (sql.includes("FROM agg_awareness"))
+        throw new Error("no such table: agg_awareness");
+      if (sql.includes("FROM agg_summary"))
+        return [{ group_key: "plave", snapshot_at: "2026-05-04T14:00:00Z",
+                  yt_total_views: 100, dc_total_posts: 2, theqoo_posts: 3,
+                  instiz_posts: 4, naver_total_news: 5, twitter_posts: 6,
+                  controversy_count: 0, yt_total_videos: 7, yt_subscribers: 8 }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(res.status).toBe(200);
+    expect(body.groups.plave.awareness).toBeNull();
+    // Other data still present
+    expect(body.groups.plave.summary?.yt_total_views).toBe(100);
+  });
 });
