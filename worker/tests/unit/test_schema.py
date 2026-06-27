@@ -22,7 +22,6 @@ def test_all_expected_tables_exist():
         "youtube_videos", "youtube_video_stats", "youtube_channel_stats",
         "naver_articles",
         "community_posts", "community_post_stats", "community_keywords",
-        "twitter_posts",
         "hanteo_weekly",
         "agg_summary", "agg_health_scores", "agg_market_share",
         "agg_member_popularity", "agg_member_pop_meta",

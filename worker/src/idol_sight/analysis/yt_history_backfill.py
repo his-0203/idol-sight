@@ -22,7 +22,7 @@ reconstruct two derived cumulative metrics:
     a grain of salt; treat the curve as the truth.
 
 Other agg_summary columns (subscribers, dc/theqoo/instiz posts, news,
-twitter, controversy) cannot be backfilled and are written as 0.
+controversy) cannot be backfilled and are written as 0.
 The DebutCurve metric selector caps at the columns we can fill, so
 the operator never sees a flat-zero curve for those.
 
@@ -59,8 +59,8 @@ INSERT INTO agg_summary
   (group_key, snapshot_at,
    yt_total_videos, yt_total_views, yt_subscribers,
    dc_total_posts, theqoo_posts, instiz_posts,
-   naver_total_news, twitter_posts, controversy_count, data_source)
-VALUES (?, ?, ?, ?, NULL, 0, 0, 0, 0, 0, 0, 'backfill_estimate')
+   naver_total_news, controversy_count, data_source)
+VALUES (?, ?, ?, ?, NULL, 0, 0, 0, 0, 0, 'backfill_estimate')
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   yt_total_videos = COALESCE(agg_summary.yt_total_videos, excluded.yt_total_videos),
   yt_total_views  = COALESCE(agg_summary.yt_total_views, excluded.yt_total_views)

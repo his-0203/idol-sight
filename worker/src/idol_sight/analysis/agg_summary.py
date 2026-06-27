@@ -7,10 +7,8 @@ overwrites. Computes:
 - dc_total_posts, theqoo_posts, instiz_posts (from community_posts grouped
   by platform)
 - naver_total_news (excluding is_excluded=1)
-- twitter_posts (legacy Twitter volume column; count only)
 - controversy_count (from community_posts WHERE sentiment='controversy'
-  over the last CONTROVERSY_WINDOW_DAYS by posted_at — NOT cumulative;
-  Twitter no longer contributes)
+  over the last CONTROVERSY_WINDOW_DAYS by posted_at — NOT cumulative)
 """
 
 from __future__ import annotations
@@ -40,9 +38,9 @@ INSERT INTO agg_summary
    yt_total_videos, yt_total_views, yt_subscribers,
    yt_likes_total, yt_comments_total,
    dc_total_posts, theqoo_posts, instiz_posts,
-   naver_total_news, twitter_posts, controversy_count,
+   naver_total_news, controversy_count,
    music_show_wins, melon_top100_peak, melon_top100_depth)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   yt_total_videos=excluded.yt_total_videos,
   yt_total_views=excluded.yt_total_views,
@@ -53,7 +51,6 @@ ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   theqoo_posts=excluded.theqoo_posts,
   instiz_posts=excluded.instiz_posts,
   naver_total_news=excluded.naver_total_news,
-  twitter_posts=excluded.twitter_posts,
   controversy_count=excluded.controversy_count,
   music_show_wins=COALESCE(excluded.music_show_wins, agg_summary.music_show_wins),
   melon_top100_peak=COALESCE(excluded.melon_top100_peak, agg_summary.melon_top100_peak),
@@ -71,7 +68,7 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
         "yt_videos": 0, "yt_views": None, "yt_subs": None,
         "yt_likes": 0, "yt_comments": 0,
         "dc": 0, "theqoo": 0, "instiz": 0,
-        "naver": 0, "twitter": 0, "controversy": 0,
+        "naver": 0, "controversy": 0,
     })
 
     # Community posts by platform.
@@ -95,18 +92,6 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
     )
     for r in rows:
         counts[r["group_key"]]["naver"] = r["n"]
-
-    # Twitter posts (count only). Controversy is NO LONGER sourced from
-    # here: Twitter collection is dead, so type='controversy' is
-    # permanently empty. The COUNT is kept for the legacy `twitter`
-    # column (physical Twitter removal is a separate P4 item); controversy
-    # is re-sourced from community sentiment just below.
-    rows = client.execute(
-        "SELECT group_key, COUNT(*) AS n "
-        "FROM twitter_posts GROUP BY group_key"
-    )
-    for r in rows:
-        counts[r["group_key"]]["twitter"] = r["n"]
 
     # Controversy count — re-sourced from community_posts sentiment
     # (LLM-classified 'controversy'). WINDOWED to the last
@@ -216,7 +201,7 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
                 c["yt_videos"], c["yt_views"], c["yt_subs"],
                 c["yt_likes"], c["yt_comments"],
                 c["dc"], c["theqoo"], c["instiz"],
-                c["naver"], c["twitter"], c["controversy"],
+                c["naver"], c["controversy"],
                 # music_show_wins: NULL — collector not shipped (V2.16
                 # stub). The COALESCE in _UPSERT preserves any value
                 # already in the row from a manual seed, so this UPSERT

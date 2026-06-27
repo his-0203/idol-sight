@@ -177,7 +177,7 @@ def emit_sql_block(group_key: str, weekly: dict[date, int]) -> str:
     rows = sorted(weekly.items())
     values = ",\n  ".join(
         f"('{group_key}', '{d.isoformat()}T00:00:00Z', NULL, NULL, NULL, "
-        f"0, 0, 0, {n}, 0, 0, 'backfill_exact')"
+        f"0, 0, 0, {n}, 0, 'backfill_exact')"
         for d, n in rows
     )
     return f"""-- ============================================================
@@ -188,7 +188,7 @@ INSERT INTO agg_summary
   (group_key, snapshot_at,
    yt_total_videos, yt_total_views, yt_subscribers,
    dc_total_posts, theqoo_posts, instiz_posts,
-   naver_total_news, twitter_posts, controversy_count, data_source)
+   naver_total_news, controversy_count, data_source)
 VALUES
   {values}
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
