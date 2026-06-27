@@ -420,7 +420,7 @@ class _Executor(Protocol):
 _FETCH_SQL = """
 SELECT group_key, snapshot_at,
        yt_subscribers, yt_total_views, yt_likes_total, yt_comments_total,
-       dc_total_posts, theqoo_posts, instiz_posts, twitter_posts,
+       dc_total_posts, theqoo_posts, instiz_posts,
        negative_ratio
 FROM agg_summary
 ORDER BY group_key, snapshot_at
