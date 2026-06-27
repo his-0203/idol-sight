@@ -71,7 +71,7 @@ function RungBar({ rung }: { rung: string }) {
         <div key={i}
           class={"flex-1 rounded px-1 py-0.5 text-center text-[9px] "
             + (i === cur ? "bg-cyan-500/70 font-semibold text-white"
-              : i < cur ? "bg-cyan-500/20 text-cyan-300" : "bg-zinc-800 text-zinc-600")}>
+              : i < cur ? "bg-cyan-500/20 text-cyan-300" : "bg-zinc-800 text-zinc-500")}>
           {i === cur ? `▸ ${s}` : s}
         </div>
       ))}
@@ -185,7 +185,7 @@ export function MarketAnalysis({
       {/* 신뢰 게이트 — 메타 정보라 한 줄 요약 + 접기(비전문가 첫 화면 단순화) */}
       <details class="rounded-card border border-zinc-800 bg-zinc-900/40">
         <summary class="cursor-pointer list-none px-3 py-2 text-xs text-zinc-400 marker:content-none">
-          📊 데이터 신뢰도 — 충분 <span class="text-emerald-300">{sufficient.length}</span>개국 · 보류 {insufficient.length}개국 · 쏠림 {hhiLabel(h)} <span class="text-zinc-600">(자세히 ▾)</span>
+          📊 데이터 신뢰도 — 충분 <span class="text-emerald-300">{sufficient.length}</span>개국 · 보류 {insufficient.length}개국 · 쏠림 {hhiLabel(h)} <span class="text-zinc-500">(자세히 ▾)</span>
         </summary>
         <div class="grid grid-cols-2 gap-2 px-3 pb-3 md:grid-cols-4">
           <GateCard label="추적 국가" value={`${enriched.length}개국`} />
@@ -211,7 +211,7 @@ export function MarketAnalysis({
                   onClick={() => selectCountry(e.row.country)}
                   class={"flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-zinc-800/60 "
                     + (sel?.row.country === e.row.country ? "bg-zinc-800/80" : "")}>
-                  <span class="w-4 shrink-0 text-right text-xs text-zinc-600">{i + 1}</span>
+                  <span class="w-4 shrink-0 text-right text-xs text-zinc-500">{i + 1}</span>
                   <span class="w-8 shrink-0 text-sm text-zinc-300">{e.row.country}</span>
                   <div class="h-2.5 flex-1 overflow-hidden rounded bg-zinc-800">
                     <div class="h-full rounded bg-violet-500/60" style={{ width: `${Math.round(e.pri * 100)}%` }} />
@@ -223,7 +223,7 @@ export function MarketAnalysis({
           </div>
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
             <div class="mb-2 text-xs font-semibold text-zinc-400">예산 배분 계획</div>
-            <p class="mb-2 text-[11px] text-zinc-600">예산을 흩으면 효과 측정이 어려워 한 번에 2곳만 집중합니다. 자막 테스트는 무료라 여러 곳 동시 가능.</p>
+            <p class="mb-2 text-[11px] text-zinc-500">예산을 흩으면 효과 측정이 어려워 한 번에 2곳만 집중합니다. 자막 테스트는 무료라 여러 곳 동시 가능.</p>
             <div class="space-y-2 text-xs">
               <QueueRow label="🎯 지금 광고할 곳 (2곳까지)" tone="text-cyan-300"
                 items={queue.paidSlots.map((e) => e.row.country)} />
@@ -243,7 +243,7 @@ export function MarketAnalysis({
       <section>
         <h3 class="section-title mb-1">🍩 우리 채널 현황 — 어느 나라에서 보고 구독하나</h3>
         <p class="text-hint mb-3 text-zinc-500">국가별 분포(상위 9개국 + 기타), 본진 포함. 토글로 구독·시청 전환.</p>
-        <div role="tablist" class="mb-3 inline-flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+        <div role="tablist" class="mb-3 inline-flex gap-1 card p-1">
           {([["share", "시청 비중"], ["minutes", "시청 시간"], ["subs", "구독 유입"]] as const).map(([k, label]) => {
             const on = donutMetric === k;
             return (
@@ -281,7 +281,7 @@ export function MarketAnalysis({
                 </div>
               ))}
             </div>
-            <p class="mt-2 text-[11px] text-zinc-600">1.0× = 본진(한국)과 동등. 길수록 오래(끝까지) 봄.</p>
+            <p class="mt-2 text-[11px] text-zinc-500">1.0× = 본진(한국)과 동등. 길수록 오래(끝까지) 봄.</p>
           </div>
         </div>
       </section>
@@ -309,7 +309,7 @@ export function MarketAnalysis({
         </div>
         <details class="mt-3 rounded-card border border-zinc-800 bg-zinc-900/40">
           <summary class="cursor-pointer list-none px-3 py-2 text-xs text-zinc-400 marker:content-none">
-            📊 유망도 점수 랭킹 (참고) <span class="text-zinc-600">— 데이터 신호만 본 잠재력. 실제 돈 쓸 순서는 위 '진출 우선순위' (펼치기 ▾)</span>
+            📊 유망도 점수 랭킹 (참고) <span class="text-zinc-500">— 데이터 신호만 본 잠재력. 실제 돈 쓸 순서는 위 '진출 우선순위' (펼치기 ▾)</span>
           </summary>
           <div class="space-y-1 px-3 pb-3">
             {[...enriched].sort((a, b) => b.score - a.score).slice(0, 12).map((e) => (
@@ -335,7 +335,7 @@ export function MarketAnalysis({
       <details class="rounded-card border border-zinc-800 bg-zinc-900/40">
         <summary class="cursor-pointer list-none px-4 py-3 marker:content-none">
           <span class="section-title">🎁 굿즈 제작</span>
-          <span class="ml-2 text-xs text-zinc-500">멤버 배분·수량·가격 <span class="text-zinc-600">(펼치기 ▾)</span></span>
+          <span class="ml-2 text-xs text-zinc-500">멤버 배분·수량·가격 <span class="text-zinc-500">(펼치기 ▾)</span></span>
         </summary>
         <div class="px-4 pb-4">
           <GoodsBoard memberPopularity={memberPopularity} analytics={analytics} />
@@ -346,14 +346,14 @@ export function MarketAnalysis({
       {insufficient.length > 0 && (
         <details class="rounded-card border border-zinc-800 bg-zinc-900/40">
           <summary class="cursor-pointer list-none px-4 py-3 text-sm text-zinc-400 marker:content-none">
-            ⏸ 데이터 부족으로 보류 중 — {insufficient.length}개국 <span class="text-zinc-600">(펼치기 ▾)</span>
+            ⏸ 데이터 부족으로 보류 중 — {insufficient.length}개국 <span class="text-zinc-500">(펼치기 ▾)</span>
           </summary>
           <div class="px-4 pb-4">
             <p class="text-hint mb-2 text-zinc-500">노이즈를 결정으로 오인하지 않도록 분리. 데이터가 더 모이면 결정 영역으로 올라옵니다.</p>
             <div class="flex flex-wrap gap-1.5">
               {insufficient.map((e) => (
                 <span key={e.row.country} class="rounded border border-zinc-700/50 bg-zinc-800/40 px-2 py-0.5 text-xs text-zinc-400">
-                  {e.row.country} <span class="text-zinc-600">{(e.row.watchShare * 100).toFixed(2)}%</span>
+                  {e.row.country} <span class="text-zinc-500">{(e.row.watchShare * 100).toFixed(2)}%</span>
                 </span>
               ))}
             </div>
@@ -378,7 +378,7 @@ function QueueRow({ label, items, tone }: { label: string; items: string[]; tone
   return (
     <div>
       <div class={"mb-0.5 font-medium " + tone}>{label}</div>
-      <div class="text-zinc-400">{items.length ? items.join(" · ") : <span class="text-zinc-600">없음</span>}</div>
+      <div class="text-zinc-400">{items.length ? items.join(" · ") : <span class="text-zinc-500">없음</span>}</div>
     </div>
   );
 }
@@ -408,7 +408,7 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
         <div class={"inline-block rounded-md border px-2.5 py-1 text-sm font-semibold " + CONCLUSION_TONE[concl.tone]}>{concl.text}</div>
         {/* 근거 — 강등(작게/회색). 5개 척도를 '근거'로 종속. */}
         <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-500">
-          <span class="text-zinc-600">근거:</span>
+          <span class="text-zinc-500">근거:</span>
           <span class={TIER_TONE[e.tier] ?? ""}>{e.interpretation.label}</span>
           <span>· {TIER_LABEL_KO[e.tier]} {e.score}점 · {QUADRANT_LABEL[e.quadrant]} ·</span>
           <Tooltip content="팬덤이 안착하기 좋은 환경 — 끝까지 보고(몰입)·구독하고(헌신)·자연 유입(자생성)되는가.">
@@ -434,7 +434,7 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
               {name === weakest[0] && <span class="text-[10px] text-amber-400">⚠ 약점</span>}
             </div>
           ))}
-          <div class="pt-1 text-[11px] text-zinc-600">
+          <div class="pt-1 text-[11px] text-zinc-500">
             시장: {m.market} · 언어격차: {m.langGap} · 교포: {m.diasporaKr}
             {e.row.watchMinutes != null && <> · 표본 {fmt(e.row.watchMinutes)}분</>}
           </div>
@@ -468,7 +468,7 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
               {adv.hypotheses.map((h, i) => (
                 <div key={i} class="rounded-md bg-zinc-900/50 p-2">
                   <div class="mb-0.5 flex items-center gap-1.5">
-                    <span class="text-[10px] tabular-nums text-zinc-600">{i + 1}</span>
+                    <span class="text-[10px] tabular-nums text-zinc-500">{i + 1}</span>
                     <span class={"rounded px-1 py-px text-[9px] font-medium "
                       + (h.likely ? "bg-cyan-500/20 text-cyan-300" : "bg-zinc-700/40 text-zinc-400")}>
                       {h.likely ? "유력" : "가능"}
@@ -520,7 +520,7 @@ function GoodsBoard({ memberPopularity, analytics }: {
         <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
           <div class="mb-2 text-xs font-semibold text-zinc-400">멤버별 배분 (포카 비율) · <span class="text-amber-300">추정</span></div>
           {alloc.length === 0 ? (
-            <div class="text-xs text-zinc-600">멤버 인기 데이터 없음.</div>
+            <div class="text-xs text-zinc-500">멤버 인기 데이터 없음.</div>
           ) : alloc.map((m) => (
             <div key={m.memberId} class="mb-1.5 flex items-center gap-2">
               <span class="w-16 shrink-0 truncate text-sm text-zinc-300">{m.name}</span>
@@ -530,7 +530,7 @@ function GoodsBoard({ memberPopularity, analytics }: {
               <span class="w-12 shrink-0 text-right text-sm tabular-nums text-zinc-300">{m.sharePct.toFixed(1)}%</span>
             </div>
           ))}
-          <p class="mt-1 text-[11px] text-zinc-600">하한 10%·상한 평균×2 — 0장·과잉생산 동시 방어.</p>
+          <p class="mt-1 text-[11px] text-zinc-500">하한 10%·상한 평균×2 — 0장·과잉생산 동시 방어.</p>
         </div>
         <div class="space-y-2">
           <PendingCard title="총 제작 수량 (하한)"

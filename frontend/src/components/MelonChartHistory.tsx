@@ -497,7 +497,7 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
   return (
     <div class="space-y-3">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <div class="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-0.5">
+        <div class="flex gap-1 card p-0.5">
           {TYPE_TABS.map(t => (
             <button
               key={t.v}
@@ -510,7 +510,7 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
             >{t.label}</button>
           ))}
         </div>
-        <div class="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-0.5">
+        <div class="flex gap-1 card p-0.5">
           {ANCHOR_TABS.map(t => (
             <button
               key={t.v}
@@ -623,7 +623,7 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
                   && soloId == null;
 
                 const nameClass = !visible
-                  ? "text-zinc-600"
+                  ? "text-zinc-500"
                   : (dim ? "text-zinc-500" : "text-zinc-200");
                 const strike = !visible && !isSolo ? " line-through" : "";
 
@@ -704,7 +704,7 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
           </div>
 
           <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
+            <div class="card p-2">
               <div class="text-xs uppercase tracking-wider text-zinc-500">최고 순위</div>
               <div class="mt-0.5 text-xl font-bold tabular-nums">
                 {vm.kpis.bestPeak != null ? `#${vm.kpis.bestPeak}` : "—"}
@@ -713,21 +713,21 @@ export function MelonChartHistory({ groupKey }: { groupKey: string }) {
                 <div class="text-xs text-zinc-500 truncate">{vm.kpis.bestPeakSong}</div>
               )}
             </div>
-            <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
+            <div class="card p-2">
               <div class="text-xs uppercase tracking-wider text-zinc-500">평균 Best</div>
               <div class="mt-0.5 text-xl font-bold tabular-nums">
                 {vm.kpis.avgPeak ?? "—"}
               </div>
               <div class="text-xs text-zinc-500">일별 peak 평균</div>
             </div>
-            <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
+            <div class="card p-2">
               <div class="text-xs uppercase tracking-wider text-zinc-500">최대 진입곡</div>
               <div class="mt-0.5 text-xl font-bold tabular-nums">
                 {vm.kpis.maxDepth ?? "—"}
               </div>
               <div class="text-xs text-zinc-500">하루 최대 곡 수</div>
             </div>
-            <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-2">
+            <div class="card p-2">
               <div class="text-xs uppercase tracking-wider text-zinc-500">곡 수</div>
               <div class="mt-0.5 text-xl font-bold tabular-nums">{data.songs.length}</div>
               <div class="text-xs text-zinc-500">

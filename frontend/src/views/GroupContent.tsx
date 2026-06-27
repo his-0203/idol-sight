@@ -458,7 +458,7 @@ function GroupEventTimeline({ groupKey }: { groupKey: string }) {
                 <div class="mt-0.5 text-xs text-zinc-400">{e.description}</div>
               )}
               {e.source_url && (
-                <a class="mt-0.5 inline-block text-[11px] text-zinc-600 hover:text-zinc-400 hover:underline"
+                <a class="mt-0.5 inline-block text-[11px] text-zinc-500 hover:text-zinc-400 hover:underline"
                    href={e.source_url} target="_blank" rel="noopener">출처 ↗</a>
               )}
             </li>
@@ -1064,7 +1064,7 @@ function FactorBreakdown(props: {
                    }} />
             </div>
             <span class="w-20 shrink-0 text-right tabular-nums text-zinc-400">
-              {score.toFixed(1)}<span class="text-zinc-600">/{weight}</span>
+              {score.toFixed(1)}<span class="text-zinc-500">/{weight}</span>
             </span>
           </div>
         );
@@ -1164,7 +1164,7 @@ function GroupInsightSection(props: {
       <ul class="space-y-2">
         {props.insights.map((i) => (
           <li key={i.id}
-              class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+              class="card">
             <div class="text-hint text-zinc-500">
               {TYPE_LABEL[i.type] ?? i.type} · {formatKSTDate(i.generated_at)}
             </div>

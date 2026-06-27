@@ -25,7 +25,7 @@ export function WeeklyUpdate() {
   return (
     <div class="space-y-6">
       {(weekStart || weekEnd) && (
-        <header class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
+        <header class="card">
           <div class="text-xs uppercase tracking-wider text-zinc-500">Reporting Window (KST)</div>
           <div class="text-base font-semibold tabular-nums">
             Week of {weekStart ?? "?"}{weekEnd ? ` ~ ${weekEnd}` : ""}
@@ -73,7 +73,7 @@ export function WeeklyUpdate() {
                     )}
                     {i.generated_at && (
                       <span
-                        class="ml-auto text-[10px] text-zinc-600 tabular-nums"
+                        class="ml-auto text-[10px] text-zinc-500 tabular-nums"
                         title={formatKST(i.generated_at)}
                       >
                         {formatKST(i.generated_at)}

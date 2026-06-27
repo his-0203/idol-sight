@@ -19,7 +19,7 @@ export function BreadthDepthQuadrant({ points }: { points: QuadrantInput[] }) {
 
   if (!L.plottable) {
     return (
-      <div class="text-hint text-zinc-600 px-2 py-3">
+      <div class="text-hint text-zinc-500 px-2 py-3">
         인지도·추정 코어팬 둘 다 집계된 그룹이 2개 미만 — 포지셔닝 맵 생략.
       </div>
     );
@@ -73,7 +73,7 @@ export function BreadthDepthQuadrant({ points }: { points: QuadrantInput[] }) {
           </g>
         ))}
       </svg>
-      <div class="mt-1 text-hint text-zinc-600">
+      <div class="mt-1 text-hint text-zinc-500">
         십자선 = 카테고리 중앙값. 코어팬은 좋아요·댓글 추정(ground-truth 아님)·세로 log축.
         <span class="text-amber-400/80"> ⚠</span> = 영상 카탈로그 organicity 주의(인지도 점수엔 미반영).
       </div>

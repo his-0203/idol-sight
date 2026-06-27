@@ -446,7 +446,7 @@ export function MiiWANBriefing() {
 
       {/* 뷰 토글 — 기존 브리핑 / 시장 분석. 히어로는 항상 노출, 하단만 전환. */}
       <div role="tablist" aria-label="MiiWAN 뷰"
-           class="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+           class="flex gap-1 card p-1">
         {([["briefing", "브리핑"], ["market", "시장 분석"]] as const).map(([k, label]) => {
           const on = mode === k;
           return (
@@ -554,7 +554,7 @@ export function MiiWANBriefing() {
               {/* Tabs — D-30 / D-DAY / D+30. 한 번 fetch 한 데이터를 분기만
                   하므로 클릭 즉시 전환된다. */}
               <div role="tablist" aria-label="benchmark anchor"
-                   class="mb-3 flex flex-wrap gap-1 rounded-lg border border-zinc-800 bg-zinc-900/40 p-1">
+                   class="mb-3 flex flex-wrap gap-1 card p-1">
                 {ANCHOR_TABS.map((t) => {
                   const active = t.key === anchorTab;
                   return (
@@ -663,7 +663,7 @@ export function MiiWANBriefing() {
           비교. 코호트 표 바로 옆에서 "어떤 그룹이 데뷔 윈도에서 가장
           유기적 시그널이 강한가" 한 눈에 비교. bucket picker 로 D-60 ~
           D+60 윈도 전환 가능. */}
-      <section class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+      <section class="card">
         <p class="mb-2 text-[11px] leading-relaxed text-zinc-500">
           이 막대 = <strong class="text-zinc-300">'진짜인가'</strong>(진정성, 규모 무관) ·
           위 표의 조회·구독 = <strong class="text-zinc-300">'충분한가'</strong>(규모) ·
@@ -726,7 +726,7 @@ export function MiiWANBriefing() {
             <ul class="grid grid-cols-2 gap-2 md:grid-cols-5">
               {data.members.map((m) => (
                 <li key={m.id}
-                    class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                    class="card">
                   <div class="text-base font-semibold">{m.name}</div>
                   {m.name_en && (
                     <div class="text-xs text-zinc-500">{m.name_en}</div>
@@ -1143,7 +1143,7 @@ function MiiWANEventTimeline({ today }: { today: string }) {
                 <div class="mt-0.5 text-xs text-zinc-400">{e.description}</div>
               )}
               {e.source_url && (
-                <a class="mt-0.5 inline-block text-[11px] text-zinc-600 hover:text-zinc-400 hover:underline"
+                <a class="mt-0.5 inline-block text-[11px] text-zinc-500 hover:text-zinc-400 hover:underline"
                    href={e.source_url} target="_blank" rel="noopener">출처 ↗</a>
               )}
             </li>
@@ -1341,7 +1341,7 @@ function LiveChatReportCard({ r }: { r: LiveChatReport }) {
   const body = r.report;
   const endedDate = r.ended_at ? r.ended_at.slice(0, 10) : "—";
   return (
-    <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+    <div class="card">
       <div class="flex flex-wrap items-baseline gap-2">
         <span class="font-semibold">{r.title ?? "(제목 없음)"}</span>
         <span class="tabular-nums text-zinc-500">{endedDate}</span>
@@ -1361,7 +1361,7 @@ function LiveChatReportCard({ r }: { r: LiveChatReport }) {
           <span class="text-emerald-400">긍정 {pos}%</span>
           {" · "}
           <span class="text-rose-400">부정 {neg}%</span>
-          <span class="text-zinc-600"> (추정)</span>
+          <span class="text-zinc-500"> (추정)</span>
         </span>
       </div>
 
@@ -1418,7 +1418,7 @@ function LiveChatReportCard({ r }: { r: LiveChatReport }) {
           <summary class="cursor-pointer list-none text-xs text-zinc-400 hover:text-zinc-200">
             <span class="group-open:hidden">▸ 표본 채팅 전체 보기</span>
             <span class="hidden group-open:inline">▾ 표본 채팅 접기</span>
-            <span class="ml-1 tabular-nums text-zinc-600">
+            <span class="ml-1 tabular-nums text-zinc-500">
               (긍정 {body?.positive_all?.length ?? 0} · 부정 {body?.negative_all?.length ?? 0})
             </span>
           </summary>
@@ -1462,7 +1462,7 @@ function DDayCard({ d, debuted, accent }:
                   { d: number | null; debuted: boolean; accent: string }) {
   if (d == null) {
     return (
-      <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+      <div class="card p-4">
         <div class="text-xs uppercase tracking-wider text-zinc-500">데뷔까지</div>
         <div class="mt-1 text-2xl font-bold text-zinc-400">미정</div>
       </div>
@@ -1471,7 +1471,7 @@ function DDayCard({ d, debuted, accent }:
   const label = debuted ? "데뷔 완료" : "데뷔까지";
   const big = debuted ? `D+${Math.abs(d)}` : `D-${d}`;
   return (
-    <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4"
+    <div class="card p-4"
          style={{ borderColor: accent }}>
       <div class="text-xs uppercase tracking-wider text-zinc-500">{label}</div>
       <div class="mt-1 text-3xl font-bold tabular-nums"
@@ -1486,7 +1486,7 @@ function DDayCard({ d, debuted, accent }:
 function HealthCard({ h }: { h: MiiwanData["health_score"] }) {
   if (!h || h.total == null) {
     return (
-      <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+      <div class="card p-4">
         <div class="text-xs uppercase tracking-wider text-zinc-500">Health</div>
         <div class="mt-1 text-2xl font-bold text-zinc-400">PRE</div>
         <div class="mt-0.5 text-hint text-zinc-500">데뷔 전 — 점수 산정 보류</div>
@@ -1494,7 +1494,7 @@ function HealthCard({ h }: { h: MiiwanData["health_score"] }) {
     );
   }
   return (
-    <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+    <div class="card p-4">
       <div class="text-xs uppercase tracking-wider text-zinc-500">Health</div>
       <div class="mt-1 flex items-baseline gap-2">
         <div class="text-3xl font-bold tabular-nums">{h.total.toFixed(1)}</div>

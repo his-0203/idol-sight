@@ -137,7 +137,7 @@ export function SystemStatus() {
         </div>
       </div>
 
-      <p class="text-hint text-zinc-600">
+      <p class="text-hint text-zinc-500">
         지연 임계 = 기대 주기 × 4 (health-check 기준). 실패/지연 잡은
         GitHub Actions 로그 확인 후 재실행. 자세한 지표 정의는 운영팀 문서를 참고.
       </p>

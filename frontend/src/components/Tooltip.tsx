@@ -195,7 +195,7 @@ export function DataSourceDetails(props: {
           ›
         </span>
         <span>{props.label ?? "데이터 출처"}</span>
-        <span class="text-zinc-600 tabular-nums">({condensed.length})</span>
+        <span class="text-zinc-500 tabular-nums">({condensed.length})</span>
       </summary>
       <ul class="mt-1 ml-3 space-y-0.5">
         {condensed.map((r, i) => (

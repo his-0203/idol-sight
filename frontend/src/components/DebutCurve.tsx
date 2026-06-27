@@ -762,7 +762,7 @@ export function DebutCurve() {
                 );
               })}
             </ul>
-            <div class="mt-2 text-[11px] text-zinc-600">
+            <div class="mt-2 text-[11px] text-zinc-500">
               ● 표시/숨기기 · 그룹명 클릭 시 단독 표시
             </div>
             {isolated && events.length > 0 && (

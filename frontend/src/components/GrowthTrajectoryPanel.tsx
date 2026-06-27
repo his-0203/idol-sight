@@ -113,7 +113,7 @@ const WEAKEST_REASON: Record<string, string> = {
 
 function MessageBox({ children }: { children: ComponentChildren }) {
   return (
-    <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4 text-sm text-zinc-400">
+    <div class="card p-4 text-sm text-zinc-400">
       {children}
     </div>
   );
@@ -145,7 +145,7 @@ export function GrowthTrajectoryPanel({ groupKey }: { groupKey: string }) {
   const weakest = data.weakest_pillar ?? null;
 
   return (
-    <div class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4">
+    <div class="card p-4">
       {/* Headline: plain one-liner is the lead; the label sits beside it as a chip. */}
       <div class="mb-4 flex items-start justify-between gap-4">
         <div>
@@ -172,7 +172,7 @@ export function GrowthTrajectoryPanel({ groupKey }: { groupKey: string }) {
                       style={{ background: TONE_COLOR[tone] }} />
                 {word}
               </span>
-              {metric && <span class="ml-auto shrink-0 tabular-nums text-zinc-600">{metric}</span>}
+              {metric && <span class="ml-auto shrink-0 tabular-nums text-zinc-500">{metric}</span>}
             </div>
           );
         })}
@@ -190,10 +190,10 @@ export function GrowthTrajectoryPanel({ groupKey }: { groupKey: string }) {
         )}
       </div>
 
-      <p class="mt-3 text-[11px] leading-relaxed text-zinc-600">
+      <p class="mt-3 text-[11px] leading-relaxed text-zinc-500">
         상태어 = 최근 추세(직전 1주 대비) · 옆 숫자 = 이전·최근 7일 비교 — 서로 다른 시점이라 방향이 달라 보일 수 있어요.
       </p>
-      <p class="mt-1 text-[11px] leading-relaxed text-zinc-600">
+      <p class="mt-1 text-[11px] leading-relaxed text-zinc-500">
         자기 과거 대비 추정치 · 참고용이며 정답이 아니에요 (사람 확인이 필요해요).
       </p>
     </div>

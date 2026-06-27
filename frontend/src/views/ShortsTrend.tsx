@@ -66,7 +66,7 @@ export function ShortsTrend() {
           />}
 
       {data.generated_at && (
-        <p class="mt-4 text-hint text-zinc-600">
+        <p class="mt-4 text-hint text-zinc-500">
           데이터 기준 {formatKST(data.generated_at)} · 매일 21:30 KST 갱신
         </p>
       )}

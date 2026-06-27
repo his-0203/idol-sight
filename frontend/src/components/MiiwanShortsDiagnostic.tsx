@@ -70,7 +70,7 @@ function KpiCell({ k }: { k: Kpi }) {
         <span class="inline-block h-2 w-2 rounded-full" style={{ background: STATUS_COLOR[k.status] }} />
       </div>
       <div class="mt-1 text-lg font-bold tabular-nums">{k.display}</div>
-      <div class="text-hint text-zinc-600">목표 {k.target}</div>
+      <div class="text-hint text-zinc-500">목표 {k.target}</div>
     </div>
   );
 }
@@ -120,7 +120,7 @@ export function MiiwanShortsDiagnostic({ data }: { data: DiagnosticData }) {
 
           <ul class="mt-3 space-y-0.5">
             {data.caveats.map((c) => (
-              <li key={c} class="text-hint text-zinc-600">· {c}</li>
+              <li key={c} class="text-hint text-zinc-500">· {c}</li>
             ))}
           </ul>
         </>
@@ -155,7 +155,7 @@ export function MiiwanShortsDiagnostic({ data }: { data: DiagnosticData }) {
                 </li>
               ))}
             </ul>
-            <p class="mt-2 text-hint text-zinc-600">원본 1개 → 플랫폼별 3벌 리퍼포징(워터마크 제거·세로 풀스크린·캡션 교체).</p>
+            <p class="mt-2 text-hint text-zinc-500">원본 1개 → 플랫폼별 3벌 리퍼포징(워터마크 제거·세로 풀스크린·캡션 교체).</p>
           </div>
         </div>
       )}
