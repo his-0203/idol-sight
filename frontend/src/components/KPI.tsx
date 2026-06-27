@@ -46,7 +46,7 @@ export function KPI(props: {
       ? "text-red-500/70"
       : "text-zinc-500/70";
   return (
-    <div class="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 [.light_&]:border-zinc-200 [.light_&]:bg-white">
+    <div class="card [.light_&]:border-zinc-200 [.light_&]:bg-white">
       <div class="flex items-start justify-between gap-2">
         <div class="text-xs uppercase tracking-wider text-zinc-500">
           {props.labelTooltip

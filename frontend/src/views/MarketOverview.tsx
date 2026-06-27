@@ -393,7 +393,7 @@ export function MarketOverview() {
                           {own && (
                             <span class="ml-1 rounded-chip border px-1 text-[9px] align-middle text-own" style={{ borderColor: "rgba(117,215,209,0.5)" }}>자사</span>
                           )}
-                          <span class="ml-1 text-hint text-zinc-600">{g.name_kr}</span>
+                          <span class="ml-1 text-hint text-zinc-500">{g.name_kr}</span>
                         </td>
                         <td class="px-2 py-2 whitespace-nowrap">
                           <span class={`rounded-chip border px-1.5 font-bold ${gradeClasses(grade)}`}>{grade}</span>

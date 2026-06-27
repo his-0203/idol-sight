@@ -51,7 +51,7 @@ export function WeeklyChallenges({ items }: { items: ChallengeItem[] }) {
         <h2 class="text-lg font-bold">이번 주 바이럴 챌린지</h2>
         <span class="text-hint text-zinc-500">{week ? `${week} 주` : ""}</span>
       </div>
-      <p class="mb-3 text-hint text-zinc-600">발굴(AI 웹검색) + YouTube 측정 · MiiWAN 적합도 제안</p>
+      <p class="mb-3 text-hint text-zinc-500">발굴(AI 웹검색) + YouTube 측정 · MiiWAN 적합도 제안</p>
       <ol class="space-y-2">
         {items.map((c) => (
           <li key={c.rank} class="rounded-ctrl border border-zinc-800 p-3">

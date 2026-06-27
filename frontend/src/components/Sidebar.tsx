@@ -39,7 +39,7 @@ function Group({ group, state, onNavigate }: { group: NavGroup; state: RouterSta
   return (
     <div>
       <div class="px-2 pt-3 pb-1 text-[10px] uppercase tracking-wider text-zinc-500">
-        {group.label}{group.sub ? <span class="text-zinc-600"> · {group.sub}</span> : null}
+        {group.label}{group.sub ? <span class="text-zinc-500"> · {group.sub}</span> : null}
       </div>
       {group.items.map((it) => (
         <Item key={it.label} item={it} state={state} onNavigate={onNavigate} />
@@ -54,7 +54,7 @@ export function Sidebar({ state, onNavigate }: { state: RouterState; onNavigate?
       {NAV_MODEL.map((g) => (
         <Group key={g.id} group={g} state={state} onNavigate={onNavigate} />
       ))}
-      <div class="text-hint text-zinc-600 px-2 pt-4 leading-relaxed">
+      <div class="text-hint text-zinc-500 px-2 pt-4 leading-relaxed">
         색: <b class="text-own">자사 #75d7d1</b> · <b class="text-market">시장</b>
       </div>
     </nav>
