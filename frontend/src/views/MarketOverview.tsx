@@ -8,12 +8,11 @@ import { ExportMenu } from "../components/ExportMenu";
 import { ShareLink } from "../components/ShareLink";
 import { HealthSpec } from "../components/HealthSpec";
 import { DebutCurve } from "../components/DebutCurve";
-import { DebutWindowKPI } from "../components/DebutWindowKPI";
 import { colorOf, fillOf } from "../design/groups";
 import { gradeClasses } from "../design/grades";
 import { fmtScale, fmtTooltipCallback } from "../design/chart-defaults";
 import { BreadthDepthQuadrant } from "../components/BreadthDepthQuadrant";
-import type { QuadrantInput } from "../lib/breadthDepth";
+import { computeQuadrantLayout, QUADRANT_LABEL, type QuadrantInput } from "../lib/breadthDepth";
 import {
   DEFAULT_ORGANICITY_MODE,
   computeGroupOrganicities,
@@ -27,6 +26,14 @@ import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWin
 // 섹션으로 나눠야 순위가 읽힌다 — PLAVE(corporate)와 STELLIVE(confederation)를
 // 한 평면에 섞으면 같은 면에서 경쟁하는 것처럼 보이지만 Health 가중이 다르다.
 import { categoryOf, CATEGORY_LABEL, CATEGORY_HINT, type Category } from "../lib/category";
+
+// 넓이×깊이 사분면 태그 색(표 컬럼). breadthDepth QUADRANT_LABEL과 키 동일.
+const QUAD_TAG: Record<string, string> = {
+  strong:    "text-emerald-400 border-emerald-500/40",
+  ad_driven: "text-amber-400 border-amber-500/40",
+  niche:     "text-sky-400 border-sky-500/40",
+  low:       "text-zinc-400 border-zinc-700",
+};
 
 // Grade ordering — used as the primary sort key inside each category
 // section so the operator sees ranks at a glance. PRE (pre-debut) is
@@ -289,148 +296,155 @@ export function MarketOverview() {
         </span>
       </div>
 
-      {/* Per-category card grids — each section ranked grade DESC →
-          total DESC → SOV DESC. A numeric rank chip removes any doubt
-          about the order even when neighbouring cards share a grade. */}
+      {/* ① 개요 KPI strip */}
+      {(() => {
+        const allEntries = [...sectioned.kpop, ...sectioned.subculture];
+        const paidSuspect = allEntries.filter(([k]: any) => organicityCaveat(orgByKey.get(k)).show).length;
+        const mw: any = market?.groups?.miiwan;
+        return (
+          <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <div class="card p-3">
+              <div class="text-hint text-zinc-500">코호트</div>
+              <div class="mt-1 text-lg font-bold tabular-nums">K-POP {sectioned.kpop.length} · 서브 {sectioned.subculture.length}</div>
+            </div>
+            <div class="card p-3">
+              <div class="text-hint text-zinc-500">전체 그룹</div>
+              <div class="mt-1 text-lg font-bold tabular-nums">{allEntries.length}</div>
+            </div>
+            <div class="card p-3">
+              <div class="text-hint text-zinc-500">유료 도달 의심 ⚠</div>
+              <div class="mt-1 text-lg font-bold tabular-nums text-amber-400">{paidSuspect} 그룹</div>
+            </div>
+            <div class="card p-3" style={{ borderColor: "rgba(117,215,209,0.45)" }}>
+              <div class="text-hint text-zinc-500">자사 MiiWAN</div>
+              <div class="mt-1 text-lg font-bold tabular-nums text-own">
+                {mw?.health_score?.grade ?? "—"}
+                {mw?.awareness?.category_rank != null ? ` · 인지도 #${mw.awareness.category_rank}` : ""}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ② 그룹 비교 표 (카테고리별). 넓이×깊이는 태그 컬럼 — 셀 안 서열 손실 없음.
+          포지셔닝 산점도는 아래 접힌 보조 패널로 강등. */}
       {sectionsToRender.map((category) => {
         const entries = sectioned[category];
         if (!entries.length) return null;
+        const points = entries.reduce<QuadrantInput[]>((acc, [key, g]: any) => {
+          const x = g.awareness?.score;
+          const y = g.core_fan_estimate?.est_active_core;
+          if (x != null && y != null) {
+            acc.push({ key, name: g.name, x, y, caveat: organicityCaveat(orgByKey.get(key)).show });
+          }
+          return acc;
+        }, []);
+        const layout = computeQuadrantLayout(points);
+        const quadByKey = new Map(layout.points.map((p) => [p.key, p.quadrant]));
         return (
           <section key={category}>
             <div class="mb-2 flex flex-wrap items-baseline gap-2">
               <h3 class="section-title">{CATEGORY_LABEL[category]}</h3>
               <span class="text-hint text-zinc-500">{CATEGORY_HINT[category]}</span>
-              <span class="ml-auto text-hint text-zinc-500">{entries.length}그룹</span>
+              <span class="ml-auto text-hint text-zinc-500">{entries.length}그룹 · {sortMode === "awareness" ? "인지도순" : "등급순"}</span>
             </div>
-            <div class="mb-2">
-              <BreadthDepthQuadrant
-                points={entries.reduce<QuadrantInput[]>((acc, [key, g]: any) => {
-                  const x = g.awareness?.score;
-                  const y = g.core_fan_estimate?.est_active_core;
-                  if (x != null && y != null) {
-                    acc.push({ key, name: g.name, x, y, caveat: organicityCaveat(orgByKey.get(key)).show });
-                  }
-                  return acc;
-                }, [])}
-              />
-            </div>
-            <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
-              {entries.map(([key, g]: any, i: number) => {
-                const hs = g.health_score;
-                const grade = hs?.grade ?? "PRE";
-                const total = hs?.total;
-                const fallback = g.summary?.yt_subscribers ?? g.summary?.yt_total_views ?? null;
-                const d = deltas[key];
-                const dpp = d && d.prev != null ? d.current - d.prev : null;
-                const tier = i === 0 ? "primary" : i < 2 ? "base" : "muted";
-                return (
-                  <button
-                    key={key}
-                    onClick={() => writeState({ tab: "content", group: key })}
-                    class={
-                      "card border-l-4 p-3 text-left transition-colors hover:border-brand " +
-                      (tier === "muted" ? "opacity-80 " : "")
-                    }
-                    style={{ borderLeftColor: colorOf(key) }}
-                    aria-label={`${g.name} 상세 보기`}
-                  >
-                    <div class="flex items-baseline gap-2">
-                      <span class="rounded bg-zinc-800/80 px-1.5 text-[11px] font-bold tabular-nums text-zinc-300">
-                        #{i + 1}
-                      </span>
-                      <div class="font-semibold">{g.name}</div>
-                      {dpp != null && (
-                        <span
-                          class={
-                            "ml-auto rounded-chip border px-1.5 text-hint tabular-nums " +
-                            (dpp > 0.05
-                              ? "border-emerald-500/40 text-emerald-400"
-                              : dpp < -0.05
-                              ? "border-red-500/40 text-red-400"
-                              : "border-zinc-700 text-zinc-500")
-                          }
-                        >
-                          {dpp > 0 ? "▲" : dpp < 0 ? "▼" : "·"} {Math.abs(dpp).toFixed(1)}pp
-                        </span>
-                      )}
-                    </div>
-                    <div class="text-hint text-zinc-500">{g.name_kr}</div>
-                    <div class={`mt-2 flex items-baseline gap-2 ${tier === "primary" ? "text-3xl" : tier === "base" ? "text-2xl" : "text-xl"}`}>
-                      <span class={`rounded-chip border px-2 font-bold ${gradeClasses(grade)}`}>
-                        {grade}
-                      </span>
-                      <span class="text-hint text-zinc-500 tabular-nums">
-                        {total != null
-                          ? `${total}점`
-                          : fallback != null
-                          ? `${fmt(fallback)} 구독`
-                          : "집계 대기"}
-                      </span>
-                    </div>
-                    <div class="mt-1 flex items-center gap-1.5 text-hint">
-                      <span class="text-zinc-500">인지도</span>
-                      {g.awareness?.score != null ? (
-                        <>
-                          <span class="font-semibold tabular-nums text-sky-300">
-                            {fmtAwareness(g.awareness.score)}
+            <div class="card overflow-x-auto p-0">
+              <table class="w-full text-data">
+                <thead class="text-hint text-zinc-500">
+                  <tr class="border-b border-zinc-800">
+                    <th class="px-3 py-2 text-left font-medium">#</th>
+                    <th class="px-2 py-2 text-left font-medium">그룹</th>
+                    <th class="px-2 py-2 text-left font-medium">등급</th>
+                    <th class="px-2 py-2 text-right font-medium">인지도</th>
+                    <th class="px-2 py-2 text-right font-medium">추정 코어</th>
+                    <th class="px-2 py-2 text-left font-medium">넓이×깊이</th>
+                    <th class="px-2 py-2 text-right font-medium">SoV</th>
+                    <th class="px-2 py-2 text-left font-medium">주의</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entries.map(([key, g]: any, i: number) => {
+                    const hs = g.health_score;
+                    const grade = hs?.grade ?? "PRE";
+                    const total = hs?.total;
+                    const fallback = g.summary?.yt_subscribers ?? g.summary?.yt_total_views ?? null;
+                    const d = deltas[key];
+                    const dpp = d && d.prev != null ? d.current - d.prev : null;
+                    const sov = sharesByKey[key];
+                    const cav = organicityCaveat(orgByKey.get(key));
+                    const quad = quadByKey.get(key);
+                    const cf = g.core_fan_estimate;
+                    const own = key === "miiwan";
+                    return (
+                      <tr
+                        key={key}
+                        class="cursor-pointer border-b border-zinc-800/60 hover:bg-zinc-800/40"
+                        style={own ? { boxShadow: "inset 3px 0 0 #75d7d1", background: "rgba(117,215,209,0.05)" } : undefined}
+                        onClick={() => writeState({ tab: "content", group: key })}
+                      >
+                        <td class="px-3 py-2 tabular-nums text-zinc-500">{i + 1}</td>
+                        <td class="px-2 py-2 whitespace-nowrap">
+                          <span class="mr-1.5 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ background: colorOf(key) }}></span>
+                          <b class={own ? "text-own" : ""}>{g.name}</b>
+                          {own && (
+                            <span class="ml-1 rounded-chip border px-1 text-[9px] align-middle text-own" style={{ borderColor: "rgba(117,215,209,0.5)" }}>자사</span>
+                          )}
+                          <span class="ml-1 text-hint text-zinc-600">{g.name_kr}</span>
+                        </td>
+                        <td class="px-2 py-2 whitespace-nowrap">
+                          <span class={`rounded-chip border px-1.5 font-bold ${gradeClasses(grade)}`}>{grade}</span>
+                          <span class="ml-1 text-hint text-zinc-500 tabular-nums">
+                            {total != null ? `${total}` : fallback != null ? fmt(fallback) : "—"}
                           </span>
-                          {g.awareness.category_rank != null && (
-                            <span class="rounded-chip border border-sky-500/40 px-1 tabular-nums text-sky-400">
-                              #{g.awareness.category_rank}
+                        </td>
+                        <td class="px-2 py-2 text-right tabular-nums">
+                          {g.awareness?.score != null ? (
+                            <span class="text-sky-300">
+                              {fmtAwareness(g.awareness.score)}
+                              {g.awareness.category_rank != null && (
+                                <span class="text-hint text-zinc-500"> #{g.awareness.category_rank}</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span class="text-zinc-600" title="신호 부족 — 인지도 산정 제외">—</span>
+                          )}
+                        </td>
+                        <td class="px-2 py-2 text-right tabular-nums" title="좋아요·댓글 기반 추정(관여 팬) — 라이브 측정과 다른 축, 참고">
+                          {cf?.est_engaged_fans != null ? <>~{fmt(cf.est_engaged_fans)}</> : <span class="text-zinc-600">—</span>}
+                        </td>
+                        <td class="px-2 py-2 whitespace-nowrap">
+                          {quad ? (
+                            <span class={`rounded-chip border px-1.5 text-hint ${QUAD_TAG[quad]}`}>{QUADRANT_LABEL[quad]}</span>
+                          ) : (
+                            <span class="text-zinc-600">—</span>
+                          )}
+                        </td>
+                        <td class="px-2 py-2 text-right tabular-nums whitespace-nowrap">
+                          {sov != null ? `${sov.toFixed(0)}%` : "—"}
+                          {dpp != null && (
+                            <span class={"ml-1 text-hint " + (dpp > 0.05 ? "text-emerald-400" : dpp < -0.05 ? "text-red-400" : "text-zinc-500")}>
+                              {dpp > 0 ? "▲" : dpp < 0 ? "▼" : "·"}{Math.abs(dpp).toFixed(1)}
                             </span>
                           )}
-                        </>
-                      ) : (
-                        <span class="text-zinc-600" title="신호 부족 — 인지도 산정 제외">—</span>
-                      )}
-                    </div>
-                    {(() => {
-                      const cav = organicityCaveat(orgByKey.get(key));
-                      if (!cav.show) return null;
-                      return (
-                        <div
-                          class="mt-0.5 flex items-center gap-1 text-[10px] text-orange-400/90"
-                          title="영상 카탈로그 organicity가 주의 구간 — 광고로 산 도달 가능성. 인지도 점수에는 반영 안 됨(직교 참고 신호)."
-                        >
-                          <span aria-hidden="true">⚠</span>
-                          <span>{cav.label}</span>
-                        </div>
-                      );
-                    })()}
-                    {g.core_fan_estimate != null && (
-                      <div
-                        class="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-zinc-500"
-                        title="좋아요·댓글 기반 추정 — 라이브 측정과 다른 축, 비교 아닌 참고"
-                      >
-                        <span class="rounded border border-zinc-700 px-1 text-[9px] text-zinc-600">
-                          추정
-                        </span>
-                        <span>코어팬</span>
-                        {g.core_fan_estimate.est_engaged_fans != null ? (
-                          <span class="tabular-nums">
-                            ~{fmt(g.core_fan_estimate.est_engaged_fans)}
-                          </span>
-                        ) : (
-                          <span class="text-zinc-600">—</span>
-                        )}
-                        {g.core_fan_estimate.est_active_core != null && (
-                          <>
+                        </td>
+                        <td class="px-2 py-2 whitespace-nowrap">
+                          {cav.show ? (
+                            <span class="text-hint text-amber-400" title="영상 카탈로그 organicity 주의 — 광고로 산 도달 가능성. 인지도 점수엔 미반영(직교 참고).">⚠ {cav.label}</span>
+                          ) : (
                             <span class="text-zinc-600">·</span>
-                            <span>적극</span>
-                            <span class="tabular-nums">
-                              ~{fmt(g.core_fan_estimate.est_active_core)}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    )}
-                    {categoryOf(g.group_model) === "kpop" && (
-                      <DebutWindowKPI groupKey={key} />
-                    )}
-                  </button>
-                );
-              })}
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
+            {/* 포지셔닝 맵 (접힘·보조) — 표가 1차 답, 맵은 넓이×깊이를 시각으로 보고 싶을 때 */}
+            <details class="mt-2">
+              <summary class="cursor-pointer text-hint text-zinc-400">▸ 포지셔닝 맵 (넓이×깊이 산점도)</summary>
+              <div class="mt-2"><BreadthDepthQuadrant points={points} /></div>
+            </details>
           </section>
         );
       })}
