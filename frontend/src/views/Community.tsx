@@ -46,7 +46,7 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
     setErr(null);
     setFlagged({});
     setPlatform(null);
-    api.group(groupKey).then(setData).catch((e) => setErr(String(e)));
+    api.groupCached(groupKey).then(setData).catch((e) => setErr(String(e)));
   }, [groupKey]);
 
   // 데이터에 실제로 존재하는 플랫폼만 필터 버튼으로 노출 — 그룹마다

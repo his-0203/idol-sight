@@ -49,7 +49,7 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
     if (!groupKey) return;
     setData(null);
     setContentFilter("all");
-    api.group(groupKey).then(setData).catch(() => setData({ error: "not_found" }));
+    api.groupCached(groupKey).then(setData).catch(() => setData({ error: "not_found" }));
   }, [groupKey]);
 
   const yt15 = data?.yt_top15 ?? [];
