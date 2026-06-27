@@ -240,7 +240,7 @@ export function CompetitorOrganicityBar() {
                   <span class="cob-current-tag">@{r.shown_bucket}</span>
                 )}
               </div>
-              {isOurs && <div class="cob-tag">← ours</div>}
+              {isOurs && <div class="cob-tag">← 우리 그룹</div>}
             </div>
           );
         })}
@@ -254,7 +254,7 @@ export function CompetitorOrganicityBar() {
         )}
         <br />
         진정성(오가닉) 점수 = 진정성(비율) 신호 · 조회수 규모와 무관 — 막대 길이는 "진짜인가"지 "큰가"가 아님.
-        {" "}<span class="cob-thin-legend">* 표본 적음(scored &lt; 3) — 중립으로 보정된 점수, 성장·볼륨은 성장 탭 참고.</span>
+        {" "}<span class="cob-thin-legend">* 표본 적음(채점 3개 미만) — 중립으로 보정된 점수, 성장·볼륨은 성장 탭 참고.</span>
       </div>
     </section>
   );
