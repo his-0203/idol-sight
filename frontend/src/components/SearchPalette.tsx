@@ -19,6 +19,13 @@ export function SearchPalette() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
+  // TopBar 검색 버튼 등에서 커스텀 이벤트로 팔레트 열기.
+  useEffect(() => {
+    const open = () => setOpen(true);
+    window.addEventListener("idolsight:search-open", open);
+    return () => window.removeEventListener("idolsight:search-open", open);
+  }, []);
+
   useEffect(() => {
     if (!open || !q) { setResults(null); return; }
     const t = setTimeout(() => api.search(q).then(setResults).catch(() => setResults(null)), 200);
