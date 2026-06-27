@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
-import { Header } from "./components/Header";
+import { TopBar } from "./components/TopBar";
+import { Sidebar } from "./components/Sidebar";
 import { Breadcrumb } from "./components/Breadcrumb";
 import { LoginGate } from "./components/LoginGate";
 import { applyTheme } from "./theme";
@@ -21,6 +22,7 @@ import { SearchPalette } from "./components/SearchPalette";
 export function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [state, setState] = useState(readState());
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => { applyTheme(); }, []);
   useEffect(() => onStateChange(setState), []);
@@ -38,22 +40,38 @@ export function App() {
 
   return (
     <div class="min-h-screen">
-      <Header state={state} />
+      <TopBar onMenu={() => setNavOpen(true)} />
       <SearchPalette />
-      <Breadcrumb state={state} />
-      <main class="mx-auto max-w-7xl p-4">
-        {state.tab === "market"    && <MarketOverview />}
-        {state.tab === "weekly"    && <WeeklyUpdate />}
-        {state.tab === "content"   && <GroupContent groupKey={state.group} />}
-        {state.tab === "members"   && <Members groupKey={state.group} />}
-        {state.tab === "community" && <Community groupKey={state.group} period={state.period} />}
-        {state.tab === "risk"      && <PRRisk groupKey={state.group} />}
-        {state.tab === "growth"    && <GroupGrowth groupKey={state.group} />}
-        {state.tab === "insights"  && <Insights />}
-        {state.tab === "miiwan"    && <MiiWANBriefing />}
-        {state.tab === "shorts"    && <ShortsTrend />}
-        {state.tab === "status"    && <SystemStatus />}
-      </main>
+      <div class="flex">
+        {/* desktop sidebar */}
+        <aside class="hidden md:block shrink-0 border-r border-zinc-800 min-h-[calc(100vh-3rem)] sticky top-12 self-start">
+          <Sidebar state={state} />
+        </aside>
+        {/* mobile overlay sidebar */}
+        {navOpen && (
+          <div class="md:hidden fixed inset-0 z-30 flex" onClick={() => setNavOpen(false)}>
+            <div class="absolute inset-0 bg-black/50"></div>
+            <aside class="relative z-10 bg-surface border-r border-zinc-800 min-h-screen"
+                   onClick={(e) => e.stopPropagation()}>
+              <Sidebar state={state} onNavigate={() => setNavOpen(false)} />
+            </aside>
+          </div>
+        )}
+        <main class="flex-1 min-w-0 p-4">
+          <Breadcrumb state={state} />
+          {state.tab === "market"    && <MarketOverview />}
+          {state.tab === "weekly"    && <WeeklyUpdate />}
+          {state.tab === "content"   && <GroupContent groupKey={state.group} />}
+          {state.tab === "members"   && <Members groupKey={state.group} />}
+          {state.tab === "community" && <Community groupKey={state.group} period={state.period} />}
+          {state.tab === "risk"      && <PRRisk groupKey={state.group} />}
+          {state.tab === "growth"    && <GroupGrowth groupKey={state.group} />}
+          {state.tab === "insights"  && <Insights />}
+          {state.tab === "miiwan"    && <MiiWANBriefing />}
+          {state.tab === "shorts"    && <ShortsTrend />}
+          {state.tab === "status"    && <SystemStatus />}
+        </main>
+      </div>
     </div>
   );
 }
