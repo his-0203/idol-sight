@@ -146,7 +146,6 @@ const _COLUMN_LEXICON: Array<[RegExp, string]> = [
   [/theqoo_posts/g,      "더쿠 게시글"],
   [/instiz_posts/g,      "인스티즈 게시글"],
   [/naver_total_news/g,  "네이버 뉴스"],
-  [/twitter_posts/g,     "트위터 멘션"],
   [/controversy_count/g, "논란 카운트"],
   [/agg_market_share/g,  "시장 점유"],
   [/agg_summary/g,       "주간 활동 합산"],

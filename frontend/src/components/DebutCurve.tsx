@@ -96,8 +96,8 @@ const METRIC_OPTIONS = [
   { key: "yt_total_views",    label: "조회수 (누적)" },
   { key: "yt_total_videos",   label: "영상 수" },
   { key: "naver_total_news",  label: "뉴스" },
-  // dc_total_posts / twitter_posts removed 2026-05: collectors 부재로
-  // 데이터 거의 0, 차트 의미 없음. 향후 디시 / X API 통합 시 재추가.
+  // dc_total_posts removed 2026-05: collectors 부재로 데이터 거의 0.
+  // twitter_posts removed 2026-06 (P4): 수집 중단, 컬럼 DROP 예정.
 ] as const;
 // `naver_total_news` 컬럼은 V2.11에서 BIGKinds 통합값 (Naver Open API
 // + BIGKinds 한국언론진흥재단 archive 합산) 으로 확장됨. 표시 라벨은
