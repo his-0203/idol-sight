@@ -100,7 +100,7 @@ export function FanActivityCard({ activity }: { activity: FanActivity }) {
   return (
     <section class="rounded-lg border border-zinc-800 p-3">
       <div class="mb-1 flex items-baseline justify-between">
-        <h3 class="text-sm font-semibold">찐팬 활동량 (라이브 코어 + 추정 참여)</h3>
+        <h3 class="text-sm font-semibold">찐팬 활동량 (라이브 단골 + 추정 참여)</h3>
         <span class="text-hint text-zinc-500">최근 {window_days}일 · 방송 {broadcast_count}회</span>
       </div>
 
@@ -116,12 +116,12 @@ export function FanActivityCard({ activity }: { activity: FanActivity }) {
               tip="영상에 좋아요로 반응한 추정 팬 수 — 좋아요는 영상당 1인 1회라 고유 인원 근사"
             />
             <TierCell
-              label="측정 라이브 코어" sub="고유 챗터(중앙값)"
+              label="측정 라이브 단골" sub="고유 챗터(중앙값)"
               value={fmtInt(median_unique_chatters)}
               tip="라이브 채팅에 실제로 글을 남긴 고유 인원 — 실측값"
             />
             <TierCell
-              label="추정 적극 코어" sub="댓글" estimated
+              label="추정 적극 참여 단골" sub="댓글" estimated
               value={fmtInt(est_active_core)}
               tip="영상 댓글 수 — 1인 다회 가능하므로 적극 참여의 상한 추정"
             />

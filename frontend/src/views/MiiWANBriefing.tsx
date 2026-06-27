@@ -84,8 +84,8 @@ type Insight = {
   scope: string; type: string;
   source_refs: Array<{ table: string; pk: string; label: string }>;
   generated_at: string;
-  /** Optional one-line LLM commentary slot (V2.x AI-comment feature).
-   *  Surfaced italic-muted under the body when populated; absent today. */
+  /** Optional one-line LLM commentary slot.
+   *  값이 있으면 본문 아래 AI 배지로 노출됨. */
   ai_comment?: string | null;
 };
 
@@ -542,7 +542,7 @@ export function MiiWANBriefing() {
                    delta={wow(data.summary.twitter_posts, p?.twitter_posts)}
                    sparkline={series("twitter_posts")}
                    hint={data.summary.controversy_count
-                     ? `controversy ${data.summary.controversy_count}` : undefined} />
+                     ? `논란(커뮤니티) ${data.summary.controversy_count}건` : undefined} />
             </div>
           );
         })()}
@@ -867,6 +867,9 @@ export function MiiWANBriefing() {
     const hasCritical = props.alerts.some((a) => a.severity === "critical");
     const level: "OK" | "ELEVATED" | "CRITICAL" =
       hasCritical ? "CRITICAL" : isSpiking ? "ELEVATED" : "OK";
+    const LEVEL_KR: Record<"OK" | "ELEVATED" | "CRITICAL", string> = {
+      OK: "정상", ELEVATED: "주의", CRITICAL: "심각",
+    };
     const tone =
       level === "CRITICAL" ? "border-red-500 bg-red-500/10 text-red-200"
       : level === "ELEVATED" ? "border-amber-500 bg-amber-500/10 text-amber-200"
@@ -877,22 +880,22 @@ export function MiiWANBriefing() {
         <div class="mb-3 flex flex-wrap items-baseline gap-2">
           <h2 class="section-title">위기 모니터 (Risk Watch)</h2>
           <span class="text-hint text-zinc-500">
-            가상 아이돌 운영의 critical 시나리오만 별도. 본체 노출 / AI 도용 / 논란 급증.
+            가상 아이돌 운영의 심각 시나리오만 별도. 본체 노출 / AI 도용 / 논란 급증.
           </span>
         </div>
 
         <div class={`rounded border-l-4 px-3 py-2 text-sm ${tone}`}>
           <div class="flex flex-wrap items-center gap-2">
-            <span class="font-semibold">Risk: {level}</span>
+            <span class="font-semibold">위험도: {LEVEL_KR[level]}</span>
             {props.controversyTrend && (
               <span class="rounded bg-zinc-900/50 px-2 py-0.5 text-xs">
-                Controversy 이번 주 {cur} · 직전 주 {prev}
+                논란 이번 주 {cur} · 직전 주 {prev}
                 {ratio != null && Number.isFinite(ratio) && ` (${ratio.toFixed(1)}×)`}
               </span>
             )}
             {isSpiking && (
               <span class="rounded bg-amber-500/20 px-2 py-0.5 text-xs text-amber-200">
-                ≥{CONTROVERSY_SPIKE_MULTIPLIER}× WoW · floor {CONTROVERSY_SPIKE_MIN_COUNT}
+                전주 대비 ≥{CONTROVERSY_SPIKE_MULTIPLIER}배 이상 · 최소 기준 {CONTROVERSY_SPIKE_MIN_COUNT}건
               </span>
             )}
           </div>
