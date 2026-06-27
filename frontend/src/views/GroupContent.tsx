@@ -104,6 +104,20 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
           if (!prevPt || prevPt.total == null) return null;
           return (hs.total as number) - prevPt.total;
         })();
+        // Pre-compute the combined_views entry for the active method so we
+        // can (a) conditionally render the KPI header toggle and (b) pass
+        // the subscriber split hint directly to the 구독자 KPI.
+        const cvActive = data.combined_views?.[combinedMethod] as
+          | { subscribers: number; views: number; videos: number;
+              group_subs: number; member_subs: number; member_channel_count: number }
+          | undefined;
+        const subscriberPctHint: string | undefined = (() => {
+          if (!cvActive) return undefined;
+          const total = (cvActive.group_subs ?? 0) + (cvActive.member_subs ?? 0);
+          if (total === 0) return undefined;
+          const gPct = Math.round((cvActive.group_subs / total) * 100);
+          return `그룹 ${gPct}% / 멤버 ${100 - gPct}%`;
+        })();
         return (
         <>
           <section class="rounded-lg border border-zinc-800 p-3">
@@ -181,62 +195,71 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
             <GroupInsightSection insights={data.insights} />
           )}
 
-          <CombinedToggle
-            views={data.combined_views ?? {}}
-            method={combinedMethod}
-            onMethodChange={setCombinedMethod}
-          />
+          {/* KPI section — segmented control lives in the header so the
+              toggle reads as controlling the values it sits with.
+              WoW deltas come from prev_summary (single 7d-ago row);
+              sparklines from summary_history (30d series). The
+              combined_views toggle only changes the displayed
+              aggregate — delta/sparkline still reflect the raw
+              summary metric since combined_views has no history.
 
-          <section class="grid grid-cols-2 gap-2 md:grid-cols-5">
-            {/* WoW deltas come from prev_summary (single 7d-ago row);
-                sparklines from summary_history (30d series). The
-                combined_views toggle only changes the displayed
-                aggregate — delta/sparkline still reflect the raw
-                summary metric since combined_views has no history.
-
-                NOTE: agg_group_combined is built from
-                youtube_channel_stats (live collector) and INSERTs 0
-                when the group has no live row yet (e.g. wegosix on
-                day-zero — channel exists but the worker hasn't run
-                its YT channel-stats pass for it). In that case the
-                row exists but every column is 0, so a `??` fallback
-                wouldn't trigger. We therefore treat 0 as "missing"
-                for the combined_views path and fall back to summary
-                (which itself forward-fills from SB backfill rows). */}
-            <KPI
-              label="영상"
-              value={(data.combined_views?.[combinedMethod]?.videos || null)
-                     ?? data.summary?.yt_total_videos ?? 0}
-              delta={wowDelta(data.summary?.yt_total_videos, prev?.yt_total_videos)}
-              sparkline={seriesOf(summaryHistory, "yt_total_videos")}
-            />
-            <KPI
-              label="조회수"
-              value={(data.combined_views?.[combinedMethod]?.views || null)
-                     ?? data.summary?.yt_total_views ?? 0}
-              unit="(누적)"
-              delta={wowDelta(data.summary?.yt_total_views, prev?.yt_total_views)}
-              sparkline={seriesOf(summaryHistory, "yt_total_views")}
-            />
-            <KPI
-              label="구독자"
-              value={(data.combined_views?.[combinedMethod]?.subscribers || null)
-                     ?? data.summary?.yt_subscribers ?? 0}
-              delta={wowDelta(data.summary?.yt_subscribers, prev?.yt_subscribers)}
-              sparkline={seriesOf(summaryHistory, "yt_subscribers")}
-            />
-            <KPI
-              label="DC 글"
-              value={data.summary?.dc_total_posts ?? 0}
-              delta={wowDelta(data.summary?.dc_total_posts, prev?.dc_total_posts)}
-              sparkline={seriesOf(summaryHistory, "dc_total_posts")}
-            />
-            <KPI
-              label="뉴스"
-              value={data.summary?.naver_total_news ?? 0}
-              delta={wowDelta(data.summary?.naver_total_news, prev?.naver_total_news)}
-              sparkline={seriesOf(summaryHistory, "naver_total_news")}
-            />
+              NOTE: agg_group_combined is built from
+              youtube_channel_stats (live collector) and INSERTs 0
+              when the group has no live row yet (e.g. wegosix on
+              day-zero — channel exists but the worker hasn't run
+              its YT channel-stats pass for it). In that case the
+              row exists but every column is 0, so a `??` fallback
+              wouldn't trigger. We therefore treat 0 as "missing"
+              for the combined_views path and fall back to summary
+              (which itself forward-fills from SB backfill rows). */}
+          <section class="rounded-lg border border-zinc-800 p-3">
+            {cvActive && (
+              <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2">
+                <h3 class="section-title">YouTube KPI</h3>
+                <CombinedToggle
+                  views={data.combined_views ?? {}}
+                  method={combinedMethod}
+                  onMethodChange={setCombinedMethod}
+                />
+              </div>
+            )}
+            <div class="grid grid-cols-2 gap-2 md:grid-cols-5">
+              <KPI
+                label="영상"
+                value={(data.combined_views?.[combinedMethod]?.videos || null)
+                       ?? data.summary?.yt_total_videos ?? 0}
+                delta={wowDelta(data.summary?.yt_total_videos, prev?.yt_total_videos)}
+                sparkline={seriesOf(summaryHistory, "yt_total_videos")}
+              />
+              <KPI
+                label="조회수"
+                value={(data.combined_views?.[combinedMethod]?.views || null)
+                       ?? data.summary?.yt_total_views ?? 0}
+                unit="(누적)"
+                delta={wowDelta(data.summary?.yt_total_views, prev?.yt_total_views)}
+                sparkline={seriesOf(summaryHistory, "yt_total_views")}
+              />
+              <KPI
+                label="구독자"
+                value={(data.combined_views?.[combinedMethod]?.subscribers || null)
+                       ?? data.summary?.yt_subscribers ?? 0}
+                delta={wowDelta(data.summary?.yt_subscribers, prev?.yt_subscribers)}
+                sparkline={seriesOf(summaryHistory, "yt_subscribers")}
+                hint={subscriberPctHint}
+              />
+              <KPI
+                label="DC 글"
+                value={data.summary?.dc_total_posts ?? 0}
+                delta={wowDelta(data.summary?.dc_total_posts, prev?.dc_total_posts)}
+                sparkline={seriesOf(summaryHistory, "dc_total_posts")}
+              />
+              <KPI
+                label="뉴스"
+                value={data.summary?.naver_total_news ?? 0}
+                delta={wowDelta(data.summary?.naver_total_news, prev?.naver_total_news)}
+                sparkline={seriesOf(summaryHistory, "naver_total_news")}
+              />
+            </div>
           </section>
 
           {data.fan_loyalty && <FanLoyaltyCard loyalty={data.fan_loyalty} groupKey={groupKey!} />}
@@ -765,12 +788,13 @@ const MODEL_LABELS_KR: Record<string, string> = {
   confederation: "Confederation (V-tuber 우산)",
 };
 
-// Group/member dual-entity toggle. Renders only when the API surfaced
-// at least one combined_views row (i.e. agg_group_combined has been
-// built). For PLAVE-style groups with no member solo channels the
-// three methods produce identical numbers, so we still render the
-// toggle but with a hint explaining "no solo channels — all three
-// views identical".
+// Group/member dual-entity toggle. Renders as a compact inline
+// segmented control — the section wrapper lives in the caller (KPI
+// section header) so the toggle reads as controlling the KPIs it
+// sits with. For PLAVE-style groups with no member solo channels the
+// three methods produce identical numbers; instead of a section-level
+// hint we promote that fact to a title="" tooltip on the two
+// member-inclusive buttons so the control stays compact.
 function CombinedToggle(props: {
   views: Record<string, {
     subscribers: number; views: number; videos: number;
@@ -781,44 +805,30 @@ function CombinedToggle(props: {
 }) {
   const v = props.views[props.method];
   if (!v) return null;
-  const total = v.group_subs + v.member_subs;
-  const groupPct = total > 0 ? Math.round((v.group_subs / total) * 100) : 0;
-  const memberPct = 100 - groupPct;
   const noSolo = v.member_channel_count === 0;
+  const noSoloTip = "멤버 솔로 채널 없음 — 세 view 모두 동일";
   const toggles: Array<["group_only" | "sum" | "weighted", string, string]> = [
-    ["group_only", "그룹 채널만",     "공식 미디어 활동만"],
-    ["sum",        "그룹 + 멤버 합산", "총 도달"],
-    ["weighted",   "가중합 (멤버×0.7)", "정규화"],
+    ["group_only", "그룹 채널만",      "공식 미디어 활동만"],
+    ["sum",        "그룹 + 멤버 합산", noSolo ? noSoloTip : "총 도달"],
+    ["weighted",   "가중합 (멤버×0.7)", noSolo ? noSoloTip : "정규화"],
   ];
   return (
-    <section class="rounded-lg border border-zinc-800 p-3">
-      <div class="mb-2 flex flex-wrap items-center gap-2">
-        <h3 class="section-title">YouTube 합산 방식</h3>
-        {noSolo
-          ? <span class="text-hint text-zinc-500">
-              멤버 솔로 채널 없음 — 세 view 모두 동일
-            </span>
-          : <span class="text-hint text-zinc-500">
-              그룹 {groupPct}% / 멤버 {memberPct}% (구독자 비중)
-            </span>}
-      </div>
-      <div class="flex flex-wrap gap-1 text-xs">
-        {toggles.map(([m, label, hint]) => (
-          <button
-            key={m}
-            class={"rounded-md border px-2 py-1 transition-colors " +
-                   (props.method === m
-                     ? "border-violet-500 bg-violet-500/10 text-violet-300"
-                     : "border-zinc-800 text-zinc-400 hover:bg-zinc-800/60")}
-            onClick={() => props.onMethodChange(m)}
-            title={hint}
-          >
-            {label}
-            <span class="ml-1 text-hint text-zinc-500">{hint}</span>
-          </button>
-        ))}
-      </div>
-    </section>
+    <div class="ml-auto flex overflow-hidden rounded border border-zinc-800 text-xs">
+      {toggles.map(([m, label, hint]) => (
+        <button
+          key={m}
+          type="button"
+          class={"border-r border-zinc-800 px-2.5 py-1 last:border-r-0 transition-colors " +
+                 (props.method === m
+                   ? "bg-violet-500/10 text-violet-300"
+                   : "text-zinc-400 hover:bg-zinc-800/60")}
+          onClick={() => props.onMethodChange(m)}
+          title={hint}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 

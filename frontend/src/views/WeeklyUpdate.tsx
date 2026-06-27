@@ -24,14 +24,12 @@ export function WeeklyUpdate() {
   const weekEnd = data.hanteo?.[0]?.week_end ?? null;
   return (
     <div class="space-y-6">
-      {(weekStart || weekEnd) && (
-        <header class="card">
-          <div class="text-xs uppercase tracking-wider text-zinc-500">Reporting Window (KST)</div>
-          <div class="text-base font-semibold tabular-nums">
-            Week of {weekStart ?? "?"}{weekEnd ? ` ~ ${weekEnd}` : ""}
-          </div>
-        </header>
-      )}
+      <div>
+        <h2 class="section-title">주간 업데이트</h2>
+        {(weekStart || weekEnd) && (
+          <p class="text-hint text-zinc-500 mt-1">기준 주간 (KST) · {weekStart ?? "?"}{weekEnd ? ` ~ ${weekEnd}` : ""}</p>
+        )}
+      </div>
 
       {data.insights.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
@@ -138,7 +136,11 @@ export function WeeklyUpdate() {
             </tr></thead>
             <tbody>
               {data.movers.map((m: any) => (
-                <tr key={m.group_key} class={`border-t border-zinc-800/60 ${m.group_key === "miiwan" ? "bg-amber-500/5" : ""}`}>
+                <tr
+                  key={m.group_key}
+                  class={`border-t border-zinc-800/60 ${m.group_key === "miiwan" ? "bg-[#75d7d1]/5" : ""}`}
+                  style={m.group_key === "miiwan" ? { boxShadow: "inset 3px 0 0 #75d7d1" } : undefined}
+                >
                   <td class="py-1">{m.group_name ?? m.group_key}</td>
                   <td class="text-right tabular-nums">
                     {m.d_views == null ? "—" : fmt(m.d_views)}

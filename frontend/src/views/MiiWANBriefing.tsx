@@ -425,13 +425,29 @@ export function MiiWANBriefing() {
         class="rounded-card border-l-4 border border-zinc-800 bg-zinc-900/40 p-5"
         style={{ borderLeftColor: accent }}
       >
-        <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
           <h1 class="text-2xl font-bold">
             {data.group.name} · <span class="text-zinc-400">{data.group.name_kr}</span>
           </h1>
           <span class="text-hint text-zinc-500">
             데뷔 {data.group.debut_date ?? "—"} (IPX × Abyss Company)
           </span>
+          {/* 뷰 토글 — 히어로 헤더 행 우측에 pill 버튼으로 배치. 항상 위에 보임. */}
+          <div role="tablist" aria-label="MiiWAN 뷰" class="ml-auto flex gap-1">
+            {([["briefing", "브리핑"], ["market", "시장 분석"]] as const).map(([k, label]) => {
+              const on = mode === k;
+              return (
+                <button key={k} role="tab" aria-selected={on}
+                  class={"rounded-full px-3 py-1 text-sm font-medium border transition "
+                    + (on
+                      ? "border-[#75d7d1] bg-[#75d7d1]/10 text-[#75d7d1]"
+                      : "border-zinc-700 text-zinc-400 hover:text-zinc-200")}
+                  onClick={() => setMode(k)}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div class={`mt-3 rounded border-l-4 px-3 py-2 text-sm ${DIAGNOSIS_TONE[diag.tone]}`}>
@@ -443,23 +459,6 @@ export function MiiWANBriefing() {
           <HealthCard h={data.health_score} />
         </div>
       </section>
-
-      {/* 뷰 토글 — 기존 브리핑 / 시장 분석. 히어로는 항상 노출, 하단만 전환. */}
-      <div role="tablist" aria-label="MiiWAN 뷰"
-           class="flex gap-1 card p-1">
-        {([["briefing", "브리핑"], ["market", "시장 분석"]] as const).map(([k, label]) => {
-          const on = mode === k;
-          return (
-            <button key={k} role="tab" aria-selected={on}
-              class={"flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition "
-                + (on ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200")}
-              style={on ? { color: accent } : undefined}
-              onClick={() => setMode(k)}>
-              {label}
-            </button>
-          );
-        })}
-      </div>
 
       {mode === "market" ? (
         <MarketAnalysis
@@ -664,13 +663,14 @@ export function MiiWANBriefing() {
           유기적 시그널이 강한가" 한 눈에 비교. bucket picker 로 D-60 ~
           D+60 윈도 전환 가능. */}
       <section class="card">
-        <p class="mb-2 text-[11px] leading-relaxed text-zinc-500">
+        <h2 class="section-title mb-2">코호트 유기성 비교</h2>
+        <p class="mb-2 text-hint text-zinc-500 leading-relaxed">
           이 막대 = <strong class="text-zinc-300">'진짜인가'</strong>(진정성, 규모 무관) ·
           위 표의 조회·구독 = <strong class="text-zinc-300">'충분한가'</strong>(규모) ·
           두 축은 별개 — 진정성이 높아도 규모가 충분하다는 뜻은 아님.
         </p>
         <CompetitorOrganicityBar />
-        <p class="mt-2 text-[11px] leading-relaxed text-zinc-500">
+        <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
           데뷔 후 유료 축소로 조회수가 피크 대비 떨어지는 건 정상일 수 있음.
           건강은 '피크 대비 하락'이 아니라 <strong class="text-zinc-300">organic 도달의 floor</strong>가
           데뷔 전 baseline 위에서 유지/상승하는가로 판단 —
@@ -981,6 +981,19 @@ function IpxActionGuard({ score }: { score: IpxScore }) {
   const total = score.passed.length + score.missing.length;
   const ratio = score.passed.length / total;
   const weak = score.antipattern || ratio < 0.6;
+  const allGood = score.missing.length === 0 && !score.antipattern;
+
+  // 문제 없으면 단일 녹색 배지만 노출 — 칩 5개가 시각 노이즈를 만드는 것을 방지.
+  if (allGood) {
+    return (
+      <div class="mt-2">
+        <span class="rounded bg-emerald-500/10 px-2 py-[2px] text-[10px] text-emerald-300">
+          ✓ 5요소
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div class="mt-2 space-y-1.5">
       <div class="flex flex-wrap items-center gap-1">
@@ -1493,6 +1506,10 @@ function HealthCard({ h }: { h: MiiwanData["health_score"] }) {
       </div>
     );
   }
+  // 가장 낮은 3개 차원 — "왜 이 등급인가"를 히어로에서 바로 답해줌.
+  const bottomThree = h.breakdown && Object.keys(h.breakdown).length > 0
+    ? Object.entries(h.breakdown).sort(([, a], [, b]) => a - b).slice(0, 3)
+    : [];
   return (
     <div class="card p-4">
       <div class="text-xs uppercase tracking-wider text-zinc-500">Health</div>
@@ -1501,6 +1518,15 @@ function HealthCard({ h }: { h: MiiwanData["health_score"] }) {
         <div class="text-lg font-semibold text-zinc-400">{h.grade}</div>
       </div>
       <div class="mt-0.5 text-hint text-zinc-500">{h.label ?? ""}</div>
+      {bottomThree.length > 0 && (
+        <div class="mt-1.5 flex flex-wrap gap-1">
+          {bottomThree.map(([k, v]) => (
+            <span key={k} class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] text-zinc-500">
+              {k}={v}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
