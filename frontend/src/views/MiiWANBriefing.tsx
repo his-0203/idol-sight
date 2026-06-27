@@ -485,7 +485,15 @@ export function MiiWANBriefing() {
       {/* P2a 찐팬 활동량 — 라이브 채팅 measured 코어 + 영상 estimated 참여.
           /api/miiwan 의 fan_activity (신규 수집 0, 기존 데이터 재가공).
           summary 행 없으면 null 이라 카드 자체를 숨긴다. */}
-      {data.fan_activity && <FanActivityCard activity={data.fan_activity} />}
+      {data.fan_activity && (
+        <section>
+          <div class="mb-2 flex flex-wrap items-baseline gap-2">
+            <h2 class="section-title">찐팬 활동</h2>
+            <span class="text-hint text-zinc-500">라이브 단골 코어 + 추정 참여</span>
+          </div>
+          <FanActivityCard activity={data.fan_activity} />
+        </section>
+      )}
 
       {/* 4) RISK WATCH — virtual-idol critical 카테고리만 뽑아 별도
           섹션. PR/Risk 페이지로 hop 없이 MiiWAN 컨텍스트에서 즉시
@@ -553,7 +561,7 @@ export function MiiWANBriefing() {
               {/* Tabs — D-30 / D-DAY / D+30. 한 번 fetch 한 데이터를 분기만
                   하므로 클릭 즉시 전환된다. */}
               <div role="tablist" aria-label="benchmark anchor"
-                   class="mb-3 flex flex-wrap gap-1 card p-1">
+                   class="mb-3 flex overflow-x-auto gap-1 card p-1">
                 {ANCHOR_TABS.map((t) => {
                   const active = t.key === anchorTab;
                   return (
@@ -691,7 +699,7 @@ export function MiiWANBriefing() {
           <div class="space-y-4">
             {miiwanScoped.length > 0 && (
               <InsightGroup title="MiiWAN 전용" tone="brand"
-                            items={miiwanScoped} accent={accent} />
+                            items={miiwanScoped} accent={accent} isOwn={true} />
             )}
             {otherInsights.length > 0 && (
               <InsightGroup
@@ -1099,7 +1107,7 @@ function MiiWANEventTimeline({ today }: { today: string }) {
   if (!events) {
     return (
       <section>
-        <h2 class="section-title mb-3">이벤트 타임라인</h2>
+        <h2 class="section-title mb-3">이벤트 캘린더</h2>
         <div class="text-hint text-zinc-500">Loading…</div>
       </section>
     );
@@ -1108,7 +1116,7 @@ function MiiWANEventTimeline({ today }: { today: string }) {
   if (filtered.length === 0) {
     return (
       <section>
-        <h2 class="section-title mb-3">이벤트 타임라인</h2>
+        <h2 class="section-title mb-3">이벤트 캘린더</h2>
         <div class="text-hint text-zinc-500">
           최근 30일 / 향후 60일 등록된 이벤트 없음.
         </div>
@@ -1119,7 +1127,7 @@ function MiiWANEventTimeline({ today }: { today: string }) {
   return (
     <section>
       <div class="mb-3 flex flex-wrap items-baseline gap-2">
-        <h2 class="section-title">이벤트 타임라인</h2>
+        <h2 class="section-title">이벤트 캘린더</h2>
         <span class="text-hint text-zinc-500">
           최근 30일 + 향후 60일 · 과거(회색) / 오늘(amber) / 예정(emerald)
         </span>
@@ -1535,6 +1543,8 @@ function InsightGroup(props: {
   title: string; items: Insight[];
   tone: "brand" | "action" | "muted";
   accent?: string; hint?: string;
+  /** 자사(MiiWAN) 인사이트: accent bar를 #75d7d1으로 강제하고 faint 배경 추가. */
+  isOwn?: boolean;
 }) {
   const toneCls = {
     brand:  "border-zinc-800 bg-zinc-900/40",
@@ -1556,11 +1566,14 @@ function InsightGroup(props: {
         {props.items.map((i) => {
           const bodyGroups = extractGroupKeys(i.body);
           const accentKey = bodyGroups[0] ?? null;
+          const ownStyle = props.isOwn
+            ? { borderLeftColor: "#75d7d1", backgroundColor: "rgba(117,215,209,0.04)" }
+            : { borderLeftColor: colorOf(accentKey) };
           return (
             <li
               key={i.id}
               class={`rounded-lg border p-3 border-l-4 ${toneCls}`}
-              style={{ borderLeftColor: colorOf(accentKey) }}
+              style={ownStyle}
             >
               {/* 상단 라인 — 그룹 뱃지 + scope/type + KST */}
               <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
