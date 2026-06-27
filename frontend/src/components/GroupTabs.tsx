@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { onStateChange, readState, writeState, type RouterState } from "../router";
+import { GroupSwitcher } from "./GroupSwitcher";
 
 // Group-scope tab navigation. Renders inline at the top of each group-
 // scope view (GroupContent / Members / Community / PRRisk) so the user
@@ -34,23 +35,27 @@ export function GroupTabs() {
   if (!state.group) return null;
 
   return (
-    <nav
-      class="mb-3 flex gap-1 overflow-x-auto border-b border-zinc-800 pb-2 text-data"
-      aria-label="그룹 컨텍스트 탭"
-    >
-      {GROUP_TABS.map(([k, label]) => (
-        <button
-          key={k}
-          class={
-            "rounded-ctrl px-3 py-1 transition-colors " +
-            (state.tab === k
-              ? "bg-brand-weak text-brand-fg"
-              : "text-zinc-400 hover:bg-zinc-800/60")
-          }
-          onClick={() => writeState({ tab: k })}
-          aria-current={state.tab === k ? "page" : undefined}
-        >{label}</button>
-      ))}
-    </nav>
+    <div class="mb-3 border-b border-zinc-800 pb-2">
+      {/* master-detail 그룹 헤더: 전환 셀렉터 + 하위 탭 */}
+      <div class="mb-2 flex items-center gap-2">
+        <GroupSwitcher />
+        <span class="hidden sm:inline text-hint text-zinc-500">그룹 전환 · 하위 탭</span>
+      </div>
+      <nav class="flex gap-1 overflow-x-auto text-data" aria-label="그룹 컨텍스트 탭">
+        {GROUP_TABS.map(([k, label]) => (
+          <button
+            key={k}
+            class={
+              "rounded-ctrl px-3 py-1 transition-colors " +
+              (state.tab === k
+                ? "bg-brand-weak text-brand-fg"
+                : "text-zinc-400 hover:bg-zinc-800/60")
+            }
+            onClick={() => writeState({ tab: k })}
+            aria-current={state.tab === k ? "page" : undefined}
+          >{label}</button>
+        ))}
+      </nav>
+    </div>
   );
 }
