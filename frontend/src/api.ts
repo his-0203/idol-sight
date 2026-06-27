@@ -6,6 +6,7 @@ async function getJson<T>(path: string): Promise<T> {
 
 // /api/groups는 그룹 목록(거의 불변) — 세션 1회 페치 후 캐시(GroupSwitcher·Breadcrumb 공유).
 let _groupsCache: Promise<any> | null = null;
+const _groupCache = new Map<string, Promise<any>>();
 
 export const api = {
   meta:        () => getJson<any>("/api/meta"),
@@ -15,6 +16,15 @@ export const api = {
   market:      () => getJson<any>("/api/market"),
   marketShare: (weeks = 13) => getJson<any>(`/api/market-share?weeks=${weeks}`),
   group:       (k: string) => getJson<any>(`/api/group/${encodeURIComponent(k)}`),
+  // 그룹 상세는 content/community/risk 탭이 공유 — 탭 전환 시 같은 그룹 재페치를
+  // 막으려 per-key 프로미스 캐시(실패 시 해당 키만 비워 재시도).
+  groupCached: (k: string): Promise<any> =>
+    (_groupCache.get(k) ?? (() => {
+      const p = getJson<any>(`/api/group/${encodeURIComponent(k)}`)
+        .catch((e) => { _groupCache.delete(k); throw e; });
+      _groupCache.set(k, p);
+      return p;
+    })()),
   members:     (k: string) => getJson<any>(`/api/members/${encodeURIComponent(k)}`),
   melonHistory: (
     k: string,

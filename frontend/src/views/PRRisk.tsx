@@ -42,7 +42,7 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
     if (!groupKey) return;
     setData(null);
     setErr(null);
-    api.group(groupKey).then(setData).catch((e) => setErr(String(e)));
+    api.groupCached(groupKey).then(setData).catch((e) => setErr(String(e)));
   }, [groupKey]);
 
   const news = data?.naver_articles ?? [];
