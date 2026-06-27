@@ -239,8 +239,8 @@ describe("computeGroupOrganicities", () => {
 });
 
 describe("organicityCaveat", () => {
-  const g = (score: number | null, thin = false): import("../../src/lib/organicity").GroupOrganicity =>
-    ({ group_key: "g", score, sample_count: 9, scored_count: 9, thin, display_mode: "exact", shown_bucket: "D-Day" });
+  const g = (score: number | null, scoredCount = 9): import("../../src/lib/organicity").GroupOrganicity =>
+    ({ group_key: "g", score, sample_count: 9, scored_count: scoredCount, thin: false, display_mode: "exact", shown_bucket: "D-Day" });
 
   it("shows for caution tiers, hides for organic/strong", () => {
     expect(organicityCaveat(g(35)).show).toBe(true);   // likely_paid
@@ -251,10 +251,13 @@ describe("organicityCaveat", () => {
     expect(organicityCaveat(g(60)).label).toBe("오가닉성 주의");
     expect(organicityCaveat(g(75)).show).toBe(false);  // organic
     expect(organicityCaveat(g(90)).show).toBe(false);  // organic_strong
+    // scored_count gate: caution tier shown at 3 scored, hidden at 2 scored.
+    expect(organicityCaveat(g(35, 3)).show).toBe(true);
+    expect(organicityCaveat(g(35, 2)).show).toBe(false);
   });
 
-  it("hides when thin, null score, or missing", () => {
-    expect(organicityCaveat(g(35, true)).show).toBe(false);
+  it("hides when thin (scored_count < 3), null score, or missing", () => {
+    expect(organicityCaveat(g(35, 2)).show).toBe(false); // scored_count=2 → thin by scored → hidden
     expect(organicityCaveat(g(null)).show).toBe(false);
     expect(organicityCaveat(undefined).show).toBe(false);
   });

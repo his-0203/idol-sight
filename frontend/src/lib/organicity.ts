@@ -219,7 +219,7 @@ const CAVEAT_LABEL: Partial<Record<Verdict, string>> = {
  * never folded into the awareness score (catalog flow-quality ≠ cumulative
  * reach; different scope). */
 export function organicityCaveat(g: GroupOrganicity | null | undefined): OrganicityCaveat {
-  if (!g || g.score === null || g.thin) return { show: false, verdict: null, label: "" };
+  if (!g || g.score === null || isThinSample(g.scored_count)) return { show: false, verdict: null, label: "" };
   const verdict = scoreToVerdict(g.score);
   const label = CAVEAT_LABEL[verdict];
   if (!label) return { show: false, verdict, label: "" };
