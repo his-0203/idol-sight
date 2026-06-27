@@ -14,15 +14,23 @@ export default {
           fg:      "#c4b5fd", // violet-300 — text-on-dark
           weak:    "rgba(139, 92, 246, 0.20)",
         },
+        // 자사(MiiWAN) / 시장(3사) 정체성 액센트. own == group.miiwan 값과 동일.
+        // own 은 status-green과 충돌하지 않도록 네비·정체성 영역에만 사용(데이터 긍정색 아님).
+        own:    "#75d7d1", // 자사 MiiWAN 메인
+        "own-weak": "rgba(117, 215, 209, 0.12)",
+        market: "#ABE3E4", // 3사 / 시장 컨텍스트
+        // groups.ts(GROUP_COLORS) 와 1:1 미러 — 둘 다 바꿀 것.
         group: {
           plave:    "#ec4899",
           isedol:   "#22c55e",
-          stellive: "#06b6d4",
+          stellive: "#818cf8",
           skinz:    "#f59e0b",
           myrakl:   "#a855f7",
           owis:     "#3b82f6",
-          miiwan:   "#14b8a6",
+          miiwan:   "#75d7d1",
           bdawn:    "#ef4444",
+          wegosix:  "#f97316",
+          uryael:   "#84cc16",
         },
         grade: {
           S:   "#10b981",
