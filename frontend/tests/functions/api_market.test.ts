@@ -94,4 +94,27 @@ describe("/api/market", () => {
     const body = await res.json() as any;
     expect(body.groups.miiwan.awareness).toBeNull();
   });
+
+  // P2b Critical fix — migration 0097 미배포 환경에서 agg_awareness 테이블이 없어도
+  // /api/market 전체가 500이 되지 않고 200 + awareness:null 로 응답해야 한다.
+  it("agg_awareness query reject (no such table) → 200 with awareness:null, other data intact", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+      if (sql.includes("FROM agg_awareness"))
+        throw new Error("no such table: agg_awareness");
+      if (sql.includes("FROM agg_summary"))
+        return [{ group_key: "plave", snapshot_at: "2026-05-04T14:00:00Z",
+                  yt_total_views: 100, dc_total_posts: 2, theqoo_posts: 3,
+                  instiz_posts: 4, naver_total_news: 5, twitter_posts: 6,
+                  controversy_count: 0, yt_total_videos: 7, yt_subscribers: 8 }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(res.status).toBe(200);
+    expect(body.groups.plave.awareness).toBeNull();
+    // Other data still present
+    expect(body.groups.plave.summary?.yt_total_views).toBe(100);
+  });
 });

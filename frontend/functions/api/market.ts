@@ -104,7 +104,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const awareness = await d1Query<AwarenessRow>(env.DB,
     `SELECT group_key, awareness_score, category_rank, basis
        FROM agg_awareness
-      WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_awareness)`);
+      WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_awareness)`)
+    .catch(() => [] as AwarenessRow[]);
 
   const sumByKey: Record<string, SummaryRow> = {};
   for (const s of sums) sumByKey[s.group_key] = s;
