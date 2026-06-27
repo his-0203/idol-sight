@@ -470,6 +470,31 @@ def _run_aggregate(client, snap: str, skip_derived: bool = False) -> None:
         typer.echo(f"[warn] awareness skipped (build/write 실패, 0097 미적용 가능): {exc}",
                    err=True)
 
+    # 전 그룹 추정 코어팬 (MarketOverview 참고용). youtube_video_stats 재가공이므로
+    # awareness 와 동일한 always-run 위치. 신규 수집 0 — 기존 데이터 재가공.
+    # 배포↔마이그레이션 graceful 규칙: agg_core_fan_estimate(0101) 미적용 시 throw 를
+    # 잡아 aggregate 전체가 죽지 않게 한다. 부분쓰기 가드의 typer.Exit 은 재raise.
+    try:
+        from idol_sight.analysis.core_fan_estimate import build_core_fan_estimate
+        cfe = build_core_fan_estimate(client, snapshot_at=snap)
+        if cfe.statements:
+            bs = client.batch(cfe.statements)
+            if bs.statements_executed != bs.statements_sent:
+                typer.echo(
+                    f"partial core_fan_estimate write: "
+                    f"{bs.statements_executed}/{bs.statements_sent}",
+                    err=True,
+                )
+                raise typer.Exit(code=1)
+        typer.echo(f"core_fan_estimate: wrote {len(cfe.statements)} rows")
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        typer.echo(
+            f"[warn] core_fan_estimate skipped (build/write 실패, 0101 미적용 가능): {exc}",
+            err=True,
+        )
+
     # V2.19.2: refresh agg_health_scores at the same daily cadence as
     # agg_summary so melon-chart UPDATEs (and any other agg_summary
     # change) surface on the dashboard within hours instead of waiting

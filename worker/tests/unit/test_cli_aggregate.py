@@ -236,3 +236,98 @@ def test_awareness_partial_write_hard_fails(
 
     with pytest.raises(typer.Exit):
         _run_aggregate(client, snap="2026-05-12T00:00:00Z", skip_derived=True)
+
+
+# ---------------------------------------------------------------------------
+# core_fan_estimate — always-run, graceful 가드 (awareness 검증 미러).
+# ---------------------------------------------------------------------------
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.platform_reactivity.compute_reactivity")
+@patch("idol_sight.analysis.video_velocity.compute_velocity")
+@patch("idol_sight.analysis.group_combined.build_agg_group_combined")
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+@patch("idol_sight.analysis.awareness.build_awareness")
+@patch("idol_sight.analysis.core_fan_estimate.build_core_fan_estimate")
+def test_default_runs_core_fan_estimate(
+    mock_cfe, mock_awareness, mock_summary, mock_combined, mock_velocity,
+    mock_reactivity, mock_health,
+):
+    """core_fan_estimate is built on the default daily aggregate, keyed at the
+    same snapshot as agg_summary (always-run section, mirrors awareness)."""
+    mock_summary.return_value = _stub_build_result()
+    mock_combined.return_value = _stub_build_result()
+    mock_velocity.return_value = _stub_build_result()
+    mock_reactivity.return_value = []
+    mock_awareness.return_value = _stub_build_result()
+    mock_cfe.return_value = _stub_build_result()
+    client = _make_client()
+
+    _run_aggregate(client, snap="2026-05-12T00:00:00Z")
+
+    mock_cfe.assert_called_once_with(client, snapshot_at="2026-05-12T00:00:00Z")
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+@patch("idol_sight.analysis.awareness.build_awareness")
+@patch("idol_sight.analysis.core_fan_estimate.build_core_fan_estimate")
+def test_skip_derived_still_runs_core_fan_estimate(
+    mock_cfe, mock_awareness, mock_summary, mock_health,
+):
+    """core_fan_estimate lives in the always-run section, so skip-derived 2nd
+    aggregate still refreshes it — unlike combined/velocity/reactivity."""
+    mock_summary.return_value = _stub_build_result()
+    mock_awareness.return_value = _stub_build_result()
+    mock_cfe.return_value = _stub_build_result()
+    client = _make_client()
+
+    _run_aggregate(client, snap="2026-05-12T00:00:00Z", skip_derived=True)
+
+    mock_cfe.assert_called_once_with(client, snapshot_at="2026-05-12T00:00:00Z")
+    mock_health.assert_called_once_with(client, "2026-05-12T00:00:00Z")
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+@patch("idol_sight.analysis.awareness.build_awareness")
+@patch("idol_sight.analysis.core_fan_estimate.build_core_fan_estimate")
+def test_core_fan_estimate_build_failure_does_not_kill_aggregate(
+    mock_cfe, mock_awareness, mock_summary, mock_health,
+):
+    """Deploy↔migration graceful rule: if agg_core_fan_estimate (0101) isn't
+    applied yet, build/INSERT throws — but aggregate must not die, and the
+    downstream _recompute_health_scores must still run."""
+    mock_summary.return_value = _stub_build_result()
+    mock_awareness.return_value = _stub_build_result()
+    mock_cfe.side_effect = RuntimeError("no such table: agg_core_fan_estimate")
+    client = _make_client()
+
+    # must NOT raise
+    _run_aggregate(client, snap="2026-05-12T00:00:00Z", skip_derived=True)
+
+    mock_health.assert_called_once_with(client, "2026-05-12T00:00:00Z")
+
+
+@patch("idol_sight.cli._recompute_health_scores", return_value=9)
+@patch("idol_sight.analysis.agg_summary.build_agg_summary")
+@patch("idol_sight.analysis.awareness.build_awareness")
+@patch("idol_sight.analysis.core_fan_estimate.build_core_fan_estimate")
+def test_core_fan_estimate_partial_write_hard_fails(
+    mock_cfe, mock_awareness, mock_summary, mock_health,
+):
+    """A genuine partial write for core_fan_estimate must hard-fail with
+    typer.Exit — the graceful except re-raises typer.Exit so the partial-write
+    guard is preserved. awareness returns empty statements so its batch is
+    skipped; only core_fan_estimate triggers the batch call."""
+    mock_summary.return_value = _stub_build_result()
+    mock_awareness.return_value = _stub_build_result()  # empty → no batch call
+    mock_cfe.return_value = _stub_build_result(
+        [("INSERT INTO agg_core_fan_estimate (...) VALUES (...)", [])]
+    )
+    client = _make_client()
+    client.batch.return_value = MagicMock(statements_executed=0, statements_sent=1)
+
+    with pytest.raises(typer.Exit):
+        _run_aggregate(client, snap="2026-05-12T00:00:00Z", skip_derived=True)
