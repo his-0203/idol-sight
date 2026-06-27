@@ -2,18 +2,9 @@ import { useEffect, useState } from "preact/hooks";
 import { onStateChange, readState, writeState, type RouterState } from "../router";
 import { GroupSwitcher } from "./GroupSwitcher";
 
-// Group-scope tab navigation. Renders inline at the top of each group-
-// scope view (GroupContent / Members / Community / PRRisk) so the user
-// can switch context without going back through MarketOverview.
-//
-// History: V2.5 had GroupContextBar.tsx which rendered these tabs in a
-// sticky sub-header above all views. That component was deleted in
-// commit 0747673 (MiiWAN Orbit rebrand), and the comment in Header.tsx
-// claimed group entry would be "via MarketOverview cards or
-// SearchPalette" — true for first entry, but there was no way to switch
-// between content/members/community/risk once on a group page. This
-// component restores switching without bringing back the heavy sticky
-// bar.
+// 그룹 master-detail 헤더. 각 group-scope 뷰(GroupContent/Members/Community/
+// PRRisk/GroupGrowth) 상단에 인라인 렌더 — GroupSwitcher(그룹 전환) + 하위 탭.
+// MarketOverview로 되돌아가지 않고 그룹·하위탭을 모두 전환할 수 있게 한다.
 //
 // Reads/writes router state directly so callers don't need to thread
 // `tab` through their props (each view just renders <GroupTabs />).

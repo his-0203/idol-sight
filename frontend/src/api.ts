@@ -10,7 +10,8 @@ let _groupsCache: Promise<any> | null = null;
 export const api = {
   meta:        () => getJson<any>("/api/meta"),
   groups:      () => getJson<any>("/api/groups"),
-  groupsCached: () => (_groupsCache ||= getJson<any>("/api/groups")),
+  groupsCached: () => (_groupsCache ||= getJson<any>("/api/groups")
+    .catch((e) => { _groupsCache = null; throw e; })),   // 실패 시 캐시 비워 다음 호출에 재시도
   market:      () => getJson<any>("/api/market"),
   marketShare: (weeks = 13) => getJson<any>(`/api/market-share?weeks=${weeks}`),
   group:       (k: string) => getJson<any>(`/api/group/${encodeURIComponent(k)}`),
