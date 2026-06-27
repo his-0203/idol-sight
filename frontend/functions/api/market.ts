@@ -24,6 +24,11 @@ interface InsightRow {
   source_refs_json: string | null; generated_at: string;
 }
 
+interface AwarenessRow {
+  group_key: string; awareness_score: number | null;
+  category_rank: number | null; basis: string;
+}
+
 const safeJson = (s: string | null) => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
@@ -96,12 +101,19 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       WHERE scope='market' OR type='ipx_action'
       ORDER BY generated_at DESC LIMIT 30`);
 
+  const awareness = await d1Query<AwarenessRow>(env.DB,
+    `SELECT group_key, awareness_score, category_rank, basis
+       FROM agg_awareness
+      WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_awareness)`);
+
   const sumByKey: Record<string, SummaryRow> = {};
   for (const s of sums) sumByKey[s.group_key] = s;
   const prevSumByKey: Record<string, SummaryRow> = {};
   for (const s of prevSums) prevSumByKey[s.group_key] = s;
   const healthByKey: Record<string, HealthRow> = {};
   for (const h of healths) healthByKey[h.group_key] = h;
+  const awarenessByKey: Record<string, AwarenessRow> = {};
+  for (const a of awareness) awarenessByKey[a.group_key] = a;
 
   const out: Record<string, unknown> = {};
   for (const g of groups) {
@@ -111,6 +123,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     const f = fillByKey[g.key] ?? {
       yt_subscribers: null, yt_total_views: null, yt_total_videos: null,
     };
+    const aw = awarenessByKey[g.key];
     out[g.key] = {
       name: g.name, name_kr: g.name_kr, debut_date: g.debut_date,
       group_model: g.group_model ?? "corporate",
@@ -133,6 +146,10 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         breakdown: safeJson(h.breakdown_json),
         bonus: safeJson(h.bonus_json),
         quality_method: h.quality_method,
+      } : null,
+      awareness: aw ? {
+        score: aw.basis === "scored" ? aw.awareness_score : null,
+        category_rank: aw.basis === "scored" ? aw.category_rank : null,
       } : null,
     };
   }
