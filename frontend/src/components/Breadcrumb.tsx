@@ -28,7 +28,7 @@ function periodLabel(p: number | null): string | null {
 
 export function Breadcrumb({ state }: { state: RouterState }) {
   const [groups, setGroups] = useState<Array<{ key: string; name: string; name_kr: string }>>([]);
-  useEffect(() => { api.groups().then((r) => setGroups(r.groups)).catch(() => {}); }, []);
+  useEffect(() => { api.groupsCached().then((r) => setGroups(r.groups)).catch(() => {}); }, []);
 
   const onGroup = GROUP_TABS_SET.has(state.tab);
   const crumbs: string[] = [];
