@@ -7,7 +7,10 @@ overwrites. Computes:
 - dc_total_posts, theqoo_posts, instiz_posts (from community_posts grouped
   by platform)
 - naver_total_news (excluding is_excluded=1)
-- twitter_posts, controversy_count (from twitter_posts; controversy = type)
+- twitter_posts (legacy Twitter volume column; count only)
+- controversy_count (from community_posts WHERE sentiment='controversy'
+  over the last CONTROVERSY_WINDOW_DAYS by posted_at — NOT cumulative;
+  Twitter no longer contributes)
 """
 
 from __future__ import annotations
@@ -16,6 +19,15 @@ from collections import defaultdict
 from typing import Any, Protocol
 
 from idol_sight.collectors.base import CollectionResult
+
+# Controversy is re-sourced from community_posts (sentiment='controversy')
+# over a TRAILING window — not a cumulative all-time count. The downstream
+# health_score._controversy_factor = max(0, 1 - count/10) is raw-count
+# based, so a cumulative community tally would grow without bound and pin
+# Health (and the crisis alert) to 0 forever. 14d sits at the top of the
+# design's 7-14d range: enough signal for a stable cohort-z on the
+# deliberately rare 'controversy' label, still bounded.
+CONTROVERSY_WINDOW_DAYS = 14
 
 
 class _Executor(Protocol):
@@ -84,15 +96,38 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
     for r in rows:
         counts[r["group_key"]]["naver"] = r["n"]
 
-    # Twitter posts (count + controversy subset).
+    # Twitter posts (count only). Controversy is NO LONGER sourced from
+    # here: Twitter collection is dead, so type='controversy' is
+    # permanently empty. The COUNT is kept for the legacy `twitter`
+    # column (physical Twitter removal is a separate P4 item); controversy
+    # is re-sourced from community sentiment just below.
     rows = client.execute(
-        "SELECT group_key, COUNT(*) AS n, "
-        "  SUM(CASE WHEN type='controversy' THEN 1 ELSE 0 END) AS controversy_count "
+        "SELECT group_key, COUNT(*) AS n "
         "FROM twitter_posts GROUP BY group_key"
     )
     for r in rows:
         counts[r["group_key"]]["twitter"] = r["n"]
-        counts[r["group_key"]]["controversy"] = r.get("controversy_count") or 0
+
+    # Controversy count — re-sourced from community_posts sentiment
+    # (LLM-classified 'controversy'). WINDOWED to the last
+    # CONTROVERSY_WINDOW_DAYS by posted_at so the count measures *current*
+    # controversy pressure, not lifetime volume (a cumulative count would
+    # grow unbounded and pin _controversy_factor — and Health — to 0).
+    # posted_at is UTC (migration 0082); the lexicographic compare against
+    # datetime('now', ?) is the same idiom the community alerts use
+    # (alerts.rule_model_theft). Rows with NULL posted_at fall outside the
+    # window and are excluded — correct: an un-timestamped post can't be
+    # placed in the recency window.
+    rows = client.execute(
+        "SELECT group_key, COUNT(*) AS n "
+        "FROM community_posts "
+        "WHERE sentiment='controversy' "
+        "  AND posted_at >= datetime('now', ?) "
+        "GROUP BY group_key",
+        [f"-{CONTROVERSY_WINDOW_DAYS} days"],
+    )
+    for r in rows:
+        counts[r["group_key"]]["controversy"] = r["n"]
 
     # YouTube: video count + most-recent video stats (likes + comments)
     # + latest channel-level totals (subscribers + total views), all

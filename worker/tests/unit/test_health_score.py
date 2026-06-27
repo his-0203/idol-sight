@@ -578,3 +578,103 @@ def test_intimacy_loyalty_respects_compression():
     no_neg = _factor_inputs({**agg, "negative_ratio": 0.0}, refs)["intimacy"]
     with_neg = _factor_inputs(agg, refs)["intimacy"]
     assert with_neg == pytest.approx(no_neg * 0.5)
+
+
+# ─── P1 RitualVictory 0.8 천장 — music_show 코호트-dead 재분배 ───────────
+
+
+def test_ritual_reaches_full_when_music_show_cohort_dead():
+    """P1 — 음방(music_show_wins) 수집기가 코호트 전체에서 죽어 있을 때
+    (stub collector), 그 0.20 weight가 분모에만 남아 ritual을 0.80에서
+    막던 버그를 교정.
+
+    교정 전(music_show 분모 잔존): hanteo/news/chart 만점이어도 ritual
+    factor = 24.0 (0.80 천장).
+    교정 후(코호트-dead music_show 재분배): ritual factor = 30.0.
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    agg = _agg(
+        yt_subscribers=300_000, yt_total_views=30_000_000,
+        likes_total=2_000_000, comments_total=200_000,
+        naver_total_news=1_000,      # log normalize → news_n clamps to 1.0
+        hanteo_sales=1_000_000,      # millennium seller → hanteo_n = 1.0
+        melon_top100_peak=1,         # chart_peak_n = 1.0
+        melon_top100_depth=5,        # chart_depth_n = depth/ref = 1.0
+    )
+    refs = {
+        "subscribers": 1_000_000, "views": 200_000_000,
+        "quality": 0.05, "community": 200_000, "news": 200,
+        "music_show_wins": 5.0, "chart_depth": 5.0,
+    }
+    # 코호트에 music_show_wins 없음 (stub) → 재분배 대상.
+    L = {"subscribers", "views", "news", "quality",
+         "hanteo", "chart_peak", "chart_depth"}
+    score = compute_health_score(
+        "x", agg, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    # corporate ritual weight 30 × ritual_input 1.0 × risk 1.0 = 30.0.
+    assert score.factors["ritual"] == pytest.approx(30.0)
+
+
+def test_ritual_penalty_preserved_when_hanteo_absent_under_dead_music_show():
+    """P1 — music_show 재분배가 켜져도 hanteo 부재는 여전히 페널티.
+
+    hanteo/news/chart_peak/chart_depth는 redistribute=False 유지이므로
+    hanteo가 빠진 그룹은 ritual=1.0에 도달하지 못한다. 같은 코호트-dead
+    music_show 조건에서 hanteo만 빠지면 ritual factor가 11.25로 막힌다
+    (교정 전 9.0 — 둘 다 30.0과 거리가 멀어 hanteo가 재분배되지 않음).
+    """
+    past = (date.today() - timedelta(days=400)).isoformat()
+    agg = _agg(
+        yt_subscribers=300_000, yt_total_views=30_000_000,
+        likes_total=2_000_000, comments_total=200_000,
+        naver_total_news=1_000,      # news_n = 1.0
+        hanteo_sales=0,              # ← hanteo 부재 (per-group dead)
+        melon_top100_peak=1,         # chart_peak_n = 1.0
+        melon_top100_depth=5,        # chart_depth_n = 1.0
+    )
+    refs = {
+        "subscribers": 1_000_000, "views": 200_000_000,
+        "quality": 0.05, "community": 200_000, "news": 200,
+        "music_show_wins": 5.0, "chart_depth": 5.0,
+    }
+    # 코호트엔 hanteo 있음(다른 그룹) but music_show 없음.
+    L = {"subscribers", "views", "news", "quality",
+         "hanteo", "chart_peak", "chart_depth"}
+    score = compute_health_score(
+        "x", agg, debut_date=past, refs=refs,
+        group_model="corporate", live_metrics=L,
+    )
+    # hanteo(0.50) dead지만 weight는 분모에 잔존 → ritual_input =
+    # (0 + 0.10 + 0.10 + 0.10) / (0.50 + 0.10 + 0.10 + 0.10) = 0.375.
+    # factor = 0.375 × 30 = 11.25. 페널티가 유지되어 30.0에 못 미친다.
+    assert score.factors["ritual"] == pytest.approx(11.25)
+    assert score.factors["ritual"] < 30.0
+
+
+def test_community_metric_dead_cohort_wide_is_dropped_not_zeroed():
+    """P1 주석 정정 회귀가드(동작 불변) — sparse-collector defense는
+    'paused since V2.11' 단정과 무관하게 코호트 전체에서 죽은 metric을
+    재분배로 처리한다. community(dc/theqoo/instiz)가 코호트-dead일 때
+    intimacy가 community 0/REF 페널티를 먹지 않고 engagement 단독으로
+    재정규화되는지 고정(주석 편집이 코드 영역을 건드리지 않았음을 보증).
+
+    _factor_inputs를 직접 호출해 per_group_live 교집합을 우회하고
+    _wmean redistribute 동작만 검증한다.
+    """
+    agg = _agg(
+        yt_subscribers=300_000, yt_total_views=30_000_000,
+        likes_total=2_000_000, comments_total=200_000,
+        dc_total_posts=0, theqoo_posts=0, instiz_posts=0,  # community dead
+        naver_total_news=80,
+    )
+    refs = {"subscribers": 1_000_000, "views": 200_000_000,
+            "quality": 0.05, "community": 200_000, "news": 500,
+            "music_show_wins": 5.0}
+    # community 미포함(코호트-dead) → _wmean redistribute → engagement 단독.
+    fi_dead = _factor_inputs(agg, refs, live_metrics={"quality"})
+    # community 포함(코호트-alive, per-group 0) → 0 기여, weight 페널티.
+    fi_live = _factor_inputs(agg, refs, live_metrics={"quality", "community"})
+    # dead일 때 intimacy가 더 높아야(재분배 vs 페널티).
+    assert fi_dead["intimacy"] > fi_live["intimacy"]

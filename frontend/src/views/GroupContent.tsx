@@ -15,6 +15,8 @@ import {
   ALERT_RULE_LABEL as GROUP_ALERT_RULE_LABEL,
   ALERT_SEVERITY_TONE as GROUP_ALERT_TONE,
 } from "../lib/alerts";
+import { InsightBody } from "../components/InsightBody";
+import { humanizeInsightText } from "../lib/insightFormat";
 
 // WoW delta helper — null-safe so a missing prev_summary (group has
 // fewer than 7 days of history) renders nothing instead of "▲ NaN".
@@ -1147,6 +1149,11 @@ function GroupAlertSection(props: {
 }
 
 
+// scope/type 칩의 의미 라벨 — 다른 인사이트 뷰(Insights/WeeklyUpdate)와 동일.
+const TYPE_LABEL: Record<string, string> = {
+  weekly: "주간", insight: "인사이트", ipx_action: "IPX 액션",
+};
+
 function GroupInsightSection(props: {
   insights: Array<{ id: number; title: string; body: string;
                     scope: string; type: string; generated_at: string }>;
@@ -1164,10 +1171,10 @@ function GroupInsightSection(props: {
           <li key={i.id}
               class="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
             <div class="text-hint text-zinc-500">
-              {i.type} · {formatKSTDate(i.generated_at)}
+              {TYPE_LABEL[i.type] ?? i.type} · {formatKSTDate(i.generated_at)}
             </div>
-            <div class="mt-0.5 font-semibold">{i.title}</div>
-            <div class="mt-1 text-sm text-zinc-400">{i.body}</div>
+            <div class="mt-0.5 font-semibold">{humanizeInsightText(i.title)}</div>
+            <InsightBody body={i.body} class="mt-1 block text-sm text-zinc-400" />
           </li>
         ))}
       </ul>

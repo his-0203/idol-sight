@@ -11,11 +11,18 @@ the channel's average first-24h count. Ratios:
 
 We compute this locally from ``youtube_video_stats`` snapshots. The
 collector samples every 6h, so a video uploaded at T+0 typically has
-stat rows at T+6/12/18/24h — we pick the row closest to (T+24h) and
-interpolate when needed.
+stat rows around T+6/12/18/24/30h. We take the two snapshots that
+*bracket* the +24h mark — the closest one at/before it and the closest
+one at/after it, each within ``WINDOW_HOURS`` — and **linearly
+interpolate by time** to estimate views at exactly +24h. When only one
+side exists (a snapshot was skipped, or the video is too fresh/old to be
+bracketed) we fall back to that single raw value and treat the estimate
+as low-confidence.
 
 Cached columns on ``youtube_videos``:
-  - view_count_24h        — interpolated views ~24h after upload
+  - view_count_24h        — time-interpolated views at ~24h after upload
+                            (raw single-snapshot fallback when the +24h
+                            mark can't be bracketed; see _interpolate_v24)
   - viral_velocity_ratio  — view_count_24h / channel_mean_24h
 
 Why cache: the BI dashboard sorts/filters videos by this signal, and
@@ -43,11 +50,63 @@ class _Executor(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
+def _interpolate_v24(
+    rows: list[dict[str, Any]],
+) -> tuple[int, bool] | None:
+    """Estimate a video's view count at exactly +24h from the snapshots that
+    bracket that mark.
+
+    ``rows`` carry ``views`` and ``offset_days`` = julianday(snapshot_at) -
+    (julianday(published_at) + 1.0), i.e. the snapshot's signed distance from
+    the +24h target in days (negative = before the mark, positive = after).
+
+    Returns ``(v24, interpolated)``:
+      - both sides present  → time-weighted linear interpolation to the +24h
+        mark, ``interpolated=True``;
+      - only one side       → that raw value as a fallback,
+        ``interpolated=False`` (low confidence — a snapshot was skipped or the
+        video can't be bracketed);
+      - no usable snapshot   → ``None`` (caller skips the video).
+
+    NOTE: there is currently no column to persist ``interpolated`` (see design
+    §3.4). The flag is computed and unit-tested here so a follow-up migration
+    can surface it; for now low-confidence estimates are still written, which
+    matches the prior single-row behaviour.
+    """
+    before: tuple[int, float] | None = None  # closest snapshot at/before +24h
+    after: tuple[int, float] | None = None   # closest snapshot at/after  +24h
+    for r in rows:
+        views = r.get("views")
+        off = r.get("offset_days")
+        if views is None or off is None:
+            continue
+        views, off = int(views), float(off)
+        if off <= 0.0 and (before is None or off > before[1]):
+            before = (views, off)
+        if off >= 0.0 and (after is None or off < after[1]):
+            after = (views, off)
+    if before is not None and after is not None:
+        v_b, o_b = before
+        v_a, o_a = after
+        span = o_a - o_b
+        if span <= 0.0:                  # a single snapshot sat on the mark
+            return v_b, True
+        # Fraction of the way from the before-snapshot to the after-snapshot
+        # at which the +24h mark (offset 0) falls.
+        w = (0.0 - o_b) / span
+        return int(round(v_b + (v_a - v_b) * w)), True
+    if before is not None:
+        return before[0], False
+    if after is not None:
+        return after[0], False
+    return None
+
+
 def compute_velocity(client: _Executor) -> CollectionResult:
-    """Walk every video published within the last 30 days, find its
-    +24h stats row, and emit one UPDATE per video. Channel-mean
-    ratios are computed in a second pass once view_count_24h is
-    populated for the whole channel."""
+    """Walk every video published within the last 30 days, estimate its
+    +24h view count by interpolating the bracketing stats snapshots, and
+    emit one UPDATE per video. Channel-mean ratios are computed in a
+    second pass once view_count_24h is populated for the whole channel."""
     # Pass 1: per-video first-24h views.
     videos = client.execute(
         "SELECT video_id, channel_id, group_key, published_at "
@@ -62,20 +121,41 @@ def compute_velocity(client: _Executor) -> CollectionResult:
     fresh: dict[str, tuple[Any, int]] = {}
     for v in videos:
         vid = v["video_id"]
-        # Find the stats row whose snapshot_at is closest to
-        # published_at + 24h, within ±WINDOW_HOURS of that target.
+        # Fetch the two snapshots that bracket published_at + 24h: the closest
+        # one at/before the mark and the closest one at/after it, each within
+        # ±WINDOW_HOURS. _interpolate_v24 time-weights them (or falls back to a
+        # single side). offset_days is the snapshot's signed distance from +24h.
         rows = client.execute(
-            "SELECT views, "
-            "  ABS(julianday(snapshot_at) - julianday(?) - 1.0) AS delta "
-            "FROM youtube_video_stats "
-            "WHERE video_id=? "
-            "  AND ABS(julianday(snapshot_at) - julianday(?) - 1.0) <= ? "
-            "ORDER BY delta ASC LIMIT 1",
-            [v["published_at"], vid, v["published_at"], WINDOW_HOURS / 24.0],
+            "SELECT views, offset_days FROM ("
+            "  SELECT views, "
+            "         julianday(snapshot_at) - julianday(?) - 1.0 AS offset_days "
+            "  FROM youtube_video_stats "
+            "  WHERE video_id=? "
+            "    AND julianday(snapshot_at) - julianday(?) - 1.0 <= 0 "
+            "    AND julianday(snapshot_at) - julianday(?) - 1.0 >= -? "
+            "  ORDER BY offset_days DESC LIMIT 1"
+            ") "
+            "UNION ALL "
+            "SELECT views, offset_days FROM ("
+            "  SELECT views, "
+            "         julianday(snapshot_at) - julianday(?) - 1.0 AS offset_days "
+            "  FROM youtube_video_stats "
+            "  WHERE video_id=? "
+            "    AND julianday(snapshot_at) - julianday(?) - 1.0 > 0 "
+            "    AND julianday(snapshot_at) - julianday(?) - 1.0 <= ? "
+            "  ORDER BY offset_days ASC LIMIT 1"
+            ")",
+            [
+                v["published_at"], vid, v["published_at"], v["published_at"],
+                WINDOW_HOURS / 24.0,
+                v["published_at"], vid, v["published_at"], v["published_at"],
+                WINDOW_HOURS / 24.0,
+            ],
         )
-        if not rows:
+        estimate = _interpolate_v24(rows)
+        if estimate is None:
             continue
-        v24 = int(rows[0].get("views") or 0)
+        v24, _interpolated = estimate  # flag not yet persisted (no column)
         statements.append((
             "UPDATE youtube_videos SET view_count_24h=? WHERE video_id=?",
             [v24, vid],
