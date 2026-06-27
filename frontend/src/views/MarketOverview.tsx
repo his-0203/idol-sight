@@ -278,7 +278,7 @@ export function MarketOverview() {
           <button
             key={c.key}
             type="button"
-            onClick={() => setActiveCategory(c.key)}
+            onClick={() => writeState({ tab: "market", category: c.key })}
             class={"rounded-md border px-3 py-1 text-xs transition-colors " +
               (activeCategory === c.key
                 ? "border-violet-500 bg-violet-500/10 text-violet-300"
