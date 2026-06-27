@@ -68,6 +68,28 @@ function sortByRank(
   });
 }
 
+export interface Awareness { score: number | null; category_rank: number | null; }
+
+// '—' when basis=insufficient (null score) or no agg_awareness row.
+export function fmtAwareness(score: number | null | undefined): string {
+  return score == null ? "—" : String(score);
+}
+
+// Sort by category_rank ASC (1 = 가장 잘 알려짐). 순위 없는 그룹은 맨 뒤로→name.
+export function sortByAwareness(
+  entries: Array<[string, any]>,
+): Array<[string, any]> {
+  return [...entries].sort(([, ga], [, gb]) => {
+    const ra = ga.awareness?.category_rank;
+    const rb = gb.awareness?.category_rank;
+    const aHas = ra != null;
+    const bHas = rb != null;
+    if (aHas && bHas && ra !== rb) return ra - rb;
+    if (aHas !== bHas) return aHas ? -1 : 1;
+    return (ga.name ?? "").localeCompare(gb.name ?? "");
+  });
+}
+
 function latestShareMap(
   shareRows: Array<{ week_end: string; group_key: string; final: number }> | undefined,
 ): Record<string, number> {
@@ -105,6 +127,7 @@ export function MarketOverview() {
   const [meta, setMeta] = useState<any>(null);
   const [excludePlave, setExcludePlave] = useState(false);
   const [activeCategory, setActiveCategory] = useState<"all" | Category>("all");
+  const [sortMode, setSortMode] = useState<"health" | "awareness">("health");
   // Callback ref + state so we know precisely when the canvas mounts.
   // The previous useRef approach + useEffect [share, excludePlave] race-
   // condition'd on first load: useEffect would fire before the canvas was
@@ -177,11 +200,13 @@ export function MarketOverview() {
     const all = Object.entries(market.groups);
     const kpop = all.filter(([, g]: any) => categoryOf(g.group_model) === "kpop");
     const sub  = all.filter(([, g]: any) => categoryOf(g.group_model) === "subculture");
+    const sorter = (e: Array<[string, any]>) =>
+      sortMode === "awareness" ? sortByAwareness(e) : sortByRank(e, sharesByKey);
     return {
-      kpop:       sortByRank(kpop, sharesByKey),
-      subculture: sortByRank(sub,  sharesByKey),
+      kpop:       sorter(kpop),
+      subculture: sorter(sub),
     };
-  }, [market, sharesByKey]);
+  }, [market, sharesByKey, sortMode]);
 
   if (!market) return <div class="p-4 text-zinc-500">Loading…</div>;
 
@@ -223,6 +248,28 @@ export function MarketOverview() {
                 : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
           >{c.label}</button>
         ))}
+      </div>
+
+      {/* Sort mode toggle */}
+      <div class="flex flex-wrap items-center gap-2 text-sm">
+        <span class="text-zinc-500">정렬</span>
+        {([
+          { key: "health" as const,    label: "등급순" },
+          { key: "awareness" as const, label: "인지도순" },
+        ]).map((s) => (
+          <button
+            key={s.key}
+            type="button"
+            onClick={() => setSortMode(s.key)}
+            class={"rounded-md border px-3 py-1 text-xs transition-colors " +
+              (sortMode === s.key
+                ? "border-sky-500 bg-sky-500/10 text-sky-300"
+                : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
+          >{s.label}</button>
+        ))}
+        <span class="text-hint text-zinc-500">
+          인지도 = 얼마나 알려졌나 (구독·조회·언론 종합 · 검색량은 추후)
+        </span>
       </div>
 
       {/* Per-category card grids — each section ranked grade DESC →
@@ -290,6 +337,23 @@ export function MarketOverview() {
                           ? `${fmt(fallback)} 구독`
                           : "집계 대기"}
                       </span>
+                    </div>
+                    <div class="mt-1 flex items-center gap-1.5 text-hint">
+                      <span class="text-zinc-500">인지도</span>
+                      {g.awareness?.score != null ? (
+                        <>
+                          <span class="font-semibold tabular-nums text-sky-300">
+                            {fmtAwareness(g.awareness.score)}
+                          </span>
+                          {g.awareness.category_rank != null && (
+                            <span class="rounded-chip border border-sky-500/40 px-1 tabular-nums text-sky-400">
+                              #{g.awareness.category_rank}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span class="text-zinc-600" title="신호 부족 — 인지도 산정 제외">—</span>
+                      )}
                     </div>
                     {categoryOf(g.group_model) === "kpop" && (
                       <DebutWindowKPI groupKey={key} />
