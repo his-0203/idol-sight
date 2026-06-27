@@ -174,7 +174,7 @@ export function MarketOverview() {
       options: {
         scales: {
           y: {
-            title: { display: true, text: "점유율 (%)" },
+            title: { display: true, text: "관심 점유율 (%)" },
             ticks: { callback: (v) => fmtScale(v as number) },
           },
           x: { title: { display: true, text: "주차" } },
@@ -268,7 +268,7 @@ export function MarketOverview() {
           >{s.label}</button>
         ))}
         <span class="text-hint text-zinc-500">
-          인지도 = 얼마나 알려졌나 (구독·조회·언론 종합 · 검색량은 추후)
+          인지도 = 절대적으로 얼마나 알려졌나(카테고리 순위). 아래 관심 점유율은 그룹들 사이 상대 비중.
         </span>
       </div>
 
@@ -366,13 +366,11 @@ export function MarketOverview() {
         );
       })}
 
-      {/* SOV (Share of Voice) — line chart for ≥2 weeks, bar fallback for 1 week.
+      {/* 관심 점유율 (Share of Voice) — line chart for ≥2 weeks, bar fallback for 1 week.
           Renamed from "Market Share" in V2: the 8-group cohort isn't a real
           market with a defined denominator (Circle Chart, etc.), so the
-          honest label is Share of Voice. The SOV mix is now percentile-rank
-          weighted across yt_views (30%) / community (25%) / news (20%) /
-          subscribers (15%) / twitter (10%) instead of raw-summing different
-          unit signals. */}
+          honest label is Share of Voice. P1 Twitter removal → SOV_WEIGHTS =
+          유튜브 조회 33% / 커뮤니티 28% / 뉴스 22% / 구독자 17% (트위터 없음). */}
       {(() => {
         const distinctWeeks = share
           ? Array.from(new Set<string>(share.rows.map((r: any) => r.week_end)))
@@ -382,10 +380,10 @@ export function MarketOverview() {
           <section class="card">
             <div class="mb-2 flex flex-wrap items-center gap-2 text-data">
               <h3 class="section-title">
-                Share of Voice {hasTrend ? "Trend (13주)" : "(현재 주)"}
+                관심 점유율 (Share of Voice) {hasTrend ? "Trend (13주)" : "(현재 주)"}
               </h3>
               <span class="text-hint text-zinc-500">
-                코호트 percentile 가중합 — yt 30% / 커뮤 25% / 뉴스 20% / 구독 15% / 트윗 10%
+                8개 그룹 안에서 항목별 순위(백분위)를 매겨 가중평균 — 유튜브 조회 33% / 커뮤니티 28% / 뉴스 22% / 구독자 17%
               </span>
               <HealthSpec />
               {hasTrend && (
@@ -405,7 +403,7 @@ export function MarketOverview() {
               <>
                 <div class="mb-2 text-hint text-zinc-500">
                   추이 그래프는 데이터 2주 이상 누적 시 활성화됩니다 (현재 1주차).
-                  지금은 이번 주 점유율만 표시.
+                  지금은 이번 주 관심 점유율만 표시.
                 </div>
                 <ul class="space-y-1.5">
                   {[...share.rows].sort((a: any, b: any) => b.final - a.final).map((r: any) => (
@@ -429,7 +427,7 @@ export function MarketOverview() {
                 </ul>
               </>
             ) : (
-              <div class="text-hint text-zinc-500">아직 점유율 데이터가 없습니다.</div>
+              <div class="text-hint text-zinc-500">아직 관심 점유율 데이터가 없습니다.</div>
             )}
           </section>
         );
