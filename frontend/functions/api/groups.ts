@@ -6,6 +6,7 @@ interface GroupRow {
   name: string;
   name_kr: string;
   debut_date: string | null;
+  group_model: string | null;
   yt_channel_id: string | null;
   dc_gallery_id: string | null;
   context_keywords: string | null;
@@ -24,7 +25,7 @@ function parseList(json: string | null): string[] {
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
   const rows = await d1Query<GroupRow>(
     env.DB,
-    `SELECT g.key, g.name, g.name_kr, g.debut_date, g.yt_channel_id,
+    `SELECT g.key, g.name, g.name_kr, g.debut_date, g.group_model, g.yt_channel_id,
             g.dc_gallery_id, g.context_keywords, g.is_active,
             CASE WHEN EXISTS (
               SELECT 1 FROM agg_summary s WHERE s.group_key = g.key
@@ -37,6 +38,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     groups: rows.map((r) => ({
       key: r.key, name: r.name, name_kr: r.name_kr,
       debut_date: r.debut_date,
+      group_model: r.group_model,
       yt_channel_id: r.yt_channel_id,
       dc_gallery_id: r.dc_gallery_id,
       context_keywords: parseList(r.context_keywords),
