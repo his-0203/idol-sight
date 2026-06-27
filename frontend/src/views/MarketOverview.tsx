@@ -12,6 +12,7 @@ import { colorOf, fillOf } from "../design/groups";
 import { gradeClasses } from "../design/grades";
 import { fmtScale, fmtTooltipCallback } from "../design/chart-defaults";
 import { BreadthDepthQuadrant } from "../components/BreadthDepthQuadrant";
+import { Tooltip } from "../components/Tooltip";
 import { computeQuadrantLayout, QUADRANT_LABEL, type QuadrantInput } from "../lib/breadthDepth";
 import {
   DEFAULT_ORGANICITY_MODE,
@@ -88,7 +89,7 @@ export function sortByAwareness(
 }
 
 // ── 표 컬럼 클릭 정렬 ──────────────────────────────────────────────────
-export type TableSortKey = "grade" | "awareness" | "core" | "sov";
+export type TableSortKey = "grade" | "awareness" | "core" | "viewconv" | "sov";
 export interface TableSort { key: TableSortKey; dir: 1 | -1 } // dir 1=내림차순, -1=오름차순
 
 function tableSortValue(key: TableSortKey, k: string, g: any, shares: Record<string, number>): number | null {
@@ -96,9 +97,22 @@ function tableSortValue(key: TableSortKey, k: string, g: any, shares: Record<str
     case "grade":     return g.health_score?.total ?? null;
     case "awareness": return g.awareness?.score ?? null;
     case "core":      return g.core_fan_estimate?.est_engaged_fans ?? null;
+    case "viewconv":  return g.view_conversion?.rate ?? null;
     case "sov":       return shares[k] ?? null;
   }
 }
+
+// 표 컬럼 용어 도움말 — 새 사용자가 "무슨 값·어떻게 산출됐나" 알 수 있게.
+const HELP = {
+  group:     "색 = 그룹 식별 · '자사' 배지 = MiiWAN(우리 그룹). 행 클릭 = 그룹 심층 페이지.",
+  grade:     "건강 점수(0~10)의 등급(S>A>B>C>D). Reach·Ritual·Mobilize·Intimacy 4축 가중합. 옆 숫자는 원점수, PRE = 데뷔 3개월 미만(집계 전).",
+  awareness: "인지 폭(0~100, '얼마나 많이 알려졌나'). 카테고리 리더 대비 구독·조회·뉴스를 log 정규화. #N = 카테고리 내 순위.",
+  core:      "추정 코어 = 최근 56일 영상별 '좋아요' 중앙값(고유 반응 팬 근사). 추정 휴리스틱 — 실측 아님.",
+  quad:      "넓이(인지도)×깊이(추정 코어) 사분면. 진성강세=둘 다 높음 · 광고형/바이럴=넓지만 얕음 · 니치 충성=좁지만 깊음 · 저조=둘 다 낮음 (카테고리 중앙값 기준).",
+  viewconv:  "시청전환율 = 라이브 방송 동시접속(방송별 peak CCV 중앙값) ÷ 구독자. 구독자 중 실제 라이브에 오는 비율(충성도 신호). 라이브 CCV 미수집 그룹은 —.",
+  sov:       "관심 점유율(Share of Voice) — 그룹들 사이 상대 비중(유튜브 조회 33%·커뮤니티 28%·뉴스 22%·구독 17%). 옆 ▲▼ = 전주 대비 변화(pp).",
+  caveat:    "영상 카탈로그 organicity가 주의 구간(유료로 산 도달 의심). 인지도 점수엔 반영 안 되는 직교 참고 신호.",
+} satisfies Record<string, string>;
 
 /** ts=null이면 기본 순서(sortByRank=등급순) 유지. 값 없는 그룹은 방향과 무관하게 항상 뒤로. */
 export function sortEntriesBy(
@@ -161,6 +175,14 @@ export function MarketOverview() {
     setTableSort((ts) => (ts && ts.key === key ? { key, dir: (ts.dir === 1 ? -1 : 1) as 1 | -1 } : { key, dir: 1 }));
   const sortInd = (key: TableSortKey) =>
     tableSort?.key === key ? (tableSort.dir === 1 ? " ▼" : " ▲") : "";
+  // 정렬 가능 헤더(클릭) + 용어 도움말(ⓘ 호버) 렌더 헬퍼.
+  const sortHdr = (key: TableSortKey, label: string) => (
+    <button type="button" class="cursor-pointer select-none font-medium hover:text-zinc-300"
+            onClick={() => toggleSort(key)}>{label}{sortInd(key)}</button>
+  );
+  const help = (t: string) => (
+    <Tooltip content={t} placement="bottom"><span class="ml-0.5 cursor-help text-zinc-600">ⓘ</span></Tooltip>
+  );
   // Callback ref + state so we know precisely when the canvas mounts.
   // The previous useRef approach + useEffect [share, excludePlave] race-
   // condition'd on first load: useEffect would fire before the canvas was
@@ -310,8 +332,8 @@ export function MarketOverview() {
 
       {/* 정렬 안내 — 표 헤더 클릭으로 정렬 (기본=등급순) */}
       <div class="flex flex-wrap items-center gap-2 text-hint text-zinc-500">
-        <span>표 헤더(<b class="text-zinc-400">등급·인지도·추정코어·SoV</b>)를 클릭해 정렬 · 기본 등급순.</span>
-        <span>인지도 = 카테고리 순위, 관심 점유율(SoV) = 그룹 간 상대 비중.</span>
+        <span>표 헤더(<b class="text-zinc-400">등급·인지도·추정코어·시청전환율·SoV</b>)를 클릭해 정렬 · 기본 등급순.</span>
+        <span>각 헤더의 <span class="text-zinc-400">ⓘ</span>에 마우스를 올리면 용어 설명이 떠요.</span>
       </div>
 
       {/* ① 개요 KPI strip */}
@@ -371,13 +393,14 @@ export function MarketOverview() {
                 <thead class="text-hint text-zinc-500">
                   <tr class="border-b border-zinc-800">
                     <th class="px-3 py-2 text-left font-medium">#</th>
-                    <th class="px-2 py-2 text-left font-medium">그룹</th>
-                    <th class="px-2 py-2 text-left font-medium cursor-pointer select-none hover:text-zinc-300" onClick={() => toggleSort("grade")}>등급{sortInd("grade")}</th>
-                    <th class="px-2 py-2 text-right font-medium cursor-pointer select-none hover:text-zinc-300" onClick={() => toggleSort("awareness")}>인지도{sortInd("awareness")}</th>
-                    <th class="px-2 py-2 text-right font-medium cursor-pointer select-none hover:text-zinc-300" onClick={() => toggleSort("core")}>추정 코어{sortInd("core")}</th>
-                    <th class="px-2 py-2 text-left font-medium">넓이×깊이</th>
-                    <th class="px-2 py-2 text-right font-medium cursor-pointer select-none hover:text-zinc-300" onClick={() => toggleSort("sov")}>SoV{sortInd("sov")}</th>
-                    <th class="px-2 py-2 text-left font-medium">주의</th>
+                    <th class="px-2 py-2 text-left font-medium">그룹{help(HELP.group)}</th>
+                    <th class="px-2 py-2 text-left font-medium">{sortHdr("grade", "등급")}{help(HELP.grade)}</th>
+                    <th class="px-2 py-2 text-right font-medium">{sortHdr("awareness", "인지도")}{help(HELP.awareness)}</th>
+                    <th class="px-2 py-2 text-right font-medium">{sortHdr("core", "추정 코어")}{help(HELP.core)}</th>
+                    <th class="px-2 py-2 text-right font-medium">{sortHdr("viewconv", "시청전환율")}{help(HELP.viewconv)}</th>
+                    <th class="px-2 py-2 text-left font-medium">넓이×깊이{help(HELP.quad)}</th>
+                    <th class="px-2 py-2 text-right font-medium">{sortHdr("sov", "SoV")}{help(HELP.sov)}</th>
+                    <th class="px-2 py-2 text-left font-medium">주의{help(HELP.caveat)}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -433,6 +456,14 @@ export function MarketOverview() {
                         </td>
                         <td class="px-2 py-2 text-right tabular-nums" title="좋아요·댓글 기반 추정(관여 팬) — 라이브 측정과 다른 축, 참고">
                           {cf?.est_engaged_fans != null ? <>~{fmt(cf.est_engaged_fans)}</> : <span class="text-zinc-600">—</span>}
+                        </td>
+                        <td class="px-2 py-2 text-right tabular-nums"
+                            title={g.view_conversion?.rate != null
+                              ? `라이브 동접(median peak CCV) ÷ 구독자${g.view_conversion.broadcasts ? ` · ${g.view_conversion.broadcasts}개 방송` : ""}`
+                              : "라이브 CCV 미수집 — 시청전환율 산정 불가"}>
+                          {g.view_conversion?.rate != null
+                            ? `${(g.view_conversion.rate * 100).toFixed(1)}%`
+                            : <span class="text-zinc-600">—</span>}
                         </td>
                         <td class="px-2 py-2 whitespace-nowrap">
                           {quad ? (

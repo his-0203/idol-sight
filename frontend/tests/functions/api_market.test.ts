@@ -180,4 +180,49 @@ describe("/api/market", () => {
     // Other data still present
     expect(body.groups.plave.summary?.yt_total_views).toBe(100);
   });
+
+  // 시청전환율 — agg_fan_loyalty.conversion_rate (median peak CCV / subscribers).
+  it("includes view_conversion for groups with scored loyalty", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+      if (sql.includes("FROM agg_fan_loyalty"))
+        return [{ group_key: "plave", conversion_rate: 0.123,
+                  peak_ccv_median: 4200, broadcast_count: 6, basis: "scored" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.groups.plave.view_conversion).toEqual({
+      rate: 0.123, peak_ccv: 4200, broadcasts: 6, basis: "scored",
+    });
+  });
+
+  it("view_conversion=null when basis=insufficient", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "isedol", name: "ISEGYE", name_kr: "이세계아이돌" }];
+      if (sql.includes("FROM agg_fan_loyalty"))
+        return [{ group_key: "isedol", conversion_rate: null,
+                  peak_ccv_median: null, broadcast_count: 0, basis: "insufficient" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.groups.isedol.view_conversion).toBeNull();
+  });
+
+  it("agg_fan_loyalty reject (no such table) → 200 with view_conversion:null", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+      if (sql.includes("FROM agg_fan_loyalty"))
+        throw new Error("no such table: agg_fan_loyalty");
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(res.status).toBe(200);
+    expect(body.groups.plave.view_conversion).toBeNull();
+  });
 });
