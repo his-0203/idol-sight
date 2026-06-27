@@ -4,9 +4,13 @@ async function getJson<T>(path: string): Promise<T> {
   return (await r.json()) as T;
 }
 
+// /api/groups는 그룹 목록(거의 불변) — 세션 1회 페치 후 캐시(GroupSwitcher·Breadcrumb 공유).
+let _groupsCache: Promise<any> | null = null;
+
 export const api = {
   meta:        () => getJson<any>("/api/meta"),
   groups:      () => getJson<any>("/api/groups"),
+  groupsCached: () => (_groupsCache ||= getJson<any>("/api/groups")),
   market:      () => getJson<any>("/api/market"),
   marketShare: (weeks = 13) => getJson<any>(`/api/market-share?weeks=${weeks}`),
   group:       (k: string) => getJson<any>(`/api/group/${encodeURIComponent(k)}`),

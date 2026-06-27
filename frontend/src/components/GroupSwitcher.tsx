@@ -18,7 +18,7 @@ export function GroupSwitcher() {
   useEffect(() => onStateChange(setState), []);
   useEffect(() => {
     let cancelled = false;
-    api.groups()
+    api.groupsCached()
       .then((r: any) => { if (!cancelled) setGroups(r.groups ?? []); })
       .catch(() => { if (!cancelled) setGroups([]); });
     return () => { cancelled = true; };
