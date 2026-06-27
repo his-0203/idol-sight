@@ -10,7 +10,7 @@ interface SummaryRow {
   group_key: string; snapshot_at: string;
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
   dc_total_posts: number; theqoo_posts: number; instiz_posts: number;
-  naver_total_news: number; twitter_posts: number; controversy_count: number;
+  naver_total_news: number; controversy_count: number;
 }
 
 interface HealthRow {
@@ -135,12 +135,12 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         yt_subscribers:  s.yt_subscribers  ?? f.yt_subscribers,
         dc_total_posts: s.dc_total_posts, theqoo_posts: s.theqoo_posts,
         instiz_posts: s.instiz_posts, naver_total_news: s.naver_total_news,
-        twitter_posts: s.twitter_posts, controversy_count: s.controversy_count,
+        controversy_count: s.controversy_count,
       } : null,
       prev_summary: p ? {
         yt_total_views: p.yt_total_views, yt_subscribers: p.yt_subscribers,
         dc_total_posts: p.dc_total_posts, naver_total_news: p.naver_total_news,
-        twitter_posts: p.twitter_posts, controversy_count: p.controversy_count,
+        controversy_count: p.controversy_count,
       } : null,
       health_score: h ? {
         total: h.total, grade: h.grade, label: h.label,

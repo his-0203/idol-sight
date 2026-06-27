@@ -82,7 +82,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
   const summaryHistory = await d1Query<any>(env.DB,
     `SELECT snapshot_at,
             yt_total_views, yt_subscribers, yt_total_videos,
-            dc_total_posts, naver_total_news, twitter_posts,
+            dc_total_posts, naver_total_news,
             controversy_count
        FROM agg_summary
       WHERE group_key=? AND snapshot_at >= datetime('now', '-30 days')
@@ -120,11 +120,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     `SELECT title, url, source, published_at FROM naver_articles
       WHERE group_key=? AND COALESCE(is_excluded,0)=0
       ORDER BY published_at DESC LIMIT 30`, [key]);
-
-  const tweets = await d1Query<any>(env.DB,
-    `SELECT tweet_id, title, author_handle, url, posted_at, type
-       FROM twitter_posts WHERE group_key=?
-      ORDER BY posted_at DESC LIMIT 30`, [key]);
 
   // Recent alerts emitted by the worker for this group. We pull the
   // last 14 days so the PR/Risk view can render the worker's actual
@@ -304,7 +299,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, par
     yt_top15: ytTop,
     community_top: commTop,
     naver_articles: naver,
-    twitter_posts: tweets,
     albums: albumLifecycles,            // V2.5 dive curves
     alerts,                             // worker-emitted critical signals
     insights: insights.map((i) => ({

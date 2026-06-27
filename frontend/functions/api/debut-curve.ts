@@ -29,7 +29,6 @@ const ALLOWED_METRICS = new Set([
   "yt_total_videos",
   "dc_total_posts",
   "naver_total_news",
-  "twitter_posts",
   "controversy_count",
 ]);
 
