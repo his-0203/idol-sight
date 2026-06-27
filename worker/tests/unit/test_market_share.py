@@ -133,7 +133,7 @@ def test_compose_score_renormalizes_over_available_signals():
     re-normalized — they are NOT scored as a 0 contribution that would shrink
     every group's score by the dead signal's weight.
     """
-    from idol_sight.analysis.market_share import _compose_score, SOV_WEIGHTS
+    from idol_sight.analysis.market_share import SOV_WEIGHTS, _compose_score
     # Only yt_views present, ranked 1.0 → full 1.0 (weight renormalized to 1).
     only_yt = {"yt_views": 1.0, "community": None,
                "news": None, "subscribers": None}

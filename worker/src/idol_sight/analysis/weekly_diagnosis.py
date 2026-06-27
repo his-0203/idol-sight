@@ -89,9 +89,9 @@ def _is_lit(
     category_z 를 빼고 temporal_z + wow_pct (그룹 자기 history) 로만 판정한다.
     K-POP 은 3-축 전부 사용 (불변). category 키 부재 시 'kpop' 으로 취급.
     """
-    if sig_entry.get("category") != "subculture":
-        if sig_entry.get("category_z", 0.0) >= z_threshold:
-            return True
+    if (sig_entry.get("category") != "subculture"
+            and sig_entry.get("category_z", 0.0) >= z_threshold):
+        return True
     if sig_entry.get("temporal_z", 0.0) >= z_threshold:
         return True
     wow = sig_entry.get("wow_pct")

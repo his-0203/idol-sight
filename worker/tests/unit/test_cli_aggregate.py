@@ -9,9 +9,10 @@ COALESCE preserves melon) and recompute health_scores. Adding
 cuts a ~5min run down to <30s, eliminating chronic 10-min timeouts.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 import typer
-from unittest.mock import MagicMock, patch
 
 from idol_sight.cli import _recompute_health_scores, _run_aggregate
 
