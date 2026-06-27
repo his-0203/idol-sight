@@ -1,7 +1,7 @@
 # IDOL-SIGHT 산식 레퍼런스 (Dashboard Formula Reference)
 
 > **목적**: 대시보드가 계산하는 **모든 결정론적 산식**(가중치·임계값·정규화·분류 규칙)을 한 곳에 정리한 단일 참조 문서.
-> **기준일**: 2026-06-09 (V2.48까지 반영).
+> **기준일**: 2026-06-27 (P2c까지 반영 — SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness 포함).
 > **읽는 법**: 각 항목은 두 겹이다 — **🟢 쉽게** = 수식 없이 비유로 "뭘 보는 건지", 그 아래 **산식** = 정확한 공식·상수·`파일:라인`. 비전문가는 🟢만 읽어도 되고, 구현/검증은 산식까지 본다.
 > **출처**: `worker/src/idol_sight/analysis/*.py`, `worker/src/idol_sight/cli.py`, `frontend/src/lib/*.ts`, `frontend/functions/lib/*.ts`, `frontend/src/components/FanLoyaltyCard.tsx`.
 > **갱신 규칙**: 산식/상수 변경 시 이 문서와 `CLAUDE.md` 체인지로그를 함께 갱신한다. 코드가 진실의 원천이며, 인용 라인은 drift할 수 있으니 의심되면 원본 확인.
@@ -26,6 +26,10 @@
 11. [Relevance / News Filter 게이트](#11-relevance--news-filter-게이트)
 12. [클라이언트 계산 (shortsTrend / alerts / shortsDiagnostic)](#12-클라이언트-계산)
 13. [LLM 기반(비-결정론) 항목](#13-llm-기반-항목)
+
+**부록**
+- [§14. Live Activity — 찐팬 활동량 (P2a)](#14-live-activity--찐팬-활동량-p2a)
+- [§15. Awareness Index — 인지도 지수 (P2b)](#15-awareness-index--인지도-지수-p2b)
 
 ---
 
@@ -105,12 +109,13 @@
 `wmean[(sub_n,0.55,live), (view_n,0.40,live), (news_n,0.05,live)]`
 - `sub_n=_normalize(subscribers, ref)`, `view_n=_normalize(views, ref)`, `news_n=_normalize_log(news, ref)`.
 
-**RitualVictory (의례적 승리)** (`:581`, `redistribute=False` — dead 신호가 분모에 남아 실제 하락):
+**RitualVictory (의례적 승리)** (`:604-616`, `redistribute=False` 기본 — dead 신호가 분모에 남아 실제 하락):
 `wmean[(hanteo_n,0.50), (news_n,0.10), (music_show_n,0.20), (chart_peak_n,0.10), (chart_depth_n,0.10)]`
 - `hanteo_n=min(hanteo_sales/1_000_000, 1)` (100만장 saturate).
 - `music_show_n=_normalize(wins, ref=5.0)`.
 - `chart_peak_n`: peak∈[1,100] → `(101-peak)/100` (1위=1.0), 아니면 0.
 - `chart_depth_n`: `min(depth/depth_ref, 1)`, `depth_ref=ref or 5.0`.
+- **`music_show_wins` 예외 (P1, `:595-616`)**: 코호트 전체 dead(stub collector로 전원 0) → `music_show` part를 리스트에서 제거해 0.20 weight 재분배(페널티 0). 코호트 live인데 이 그룹만 0승이면 part 유지(genuine penalty). 나머지(hanteo/news/chart_peak/chart_depth)는 `redistribute=False` 유지.
 
 **Mobilization (동원)** (`:592`):
 `wmean[(view_n,0.40), (cadence_n,0.25,항상live), (hanteo_n,0.25), (sub_n,0.10)]`
@@ -148,18 +153,18 @@
 
 ## 2. SOV — Share of Voice
 
-`market_share.py` · 코호트의 측정된 크로스플랫폼 관심 점유율(실제 시장점유 아님). z-score/percentile-rank 단위 통일.
+`market_share.py` · 코호트의 측정된 크로스플랫폼 관심 점유율(실제 시장점유 아님). **percentile-rank 단위**(z-score는 `weekly_diagnosis`의 `market_share_z`에만 존재, 이 지표와 무관).
 
-> 🟢 **쉽게**: 경쟁사들 사이에서 우리가 **'관심을 몇 % 차지'**하나. 채널 5종(조회·커뮤·뉴스·구독·트위터) 신호를 등수로 바꿔 합치고, 누적 60% + 최근 모멘텀 40%로 섞는다. 코호트 전체를 더하면 100%(누가 오르면 누구는 내림).
+> 🟢 **쉽게**: 경쟁사들 사이에서 우리가 **'관심을 몇 % 차지'**하나. 신호 4종(조회·커뮤·뉴스·구독) 신호를 등수로 바꿔 합치고, 누적 60% + 최근 모멘텀 40%로 섞는다. 코호트 전체를 더하면 100%(누가 오르면 누구는 내림). *Twitter는 수집 종료로 완전 제거(P2c).*
 
-**산식** (`_compute_sov`, `:120-167`):
-1. 누적 신호 5종 각 `_percentile_rank`: yt_views, community, news, subscribers, twitter.
-2. 모멘텀: yt_views/community/news는 `max(delta,0)`, subscribers·twitter는 미사용(0).
+**산식** (`_compute_sov`, `:150-196`):
+1. 누적 신호 4종 각 `_percentile_rank`: yt_views, community, news, subscribers. (Twitter 제거 — 수집 영구 종료)
+2. 모멘텀: yt_views/community/news는 `max(delta,0)`, subscribers만 미사용(0).
 3. 그룹별 합성: `score = Σ SOV_WEIGHTS[k] * rank[k]`.
 4. 0–100 정규화(코호트 합=100, zero-sum): `cum_pct = cum_score/cum_total*100`.
 5. **`final = cum_pct*0.6 + mom_pct*0.4`** (`ALPHA_CUM=0.6`, `BETA_MOM=0.4`).
 
-**`SOV_WEIGHTS`** (`:39`, 합=1.0, assert): yt_views=0.30, community=0.25, news=0.20, subscribers=0.15, twitter=0.10.
+**`SOV_WEIGHTS`** (`:47-52`, 합=1.0, assert): yt_views=0.33, community=0.28, news=0.22, subscribers=0.17.
 
 **출력**: cum/mom/final 각 0–100% (소수 2자리).
 **가드**: 분모≤0 → pct=0. legacy 입력(신호 없음)은 raw-sum 정규화 fallback. 음수 델타 `max(.,0)` 클램프.
@@ -212,14 +217,15 @@
 | `yt_subscribers`/`yt_total_views` | distinct 채널별 최신 스냅샷 **SUM**(MAX 아님 — segmentary 멤버채널 합산용). 채널 stats 전무→NULL | `:152-173` |
 | `dc_total_posts`/`theqoo_posts`/`instiz_posts` | `COUNT(*)` per platform — **누적 단조증가** | `:66-77` |
 | `naver_total_news` | `COUNT(*) WHERE is_excluded=0` | `:80` |
-| `twitter_posts`/`controversy_count` | `COUNT(*)`, `SUM(type='controversy')` | `:88-95` |
+| `controversy_count` | `COUNT(*)` FROM `community_posts` WHERE `sentiment='controversy'` AND `posted_at >= now - CONTROVERSY_WINDOW_DAYS(=14)` — 트레일링 **14일 윈도(누적 아님)**. 누적 시 `_controversy_factor → 0` 고착 방지 | `agg_summary.py:106-115` |
+| `twitter_posts` | legacy count only (`agg_summary.py:104-109`). Twitter 수집 영구 종료 — 신규 행 없음, controversy 기여 없음 | — |
 
 ### 5.2 24h Video Velocity (`viral_velocity_ratio`)
 `video_velocity.py` · 신규 영상 첫 24h 조회수가 같은 채널 평균 대비 몇 배.
 
 > 🟢 **쉽게**: 새 영상이 첫 24시간에 **그 채널 평소보다 몇 배** 봤나. 5배↑면 컴백 대박 신호. (자기 자신은 평균에서 빼고 비교)
 
-- **Pass 1** (`:51`): `published_at+24h` ±`WINDOW_HOURS=18h` 이내 가장 가까운 stats → `view_count_24h`.
+- **Pass 1** (`:53-101`): `published_at+24h` 마크를 bracket하는 전·후 스냅샷(각 `±WINDOW_HOURS=18h` 내)을 시간가중 **선형보간**(`_interpolate_v24`) → `view_count_24h`. 한쪽만 존재 시 그 raw값 폴백(`interpolated=False`, 저신뢰). 보간 성공 여부는 `view_count_24h_interpolated` 컬럼(1=보간/0=폴백/NULL=미산정, migration 0098).
 - **Pass 2** (`:85`): 채널별 누적, **n<2 채널 skip**, **leave-one-out 평균** `adjusted_mean=(Σ-v24)/(n-1)` (self-bias 방지), `ratio = round(v24/adjusted_mean, 3)`.
 - **해석**: >5 viral · 2–5 strong · 1–2 solid · <1 underperform.
 - **가드**: 30일 윈도 밖/근접row 없음/n<2/adjusted_mean≤0 → skip.
@@ -439,6 +445,7 @@
 > 🟢 **쉽게**: 한 신호가 '튀었나'를 세 잣대(또래 대비 / 자기 과거 대비 / 주간 변화율) 중 **하나라도** 넘으면 점등.
 
 `category_z ≥ th` OR `temporal_z ≥ th` OR (`wow_pct ≥ wow_th`). 기본 th=1.5.
+- **서브컬처 예외 (`:74-98`)**: `category=='subculture'`이면 `category_z` 축을 점등 판정에서 제외(코호트 2개라 cross-sectional z가 구조적 노이즈; `CATEGORY_COHORT_MIN=3` 미달 시 category_z=0 fallback). `temporal_z + wow_pct`로만 판정. K-POP은 3축 전부 사용.
 
 ### 9.3 가설별 점등 규칙 (요약)
 > 🟢 **쉽게**: 각 가설은 '단서 점수'가 일정 개수 이상 모여야 켜진다. 예: 유료광고 = 조회수만 급등+구독 비례 안 함+ER 급락+오가닉 낮음 중 3개↑.
@@ -449,7 +456,7 @@
 | paid_youtube_ads | high | 점수 누적 ≥3: views lit(z2.0/wow0.20)+1, views z≥1.5 & subs z<1.5 +1, er_wow≤-0.20 +1, organicity_paid≥0.30 +1 |
 | subscriber_purchase | medium 캡 | 점수 ≥3: subs lit(z2.5/wow0.15)+1, vps_wow≤-0.30 +1, er_wow≤-0.25 +1. vps_wow=None → 차단 |
 | comeback_cycle | high/medium | 점수 ≥2: hanteo>0/chart≤30/streak≥3/news lit(z2.0)/upload_z≥1.5/event_match. score≥3 또는 event → high |
-| controversy_spike | high | controversy_z/negative_z/twitter_z/keyword_z 중 하나 ≥2.0 (OR), 인간검증 강제 |
+| controversy_spike | high | `controversy_count_z` / `negative_ratio_z` / `keyword_z` 중 하나 ≥2.0 (OR), 인간검증 강제. twitter_z 없음(Twitter 제거) (`:372-396`) |
 | platform_concentrated | high/medium | reactivity dominant + support lit(z2.0). max_z≥2.5 → high |
 | member_centric_spike | high/medium | top1_wow≥0.10 또는 hhi_wow≥0.15, 그룹 subs/views lit 동반. top1≥0.60 → high |
 | broadcast_appearance | medium | news_z_prev≥3.0 & community lit |
@@ -538,6 +545,101 @@
 - **Weekly 인사이트 본문** (`llm/weekly.py`, `prompts.py`) — D-N 카운트다운/코호트 베이스라인은 결정론 컨텍스트 주입(`_debut_countdown`), 본문 서술은 LLM. ANALYSIS DEPTH/환각 가드 적용(V2.31/2.45).
 - **Challenge 분류** (`challenge_scan.py`의 `CHALLENGE_CLASSIFY`) — meme/dance·momentum 판정. *측정 점수(§10)는 결정론.*
 - **Music show 파싱** (`llm/music_show.py`).
+
+---
+
+---
+
+## 14. Live Activity — 찐팬 활동량 (P2a)
+
+`live_activity.py` · 라이브 채팅 측정(measured) + 영상 참여 추정(estimated) 두 축의 합성 지표. 신규 수집 0 — 기존 `live_chat_messages`·`youtube_video_stats`를 재가공.
+
+> 🟢 **쉽게**: **라이브에서 실제로 활발히 반응하는 팬이 몇 명인지**를 추정. 채팅 집계(측정값)와 영상 좋아요·댓글(외형 추정)은 서로 다른 참여 표면이라 결합하지 않고 병렬 제공. Heuristic, not ground-truth.
+
+### 14.1 상수
+
+| 상수 | 값 | 위치 |
+|---|---|---|
+| `WINDOW_DAYS` | 56 | `live_activity.py:34` |
+| `MIN_WINDOW_VIDEOS` | 3 (윈도 내 영상 < 3 → 최신 12건 폴백) | `:35` |
+| `VIDEO_FALLBACK_LIMIT` | 12 | `:36` |
+| `MS_PER_MINUTE` | 60,000 | `:37` |
+
+### 14.2 (A) Measured — 라이브 채팅 집계 (`compute_broadcast_activity`, `:45-100`)
+
+방송 1회 분 `live_chat_messages` → per-broadcast 지표:
+
+| 지표 | 정의 |
+|---|---|
+| `unique_chatters` | 고유 author 수(author NULL/'') 제외) |
+| `msgs_per_chatter` | `total_messages / unique_chatters`. unique=0 → None |
+| `peak_msgs_per_min` | 1분 버킷 중 최대 메시지 수. offset_ms NULL 메시지는 버킷에서 제외 |
+| `returning_rate` | 직전 방송 chatters 집합과의 교집합 비율. 최초 방송 → None |
+
+**코어팬 (`window_core_fans`, `:103-121`)**: 56일 윈도 내 ≥2개 방송에 등장한 고유 챗터 → `core_fan_count`, `core_fan_share`. 방송 1건 이하 → 계산 안 함.
+
+### 14.3 (B) Estimated — 영상 참여 추정 (`estimate_video_engagement`, `:124-182`)
+
+최근 `WINDOW_DAYS` 내 영상 최신 스냅샷 (MIN_WINDOW_VIDEOS 미달 시 최신 VIDEO_FALLBACK_LIMIT건 폴백). 신뢰 구간 낮음(공개 외형 신호).
+
+| 지표 | 산식 |
+|---|---|
+| `est_engaged_fans` | `median(likes)` (라이브 유사 참여 팬 규모 추정) |
+| `est_active_core` | `median(comments)` (더 깊은 참여 코어 추정) |
+| `view_through` | `median(views)` (도달) |
+| `like_rate` | `median(likes/max(views,1))` (좋아요 전환율 중앙값) |
+| `comment_rate` | `median(comments/max(views,1))` (댓글 전환율 중앙값) |
+
+### 14.4 Summary Basis (`compute_live_activity`, `:185-299`)
+
+| 방송 수 | basis |
+|---|---|
+| 0 | `insufficient` |
+| 1 | `low_confidence` (core_fan 미계산) |
+| ≥2 | `scored` |
+
+Per-broadcast basis: `unique_chatters==0 → insufficient`; `returning_rate is None (첫 방송) → low_confidence`; else `scored`.
+
+Full DELETE rebuild 패턴(loyalty.py 미러). `basis='scored'`인 summary만 Health Intimacy 주입 경로에 진입(미구현, 향후 연결 예정).
+
+---
+
+## 15. Awareness Index — 인지도 지수 (P2b)
+
+`awareness.py` · 카테고리별 상대 인지도 지수(0–100). 신규 수집 0 — `agg_summary` 최신 신호(구독·조회·뉴스) 재가공. **데뷔 전 그룹 포함**(데뷔 전에도 구독·조회로 인지도 존재).
+
+> 🟢 **쉽게**: "버추얼 아이돌 인지도 순위"에 직접 답하는 1차원 지표. SOV와 달리 zero-sum이 아님(점유가 아니라 리더 대비 상대값).
+
+### 15.1 상수
+
+**`AWARENESS_WEIGHTS`** (`awareness.py:35-39`, 합=1.0, assert):
+
+| 신호 | 가중치 | 근거 |
+|---|---|---|
+| `sub` (구독자) | 0.50 | 현 인지도 최강 신호(보유 청중) |
+| `view` (조회수) | 0.35 | 도달(접촉 횟수) |
+| `news` (뉴스) | 0.15 | 언론 노출(표기 비대칭 편향 고려해 낮춤) |
+
+검색량(`search_n`)은 후속 플러그인 자리만 비워 둠 — 추가 시 가중치 재배분.
+
+### 15.2 산식 (`compute_awareness`, `:77-155`)
+
+1. **카테고리 분류** (`_category_of`, `:43-54`): `corporate → kpop`, `segmentary/confederation → subculture`. **3곳 미러** — `awareness.py` / `weekly_diagnosis_signals._category_of` / `frontend MarketOverview.categoryOf`: 매핑 변경 시 세 곳 동시 갱신.
+2. **리더 대비 log1p 정규화** (`_normalize_log`): `신호 값 → log1p(value) / log1p(category_max)`. 리더 = 카테고리 내 해당 신호 최댓값(기준 1.0). min-max 대신 리더 대비 채택 이유 — min-max는 카테고리 최하위를 강제로 0으로 만들어(SOV의 "최하위 0%" 문제) 실측 청중 보유 그룹이 0으로 깔린다.
+3. **가중합**: `score_raw = Σ AWARENESS_WEIGHTS[k] * norm[k]`.
+4. **0–100 스케일링**: `score = round(score_raw * 100, 1)`.
+5. **카테고리별 분리 랭킹**: kpop/subculture 내에서 `score` 내림차순. 동점 tiebreak → `yt_subscribers` 큰 쪽 우선.
+6. **basis**: `yt_subscribers`와 `yt_total_views` 모두 None/0 → `insufficient`(score=None); else `scored`.
+
+### 15.3 SOV와의 차이
+
+| | SOV | Awareness |
+|---|---|---|
+| 성격 | zero-sum 점유율(코호트 합=100%) | 리더 대비 절대값(합≠100%) |
+| 범위 | 코호트 전체 통합 | 카테고리별 분리 랭킹 |
+| 신호 수 | 4종 + 모멘텀 | 3종(구독·조회·뉴스) |
+| 데뷔 전 | 포함(agg_summary 있으면) | 포함 |
+| 목적 | "이번 주 이 그룹이 주목 많이 받았나" | "이 그룹이 카테고리 리더 대비 얼마나 알려졌나" |
 
 ---
 
