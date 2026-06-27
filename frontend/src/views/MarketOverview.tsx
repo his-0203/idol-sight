@@ -378,9 +378,13 @@ export function MarketOverview() {
                     return (
                       <tr
                         key={key}
-                        class="cursor-pointer border-b border-zinc-800/60 hover:bg-zinc-800/40"
+                        class="cursor-pointer border-b border-zinc-800/60 hover:bg-zinc-800/40 focus:outline-none focus:bg-zinc-800/40"
                         style={own ? { boxShadow: "inset 3px 0 0 #75d7d1", background: "rgba(117,215,209,0.05)" } : undefined}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`${g.name} 상세 보기`}
                         onClick={() => writeState({ tab: "content", group: key })}
+                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); writeState({ tab: "content", group: key }); } }}
                       >
                         <td class="px-3 py-2 tabular-nums text-zinc-500">{i + 1}</td>
                         <td class="px-2 py-2 whitespace-nowrap">
