@@ -47,7 +47,8 @@ def test_pass1_emits_view_count_update_per_video():
     pass1 = [s for s in result.statements
              if "view_count_24h=" in s[0] and "viral_velocity_ratio" not in s[0]]
     assert len(pass1) == 2
-    by_vid = {s[1][1]: s[1][0] for s in pass1}
+    # params: [v24, interpolated_int, vid]
+    by_vid = {s[1][2]: s[1][0] for s in pass1}
     assert by_vid["v1"] == 500_000
     assert by_vid["v2"] == 1_500_000
 
@@ -193,7 +194,8 @@ def test_interpolation_changes_v24_and_ratio_vs_old_nearest_single():
         by_param=by_param,
     )
     result = compute_velocity(client)
-    v24 = {s[1][1]: s[1][0] for s in result.statements
+    # params: [v24, interpolated_int, vid]
+    v24 = {s[1][2]: s[1][0] for s in result.statements
            if "view_count_24h=" in s[0] and "viral_velocity_ratio" not in s[0]}
     assert v24["vA"] == 600_000     # 700_000 under the old nearest-single code
     assert v24["vB"] == 300_000     # single-side fallback
@@ -212,3 +214,74 @@ def test_module_docstring_describes_interpolation_not_single_row():
     doc = vv.__doc__ or ""
     assert "pick the row closest" not in doc
     assert "interpolat" in doc.lower()
+
+
+# === T4: view_count_24h_interpolated 컬럼 저장 검증 ===
+
+def test_pass1_stores_interpolated_flag_both_sides():
+    """양측 bracket 보간 케이스 → view_count_24h_interpolated=1 저장."""
+    by_param = {
+        ("FROM youtube_video_stats", "vX"): [
+            {"views": 300_000, "offset_days": -0.5},
+            {"views": 900_000, "offset_days": 0.5},
+        ],
+    }
+    client = _client(
+        rows_by_query={
+            "WHERE published_at IS NOT NULL": [
+                {"video_id": "vX", "channel_id": "UC", "group_key": "g",
+                 "published_at": "2026-05-01T10:00:00Z"},
+            ],
+            "WHERE view_count_24h IS NOT NULL": [],
+        },
+        by_param=by_param,
+    )
+    result = compute_velocity(client)
+    pass1 = [s for s in result.statements
+             if "view_count_24h_interpolated" in s[0]]
+    assert len(pass1) == 1
+    # params: [v24, interpolated_int, vid]
+    assert pass1[0][1][1] == 1    # 양측 보간 성공 → 1
+    assert pass1[0][1][2] == "vX"
+    assert pass1[0][1][0] == 600_000  # 선형 보간값 확인
+
+
+def test_pass1_stores_interpolated_flag_single_side():
+    """단측 스냅샷 폴백 케이스 → view_count_24h_interpolated=0 저장."""
+    by_param = {
+        ("FROM youtube_video_stats", "vY"): [
+            {"views": 500_000, "offset_days": -0.3},   # before only
+        ],
+    }
+    client = _client(
+        rows_by_query={
+            "WHERE published_at IS NOT NULL": [
+                {"video_id": "vY", "channel_id": "UC", "group_key": "g",
+                 "published_at": "2026-05-02T10:00:00Z"},
+            ],
+            "WHERE view_count_24h IS NOT NULL": [],
+        },
+        by_param=by_param,
+    )
+    result = compute_velocity(client)
+    pass1 = [s for s in result.statements
+             if "view_count_24h_interpolated" in s[0]]
+    assert len(pass1) == 1
+    assert pass1[0][1][1] == 0    # 단측 폴백 → 0
+    assert pass1[0][1][2] == "vY"
+    assert pass1[0][1][0] == 500_000
+
+
+def test_migration_0098_adds_interpolated_column():
+    """0098 마이그레이션이 youtube_videos에 view_count_24h_interpolated 컬럼을 추가한다."""
+    import sqlite3
+    from pathlib import Path
+
+    migrations = Path(__file__).resolve().parents[3] / "migrations"
+    conn = sqlite3.connect(":memory:")
+    conn.executescript((migrations / "0001_init.sql").read_text())
+    conn.executescript((migrations / "0098_video_velocity_interpolated.sql").read_text())
+    cols = [r[1] for r in conn.execute(
+        "PRAGMA table_info(youtube_videos)"
+    ).fetchall()]
+    assert "view_count_24h_interpolated" in cols

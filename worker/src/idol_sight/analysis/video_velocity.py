@@ -68,10 +68,9 @@ def _interpolate_v24(
         video can't be bracketed);
       - no usable snapshot   → ``None`` (caller skips the video).
 
-    NOTE: there is currently no column to persist ``interpolated`` (see design
-    §3.4). The flag is computed and unit-tested here so a follow-up migration
-    can surface it; for now low-confidence estimates are still written, which
-    matches the prior single-row behaviour.
+    NOTE: the flag is persisted to ``view_count_24h_interpolated`` on
+    ``youtube_videos`` (migration 0098). 1=보간 성공(양측 bracket),
+    0=단측 raw 폴백(저신뢰), NULL=미산정.
     """
     before: tuple[int, float] | None = None  # closest snapshot at/before +24h
     after: tuple[int, float] | None = None   # closest snapshot at/after  +24h
@@ -155,10 +154,12 @@ def compute_velocity(client: _Executor) -> CollectionResult:
         estimate = _interpolate_v24(rows)
         if estimate is None:
             continue
-        v24, _interpolated = estimate  # flag not yet persisted (no column)
+        v24, interpolated = estimate
         statements.append((
-            "UPDATE youtube_videos SET view_count_24h=? WHERE video_id=?",
-            [v24, vid],
+            "UPDATE youtube_videos "
+            "SET view_count_24h=?, view_count_24h_interpolated=? "
+            "WHERE video_id=?",
+            [v24, int(interpolated), vid],
         ))
         fresh[vid] = (v.get("channel_id"), v24)
 
