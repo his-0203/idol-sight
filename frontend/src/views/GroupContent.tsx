@@ -610,7 +610,7 @@ function ContentFormatMatrix({ videos }: { videos: any[] }) {
 // "이 그룹 신호" — client-derived action queue per group. Surfaces the
 // four signals every operator wants when they open a group page:
 //   1. viral video (yt_top15 row with viral_velocity_ratio ≥ 5×)
-//   2. controversy tweets (twitter_posts.type === 'controversy')
+//   2. controversy count (community controversy_count from agg_summary)
 //   3. album rebound (albums.pattern === 'rebound')
 //   4. factor weakness (FactorBreakdown saturation < 30%)
 // Renders all four states even when empty so the operator learns the

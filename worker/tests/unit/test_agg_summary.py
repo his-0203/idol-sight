@@ -49,9 +49,6 @@ def test_build_agg_summary_emits_one_upsert_per_group():
             {"group_key": "plave", "n_videos": 24,
              "total_likes": 4_500_000, "total_comments": 320_000},
         ],
-        "twitter_posts": [
-            {"group_key": "plave", "n": 30, "controversy_count": 0},
-        ],
     })
 
     result = build_agg_summary(client, snapshot_at="2026-05-04T00:00:00Z")
@@ -68,7 +65,7 @@ def test_build_agg_summary_emits_one_upsert_per_group():
             #   yt_videos, yt_views, yt_subs,
             #   yt_likes, yt_comments,
             #   dc_posts, theqoo_posts, instiz_posts,
-            #   naver, twitter, controversy
+            #   naver, controversy
             assert params[0] == "plave"
             assert params[1] == "2026-05-04T00:00:00Z"
             assert params[2] == 24
@@ -80,8 +77,7 @@ def test_build_agg_summary_emits_one_upsert_per_group():
             assert params[8] == 20219
             assert params[9] == 35454
             assert params[10] == 282
-            assert params[11] == 30
-            assert params[12] == 0
+            assert params[11] == 0
             break
     else:
         raise AssertionError("plave row not found in statements")
@@ -124,7 +120,6 @@ def test_build_agg_summary_sums_member_channels_for_segmentary_groups():
             {"group_key": "plave", "n_videos": 24,
              "total_likes": 4_500_000, "total_comments": 320_000},
         ],
-        "twitter_posts": [],
     })
 
     result = build_agg_summary(client, snapshot_at="2026-05-04T00:00:00Z")
@@ -163,7 +158,6 @@ def test_build_agg_summary_passes_null_when_channel_stats_missing():
         # the defaultdict factory (yt_views=None, yt_subs=None).
         "youtube_channel_stats": [],
         "youtube_video_stats": [],
-        "twitter_posts": [],
     })
     result = build_agg_summary(client, snapshot_at="2026-05-04T00:00:00Z")
     by_group = {params[0]: params for _sql, params in result.statements}
@@ -176,10 +170,8 @@ def test_build_agg_summary_passes_null_when_channel_stats_missing():
 
 
 def test_controversy_count_sourced_from_community_sentiment():
-    """교정 후 의도된 차이: controversy_count는 community_posts
-    (sentiment='controversy')의 최근 윈도우 카운트에서 나온다. 과거
-    twitter type='controversy'는 더 이상 기여하지 않는다 — 이 fixture의
-    twitter controversy_count=99 는 무시돼야 한다.
+    """controversy_count는 community_posts (sentiment='controversy')의
+    최근 윈도우 카운트에서 나온다.
     """
     client = _client_returning({
         "platform": [
@@ -192,41 +184,11 @@ def test_controversy_count_sourced_from_community_sentiment():
         "sentiment='controversy'": [
             {"group_key": "plave", "n": 3},
         ],
-        # legacy twitter source — its controversy_count must NOT leak.
-        "twitter_posts": [
-            {"group_key": "plave", "n": 30, "controversy_count": 99},
-        ],
     })
     result = build_agg_summary(client, snapshot_at="2026-06-27T00:00:00Z")
     by_group = {params[0]: params for _sql, params in result.statements}
-    # controversy (index 12) == community window count, NOT twitter's 99.
-    assert by_group["plave"][12] == 3
-    # twitter column (index 11) still carries the twitter post count.
-    assert by_group["plave"][11] == 30
-
-
-def test_twitter_posts_no_longer_contributes_controversy():
-    """교정 전 값 고정 회귀: twitter type='controversy'만 있고 community
-    controversy가 윈도우에 없으면 controversy_count는 0 — twitter 기여가
-    완전히 끊겼음을 핀한다(과거 소스가 다시 살아나면 이 테스트가 깨진다).
-    """
-    client = _client_returning({
-        "platform": [
-            {"group_key": "plave", "platform": "dc", "n": 500},
-        ],
-        "naver_articles": [],
-        "youtube_channel_stats": [],
-        "youtube_video_stats": [],
-        # no community controversy rows in the recency window.
-        "sentiment='controversy'": [],
-        "twitter_posts": [
-            {"group_key": "plave", "n": 42, "controversy_count": 17},
-        ],
-    })
-    result = build_agg_summary(client, snapshot_at="2026-06-27T00:00:00Z")
-    by_group = {params[0]: params for _sql, params in result.statements}
-    assert by_group["plave"][12] == 0      # twitter controversy ignored
-    assert by_group["plave"][11] == 42     # twitter count preserved
+    # controversy (index 11) == community window count.
+    assert by_group["plave"][11] == 3
 
 
 def test_controversy_query_is_windowed_to_recent_posted_at():
@@ -240,7 +202,6 @@ def test_controversy_query_is_windowed_to_recent_posted_at():
     from idol_sight.analysis.agg_summary import CONTROVERSY_WINDOW_DAYS
     client = _client_returning({
         "sentiment='controversy'": [{"group_key": "plave", "n": 2}],
-        "twitter_posts": [],
     })
     build_agg_summary(client, snapshot_at="2026-06-27T00:00:00Z")
 

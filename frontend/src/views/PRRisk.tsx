@@ -45,7 +45,6 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
   }, [groupKey]);
 
   const news = data?.naver_articles ?? [];
-  const tweets = data?.twitter_posts ?? [];
   const alerts: AlertRow[] = data?.alerts ?? [];
 
   // Trend-aware risk level matching the worker's controversy_spike rule
@@ -80,8 +79,6 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
       (a) => a.rule !== "identity_leak" && a.rule !== "model_theft"),
     [alerts],
   );
-  const controversyTweets = tweets.filter((t: any) => t.type === "controversy");
-
   if (!groupKey) {
     return (
       <div class="space-y-4">
@@ -106,13 +103,13 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
       <div class="text-zinc-500">Loading…</div>
     </div>
   );
-  if (news.length === 0 && tweets.length === 0 && alerts.length === 0) {
+  if (news.length === 0 && alerts.length === 0) {
     return (
       <div class="space-y-4">
         <GroupTabs />
         <EmptyState
           title="아직 추적된 PR/리스크 신호 없음"
-          hint="뉴스 기사와 트위터 멘션은 수집 파이프라인이 신호를 발견하는 즉시 표시됩니다."
+          hint="뉴스 기사와 커뮤니티 논란 신호는 수집 파이프라인이 발견하는 즉시 표시됩니다."
           icon="🛡️"
         />
       </div>
@@ -162,14 +159,8 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
           sparkline={seriesOf(data.summary_history, "naver_total_news")}
         />
         <KPI
-          label="트위터 (누적)"
-          value={data.summary?.twitter_posts ?? tweets.length}
-          delta={wowDelta(data.summary?.twitter_posts, data.prev_summary?.twitter_posts)}
-          sparkline={seriesOf(data.summary_history, "twitter_posts")}
-        />
-        <KPI
           label="Controversy"
-          value={data.summary?.controversy_count ?? controversyTweets.length}
+          value={data.summary?.controversy_count ?? 0}
           delta={wowDelta(data.summary?.controversy_count, data.prev_summary?.controversy_count)}
           sparkline={seriesOf(data.summary_history, "controversy_count")}
         />
@@ -253,28 +244,6 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
         </section>
       )}
 
-      {tweets.length > 0 && (
-        <section class="rounded-lg border border-zinc-800 p-3">
-          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">트위터/X</h3>
-          <ul class="space-y-1 text-xs">
-            {/* Controversy 우선 정렬 — 운영자 시선이 즉시 닿게. */}
-            {[...tweets].sort((a: any, b: any) => {
-              const w = (t: any) => t.type === "controversy" ? 0 : t.type === "news" ? 1 : 2;
-              return w(a) - w(b);
-            }).map((t: any) => (
-              <li key={t.tweet_id}>
-                <span class={"mr-1 rounded px-1.5 text-xs " +
-                             (t.type === "controversy" ? "bg-red-500/20 text-red-300"
-                              : t.type === "news" ? "bg-blue-500/20 text-blue-300"
-                              : t.type === "event" ? "bg-emerald-500/20 text-emerald-300"
-                              : "bg-zinc-800 text-zinc-400")}>{t.type}</span>
-                <a class="hover:underline" href={t.url} target="_blank" rel="noopener">{t.title}</a>
-                <span class="ml-2 text-zinc-500">@{t.author_handle}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   );
 }

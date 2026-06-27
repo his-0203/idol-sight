@@ -124,7 +124,7 @@ def _rising_daily(n=40):
             "yt_likes_total": 8000 + 400 * i + 10 * i * i,
             "yt_comments_total": 500 + 30 * i + i * i,
             "dc_total_posts": 30 + 2 * i,
-            "theqoo_posts": 0, "instiz_posts": 0, "twitter_posts": 0,
+            "theqoo_posts": 0, "instiz_posts": 0,
             "negative_ratio": 0.0,
         })
     return rows
@@ -378,7 +378,7 @@ def _fetch_rows_for(group, n):
             "yt_likes_total": 8000 + 400 * i,
             "yt_comments_total": 500 + 30 * i,
             "dc_total_posts": 30 + 2 * i, "theqoo_posts": 0,
-            "instiz_posts": 0, "twitter_posts": 0, "negative_ratio": 0.0,
+            "instiz_posts": 0, "negative_ratio": 0.0,
         })
     return rows
 

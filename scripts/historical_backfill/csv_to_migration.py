@@ -93,7 +93,7 @@ def emit_sql(group_key: str, rows: list[dict[str, int | None]],
     values = ",\n  ".join(
         f"('{group_key}', '{r['date']}T00:00:00Z', NULL, "
         f"{to_sql(r['views'])}, {to_sql(r['subs'])}, "
-        f"0, 0, 0, 0, 0, 0, 'backfill_estimate')"
+        f"0, 0, 0, 0, 0, 'backfill_estimate')"
         for r in rows
     )
     first = rows[0]["date"]
@@ -107,7 +107,7 @@ INSERT INTO agg_summary
   (group_key, snapshot_at,
    yt_total_videos, yt_total_views, yt_subscribers,
    dc_total_posts, theqoo_posts, instiz_posts,
-   naver_total_news, twitter_posts, controversy_count, data_source)
+   naver_total_news, controversy_count, data_source)
 VALUES
   {values}
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET

@@ -99,7 +99,7 @@ interface SummaryRow {
   group_key: string; snapshot_at: string;
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
   dc_total_posts: number; theqoo_posts: number; instiz_posts: number;
-  naver_total_news: number; twitter_posts: number; controversy_count: number;
+  naver_total_news: number; controversy_count: number;
   data_source: string;
 }
 
@@ -235,7 +235,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     d1Query<any>(
       env.DB,
       `SELECT snapshot_at, yt_total_views, yt_subscribers, yt_total_videos,
-              dc_total_posts, naver_total_news, twitter_posts
+              dc_total_posts, naver_total_news
          FROM agg_summary
         WHERE group_key=? AND snapshot_at >= datetime('now', '-30 days')
         ORDER BY snapshot_at ASC LIMIT 64`,
@@ -482,7 +482,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         theqoo_posts: row.theqoo_posts,
         instiz_posts: row.instiz_posts,
         naver_total_news: row.naver_total_news,
-        twitter_posts: row.twitter_posts,
         controversy_count: row.controversy_count,
         data_source: row.data_source,
       } : null,
@@ -505,7 +504,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       theqoo_posts: summary.theqoo_posts,
       instiz_posts: summary.instiz_posts,
       naver_total_news: summary.naver_total_news,
-      twitter_posts: summary.twitter_posts,
       controversy_count: summary.controversy_count,
     } : null,
     prev_summary: prevSummary ? {
@@ -515,7 +513,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       yt_subscribers: prevSummary.yt_subscribers,
       dc_total_posts: prevSummary.dc_total_posts,
       naver_total_news: prevSummary.naver_total_news,
-      twitter_posts: prevSummary.twitter_posts,
     } : null,
     summary_history: summaryHistory,
     health_score: health ? {

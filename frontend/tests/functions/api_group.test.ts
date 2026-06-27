@@ -48,10 +48,6 @@ describe("/api/group/[key]", () => {
       if (sql.includes("FROM naver_articles")) {
         return [{ title: "n1", url: "u", source: "Naver", published_at: "2026-05-04" }];
       }
-      if (sql.includes("FROM twitter_posts")) {
-        return [{ tweet_id: "t1", title: "tw", author_handle: "x",
-                  url: "u", posted_at: "2026-05-04", type: "content" }];
-      }
       return [];
     });
     const res = await onRequestGet({
@@ -66,6 +62,6 @@ describe("/api/group/[key]", () => {
     expect(body.yt_top15).toHaveLength(1);
     expect(body.community_top).toHaveLength(1);
     expect(body.naver_articles).toHaveLength(1);
-    expect(body.twitter_posts).toHaveLength(1);
+    expect(body.twitter_posts).toBeUndefined();
   });
 });

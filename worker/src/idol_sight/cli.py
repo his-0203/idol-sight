@@ -20,7 +20,6 @@ from idol_sight.collectors.instiz import InstizCollector
 from idol_sight.collectors.melon import MelonChartCollector
 from idol_sight.collectors.naver import NaverCollector
 from idol_sight.collectors.theqoo import TheQooCollector
-from idol_sight.collectors.twitter import TwitterCollector
 from idol_sight.collectors.youtube import YouTubeCollector
 from idol_sight.config import GroupConfig, Settings, load_settings
 from idol_sight.d1 import D1Client
@@ -32,7 +31,7 @@ app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 
 KNOWN_SOURCES = {
-    "youtube", "naver", "dc", "theqoo", "instiz", "twitter",
+    "youtube", "naver", "dc", "theqoo", "instiz",
     "hanteo", "channel-stats",
 }
 KNOWN_GROUPS = {
@@ -50,7 +49,6 @@ _COLLECTORS = {
     "youtube": YouTubeCollector,
     "channel-stats": ChannelStatsCollector,
     "hanteo": HanteoCollector,
-    "twitter": TwitterCollector,
 }
 
 # 각 source의 expected_interval_h. crawl_meta에 기록되어 health-check이
@@ -61,12 +59,11 @@ _COLLECTORS = {
 #   라서 12h. 파일 이름 historical, 변경하면 cron 분석 도구가 깨질 수 있어
 #   유지 중. 1h → 12h 변경(2026-05-13): health-check 매번 9개 false STALE
 #   naver:* 알림 → Discord 스팸 → 정렬.
-# twitter: 12h — 아직 워크플로 없음. 추후 cron 추가 시 동기화 필요.
 # youtube: 6h — collect-daily가 매일 12:30 UTC 1회 + collect-6h가 6h 주기.
 # channel-stats: 24h — collect-daily 1회만 수집.
 # hanteo: 168h — 주간 수동/추후 cron.
 _INTERVALS_H = {
-    "naver": 12, "twitter": 12,
+    "naver": 12,
     "dc": 6, "theqoo": 6, "instiz": 6, "youtube": 6, "channel-stats": 24,
     "hanteo": 168,
 }
@@ -1321,7 +1318,7 @@ def analyze_weekly(
     typer.echo(f"hanteo: matched {hanteo_result.rows_inserted} groups")
 
     # 2. Share of Voice (formerly "market share") — V2 reformulation.
-    # Each signal (yt_views/community/news/subscribers/twitter) is now
+    # Each signal (yt_views/community/news/subscribers) is now
     # converted to a percentile rank across the cohort and mixed via
     # SOV_WEIGHTS so that no single high-volume signal dominates. The
     # data layout: take the latest agg_summary snapshot per group as
@@ -1332,7 +1329,7 @@ def analyze_weekly(
     from idol_sight.analysis.market_share import compute_market_share, to_statements
     rows_last = client.execute(
         "SELECT group_key, yt_total_views, yt_subscribers, dc_total_posts, "
-        "  theqoo_posts, instiz_posts, naver_total_news, twitter_posts "
+        "  theqoo_posts, instiz_posts, naver_total_news "
         "FROM agg_summary WHERE snapshot_at = "
         "  (SELECT MAX(snapshot_at) FROM agg_summary)")
     rows_prev = client.execute(
@@ -1365,7 +1362,6 @@ def analyze_weekly(
             "comm_total":   comm_total,
             "news":         r.get("naver_total_news") or 0,
             "subscribers":  r.get("yt_subscribers") or 0,
-            "twitter":      r.get("twitter_posts") or 0,
             "delta_yt_views": (r.get("yt_total_views") or 0) - (prev.get("yt_views") or 0),
             "delta_comm":     comm_total - (prev.get("comm_total") or 0),
             "delta_news":     (r.get("naver_total_news") or 0) - (prev.get("news") or 0),

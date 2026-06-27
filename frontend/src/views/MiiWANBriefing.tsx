@@ -43,7 +43,7 @@ import { MarketAnalysis } from "./MarketAnalysis";
 type SummaryShape = {
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
   dc_total_posts: number; theqoo_posts: number; instiz_posts: number;
-  naver_total_news: number; twitter_posts: number; controversy_count: number;
+  naver_total_news: number; controversy_count: number;
 };
 
 type Benchmark = {
@@ -330,7 +330,7 @@ function EstBadge({ source }: { source: string | null | undefined }) {
 // rows specifically, treat 0 on these columns as "no data" → "—".
 const PLACEHOLDER_ZERO_KEYS = new Set([
   "dc_total_posts", "theqoo_posts", "instiz_posts",
-  "twitter_posts", "controversy_count",
+  "controversy_count",
 ]);
 
 function fmtBench(
@@ -537,12 +537,6 @@ export function MiiWANBriefing() {
                    value={data.summary.dc_total_posts}
                    delta={wow(data.summary.dc_total_posts, p?.dc_total_posts)}
                    sparkline={series("dc_total_posts")} />
-              <KPI label="트위터 멘션"
-                   value={data.summary.twitter_posts}
-                   delta={wow(data.summary.twitter_posts, p?.twitter_posts)}
-                   sparkline={series("twitter_posts")}
-                   hint={data.summary.controversy_count
-                     ? `논란(커뮤니티) ${data.summary.controversy_count}건` : undefined} />
             </div>
           );
         })()}
@@ -623,7 +617,6 @@ export function MiiWANBriefing() {
                         ["yt_total_videos", "영상 수"],
                         ["naver_total_news", "뉴스"],
                         ["dc_total_posts", "디시 게시글"],
-                        ["twitter_posts", "트위터 멘션"],
                       ].map(([k, label]) => {
                         const mine = data.summary![k as keyof SummaryShape] as number;
                         return (

@@ -13,7 +13,7 @@ Lifecycle:
 
 Silent-fail guard
 -----------------
-Several collectors (dc, theqoo, instiz, twitter) catch fetch exceptions
+Several collectors (dc, theqoo, instiz) catch fetch exceptions
 internally and accumulate them in ``result.errors`` while still returning
 a CollectionResult — historically the orchestrator treated those runs as
 ``status='ok'`` with no error_msg, masking real failures. Discovered
