@@ -47,7 +47,7 @@ class _FakeResp:
     def raise_for_status(self):
         if self.status_code >= 400:
             import httpx
-            raise httpx.HTTPStatusError("err", request=None, response=None)
+            raise httpx.HTTPStatusError("err", request=None, response=None)  # type: ignore[arg-type]
 
 
 class _FakeClient:

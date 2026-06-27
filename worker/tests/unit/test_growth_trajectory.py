@@ -42,7 +42,7 @@ def test_relative_slope_positive_for_rising_series():
     # rising by +10/day over 28 pts → slope_per_day=10, mean=235 → *7/235 ≈ 0.298
     # plan comment said "mean ~ 145" (arithmetic error in plan); correct mean is 235.
     # boundary adjusted from >0.3 to >0.25 — still unambiguously "strongly climbing".
-    vals = [100 + 10 * i for i in range(28)]
+    vals = [100.0 + 10.0 * i for i in range(28)]
     rs = relative_slope(vals, window_days=28)
     assert rs is not None and rs > 0.25   # strongly climbing
 
@@ -329,10 +329,12 @@ def test_change_4w_relative_for_levels_absolute_for_values():
     from idol_sight.analysis.growth_trajectory import _change_4w
     # relative: base is the point ~28 days back (index -29 over a 29-long series)
     levels = [100.0] + [0.0] * 27 + [120.0]   # len 29, base = levels[-29] = 100
-    assert abs(_change_4w(levels, relative=True) - 0.2) < 1e-9
+    _r1 = _change_4w(levels, relative=True)
+    assert _r1 is not None and abs(_r1 - 0.2) < 1e-9
     # absolute delta for ratio pillars
     vals = [0.03] + [0.0] * 27 + [0.05]
-    assert abs(_change_4w(vals, relative=False) - 0.02) < 1e-9
+    _r2 = _change_4w(vals, relative=False)
+    assert _r2 is not None and abs(_r2 - 0.02) < 1e-9
     # short history → falls back to the earliest point
     assert _change_4w([100.0, 110.0], relative=True) == 0.1
     # guards: too short, zero base

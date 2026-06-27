@@ -139,19 +139,23 @@ def test_skips_videos_with_no_close_snapshot():
 def test_interpolate_both_sides_returns_time_weighted_value():
     # T+6h (offset -0.75, 300K) + T+42h (offset +0.75, 900K): +24h가 정확히
     # 중간 → 600K. 교정 전(최근접 단일행) 코드는 끝값(300K 또는 900K)을 반환했다.
-    v24, interpolated = _interpolate_v24([
+    _res1 = _interpolate_v24([
         {"views": 300_000, "offset_days": -0.75},
         {"views": 900_000, "offset_days": 0.75},
     ])
+    assert _res1 is not None
+    v24, interpolated = _res1
     assert v24 == 600_000
     assert interpolated is True
 
 
 def test_interpolate_single_side_falls_back_with_low_confidence_flag():
     # 한쪽 스냅샷만 존재 → 보간 불가 → raw 값 폴백 + 저신뢰 플래그(False).
-    v24, interpolated = _interpolate_v24([
+    _res2 = _interpolate_v24([
         {"views": 500_000, "offset_days": -0.3},
     ])
+    assert _res2 is not None
+    v24, interpolated = _res2
     assert v24 == 500_000
     assert interpolated is False
 
