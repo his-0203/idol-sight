@@ -46,7 +46,7 @@
 
 ## SOV / Health
 
-- **SOV(Share of Voice)**: 신호별 percentile rank z-score 혼합(단일 고볼륨 신호 지배 방지). 카테고리 코호트(kpop/subculture) 내 비교.
+- **SOV (Share of Voice · 발언/관심 점유)**: 여러 신호에서의 *언급·관심 점유도*를 나타내는 합성 지표(시장점유율과 무관). 신호별 percentile rank와 z-score를 혼합(단일 고볼륨 신호 지배 방지). 카테고리 코호트(kpop/subculture) 내 비교.
 - **Health Score**: 4-factor(Reach/RitualVictory/Mobilization/Intimacy) group_model별 가중. ref 동적(percentile). 산식 정의는 `HealthSpec.tsx` 모달.
 
 ## 시간대 주의

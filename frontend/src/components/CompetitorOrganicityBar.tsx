@@ -26,10 +26,10 @@ const EXCLUDED_GROUPS = new Set<string>(["isedol", "stellive", "uryael"]);
 type Mode = "all_weighted" | "all_simple" | "long" | "short";
 
 const MODE_LABEL: Record<Mode, string> = {
-  all_weighted: "All · view-weighted",
-  all_simple:   "All · simple mean",
-  long:         "Long only",
-  short:        "Shorts only",
+  all_weighted: "전체·조회수 가중",
+  all_simple:   "전체·단순평균",
+  long:         "롱폼만",
+  short:        "숏폼만",
 };
 
 interface SummaryRow {
@@ -175,7 +175,7 @@ export function CompetitorOrganicityBar() {
     );
   }, [allRows, bucket, mode, buckets]);
 
-  if (!allRows) return <div class="cob-section">Loading…</div>;
+  if (!allRows) return <div class="cob-section">불러오는 중…</div>;
 
   const sorted = [...display].sort((a, b) => {
     if (a.score === null && b.score === null) return 0;
@@ -190,9 +190,9 @@ export function CompetitorOrganicityBar() {
 
   return (
     <section class="cob-section">
-      <h3>Competitive Debut Window Posture</h3>
+      <h3>데뷔 구간 경쟁 포지션</h3>
       <div class="cob-bucket-picker">
-        View bucket:
+        표시 구간:
         {buckets.map((b) => (
           <button type="button"
                   key={b}
@@ -201,7 +201,7 @@ export function CompetitorOrganicityBar() {
         ))}
       </div>
       <div class="cob-mode-picker">
-        Score:
+        점수 기준:
         {(Object.keys(MODE_LABEL) as Mode[]).map((m) => (
           <button type="button"
                   key={m}
@@ -240,21 +240,21 @@ export function CompetitorOrganicityBar() {
                   <span class="cob-current-tag">@{r.shown_bucket}</span>
                 )}
               </div>
-              {isOurs && <div class="cob-tag">← ours</div>}
+              {isOurs && <div class="cob-tag">← 우리 그룹</div>}
             </div>
           );
         })}
       </div>
       <div class="cob-footer">
-        Showing {sorted.length} groups · bucket {bucket} · {MODE_LABEL[mode]}
+        {sorted.length}개 그룹 표시 · 구간 {bucket} · {MODE_LABEL[mode]}
         {fallbackCount > 0 && (
           <> · <span class="cob-fallback-note">
             {fallbackCount}개 그룹은 해당 버킷 데이터 없어 현재 시점 점수로 표시 (@버킷)
           </span></>
         )}
         <br />
-        organicity = 진정성(비율) 신호 · 조회수 규모와 무관 — 막대 길이는 "진짜인가"지 "큰가"가 아님.
-        {" "}<span class="cob-thin-legend">* 표본 적음(scored &lt; 3) — 중립으로 보정된 점수, 성장·볼륨은 성장 탭 참고.</span>
+        진정성(오가닉) 점수 = 진정성(비율) 신호 · 조회수 규모와 무관 — 막대 길이는 "진짜인가"지 "큰가"가 아님.
+        {" "}<span class="cob-thin-legend">* 표본 적음(채점 3개 미만) — 중립으로 보정된 점수, 성장·볼륨은 성장 탭 참고.</span>
       </div>
     </section>
   );

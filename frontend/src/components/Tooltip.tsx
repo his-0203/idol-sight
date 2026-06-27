@@ -111,13 +111,13 @@ export function Tooltip(props: TooltipProps) {
 // any future factor surface stay in sync.
 export const FACTOR_TOOLTIP: Record<string, string> = {
   reach:
-    "Reach (도달) — 구독자, 누적 조회수, 뉴스 노출 등 시장이 그룹을 ‘얼마나 알고 있는지’ 측정. cohort p75 대비 정규화.",
+    "도달(Reach) — 구독자, 누적 조회수, 뉴스 노출 등 시장이 그룹을 ‘얼마나 알고 있는지’ 측정. 비교군 상위 25% 수준 기준 환산.",
   ritual:
-    "RitualVictory (의례 승리) — 한터 초동, 음방 1위, 차트 진입, 외부 콜라보 등 팬덤이 의례적으로 동원되는 ‘승리 이벤트’ 강도.",
+    "의례적 승리(Ritual) — 한터 초동, 음방 1위, 차트 진입, 외부 콜라보 등 팬덤이 의례적으로 동원되는 ‘승리 이벤트’ 강도.",
   mobilization:
-    "Mobilization (동원) — 누적 조회수·구독자·한터 초동 등 팬이 시간/돈을 실제로 투입한 양. 화력의 ‘쌓인 결과’.",
+    "동원(Mobilization) — 누적 조회수·구독자·한터 초동 등 팬이 시간/돈을 실제로 투입한 양. 화력의 ‘쌓인 결과’.",
   intimacy:
-    "Intimacy (친밀성) — engagement_rate(좋아요+댓글)·커뮤니티 활동·합방 빈도 등 팬-그룹 관계의 깊이. 부정 sentiment 시 압축됨.",
+    "친밀도(Intimacy) — 참여율(좋아요+댓글)·커뮤니티 활동·합방 빈도 등 팬-그룹 관계의 깊이. 부정 sentiment 시 압축됨.",
 };
 
 // ---------------------------------------------------------------------------

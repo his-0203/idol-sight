@@ -138,8 +138,8 @@ export function SystemStatus() {
       </div>
 
       <p class="text-hint text-zinc-600">
-        지연 임계 = expected_interval × 4 (health-check 기준). 실패/지연 잡은
-        GitHub Actions 로그 확인 후 재실행. 상세 정의는 docs/metric-dictionary.md.
+        지연 임계 = 기대 주기 × 4 (health-check 기준). 실패/지연 잡은
+        GitHub Actions 로그 확인 후 재실행. 자세한 지표 정의는 운영팀 문서를 참고.
       </p>
     </div>
   );

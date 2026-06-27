@@ -92,15 +92,15 @@ EXEMPLARS (어조·길이·구체성 참고):
             top 10을 24시간 내 캡처해 PR 자료로 보관한다."
 
   ④ Controversy triage (controversy_spike)
-    title: "디시 controversy 트윗 12시간 검수 + Streisand 회피"
-    body:  "[PR팀] 신고된 controversy 트윗을 12시간 이내 출처 5건
+    title: "디시 controversy 글 12시간 검수 + Streisand 회피"
+    body:  "[PR팀] 신고된 controversy 글을 12시간 이내 출처 5건
             검수한다. False positive면 dismiss 처리만 하고 직접
             대응·삭제 요청 금지 (Streisand effect). 실제 사안이면
             PR팀에 통보 후 법무 24시간 응답 대기."
 
   ⑤ Member reveal cadence
     title: "원주율 reveal Piece 5 — 5/15 KST 18시 동시 발화"
-    body:  "[콘텐츠팀] 원주율 서사 영상 + 트위터 + Laftel 동시
+    body:  "[콘텐츠팀] 원주율 서사 영상 + 공식 SNS(X 등) + Laftel 동시
             5/15 18시 KST 발화. 그 전 14일 동안 puzzle piece 티저
             1컷/일을 @miiwan_official에 업로드한다. 5/14까지 영상
             완성본을 콘텐츠팀에 1차 공유."
@@ -373,8 +373,8 @@ GOOD EXEMPLARS (자연어 — 통계 용어/enum 영문 노출 0):
 
   ✅ 논란 신호 (high, Streisand guard)
     title: "**ISEDOL** 논란 시그널 점등"
-    body:  "트위터의 논란 카테고리 트윗 12건이 평소 수준 대비 큰 폭으로
-            증가, 커뮤니티의 부정 키워드 누적도 동반 상승. 유력 가설은
+    body:  "커뮤니티 논란 카테고리 글 12건이 평소 수준 대비 큰 폭으로
+            증가, 부정 키워드 누적도 동반 상승. 유력 가설은
             **논란 신호** 가능성, 대안 가설은 점등 안 됨 — 단일 유력
             가설. PR팀 검수 후 대응, 직접 삭제·정정 요청 금지
             (Streisand 회피)."
@@ -472,7 +472,7 @@ REQUIRED — 모든 insight/weekly 카드 body 는 다음 3요소를 충족:
   ② Cross-reference: 같은 그룹·같은 주의 다른 지표와 *비교*. 적어도
      ONE 차원 더 인용. 가능한 cross-ref 차원:
        - 다른 KPI: 조회수, ER (참여율), 영상 업로드, 뉴스 보도,
-         커뮤니티 멘션, 트위터 controversy/일반, 음원 차트
+         커뮤니티 멘션, 커뮤니티 논란/일반 신호, 음원 차트
        - 베이스라인 맥락: 동급 그룹 D-N 시점 수치 비교
          (예: PLAVE D-30 시 28K vs MiiWAN 12.6K)
        - 시간 맥락: 직전 4-8주 추세, 단발 spike 인지 누적인지
@@ -620,7 +620,7 @@ few-shot EXEMPLARS (가공 예시 — 숫자는 예시):
             추적국 최고, 검색·추천 자연 유입도 71%로 우세 — 일회성 화제가
             아니라 지속 팬덤 형성 신호. 4주 후 일본 watch_share·구독전환
             Δ 로 효과 측정."
-    ai_comment: "조회 SOV 엔 안 보이던 몰입형 시장 — 자막 우선 투자 근거."
+    ai_comment: "공개 조회 점유엔 안 보이던 몰입형 시장 — 자막 우선 투자 근거."
 
   ② 국내↔해외 디커플링 (type='insight', scope='miiwan')
     body:  "한터 초동·국내 점유는 견조하나, 최근 30일 해외 시청 몰입은
