@@ -112,7 +112,7 @@ describe("/api/market", () => {
     });
   });
 
-  it("nulls core_fan_estimate values when basis=insufficient", async () => {
+  it("returns core_fan_estimate=null when basis=insufficient (미표시)", async () => {
     const env = envWith((sql) => {
       if (sql.includes("FROM groups"))
         return [{ key: "wegosix", name: "WeGoSix", name_kr: "위고식스" }];
@@ -123,9 +123,8 @@ describe("/api/market", () => {
     });
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
     const body = await res.json() as any;
-    expect(body.groups.wegosix.core_fan_estimate).toEqual({
-      est_engaged_fans: null, est_active_core: null,
-    });
+    // 영상 없는 그룹은 카드에 '추정 코어팬'을 띄우지 않도록 null 반환.
+    expect(body.groups.wegosix.core_fan_estimate).toBeNull();
   });
 
   it("core_fan_estimate is null when no agg_core_fan_estimate row exists", async () => {

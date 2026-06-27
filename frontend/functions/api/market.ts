@@ -166,9 +166,11 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         score: aw.basis === "scored" ? aw.awareness_score : null,
         category_rank: aw.basis === "scored" ? aw.category_rank : null,
       } : null,
-      core_fan_estimate: cf ? {
-        est_engaged_fans: cf.basis === "scored" ? cf.est_engaged_fans : null,
-        est_active_core: cf.basis === "scored" ? cf.est_active_core : null,
+      // basis !== "scored"(영상 없는 데뷔전 그룹 등)는 null → 카드에서 미표시
+      // (참고 표기이므로 '추정 코어팬 —'을 띄우지 않는다).
+      core_fan_estimate: cf && cf.basis === "scored" ? {
+        est_engaged_fans: cf.est_engaged_fans,
+        est_active_core: cf.est_active_core,
       } : null,
     };
   }
