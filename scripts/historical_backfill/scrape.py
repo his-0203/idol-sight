@@ -1039,7 +1039,7 @@ def emit_sql(group_key: str) -> None:
     print(f"  (group_key, snapshot_at,")
     print(f"   yt_total_videos, yt_total_views, yt_subscribers,")
     print(f"   dc_total_posts, theqoo_posts, instiz_posts,")
-    print(f"   naver_total_news, twitter_posts, controversy_count, data_source)")
+    print(f"   naver_total_news, controversy_count, data_source)")
     print(f"VALUES")
 
     value_lines = []
@@ -1056,7 +1056,7 @@ def emit_sql(group_key: str) -> None:
         snapshot_at = f"{snap_date}T00:00:00Z"
         value_lines.append(
             f"  ('{group_key}', '{snapshot_at}', {videos_val}, {views_val}, {subs_val},"
-            f"\n   0, 0, 0, {news_val}, 0, 0, 'backfill_estimate')"
+            f"\n   0, 0, 0, {news_val}, 0, 'backfill_estimate')"
         )
 
     print(",\n".join(value_lines))

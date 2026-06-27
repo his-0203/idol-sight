@@ -80,7 +80,7 @@ DEFAULT_REFS: dict[str, float] = {
     "news":        500,
 }
 
-# When computing dynamic refs we use p90 (90th percentile) of the cohort.
+# When computing dynamic refs we use p75 (75th percentile) of the cohort.
 # 1.0 then means "this group sits at the top decile of the market", which
 # is the right semantic for an idol BI: top tier = saturated, mid tier =
 # half-filled, debut tier = small but visible.

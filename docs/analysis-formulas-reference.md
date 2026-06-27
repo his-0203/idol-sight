@@ -218,7 +218,6 @@
 | `dc_total_posts`/`theqoo_posts`/`instiz_posts` | `COUNT(*)` per platform — **누적 단조증가** | `:66-77` |
 | `naver_total_news` | `COUNT(*) WHERE is_excluded=0` | `:80` |
 | `controversy_count` | `COUNT(*)` FROM `community_posts` WHERE `sentiment='controversy'` AND `posted_at >= now - CONTROVERSY_WINDOW_DAYS(=14)` — 트레일링 **14일 윈도(누적 아님)**. 누적 시 `_controversy_factor → 0` 고착 방지 | `agg_summary.py:106-115` |
-| `twitter_posts` | legacy count only (`agg_summary.py:104-109`). Twitter 수집 영구 종료 — 신규 행 없음, controversy 기여 없음 | — |
 
 ### 5.2 24h Video Velocity (`viral_velocity_ratio`)
 `video_velocity.py` · 신규 영상 첫 24h 조회수가 같은 채널 평균 대비 몇 배.
