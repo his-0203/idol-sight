@@ -29,6 +29,11 @@ interface AwarenessRow {
   category_rank: number | null; basis: string;
 }
 
+interface CoreFanEstimateRow {
+  group_key: string; est_engaged_fans: number | null;
+  est_active_core: number | null; basis: string;
+}
+
 const safeJson = (s: string | null) => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
@@ -107,6 +112,12 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_awareness)`)
     .catch(() => [] as AwarenessRow[]);
 
+  const coreFanEstimates = await d1Query<CoreFanEstimateRow>(env.DB,
+    `SELECT group_key, est_engaged_fans, est_active_core, basis
+       FROM agg_core_fan_estimate
+      WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_core_fan_estimate)`)
+    .catch(() => [] as CoreFanEstimateRow[]);
+
   const sumByKey: Record<string, SummaryRow> = {};
   for (const s of sums) sumByKey[s.group_key] = s;
   const prevSumByKey: Record<string, SummaryRow> = {};
@@ -115,6 +126,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   for (const h of healths) healthByKey[h.group_key] = h;
   const awarenessByKey: Record<string, AwarenessRow> = {};
   for (const a of awareness) awarenessByKey[a.group_key] = a;
+  const cfByKey: Record<string, CoreFanEstimateRow> = {};
+  for (const cf of coreFanEstimates) cfByKey[cf.group_key] = cf;
 
   const out: Record<string, unknown> = {};
   for (const g of groups) {
@@ -125,6 +138,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       yt_subscribers: null, yt_total_views: null, yt_total_videos: null,
     };
     const aw = awarenessByKey[g.key];
+    const cf = cfByKey[g.key];
     out[g.key] = {
       name: g.name, name_kr: g.name_kr, debut_date: g.debut_date,
       group_model: g.group_model ?? "corporate",
@@ -151,6 +165,10 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       awareness: aw ? {
         score: aw.basis === "scored" ? aw.awareness_score : null,
         category_rank: aw.basis === "scored" ? aw.category_rank : null,
+      } : null,
+      core_fan_estimate: cf ? {
+        est_engaged_fans: cf.basis === "scored" ? cf.est_engaged_fans : null,
+        est_active_core: cf.basis === "scored" ? cf.est_active_core : null,
       } : null,
     };
   }
