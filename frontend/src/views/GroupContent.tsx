@@ -266,9 +266,9 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
           {!isSubculture && (
             <section class="rounded-lg border border-zinc-800 p-3">
               <div class="mb-2 flex flex-wrap items-center gap-2">
-                <h3 class="section-title">Debut Window Video Organicity</h3>
+                <h3 class="section-title">데뷔 구간 영상 진정성</h3>
                 <span class="text-hint text-zinc-500">
-                  D-60 ~ D+60 윈도우 영상별 organic_score · 판정 (v2.21). 행 클릭 시 signal breakdown.
+                  데뷔 전후 60일 영상별 진정성 점수·판정. 행 클릭 시 신호 상세.
                 </span>
               </div>
               <DebutWindowVideoTable groupKey={groupKey!} />
@@ -278,7 +278,7 @@ export function GroupContent({ groupKey }: { groupKey: string | null }) {
 
           <section class="rounded-lg border border-zinc-800 p-3">
             <div class="mb-3 flex flex-wrap items-center gap-2 border-b border-zinc-800/40 pb-2 text-sm">
-              <h3 class="section-title">YouTube Top 15</h3>
+              <h3 class="section-title">YouTube 상위 15</h3>
               <div class="flex flex-wrap items-center gap-1">
                 {CONTENT_FILTERS.map((f) => (
                   <button
@@ -634,21 +634,20 @@ function deriveSignals(data: any): Signal[] {
     out.push({
       kind: "viral",
       severity: "info",
-      title: `🔥 Viral 영상 ${viral.length}건 (24h ≥5×)`,
+      title: `🔥 급상승 영상 ${viral.length}건 (24h ≥5×)`,
       body: `최상위: "${(top.title ?? "").slice(0, 60)}" — ${
         top.viral_velocity_ratio?.toFixed(1) ?? "?"
       }×. 팬채널 reupload + 디시/트위터 시딩 검토 (24h 시간 민감).`,
     });
   }
 
-  // 2) Controversy tweets — type='controversy' count.
-  const tweets = data.twitter_posts ?? [];
-  const controversy = tweets.filter((t: any) => t.type === "controversy");
-  if (controversy.length >= 1) {
+  // 2) Controversy — community controversy_count (agg_summary).
+  const controversyCount: number = data.summary?.controversy_count ?? 0;
+  if (controversyCount >= 1) {
     out.push({
       kind: "controversy",
-      severity: controversy.length >= 5 ? "critical" : "warn",
-      title: `⚠ Controversy 트윗 ${controversy.length}건`,
+      severity: controversyCount >= 5 ? "critical" : "warn",
+      title: `⚠ 논란 신호 ${controversyCount}건`,
       body:
         "PR 리스크 가능성. PR/Risk 탭에서 출처 확인 후 false-positive 여부 판정. "
         + "실제 사안일 경우 PR팀 에스컬레이션 (Streisand 주의).",
@@ -713,7 +712,7 @@ function GroupSignals({ data }: { data: any }) {
           이 그룹 신호 {signals.length > 0 && <span class="text-hint text-zinc-500">({signals.length}건)</span>}
         </h3>
         <span class="text-hint text-zinc-500">
-          viral · controversy · rebound · factor weakness 자동 감지
+          급상승 영상 · 논란 · 역주행 · 취약 지표 자동 감지
         </span>
       </div>
       {signals.length === 0 ? (
