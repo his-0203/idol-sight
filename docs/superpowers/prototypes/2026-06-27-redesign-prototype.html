@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="ko" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>idol-sight · 재설계 프로토타입</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        colors: {
+          own:    '#75d7d1',          // 자사 / MiiWAN 메인 정체성 (가시성 우선)
+          market: '#ABE3E4',          // 3사 / 시장 컨텍스트
+          brand:  '#8b5cf6',          // idol-sight 마크
+          surface:{ DEFAULT:'#09090b', card:'#18181b', border:'#27272a', muted:'#71717a' },
+        },
+        fontFamily: { sans:['Pretendard','system-ui','Noto Sans KR','sans-serif'] },
+      }
+    }
+  }
+</script>
+<style>
+  body{ background:#09090b; color:#e4e4e7; font-family:Pretendard,system-ui,'Noto Sans KR',sans-serif; }
+  .tnum{ font-variant-numeric: tabular-nums; }
+  .card{ border:1px solid #27272a; background:rgba(24,24,27,.5); border-radius:10px; }
+  .navitem{ border-radius:8px; }
+  .navitem:hover{ background:#18181b; }
+  .navitem.active{ background:rgba(139,92,246,.14); color:#c4b5fd; }
+  .miiwan-active{ background:rgba(117,215,209,.16); color:#bdeeea; }
+  /* 자사 존 강조 — 가시성 우선 */
+  .own-zone{ border:1px solid rgba(117,215,209,.55); background:rgba(117,215,209,.07); box-shadow:0 0 0 1px rgba(117,215,209,.08), 0 4px 18px -8px rgba(117,215,209,.35); }
+  .qtag{ font-size:11px; padding:1px 7px; border-radius:9999px; border:1px solid; white-space:nowrap; }
+  .q-strong{ color:#34d399; border-color:rgba(52,211,153,.4); background:rgba(52,211,153,.08); }
+  .q-ad{ color:#fbbf24; border-color:rgba(251,191,36,.4); background:rgba(251,191,36,.08); }
+  .q-niche{ color:#38bdf8; border-color:rgba(56,189,248,.4); background:rgba(56,189,248,.08); }
+  .q-low{ color:#a1a1aa; border-color:#3f3f46; background:rgba(63,63,70,.25); }
+  th{ cursor:pointer; user-select:none; }
+  th:hover{ color:#e4e4e7; }
+  .grade{ font-weight:700; padding:0 6px; border-radius:4px; font-size:12px; }
+  .g-S{ color:#34d399; background:rgba(52,211,153,.12);} .g-A{ color:#60a5fa; background:rgba(96,165,250,.12);}
+  .g-B{ color:#22d3ee; background:rgba(34,211,238,.12);} .g-C{ color:#fbbf24; background:rgba(251,191,36,.12);}
+  .hint{ font-size:11px; color:#71717a; }
+  .badge-own{ font-size:9px; padding:0 4px; border-radius:4px; border:1px solid rgba(117,215,209,.5); color:#75d7d1; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- TOP BAR -->
+<header class="flex items-center gap-3 border-b border-surface-border px-4 h-12 sticky top-0 bg-surface/95 backdrop-blur z-20">
+  <div class="font-bold tracking-tight">idol-sight</div>
+  <span class="hint hidden sm:inline">시장 인텔리전스 · 3사 사내</span>
+  <div class="ml-auto flex items-center gap-2 text-sm">
+    <button class="flex items-center gap-1.5 rounded-md border border-own/40 px-2.5 py-1 hover:bg-surface-card" style="background:rgba(117,215,209,.06)">
+      <span class="inline-block w-2 h-2 rounded-full" style="background:#75d7d1"></span>
+      관점: <b class="text-own">MiiWAN</b> <span class="text-zinc-500">▾</span>
+    </button>
+    <button class="rounded-md border border-surface-border px-2 py-1 text-zinc-400 hover:bg-surface-card">🔍 <span class="hidden md:inline">검색 ⌘K</span></button>
+    <button class="rounded-md border border-surface-border px-2 py-1 text-zinc-400 hover:bg-surface-card">⚙</button>
+  </div>
+</header>
+
+<div class="flex">
+  <!-- SIDEBAR -->
+  <aside class="w-56 shrink-0 border-r border-surface-border min-h-[calc(100vh-3rem)] p-2 text-sm sticky top-12 self-start">
+    <div class="px-2 pt-2 pb-1 text-[10px] uppercase tracking-wider text-zinc-500">시장 펄스 <span class="text-zinc-600">· 모니터링</span></div>
+    <a onclick="show('market')" class="navitem active block px-2 py-1.5 cursor-pointer" id="nav-market">시장 개요</a>
+    <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300">주간 브리프</a>
+    <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300">인사이트</a>
+    <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300">숏폼 트렌드</a>
+
+    <div class="px-2 pt-3 pb-1 text-[10px] uppercase tracking-wider text-zinc-500">K-POP <span class="text-zinc-600">· Corporate</span></div>
+    <a onclick="show('group')" class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300" id="nav-group">그룹 비교</a>
+
+    <div class="px-2 pt-3 pb-1 text-[10px] uppercase tracking-wider text-zinc-500">서브컬처 <span class="text-zinc-600">· V-튜버</span></div>
+    <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300">그룹 비교</a>
+
+    <div class="mt-3 own-zone rounded-lg p-1.5">
+      <div class="flex items-center gap-1.5 px-1 pb-1">
+        <span class="text-own text-base leading-none">★</span>
+        <span class="font-bold text-own text-[15px]">MiiWAN</span>
+        <span class="badge-own">자사</span>
+      </div>
+      <a onclick="show('miiwan')" class="navitem block px-2 py-1.5 cursor-pointer text-zinc-100" id="nav-miiwan">개요</a>
+      <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300">라이브챗 인사이트</a>
+      <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300">시장확장 (국가)</a>
+      <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300">굿즈 기획</a>
+      <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-300">PR 레이더</a>
+    </div>
+
+    <div class="px-2 pt-4 pb-1 text-[10px] uppercase tracking-wider text-zinc-600">시스템</div>
+    <a class="navitem block px-2 py-1.5 cursor-pointer text-zinc-500">상태</a>
+
+    <div class="hint px-2 pt-4 leading-relaxed">프로토타입 — 데이터는 예시.<br>색: <b class="text-own">자사 #75d7d1</b> · <b class="text-market">시장 #ABE3E4</b> · 그룹별 키컬러</div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="flex-1 p-5 max-w-[1100px]">
+
+  <!-- ============ SCREEN: 시장 개요 ============ -->
+  <section id="screen-market">
+    <div class="flex items-center gap-2 mb-3">
+      <h1 class="text-lg font-semibold">시장 개요</h1>
+      <span class="hint">12그룹 · 카테고리 분리 · <span class="text-market">3사 공유 컨텍스트</span></span>
+      <span class="ml-auto hint">데이터 5분 전</span>
+    </div>
+
+    <!-- ① KPI strip -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+      <div class="card p-3"><div class="hint">코호트</div><div class="text-xl font-bold tnum mt-1">K-POP 8 · 서브 4</div></div>
+      <div class="card p-3"><div class="hint">평균 등급</div><div class="text-xl font-bold mt-1">B+ <span class="text-sm text-zinc-500">/ 중앙값 B</span></div></div>
+      <div class="card p-3"><div class="hint">유료 도달 의심 ⚠</div><div class="text-xl font-bold mt-1 text-amber-400">2 그룹</div></div>
+      <div class="card p-3 own-zone"><div class="hint">자사 MiiWAN</div><div class="text-xl font-bold mt-1 text-own">B · 인지도 #3</div></div>
+    </div>
+
+    <!-- ② 비교 표 -->
+    <div class="flex items-center gap-2 mb-2">
+      <h2 class="font-semibold">그룹 비교</h2>
+      <span class="hint">헤더 클릭 = 정렬 · 행 클릭 = 그룹 심층 · <span class="text-zinc-400">넓이×깊이는 태그 컬럼 — 셀 안 서열 손실 없음</span></span>
+    </div>
+
+    <div class="card overflow-hidden mb-2">
+      <div class="px-3 py-1.5 text-[11px] uppercase tracking-wider text-zinc-400 border-b border-surface-border bg-surface-card/40">K-POP · Corporate</div>
+      <table class="w-full text-sm" id="kpop-table">
+        <thead class="text-zinc-500 text-[12px] border-b border-surface-border">
+          <tr>
+            <th class="text-left font-medium px-3 py-2" onclick="sortT('kpop-table',0,'n')">#</th>
+            <th class="text-left font-medium px-2 py-2" onclick="sortT('kpop-table',1,'s')">그룹</th>
+            <th class="text-left font-medium px-2 py-2" onclick="sortT('kpop-table',2,'g')">등급</th>
+            <th class="text-right font-medium px-2 py-2" onclick="sortT('kpop-table',3,'n')">인지도 ▾</th>
+            <th class="text-right font-medium px-2 py-2" onclick="sortT('kpop-table',4,'n')">추정 코어</th>
+            <th class="text-left font-medium px-2 py-2" onclick="sortT('kpop-table',5,'s')">넓이×깊이</th>
+            <th class="text-right font-medium px-2 py-2" onclick="sortT('kpop-table',6,'n')">SoV</th>
+            <th class="text-left font-medium px-2 py-2">주의</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="card overflow-hidden mb-4">
+      <div class="px-3 py-1.5 text-[11px] uppercase tracking-wider text-zinc-400 border-b border-surface-border bg-surface-card/40">서브컬처 · V-튜버</div>
+      <table class="w-full text-sm" id="sub-table">
+        <thead class="text-zinc-500 text-[12px] border-b border-surface-border">
+          <tr>
+            <th class="text-left font-medium px-3 py-2" onclick="sortT('sub-table',0,'n')">#</th>
+            <th class="text-left font-medium px-2 py-2" onclick="sortT('sub-table',1,'s')">그룹</th>
+            <th class="text-left font-medium px-2 py-2" onclick="sortT('sub-table',2,'g')">등급</th>
+            <th class="text-right font-medium px-2 py-2" onclick="sortT('sub-table',3,'n')">인지도 ▾</th>
+            <th class="text-right font-medium px-2 py-2" onclick="sortT('sub-table',4,'n')">추정 코어</th>
+            <th class="text-left font-medium px-2 py-2" onclick="sortT('sub-table',5,'s')">넓이×깊이</th>
+            <th class="text-right font-medium px-2 py-2" onclick="sortT('sub-table',6,'n')">SoV</th>
+            <th class="text-left font-medium px-2 py-2">주의</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- ③ 포지셔닝 맵 (접힘) -->
+    <details class="card p-3 mb-3">
+      <summary class="cursor-pointer text-sm font-medium">▸ 포지셔닝 맵 (넓이×깊이 산점도) <span class="hint">— 선택·보조. 정밀 위치를 원할 때.</span></summary>
+      <div class="hint mt-2">펼치면: 카테고리별 2패널 산점도 · 4구역 배경 틴트 · 리더만 라벨 · 나머지 hover. (표가 1차 답, 맵은 보조)</div>
+    </details>
+    <details class="card p-3 mb-3"><summary class="cursor-pointer text-sm font-medium">▸ 관심 점유율(SoV) 13주 추이</summary><div class="hint mt-2">정렬 가로 막대 + 라인. MiiWAN 하이라이트.</div></details>
+    <details class="card p-3"><summary class="cursor-pointer text-sm font-medium">▸ 데뷔 정렬 곡선</summary><div class="hint mt-2">D-N/D+N 정렬 성장 곡선.</div></details>
+  </section>
+
+  <!-- ============ SCREEN: 그룹 엔티티 셸 ============ -->
+  <section id="screen-group" class="hidden">
+    <div class="flex items-center gap-2 mb-3">
+      <button onclick="show('market')" class="hint hover:text-zinc-300">← 시장</button>
+      <span class="hint">/</span>
+      <button class="flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-sm hover:bg-surface-card">
+        <span class="w-2 h-2 rounded-full" style="background:#ec4899"></span> PLAVE <span class="text-zinc-500">▾</span>
+      </button>
+      <span class="hint">그룹 전환 · K-POP</span>
+    </div>
+    <!-- 하위 탭 -->
+    <div class="flex gap-1 border-b border-surface-border mb-4 text-sm">
+      <button class="px-3 py-2 border-b-2 border-brand text-brand">개요</button>
+      <button class="px-3 py-2 text-zinc-400 hover:text-zinc-200">멤버</button>
+      <button class="px-3 py-2 text-zinc-400 hover:text-zinc-200">커뮤니티</button>
+      <button class="px-3 py-2 text-zinc-400 hover:text-zinc-200">PR · 리스크</button>
+      <button class="px-3 py-2 text-zinc-400 hover:text-zinc-200">성장</button>
+    </div>
+    <div class="grid grid-cols-3 gap-3">
+      <div class="card p-4 col-span-1 text-center">
+        <div class="hint">건강 점수</div>
+        <div class="text-5xl font-bold my-2 text-emerald-400">S</div>
+        <div class="tnum text-zinc-300">87점 <span class="text-emerald-400 text-sm">▲1.2</span></div>
+        <div class="hint mt-1">Reach · Ritual · Mobilize · Intimacy</div>
+      </div>
+      <div class="col-span-2 grid grid-cols-2 gap-2">
+        <div class="card p-3"><div class="hint">구독자</div><div class="text-lg font-bold tnum">1.82M <span class="text-emerald-400 text-xs">▲2.1%</span></div></div>
+        <div class="card p-3"><div class="hint">누적 조회</div><div class="text-lg font-bold tnum">412M <span class="text-emerald-400 text-xs">▲1.4%</span></div></div>
+        <div class="card p-3"><div class="hint">인지도(K-POP)</div><div class="text-lg font-bold tnum text-sky-300">92 · #1</div></div>
+        <div class="card p-3"><div class="hint">추정 코어팬</div><div class="text-lg font-bold tnum">~52,000</div></div>
+      </div>
+    </div>
+    <div class="hint mt-4">엔티티 셸: 한 그룹의 5개 차원을 <b>하위탭</b>으로(상단 평평탭 아님). 그룹 전환 셀렉터로 막다른 그룹모드 해소.</div>
+  </section>
+
+  <!-- ============ SCREEN: MiiWAN 자사 존 ============ -->
+  <section id="screen-miiwan" class="hidden">
+    <div class="own-zone rounded-lg p-4 mb-4">
+      <div class="flex items-center gap-2">
+        <span class="text-own text-lg">★</span>
+        <h1 class="text-lg font-semibold text-own">MiiWAN · 자사 심층분석</h1>
+        <span class="badge-own">자사 전용 · 1차 데이터</span>
+        <span class="ml-auto tnum text-sm">데뷔 <b>D-42</b></span>
+      </div>
+      <div class="hint mt-1">라이브 채팅·YT Analytics OAuth·찐팬·시장확장 — 타 그룹엔 없는 자사 실데이터. 모니터링이 아니라 <b class="text-own">심층 시장분석</b>.</div>
+    </div>
+    <div class="flex gap-1 border-b border-surface-border mb-4 text-sm">
+      <button class="px-3 py-2 border-b-2 text-own" style="border-color:#75d7d1">개요</button>
+      <button class="px-3 py-2 text-zinc-400 hover:text-zinc-200">라이브챗 인사이트</button>
+      <button class="px-3 py-2 text-zinc-400 hover:text-zinc-200">시장확장 (국가)</button>
+      <button class="px-3 py-2 text-zinc-400 hover:text-zinc-200">굿즈 기획</button>
+      <button class="px-3 py-2 text-zinc-400 hover:text-zinc-200">PR 레이더</button>
+    </div>
+    <div class="grid grid-cols-3 gap-3">
+      <div class="card p-4">
+        <div class="hint">전략 진단</div>
+        <div class="mt-1 text-emerald-400 font-semibold">정상 궤도 · 컴백 D-42</div>
+        <div class="hint mt-2">건강 B · 위기알림 0 · 데뷔윈도우 organic</div>
+      </div>
+      <div class="card p-4 col-span-2">
+        <div class="hint mb-1">액션 큐 (IPX 5요소 검증)</div>
+        <div class="text-sm space-y-1">
+          <div>• <b>D-7까지</b> 숏폼 3편 — 담당 콘텐츠팀 <span class="text-zinc-500">(조회 목표 50만)</span></div>
+          <div>• 라이브챗 부정 sentiment ↑ 구간 <b>모니터</b> — 운영팀</div>
+        </div>
+      </div>
+      <div class="card p-4">
+        <div class="hint">라이브챗 sentiment (최근 방송)</div>
+        <div class="mt-1 text-sm">긍정 <b class="text-emerald-400">72%</b> · 부정 <b class="text-red-400">11%</b></div>
+        <div class="hint mt-1">"무대 미쳤다", "컴백 언제…" 대표 인용</div>
+      </div>
+      <div class="card p-4">
+        <div class="hint">찐팬 활동 (측정)</div>
+        <div class="mt-1 text-sm tnum">고유 챗터 <b>1,240</b> · 재방문 코어 <b class="text-own">38%</b></div>
+      </div>
+      <div class="card p-4">
+        <div class="hint">시장확장 우선국가 (PRI)</div>
+        <div class="mt-1 text-sm">🇯🇵 진출 · 🇮🇩 테스트 · 🇹🇭 관찰</div>
+      </div>
+    </div>
+    <div class="hint mt-4">자사 존: 시장 비교가 아니라 <b>실데이터 기반 의사결정 워크스페이스</b>. 사이드바 항상 펼침 + <span class="text-own">#75d7d1</span> 정체성.</div>
+  </section>
+
+  </main>
+</div>
+
+<script>
+  // ---- 예시 데이터 (실제 그룹명, 그룹별 구분 키컬러) ----
+  // name, color, grade, awareness, rank, core, quad, sov, caveat, own
+  const KPOP = [
+    ['PLAVE','#ec4899','S',92,1,52000,'strong',34, ''],
+    ['MIIWAN','#75d7d1','B',61,3,18000,'ad',12, '유료의심', true],
+    ['SKINZ','#f59e0b','B',64,2,9000,'ad',9, '유료의심'],
+    ['OWIS','#3b82f6','B',47,5,11000,'ad',7, ''],
+    ['MYRAKL','#a855f7','C',40,6,15000,'niche',5, ''],
+    ['BDAWN','#ef4444','C',45,4,8000,'ad',6, ''],
+    ['BTHD','#f97316','B',58,3,21000,'strong',8, ''],
+    ['WEGOSIX','#84cc16','C',55,4,6000,'ad',4, '오가닉성 주의'],
+  ];
+  const SUB = [
+    ['ISEDOL','#22c55e','A',88,1,120000,'strong',41, ''],
+    ['STELLIVE','#818cf8','A',79,2,84000,'strong',33, ''],
+    ['URYAEL','#f472b6','B',52,3,46000,'niche',14, ''],
+  ];
+  const QLABEL = { strong:['진성 강세','q-strong'], ad:['광고형/바이럴','q-ad'], niche:['니치 충성','q-niche'], low:['저조','q-low'] };
+
+  function rowHtml(r, i){
+    const [name,color,grade,aw,rank,core,quad,sov,caveat,own] = r;
+    const [ql,qc] = QLABEL[quad];
+    const ownStyle = own ? 'style="box-shadow: inset 4px 0 0 #75d7d1; background:rgba(117,215,209,.08)"' : '';
+    const ownBadge = own ? ' <span class="badge-own align-middle">자사</span>' : '';
+    const nameCls = own ? 'text-own' : '';
+    return `<tr class="border-b border-surface-border/60 hover:bg-surface-card/40 cursor-pointer" ${ownStyle}
+       onclick="show('group')"
+       data-n="${i+1}" data-aw="${aw}" data-core="${core}" data-sov="${sov}" data-name="${name}" data-grade="${grade}" data-quad="${ql}">
+      <td class="px-3 py-2 tnum text-zinc-500">${i+1}</td>
+      <td class="px-2 py-2"><span class="inline-block w-2.5 h-2.5 rounded-full mr-1.5 align-middle" style="background:${color}"></span><b class="${nameCls}">${name}</b>${ownBadge}</td>
+      <td class="px-2 py-2"><span class="grade g-${grade}">${grade}</span></td>
+      <td class="px-2 py-2 text-right tnum text-sky-300">${aw} <span class="text-zinc-500 text-xs">#${rank}</span></td>
+      <td class="px-2 py-2 text-right tnum">~${core.toLocaleString()}</td>
+      <td class="px-2 py-2"><span class="qtag ${qc}">${ql}</span></td>
+      <td class="px-2 py-2 text-right tnum">${sov}%</td>
+      <td class="px-2 py-2">${caveat ? '<span class="text-amber-400 text-xs">⚠ '+caveat+'</span>' : '<span class="text-zinc-600">·</span>'}</td>
+    </tr>`;
+  }
+  function render(){
+    document.querySelector('#kpop-table tbody').innerHTML = KPOP.map(rowHtml).join('');
+    document.querySelector('#sub-table tbody').innerHTML  = SUB.map(rowHtml).join('');
+  }
+  function sortT(id, col){
+    const tb = document.querySelector('#'+id+' tbody');
+    const rows = [...tb.querySelectorAll('tr')];
+    const keyByCol = ['n','name','grade','aw','core','quad','sov'];
+    const key = keyByCol[col];
+    const numeric = (key==='n'||key==='aw'||key==='core'||key==='sov');
+    const gradeOrd = {S:5,A:4,B:3,C:2,D:1};
+    rows.sort((a,b)=>{
+      const av=a.dataset[key], bv=b.dataset[key];
+      if(numeric) return (+bv)-(+av);
+      if(key==='grade') return (gradeOrd[bv]||0)-(gradeOrd[av]||0);
+      return String(av).localeCompare(String(bv));
+    });
+    rows.forEach(r=>tb.appendChild(r));
+  }
+  function show(s){
+    ['market','group','miiwan'].forEach(x=>{
+      document.getElementById('screen-'+x).classList.toggle('hidden', x!==s);
+      const nav=document.getElementById('nav-'+x);
+      if(nav){ nav.classList.toggle('active', x!=='miiwan' && x===s); nav.classList.toggle('miiwan-active', x==='miiwan' && x===s); }
+    });
+    window.scrollTo(0,0);
+  }
+  render();
+</script>
+</body>
+</html>
