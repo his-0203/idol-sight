@@ -33,7 +33,7 @@ def test_extract_bootstrap_returns_none_continuation_when_no_replay():
     assert bs["continuation"] is None  # 채팅 비활성/리플레이 미준비
 
 
-def _replay_payload(next_token="CONT_TOKEN_1", items=None):
+def _replay_payload(next_token: str | None = "CONT_TOKEN_1", items=None):
     items = items if items is not None else [
         {"replayChatItemAction": {"videoOffsetTimeMsec": "5000", "actions": [
             {"addChatItemAction": {"item": {"liveChatTextMessageRenderer": {
@@ -85,7 +85,7 @@ class _FakeResp:
 
     def raise_for_status(self):
         if self.status_code >= 400:
-            raise httpx.HTTPStatusError("err", request=None, response=None)
+            raise httpx.HTTPStatusError("err", request=None, response=None)  # type: ignore[arg-type]
 
 
 class _FakeClient:

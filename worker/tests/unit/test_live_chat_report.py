@@ -95,6 +95,7 @@ def test_build_report_ignores_out_of_range_index():
         title=None, ended_at=None, messages=_msgs(3),
         now_iso="2026-06-16T04:00:00Z",
     )
+    assert stmt is not None
     rj = json.loads(stmt[1][9])
     assert rj["positive_all"] == ["msg 0"]   # 99, -1 은 범위 밖 → 무시
     assert rj["negative_all"] == []
@@ -112,6 +113,7 @@ def test_build_report_full_sample_absent_defaults_empty():
         title=None, ended_at=None, messages=_msgs(5),
         now_iso="2026-06-16T04:00:00Z",
     )
+    assert stmt is not None
     rj = json.loads(stmt[1][9])
     assert rj["positive_all"] == []
     assert rj["negative_all"] == []
