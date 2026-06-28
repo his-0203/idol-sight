@@ -182,20 +182,39 @@ describe("/api/market", () => {
   });
 
   // 시청전환율 — agg_fan_loyalty.conversion_rate (median peak CCV / subscribers).
-  it("includes view_conversion for groups with scored loyalty", async () => {
+  it("includes view_conversion (floor only) for a group without a Weverse ceiling", async () => {
     const env = envWith((sql) => {
       if (sql.includes("FROM groups"))
-        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+        return [{ key: "owis", name: "OWIS", name_kr: "오위스" }];
       if (sql.includes("FROM agg_fan_loyalty"))
-        return [{ group_key: "plave", conversion_rate: 0.123,
+        return [{ group_key: "owis", conversion_rate: 0.04,
+                  conversion_rate_ceiling: null, ccv_ceiling: null,
                   peak_ccv_median: 4200, broadcast_count: 6, basis: "scored" }];
       return [];
     });
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
     const body = await res.json() as any;
-    expect(body.groups.plave.view_conversion).toEqual({
-      rate: 0.123, peak_ccv: 4200, broadcasts: 6, basis: "scored",
+    expect(body.groups.owis.view_conversion).toEqual({
+      rate: 0.04, rate_ceiling: null, ccv_ceiling: null,
+      peak_ccv: 4200, broadcasts: 6, basis: "scored",
     });
+  });
+
+  it("exposes rate_ceiling (유튜브+위버스 합산) for PLAVE", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+      if (sql.includes("FROM agg_fan_loyalty"))
+        return [{ group_key: "plave", conversion_rate: 0.0015,
+                  conversion_rate_ceiling: 0.102, ccv_ceiling: 102000,
+                  peak_ccv_median: 2000, broadcast_count: 8, basis: "scored" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.groups.plave.view_conversion.rate).toBe(0.0015);          // YouTube floor
+    expect(body.groups.plave.view_conversion.rate_ceiling).toBe(0.102);   // +Weverse ceiling
+    expect(body.groups.plave.view_conversion.ccv_ceiling).toBe(102000);
   });
 
   it("view_conversion=null when basis=insufficient", async () => {

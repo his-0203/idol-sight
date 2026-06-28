@@ -210,23 +210,24 @@ def test_build_fan_loyalty_picks_latest_nonnull_subscribers():
     assert miiwan[4] == 100_000                 # subscribers (최신 non-null, 표시용)
 
 
-def test_compute_loyalty_ceiling_scored():
+def test_compute_loyalty_ceiling_addon_sum():
     # floor: peak median 1500 / 1,000,000 구독자 = 0.15% → score 20 (하한 클램프).
-    # ceiling: 150,000 / 1,000,000 = 15% → score 100 (상한 클램프).
+    # ceiling(0102 합산 모델): (median peak 1500 + 위버스 add-on 100,000) / 1,000,000.
     samples = [
         {"video_id": "a", "sampled_at": "2026-06-01T10:00:00Z", "concurrent_viewers": 1000},
         {"video_id": "b", "sampled_at": "2026-06-05T10:00:00Z", "concurrent_viewers": 2000},
     ]
-    out = compute_loyalty(samples, subscribers=1_000_000, ceiling_estimate=150_000)
-    # floor 불변
+    out = compute_loyalty(samples, subscribers=1_000_000, ceiling_estimate=100_000)
+    # floor 불변 (YouTube 실측)
     assert out["peak_ccv_median"] == 1500.0
     assert out["conversion_rate"] == pytest.approx(0.0015)
     assert out["score"] == pytest.approx(20.0)
     assert out["basis"] == "scored"
-    # ceiling 산출
-    assert out["ccv_ceiling"] == 150_000
-    assert out["conversion_rate_ceiling"] == pytest.approx(0.15)
-    assert out["score_ceiling"] == pytest.approx(100.0)
+    # ceiling = 유튜브 median peak + 위버스 add-on 합산
+    assert out["ccv_ceiling"] == 101_500
+    assert out["conversion_rate_ceiling"] == pytest.approx(0.1015)
+    assert out["score_ceiling"] == pytest.approx(score_from_conversion(0.1015), abs=0.01)
+    assert out["score_ceiling"] > out["score"]
 
 
 def test_compute_loyalty_no_ceiling_estimate_fields_none():
@@ -253,7 +254,7 @@ def test_compute_loyalty_ceiling_skipped_when_insufficient():
 
 def test_build_fan_loyalty_injects_ceiling_for_configured_group():
     client = _FakeClient(
-        tracked=[{"key": "plave", "ccv_ceiling_estimate": 150_000},
+        tracked=[{"key": "plave", "ccv_ceiling_estimate": 100_000},
                  {"key": "miiwan", "ccv_ceiling_estimate": None}],
         samples=[
             {"group_key": "plave", "video_id": "a",
@@ -274,9 +275,10 @@ def test_build_fan_loyalty_injects_ceiling_for_configured_group():
     params_by_group = {st[1][0]: st[1] for st in res.statements[1:]}
     # INSERT 컬럼 끝 3개: conversion_rate_ceiling, score_ceiling, ccv_ceiling
     plave = params_by_group["plave"]
-    assert plave[-1] == 150_000                      # ccv_ceiling
-    assert plave[-2] == pytest.approx(100.0)         # score_ceiling (15% → 클램프)
-    assert plave[-3] == pytest.approx(0.15)          # conversion_rate_ceiling
+    # 합산 모델(0102): ccv_ceiling = median peak 2000 + 위버스 add-on 100,000.
+    assert plave[-1] == 102_000                       # ccv_ceiling
+    assert plave[-3] == pytest.approx(0.102)          # conversion_rate_ceiling (102000/1,000,000)
+    assert plave[-2] == pytest.approx(score_from_conversion(0.102), abs=0.01)  # score_ceiling
     miiwan = params_by_group["miiwan"]
     assert miiwan[-1] is None                        # 천장 미설정 → None
     assert miiwan[-2] is None

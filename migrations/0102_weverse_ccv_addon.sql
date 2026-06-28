@@ -1,0 +1,12 @@
+-- 0102: 시청전환율 ceiling 모델 변경 — 위버스를 '합산 add-on'으로.
+--
+-- 기존(0095): ccv_ceiling_estimate = Weverse 포함 단일 총추정치(plave=150,000),
+--   ceiling = estimate / subscribers (flat).
+-- 변경: ccv_ceiling_estimate 의 의미를 'YouTube 실측 위에 더하는 Weverse add-on(최소)'
+--   으로 재정의. loyalty.compute_loyalty 가 ceiling = (median peak YouTube CCV + add-on)
+--   / subscribers 로 산출(유튜브 실측 + 위버스 가상 합산). 사용자 결정(2026-06-28):
+--   PLAVE 위버스 라이브 시청자를 최소 10만으로 책정해 유튜브와 합산.
+--
+-- 점수 무관(Health Intimacy는 ceiling 미사용) · 표시 전용(시청전환율 컬럼·카드 비교라인).
+-- 다음 aggregate cron 재집계로 agg_fan_loyalty.conversion_rate_ceiling 갱신(백필 불필요).
+UPDATE groups SET ccv_ceiling_estimate = 100000 WHERE key = 'plave';

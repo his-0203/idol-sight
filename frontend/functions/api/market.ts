@@ -36,6 +36,7 @@ interface CoreFanEstimateRow {
 
 interface LoyaltyRow {
   group_key: string; conversion_rate: number | null;
+  conversion_rate_ceiling: number | null; ccv_ceiling: number | null;
   peak_ccv_median: number | null; broadcast_count: number; basis: string;
 }
 
@@ -125,7 +126,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
 
   // 시청전환율 = median peak 라이브 동접(CCV) ÷ 구독자. agg_fan_loyalty는 group_key PK(그룹당 1행).
   const loyalty = await d1Query<LoyaltyRow>(env.DB,
-    `SELECT group_key, conversion_rate, peak_ccv_median, broadcast_count, basis
+    `SELECT group_key, conversion_rate, conversion_rate_ceiling, ccv_ceiling,
+            peak_ccv_median, broadcast_count, basis
        FROM agg_fan_loyalty`)
     .catch(() => [] as LoyaltyRow[]);
 
@@ -186,10 +188,13 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         est_engaged_fans: cf.est_engaged_fans,
         est_active_core: cf.est_active_core,
       } : null,
-      // 시청전환율 = median peak 라이브 동접(CCV) ÷ 구독자. CCV 미수집(서브컬처 등)·
-      // insufficient(방송 부족)는 null → 표에서 '—'.
+      // 시청전환율 = median peak 라이브 동접(CCV) ÷ 구독자. rate=YouTube 실측(floor),
+      // rate_ceiling=유튜브+위버스 add-on 합산(있는 그룹=PLAVE만). CCV 미수집(서브컬처
+      // 등)·insufficient(방송 부족)는 null → 표에서 '—'.
       view_conversion: ld && ld.conversion_rate != null && ld.basis !== "insufficient" ? {
         rate: ld.conversion_rate,
+        rate_ceiling: ld.conversion_rate_ceiling,
+        ccv_ceiling: ld.ccv_ceiling,
         peak_ccv: ld.peak_ccv_median,
         broadcasts: ld.broadcast_count,
         basis: ld.basis,
