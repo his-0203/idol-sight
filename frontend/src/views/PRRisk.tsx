@@ -216,7 +216,7 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
             {otherAlerts.map((a) => (
               <li key={a.alert_key} class={`rounded border-l-2 p-2 ${SEVERITY_TONE[a.severity]}`}>
                 <div class="flex items-baseline gap-2">
-                  <span class="rounded bg-zinc-900/60 px-1.5 text-[11px] text-zinc-300">
+                  <span class="rounded bg-zinc-900/60 px-1.5 text-hint text-zinc-300">
                     {RULE_LABEL[a.rule] ?? a.rule}
                   </span>
                   <span class="font-semibold">{a.title}</span>
@@ -242,7 +242,7 @@ export function PRRisk({ groupKey }: { groupKey: string | null }) {
               return (
                 <li key={i}>
                   {badge && (
-                    <span class={`mr-1 rounded border px-1.5 text-[11px] ${badge.cls}`}>{badge.label}</span>
+                    <span class={`mr-1 rounded border px-1.5 text-hint ${badge.cls}`}>{badge.label}</span>
                   )}
                   <a class="hover:underline" href={n.url} target="_blank" rel="noopener">{n.title}</a>
                   <span class="ml-2 text-zinc-500" title={n.published_at ? formatKST(n.published_at) : undefined}>

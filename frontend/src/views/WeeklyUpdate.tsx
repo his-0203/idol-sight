@@ -7,16 +7,36 @@ import { InsightCard } from "../components/InsightCard";
 import { humanizeInsightText } from "../lib/insightFormat";
 
 export function WeeklyUpdate() {
-  const [data, setData] = useState<any>(null);
+  const [weeklyData, setWeeklyData] = useState<any>(null);
+  const [insightsData, setInsightsData] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { api.weekly().then(setData).catch((e) => setErr(String(e))); }, []);
+
+  useEffect(() => {
+    api.weekly()
+      .then((wd) => {
+        setWeeklyData(wd);
+        const week = wd.week_start as string | null;
+        if (week) {
+          api.insights(week).then(setInsightsData).catch((e) => setErr(String(e)));
+        } else {
+          // No insight rows exist yet — treat as empty.
+          setInsightsData({ insights: [] });
+        }
+      })
+      .catch((e) => setErr(String(e)));
+  }, []);
+
   if (err) return <div class="text-rose-400">불러오기 실패: {err}</div>;
-  if (!data) return <div class="text-zinc-500">Loading…</div>;
-  const weekStart = data.hanteo?.[0]?.week_start ?? data.insights?.[0]?.week_start ?? null;
-  const weekEnd = data.hanteo?.[0]?.week_end ?? null;
+  if (!weeklyData) return <div class="text-zinc-500">Loading…</div>;
+
+  const weekStart = weeklyData.hanteo?.[0]?.week_start ?? weeklyData.week_start ?? null;
+  const weekEnd = weeklyData.hanteo?.[0]?.week_end ?? null;
+
+  // api.insights rows already have source_refs parsed by the endpoint's mapRow.
+  const insights: any[] = insightsData?.insights ?? [];
 
   // 결정 브리프 lede (R2#2): ai_comment 있거나 ipx_action 인 항목 최대 2개.
-  const ledeItems: any[] = (data.insights as any[]).filter(
+  const ledeItems: any[] = insights.filter(
     (i: any) => i.ai_comment || i.type === "ipx_action",
   ).slice(0, 2);
 
@@ -29,10 +49,10 @@ export function WeeklyUpdate() {
         )}
       </div>
 
-      {data.insights.length > 0 && (
+      {insights.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
           <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">
-            이번 주 주요 신호 ({data.insights.length})
+            이번 주 주요 신호 ({insights.length})
           </h3>
 
           {/* 결정 브리프 lede — 주목할 액션 1-2개 상단 고정 */}
@@ -55,8 +75,10 @@ export function WeeklyUpdate() {
           )}
 
           <ul class="space-y-2.5 text-sm">
-            {(data.insights as any[]).map((i: any) => {
-              const refs: RawRef[] = (() => {
+            {insights.map((i: any) => {
+              // source_refs is pre-parsed by api/insights mapRow; fall back to
+              // parsing source_refs_json in case of an older response shape.
+              const refs: RawRef[] = i.source_refs ?? (() => {
                 try { return JSON.parse(i.source_refs_json ?? "[]"); }
                 catch { return []; }
               })();
@@ -73,7 +95,7 @@ export function WeeklyUpdate() {
         </section>
       )}
 
-      {data.hanteo.length > 0 && (
+      {weeklyData.hanteo.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
           <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">Hanteo Weekly</h3>
           <div class="overflow-x-auto">
@@ -82,7 +104,7 @@ export function WeeklyUpdate() {
                 <th class="py-1">#</th><th>Group</th><th>Album</th><th class="text-right">Sales</th>
               </tr></thead>
               <tbody>
-                {data.hanteo.map((h: any) => (
+                {weeklyData.hanteo.map((h: any) => (
                   <tr key={`${h.group_key}-${h.album}`} class="border-t border-zinc-800/60">
                     <td class="py-1">{h.rank}</td>
                     <td>{h.group_name ?? h.group_key}</td>
@@ -105,7 +127,7 @@ export function WeeklyUpdate() {
               <th class="py-1">Group</th><th class="text-right">Δ YouTube 조회수</th><th class="text-right">Δ DC 글</th>
             </tr></thead>
             <tbody>
-              {data.movers.map((m: any) => (
+              {weeklyData.movers.map((m: any) => (
                 <tr
                   key={m.group_key}
                   class={`border-t border-zinc-800/60 ${m.group_key === "miiwan" ? "bg-[#75d7d1]/5" : ""}`}

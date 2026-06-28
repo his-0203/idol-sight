@@ -336,7 +336,7 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
           </p>
 
           <div class="overflow-x-auto rounded border border-zinc-800">
-            <table class="w-full min-w-[560px] tabular-nums text-[11px]">
+            <table class="w-full min-w-[560px] tabular-nums text-hint">
               <thead class="bg-zinc-900/60 text-zinc-500">
                 <tr>
                   <th class="px-2 py-1.5 text-left">신호</th>
@@ -411,7 +411,7 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
             Engagement Rate = (좋아요 + 댓글) / 조회수 (좋아요 단독 수치 아님)
           </div>
 
-          <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-400 text-[11px]">
+          <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-400 text-hint">
             <span class="font-semibold text-zinc-200">Shorts (V2.37)</span>{" "}
             는 velocity 를 쓰지 않는다 (조회/baseline 비율이 소형 채널에서 폭발하는
             아티팩트 때문). engagement 0.4 / balance 0.6 의 비중(ratio)만으로 채점 —
@@ -421,13 +421,13 @@ function DebutWindowHelpModal({ onClose }: { onClose: () => void }) {
             정상.
           </div>
 
-          <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-400 text-[11px]">
+          <div class="rounded border border-zinc-800/60 bg-zinc-900/40 p-2 text-zinc-400 text-hint">
             <span class="font-semibold text-zinc-200">* velocity_coherence (Long only)</span>{" "}
             long-form 의 viral_velocity_ratio 는 상당수 NULL. NULL 인 경우 weight 0.2
             가 engagement(0.625)/balance(0.375)로 재분배됨.
           </div>
 
-          <p class="text-zinc-500 italic text-[11px]">
+          <p class="text-zinc-500 italic text-hint">
             Long: v2 calibration (2026-05-13). Shorts: V2.37 recalibration
             (2026-06-05, 라이브 6,258 Short 분포). verify manually before external use.
           </p>

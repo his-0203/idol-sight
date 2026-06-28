@@ -71,7 +71,7 @@ export function KPI(props: {
       </div>
       {props.hint && <div class="mt-0.5 text-xs normal-case text-zinc-500">{props.hint}</div>}
       {props.aiComment && (
-        <div class="mt-1 border-t border-zinc-800/60 pt-1 text-[11px] italic text-zinc-400">
+        <div class="mt-1 border-t border-zinc-800/60 pt-1 text-hint italic text-zinc-400">
           <span class="not-italic mr-1 rounded bg-violet-500/15 px-1 py-[1px] text-[9px] uppercase tracking-wider text-violet-300">
             AI
           </span>

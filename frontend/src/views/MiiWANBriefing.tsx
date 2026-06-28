@@ -832,7 +832,7 @@ export function MiiWANBriefing() {
                     <li key={a.alert_key}
                         class={`rounded border-l-2 p-2.5 text-sm ${SEVERITY_TONE[a.severity]}`}>
                       <div class="flex items-baseline gap-2">
-                        <span class="rounded bg-zinc-900/60 px-1.5 text-[11px] text-zinc-300">
+                        <span class="rounded bg-zinc-900/60 px-1.5 text-hint text-zinc-300">
                           {RULE_LABEL[a.rule] ?? a.rule}
                         </span>
                         <span class="font-semibold">{a.title}</span>
@@ -913,7 +913,7 @@ export function MiiWANBriefing() {
               <li key={a.alert_key}
                   class={`rounded border-l-2 p-3 ${SEVERITY_TONE[a.severity]}`}>
                 <div class="flex items-baseline gap-2">
-                  <span class="rounded bg-zinc-900/60 px-1.5 text-[11px] text-zinc-300">
+                  <span class="rounded bg-zinc-900/60 px-1.5 text-hint text-zinc-300">
                     {RULE_LABEL[a.rule] ?? a.rule}
                   </span>
                   <span class="font-semibold">{a.title}</span>
@@ -941,7 +941,7 @@ function AlertPlaybook({ rule }: { rule: string }) {
   if (!pb) return null;
   return (
     <div class="mt-2 rounded border border-zinc-800 bg-zinc-950/60 p-2.5">
-      <div class="mb-1.5 flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-400">
+      <div class="mb-1.5 flex items-center gap-2 text-hint uppercase tracking-wider text-zinc-400">
         <span>권장 동선</span>
         <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] text-zinc-500">
           verb · owner · due
@@ -965,13 +965,13 @@ function AlertPlaybook({ rule }: { rule: string }) {
               </span>
             )}
             {s.detail && (
-              <span class="basis-full pl-6 text-[11px] text-zinc-500">{s.detail}</span>
+              <span class="basis-full pl-6 text-hint text-zinc-500">{s.detail}</span>
             )}
           </li>
         ))}
       </ol>
       {pb.note && (
-        <div class="mt-2 rounded border-l-2 border-amber-500/60 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-200">
+        <div class="mt-2 rounded border-l-2 border-amber-500/60 bg-amber-500/5 px-2 py-1 text-hint text-amber-200">
           ※ {pb.note}
         </div>
       )}
@@ -1022,7 +1022,7 @@ function IpxActionGuard({ score }: { score: IpxScore }) {
         ))}
       </div>
       {weak && (
-        <div class="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-200">
+        <div class="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-hint text-amber-200">
           <div class="font-semibold">구체화 필요 — 그대로 실행하지 말 것</div>
           <div class="mt-0.5 text-amber-100/80">
             {score.antipattern
@@ -1156,7 +1156,7 @@ function MiiWANEventTimeline({ today }: { today: string }) {
                 <span>{TIMELINE_ICON[e.event_type] ?? "•"}</span>
                 <span class="tabular-nums text-zinc-500">{e.event_date}</span>
                 <span class="font-semibold">{e.title}</span>
-                <span class="ml-auto rounded bg-zinc-900/60 px-1.5 text-[11px] tabular-nums text-zinc-300">
+                <span class="ml-auto rounded bg-zinc-900/60 px-1.5 text-hint tabular-nums text-zinc-300">
                   {dayLabel}
                 </span>
               </div>
@@ -1164,7 +1164,7 @@ function MiiWANEventTimeline({ today }: { today: string }) {
                 <div class="mt-0.5 text-xs text-zinc-400">{e.description}</div>
               )}
               {e.source_url && (
-                <a class="mt-0.5 inline-block text-[11px] text-zinc-500 hover:text-zinc-400 hover:underline"
+                <a class="mt-0.5 inline-block text-hint text-zinc-500 hover:text-zinc-400 hover:underline"
                    href={e.source_url} target="_blank" rel="noopener">출처 ↗</a>
               )}
             </li>
@@ -1366,7 +1366,7 @@ function LiveChatReportCard({ r }: { r: LiveChatReport }) {
       <div class="flex flex-wrap items-baseline gap-2">
         <span class="font-semibold">{r.title ?? "(제목 없음)"}</span>
         <span class="tabular-nums text-zinc-500">{endedDate}</span>
-        <span class="ml-auto rounded bg-zinc-900/60 px-1.5 text-[11px] tabular-nums text-zinc-300">
+        <span class="ml-auto rounded bg-zinc-900/60 px-1.5 text-hint tabular-nums text-zinc-300">
           총 {r.total_messages.toLocaleString()}건 · 표본 {r.sampled.toLocaleString()}
         </span>
       </div>
@@ -1378,7 +1378,7 @@ function LiveChatReportCard({ r }: { r: LiveChatReport }) {
           <div class="bg-zinc-600" style={{ width: `${neu}%` }} />
           <div class="bg-rose-500" style={{ width: `${neg}%` }} />
         </div>
-        <span class="text-[11px] tabular-nums text-zinc-400">
+        <span class="text-hint tabular-nums text-zinc-400">
           <span class="text-emerald-400">긍정 {pos}%</span>
           {" · "}
           <span class="text-rose-400">부정 {neg}%</span>
@@ -1426,7 +1426,7 @@ function LiveChatReportCard({ r }: { r: LiveChatReport }) {
               ? "border-rose-500/40 text-rose-200"
               : "border-zinc-700 text-zinc-400";
             return (
-              <span key={i} class={`rounded-full border px-2 py-0.5 text-[11px] ${tone}`}>
+              <span key={i} class={`rounded-full border px-2 py-0.5 text-hint ${tone}`}>
                 {t.label}
               </span>
             );
@@ -1576,7 +1576,7 @@ function InsightGroup(props: {
               style={ownStyle}
             >
               {/* 상단 라인 — 그룹 뱃지 + scope/type + KST */}
-              <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
+              <div class="flex flex-wrap items-center gap-1.5 text-hint text-zinc-500">
                 {bodyGroups.slice(0, 3).map((k) => (
                   <GroupBadge key={k} groupKey={k} size="sm" />
                 ))}

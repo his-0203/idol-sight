@@ -113,7 +113,7 @@ function FactorsView({ spec }: { spec: any }) {
             </Tooltip>
             {fd[f] && <span class="ml-2 text-zinc-500">{fd[f]}</span>}
             {spec.factor_inputs?.[f] && (
-              <div class="ml-4 text-[11px] text-zinc-500">
+              <div class="ml-4 text-hint text-zinc-500">
                 입력 가중치: {spec.factor_inputs[f]}
               </div>
             )}

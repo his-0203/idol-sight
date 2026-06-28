@@ -16,7 +16,7 @@ export type GroupBadgeProps = {
   groupKey: string | null | undefined;
   /** 표시 라벨. 미지정 시 groupKey 를 그대로 사용. */
   label?: string;
-  /** sm: 본문 인라인용 (text-[11px]), md: 카드 헤더용 (text-xs) */
+  /** sm: 본문 인라인용 (text-hint), md: 카드 헤더용 (text-xs) */
   size?: "sm" | "md";
   /** 추가 클래스 (외부 spacing 등). */
   class?: string;
@@ -28,7 +28,7 @@ export function GroupBadge(props: GroupBadgeProps) {
   const text = label ?? groupKey ?? "—";
   const sizeCls = size === "md"
     ? "text-xs px-1.5 py-0.5 gap-1.5"
-    : "text-[11px] px-1 py-[1px] gap-1";
+    : "text-hint px-1 py-[1px] gap-1";
   return (
     <span
       class={

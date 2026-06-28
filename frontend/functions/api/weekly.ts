@@ -2,12 +2,13 @@ import { d1Query, type D1Database } from "../lib/d1";
 import { jsonResponse } from "../lib/jsonResponse";
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
-  const insights = await d1Query<any>(env.DB,
-    `SELECT id, week_start, scope, type, title, body, source_refs_json,
-            ai_comment, generated_at
+  // Derive the current report week from insights instead of returning the full list.
+  const weekRow = await d1Query<{ week_start: string | null }>(env.DB,
+    `SELECT MAX(week_start) AS week_start
        FROM insights
-      WHERE type IN ('weekly', 'insight', 'ipx_action')
-      ORDER BY generated_at DESC LIMIT 30`);
+      WHERE type IN ('weekly', 'insight', 'ipx_action')`);
+  const week_start = weekRow[0]?.week_start ?? null;
+
   const hanteo = await d1Query<any>(env.DB,
     `SELECT h.week_start, h.week_end, h.group_key,
             COALESCE(g.name, h.group_key) AS group_name,
@@ -31,5 +32,5 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
                     AND snapshot_at < s.snapshot_at)
       WHERE s.snapshot_at = (SELECT MAX(snapshot_at) FROM agg_summary)
       ORDER BY d_views DESC NULLS LAST`);
-  return jsonResponse({ insights, hanteo, movers });
+  return jsonResponse({ week_start, hanteo, movers });
 };
