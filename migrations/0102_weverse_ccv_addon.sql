@@ -7,6 +7,10 @@
 --   / subscribers 로 산출(유튜브 실측 + 위버스 가상 합산). 사용자 결정(2026-06-28):
 --   PLAVE 위버스 라이브 시청자를 최소 10만으로 책정해 유튜브와 합산.
 --
--- 점수 무관(Health Intimacy는 ceiling 미사용) · 표시 전용(시청전환율 컬럼·카드 비교라인).
--- 다음 aggregate cron 재집계로 agg_fan_loyalty.conversion_rate_ceiling 갱신(백필 불필요).
+-- ⚠ 점수 영향 있음: cli.py 가 COALESCE(score_ceiling, score)로 PLAVE loyalty_score 를
+--   ceiling 기준으로 쓰고(V2.52 의도 — 유튜브-only가 PLAVE 과소집계 → 위버스 포함값으로
+--   공정 산정), 그 loyalty_score 가 Health Intimacy(가중 0.30)에 들어간다. 즉 ceiling
+--   추정 변경(flat 150k → median peak+10만)은 PLAVE Health Intimacy/등급을 소폭 이동시킨다
+--   (더 정확한 방향). 시청전환율 컬럼 표시도 동일 ceiling 사용.
+-- 다음 aggregate cron 재집계로 agg_fan_loyalty 천장 컬럼 갱신(백필 불필요).
 UPDATE groups SET ccv_ceiling_estimate = 100000 WHERE key = 'plave';
