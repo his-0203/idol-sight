@@ -15,8 +15,8 @@ export function Insights() {
   const [err, setErr] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const [scopeFilter, setScopeFilter] = useState<string | null>(null);
-  // 상단 탭(자사/시장). userPicked 전까지는 데이터 기반으로 자사→비면 시장 폴백.
-  const [view, setView] = useState<"own" | "market">("own");
+  // 상단 탭(전체/자사/시장). userPicked 전까지는 데이터 기반으로 자사→비면 시장 폴백.
+  const [view, setView] = useState<"all" | "own" | "market">("own");
   const [userPicked, setUserPicked] = useState(false);
   const [lastSeen, setLastSeen] = useState<string | null>(() => {
     try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
@@ -62,20 +62,28 @@ export function Insights() {
   );
 
   // 활성 탭 — 사용자가 명시적으로 고르기 전엔 자사 우선, 자사 0건이면 시장으로.
-  const activeView: "own" | "market" = userPicked
+  const activeView: "all" | "own" | "market" = userPicked
     ? view
     : (ownFiltered.length > 0 ? "own" : "market");
-  const activeItems = activeView === "own" ? ownFiltered : otherFiltered;
+  // 전체 탭은 자사 우선 정렬 유지(자사 → 시장).
+  const activeItems =
+    activeView === "own" ? ownFiltered
+    : activeView === "market" ? otherFiltered
+    : [...ownFiltered, ...otherFiltered];
 
   if (err) return <div class="text-rose-400">불러오기 실패: {err}</div>;
   if (!data) return <div class="text-zinc-500">Loading…</div>;
 
-  const pick = (v: "own" | "market") => { setView(v); setUserPicked(true); };
+  const pick = (v: "all" | "own" | "market") => { setView(v); setUserPicked(true); };
 
   return (
     <div class="space-y-3">
-      {/* 상단 탭: 자사 / 시장 — 세로로 쌓지 않고 전환해 스크롤 줄임 */}
+      {/* 상단 탭: 전체 / 자사 / 시장 — 세로로 쌓지 않고 전환해 스크롤 줄임 */}
       <div role="tablist" aria-label="인사이트 범위" class="flex gap-1 card p-1">
+        <ScopeTab
+          active={activeView === "all"}
+          label="전체" count={filtered.length} onClick={() => pick("all")}
+        />
         <ScopeTab
           active={activeView === "own"} accent={OWN_ACCENT}
           label="자사" count={ownFiltered.length} onClick={() => pick("own")}
@@ -107,12 +115,16 @@ export function Insights() {
 
       {activeItems.length === 0 ? (
         <div class="text-zinc-500">
-          {activeView === "own" ? "조건에 맞는 자사 인사이트 없음." : "조건에 맞는 시장 인사이트 없음."}
+          {activeView === "own" ? "조건에 맞는 자사 인사이트 없음."
+            : activeView === "market" ? "조건에 맞는 시장 인사이트 없음."
+            : "조건에 맞는 인사이트 없음."}
         </div>
       ) : (
         <ul class="space-y-2.5 text-sm">
           {activeItems.map((i: any) => {
             const isNew = !!(lastSeen && i.generated_at > lastSeen);
+            // 전체 탭은 자사/시장이 섞이므로 카드별로 자사 여부를 개별 판정.
+            const isOwn = extractGroupKeys(i.body).includes("miiwan");
             return (
               <InsightCard
                 key={i.id}
@@ -121,7 +133,7 @@ export function Insights() {
                 dateDisplay={i.week_start ?? formatKSTDate(i.generated_at)}
                 isNew={isNew}
                 showInterim={i.report_kind === "interim"}
-                isOwn={activeView === "own"}
+                isOwn={isOwn}
               />
             );
           })}
@@ -133,7 +145,7 @@ export function Insights() {
 
 function ScopeTab(
   { active, accent, label, count, onClick }:
-  { active: boolean; accent: string; label: string; count: number; onClick: () => void },
+  { active: boolean; accent?: string; label: string; count: number; onClick: () => void },
 ) {
   return (
     <button
@@ -141,7 +153,7 @@ function ScopeTab(
       onClick={onClick}
       class={"flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition " +
         (active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200")}
-      style={active ? { color: accent } : undefined}
+      style={active && accent ? { color: accent } : undefined}
     >
       {label} <span class="tabular-nums opacity-70">({count})</span>
     </button>
