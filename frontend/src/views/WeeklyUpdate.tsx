@@ -1,9 +1,8 @@
 // frontend/src/views/WeeklyUpdate.tsx
 import { useEffect, useState } from "preact/hooks";
 import { api } from "../api";
+import { writeState } from "../router";
 import { fmt } from "../format";
-import type { RawRef } from "../components/Tooltip";
-import { InsightCard } from "../components/InsightCard";
 import { humanizeInsightText } from "../lib/insightFormat";
 
 export function WeeklyUpdate() {
@@ -49,15 +48,20 @@ export function WeeklyUpdate() {
         )}
       </div>
 
+      {/* 다이제스트: 주목 액션 하이라이트만 + 전체는 인사이트 탭으로(중복 제거). */}
       {insights.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
-          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">
-            이번 주 주요 신호 ({insights.length})
-          </h3>
+          <div class="mb-3 flex items-baseline gap-2 border-b border-zinc-800/40 pb-2">
+            <h3 class="section-title">이번 주 주요 신호</h3>
+            <button
+              type="button"
+              class="ml-auto text-hint text-zinc-400 hover:text-zinc-200"
+              onClick={() => writeState({ tab: "insights" })}
+            >이번 주 {insights.length}건 · 전체 인사이트 보기 →</button>
+          </div>
 
-          {/* 결정 브리프 lede — 주목할 액션 1-2개 상단 고정 */}
-          {ledeItems.length > 0 && (
-            <div class="mb-3 rounded border border-violet-500/20 bg-violet-500/5 px-3 py-2">
+          {ledeItems.length > 0 ? (
+            <div class="rounded border border-violet-500/20 bg-violet-500/5 px-3 py-2">
               <p class="text-label text-zinc-400 mb-1.5">이번 주 주목할 액션:</p>
               <ul class="space-y-1">
                 {ledeItems.map((i: any) => (
@@ -72,26 +76,11 @@ export function WeeklyUpdate() {
                 ))}
               </ul>
             </div>
+          ) : (
+            <p class="text-hint text-zinc-500">
+              이번 주 주목할 액션 항목은 없어요. 전체 인사이트에서 확인하세요.
+            </p>
           )}
-
-          <ul class="space-y-2.5 text-sm">
-            {insights.map((i: any) => {
-              // source_refs is pre-parsed by api/insights mapRow; fall back to
-              // parsing source_refs_json in case of an older response shape.
-              const refs: RawRef[] = i.source_refs ?? (() => {
-                try { return JSON.parse(i.source_refs_json ?? "[]"); }
-                catch { return []; }
-              })();
-              return (
-                <InsightCard
-                  key={i.id}
-                  insight={i}
-                  sourceRefs={refs}
-                  showTimestamp={true}
-                />
-              );
-            })}
-          </ul>
         </section>
       )}
 
