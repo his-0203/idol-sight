@@ -15,7 +15,7 @@
 // - The popover is `role="tooltip"` and rendered next to the trigger so
 //   discovery doesn't require pointer hover.
 
-import { useEffect, useId, useRef, useState } from "preact/hooks";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ComponentChildren } from "preact";
 
 export type TooltipProps = {
@@ -36,6 +36,10 @@ export function Tooltip(props: TooltipProps) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLSpanElement>(null);
+  // 우측 표 헤더(SoV·주의)에서 팝오버가 화면 밖으로 잘리지 않도록, 열릴 때
+  // 뷰포트를 측정해 넘치는 만큼 가로로 당긴다(translateX). 닫히면 0으로 리셋.
+  const [shiftX, setShiftX] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -47,6 +51,20 @@ export function Tooltip(props: TooltipProps) {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) { setShiftX(0); return; }
+    const el = popRef.current;
+    if (!el) return;
+    const margin = 8;
+    // shiftX=0 상태(translateX(0))로 그려진 직후 측정해 자연 위치를 잡는다.
+    const rect = el.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    let shift = 0;
+    if (rect.right > vw - margin) shift = (vw - margin) - rect.right;   // 우측 넘침 → 왼쪽으로
+    if (rect.left + shift < margin) shift = margin - rect.left;          // 좌측 넘침 방지(클램프)
+    if (shift !== 0) setShiftX(shift);
   }, [open]);
 
   const placement = props.placement ?? "top";
@@ -79,6 +97,7 @@ export function Tooltip(props: TooltipProps) {
       {open && (
         <span
           id={id}
+          ref={popRef}
           role="tooltip"
           class={
             "absolute left-0 z-50 " + positionCls + " " +
@@ -96,6 +115,8 @@ export function Tooltip(props: TooltipProps) {
             whiteSpace: "normal",
             wordBreak: "keep-all",
             overflowWrap: "break-word",
+            // 화면 밖 넘침 보정(우측 헤더 등). 0이면 transform 미적용.
+            transform: shiftX ? `translateX(${shiftX}px)` : undefined,
           }}
         >
           {props.content}
