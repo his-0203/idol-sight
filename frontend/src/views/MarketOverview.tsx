@@ -97,7 +97,7 @@ function tableSortValue(key: TableSortKey, k: string, g: any, shares: Record<str
     case "grade":     return g.health_score?.total ?? null;
     case "awareness": return g.awareness?.score ?? null;
     case "core":      return g.core_fan_estimate?.est_engaged_fans ?? null;
-    case "viewconv":  return g.view_conversion?.rate ?? null;
+    case "viewconv":  return g.view_conversion?.rate_ceiling ?? g.view_conversion?.rate ?? null;
     case "sov":       return shares[k] ?? null;
   }
 }
@@ -109,7 +109,7 @@ const HELP = {
   awareness: "인지 폭(0~100, '얼마나 많이 알려졌나'). 카테고리 리더 대비 구독·조회·뉴스를 log 정규화. #N = 카테고리 내 순위.",
   core:      "추정 코어 = 최근 56일 영상별 '좋아요' 중앙값(고유 반응 팬 근사). 추정 휴리스틱 — 실측 아님.",
   quad:      "넓이(인지도)×깊이(추정 코어) 사분면. 진성강세=둘 다 높음 · 광고형/바이럴=넓지만 얕음 · 니치 충성=좁지만 깊음 · 저조=둘 다 낮음 (카테고리 중앙값 기준).",
-  viewconv:  "시청전환율 = 라이브 방송 동시접속(방송별 peak CCV 중앙값) ÷ 구독자. 구독자 중 실제 라이브에 오는 비율(충성도 신호). 라이브 CCV 미수집 그룹은 —.",
+  viewconv:  "시청전환율 = 라이브 방송 동시접속(방송별 peak CCV 중앙값) ÷ 구독자. 구독자 중 실제 라이브에 오는 비율(충성도 신호). 위버스 등 오프플랫폼 라이브가 있는 그룹(PLAVE)은 유튜브 실측 + 위버스 추정(≥10만) 합산값(≈ 표시). 라이브 CCV 미수집 그룹은 —.",
   sov:       "관심 점유율(Share of Voice) — 그룹들 사이 상대 비중(유튜브 조회 33%·커뮤니티 28%·뉴스 22%·구독 17%). 옆 ▲▼ = 전주 대비 변화(pp).",
   caveat:    "영상 카탈로그 organicity가 주의 구간(유료로 산 도달 의심). 인지도 점수엔 반영 안 되는 직교 참고 신호.",
 } satisfies Record<string, string>;
@@ -457,14 +457,23 @@ export function MarketOverview() {
                         <td class="px-2 py-2 text-right tabular-nums" title="좋아요·댓글 기반 추정(관여 팬) — 라이브 측정과 다른 축, 참고">
                           {cf?.est_engaged_fans != null ? <>~{fmt(cf.est_engaged_fans)}</> : <span class="text-zinc-600">—</span>}
                         </td>
-                        <td class="px-2 py-2 text-right tabular-nums"
-                            title={g.view_conversion?.rate != null
-                              ? `라이브 동접(median peak CCV) ÷ 구독자${g.view_conversion.broadcasts ? ` · ${g.view_conversion.broadcasts}개 방송` : ""}`
-                              : "라이브 CCV 미수집 — 시청전환율 산정 불가"}>
-                          {g.view_conversion?.rate != null
-                            ? `${(g.view_conversion.rate * 100).toFixed(1)}%`
-                            : <span class="text-zinc-600">—</span>}
-                        </td>
+                        {(() => {
+                          const vc = g.view_conversion;
+                          const shown = vc?.rate_ceiling ?? vc?.rate ?? null;     // ceiling(유튜브+위버스) 우선
+                          const weverse = vc?.rate_ceiling != null;
+                          return (
+                            <td class="px-2 py-2 text-right tabular-nums"
+                                title={shown != null
+                                  ? (weverse
+                                      ? `유튜브 실측 + 위버스 추정(≥10만) 합산 ÷ 구독자${vc.broadcasts ? ` · ${vc.broadcasts}개 방송` : ""}`
+                                      : `라이브 동접(median peak CCV) ÷ 구독자${vc?.broadcasts ? ` · ${vc.broadcasts}개 방송` : ""}`)
+                                  : "라이브 CCV 미수집 — 시청전환율 산정 불가"}>
+                              {shown != null
+                                ? <>{weverse && <span class="text-own">≈</span>}{(shown * 100).toFixed(1)}%</>
+                                : <span class="text-zinc-600">—</span>}
+                            </td>
+                          );
+                        })()}
                         <td class="px-2 py-2 whitespace-nowrap">
                           {quad ? (
                             <span class={`rounded-chip border px-1.5 text-hint ${QUAD_TAG[quad]}`}>{QUADRANT_LABEL[quad]}</span>

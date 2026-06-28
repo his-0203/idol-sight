@@ -174,14 +174,16 @@ def compute_loyalty(
     base["ccv_trend_pct"] = (round(pct, 4) if pct is not None else None)
     base["trend_basis"] = tbasis
 
-    # Weverse 포함 천장(ceiling) — flat 운영자 추정치. floor 가 산정된
-    # 경우(broadcast_count≥1, subscribers 유효)에만, 최신 구독자를 분모로
-    # 1회 산출한다. score/사다리/trend(floor)는 위에서 이미 YouTube 실측으로 확정.
-    if ceiling_estimate and ceiling_estimate > 0:
-        conv_ceil = ceiling_estimate / subscribers
+    # Weverse 포함 천장(ceiling) — YouTube 실측 + 위버스 add-on 합산 모델(0102).
+    # ceiling_estimate 는 '유튜브 위에 더하는 위버스 동접 add-on(최소 추정)'.
+    # ccv_ceiling = median peak YouTube CCV + add-on, 최신 구독자를 분모로 1회 산출.
+    # score/사다리/trend(floor)는 위에서 이미 YouTube 실측으로 확정.
+    if ceiling_estimate and ceiling_estimate > 0 and subscribers and subscribers > 0:
+        ccv_ceiling = round(base["peak_ccv_median"]) + ceiling_estimate
+        conv_ceil = ccv_ceiling / subscribers
         base["conversion_rate_ceiling"] = conv_ceil
         base["score_ceiling"] = round(score_from_conversion(conv_ceil), 2)
-        base["ccv_ceiling"] = ceiling_estimate
+        base["ccv_ceiling"] = ccv_ceiling
     return base
 
 
