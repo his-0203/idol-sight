@@ -37,9 +37,12 @@ export function Tooltip(props: TooltipProps) {
   const id = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLSpanElement>(null);
+  const basePlacement: "top" | "bottom" = props.placement ?? "top";
   // 우측 표 헤더(SoV·주의)에서 팝오버가 화면 밖으로 잘리지 않도록, 열릴 때
   // 뷰포트를 측정해 넘치는 만큼 가로로 당긴다(translateX). 닫히면 0으로 리셋.
   const [shiftX, setShiftX] = useState(0);
+  // 상단 행에서 위로 잘리면 아래로(반대도) placement를 뒤집는다.
+  const [placement, setPlacement] = useState<"top" | "bottom">(basePlacement);
 
   useEffect(() => {
     if (!open) return;
@@ -54,20 +57,24 @@ export function Tooltip(props: TooltipProps) {
   }, [open]);
 
   useLayoutEffect(() => {
-    if (!open) { setShiftX(0); return; }
+    if (!open) { setShiftX(0); setPlacement(basePlacement); return; }
     const el = popRef.current;
     if (!el) return;
     const margin = 8;
-    // shiftX=0 상태(translateX(0))로 그려진 직후 측정해 자연 위치를 잡는다.
+    // shiftX=0·기본 placement 로 그려진 직후 측정해 자연 위치를 잡는다.
     const rect = el.getBoundingClientRect();
     const vw = document.documentElement.clientWidth;
+    const vh = document.documentElement.clientHeight;
+    // 가로: 좌우 넘침 보정(가로 위치는 placement 뒤집어도 불변).
     let shift = 0;
     if (rect.right > vw - margin) shift = (vw - margin) - rect.right;   // 우측 넘침 → 왼쪽으로
     if (rect.left + shift < margin) shift = margin - rect.left;          // 좌측 넘침 방지(클램프)
     if (shift !== 0) setShiftX(shift);
+    // 세로: 위(아래)로 잘리면 반대쪽으로 뒤집는다.
+    if (basePlacement === "top" && rect.top < margin) setPlacement("bottom");
+    else if (basePlacement === "bottom" && rect.bottom > vh - margin) setPlacement("top");
   }, [open]);
 
-  const placement = props.placement ?? "top";
   const positionCls = placement === "top"
     ? "bottom-full mb-1.5"
     : "top-full mt-1.5";
