@@ -626,11 +626,11 @@ export function DebutCurve() {
           각 그룹의 debut_date 기준 D-N / D+N 으로 정렬한 코호트 비교. MiiWAN은 굵게 강조.
         </span>
         {metric === "naver_total_news" && (
-          <span class="ml-2 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300">
+          <span class="ml-2 rounded bg-amber-500/10 px-2 py-0.5 text-hint text-amber-300">
             단위: {newsView === 'cumulative-line' ? NEWS_CUMULATIVE_UNIT : NEWS_WEEKLY_UNIT}
           </span>
         )}
-        <span class="ml-auto text-[11px] text-zinc-500">
+        <span class="ml-auto text-hint text-zinc-500">
           <span class="mr-2"><span class="inline-block w-4 border-t-2 border-zinc-400 align-middle"></span> 실측</span>
           <span class="mr-2"><span class="inline-block w-4 border-t-2 border-dashed border-zinc-400 align-middle"></span> 백필 추정</span>
           <span><span class="inline-block w-4 border-t border-dotted border-zinc-400 align-middle"></span> 백필 검증</span>
@@ -702,7 +702,7 @@ export function DebutCurve() {
               {(isolated || hidden.size > 0) && (
                 <button
                   type="button"
-                  class="ml-auto rounded border border-zinc-700 px-1.5 py-0.5 text-[11px] hover:bg-zinc-800"
+                  class="ml-auto rounded border border-zinc-700 px-1.5 py-0.5 text-hint hover:bg-zinc-800"
                   onClick={() => { setIsolated(null); setHidden(new Set()); }}
                 >초기화</button>
               )}
@@ -718,7 +718,7 @@ export function DebutCurve() {
                       <button
                         type="button"
                         title={isHidden ? "보이기" : "숨기기"}
-                        class={"shrink-0 rounded border px-1.5 py-0.5 text-[11px] transition-colors " +
+                        class={"shrink-0 rounded border px-1.5 py-0.5 text-hint transition-colors " +
                           (isHidden
                             ? "border-zinc-800 text-zinc-600"
                             : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}
@@ -762,15 +762,15 @@ export function DebutCurve() {
                 );
               })}
             </ul>
-            <div class="mt-2 text-[11px] text-zinc-500">
+            <div class="mt-2 text-hint text-zinc-500">
               ● 표시/숨기기 · 그룹명 클릭 시 단독 표시
             </div>
             {isolated && events.length > 0 && (
               <div class="mt-3 border-t border-zinc-800 pt-3">
-                <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-400">
+                <div class="mb-1.5 text-hint font-semibold uppercase tracking-wider text-amber-400">
                   주요 이벤트 (▲ 차트 마커)
                 </div>
-                <ul class="space-y-1 text-[11px]">
+                <ul class="space-y-1 text-hint">
                   {events
                     .filter((e) => ANNOTATABLE_EVENT_TYPES.has(e.event_type))
                     .slice(0, 8)

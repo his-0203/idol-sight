@@ -83,7 +83,7 @@ export function InsightCard({
       style={{ borderLeftColor: colorOf(accentKey) }}
     >
       {/* 1) 상단 라인 — 그룹 뱃지 + scope/type 칩 + date + NEW/timestamp */}
-      <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-zinc-500">
+      <div class="flex flex-wrap items-center gap-1.5 text-hint text-zinc-500">
         {bodyGroups.slice(0, 3).map((k) => (
           <GroupBadge key={k} groupKey={k} size="sm" />
         ))}

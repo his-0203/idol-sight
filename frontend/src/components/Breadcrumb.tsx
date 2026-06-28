@@ -50,7 +50,7 @@ export function Breadcrumb({ state }: { state: RouterState }) {
 
   return (
     <nav aria-label="현재 위치"
-         class="mx-auto max-w-7xl px-4 pt-3 text-hint text-zinc-500">
+         class="mb-2 text-hint text-zinc-500">
       {crumbs.map((c, i) => (
         <span key={i}>
           {i > 0 && <span class="mx-1.5 text-zinc-700">▸</span>}

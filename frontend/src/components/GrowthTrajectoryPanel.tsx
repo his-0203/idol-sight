@@ -190,10 +190,10 @@ export function GrowthTrajectoryPanel({ groupKey }: { groupKey: string }) {
         )}
       </div>
 
-      <p class="mt-3 text-[11px] leading-relaxed text-zinc-500">
+      <p class="mt-3 text-hint leading-relaxed text-zinc-500">
         상태어 = 최근 추세(직전 1주 대비) · 옆 숫자 = 이전·최근 7일 비교 — 서로 다른 시점이라 방향이 달라 보일 수 있어요.
       </p>
-      <p class="mt-1 text-[11px] leading-relaxed text-zinc-500">
+      <p class="mt-1 text-hint leading-relaxed text-zinc-500">
         자기 과거 대비 추정치 · 참고용이며 정답이 아니에요 (사람 확인이 필요해요).
       </p>
     </div>

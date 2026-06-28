@@ -231,7 +231,7 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
                   <td><span class="rounded bg-zinc-800 px-1.5 text-xs">{p.platform}</span></td>
                   <td>
                     {badge ? (
-                      <span class={`rounded border px-1.5 text-[11px] ${badge.cls}`}>{badge.label}</span>
+                      <span class={`rounded border px-1.5 text-hint ${badge.cls}`}>{badge.label}</span>
                     ) : (
                       <span class="text-zinc-600">—</span>
                     )}
@@ -250,7 +250,7 @@ export function Community({ groupKey, period }: { groupKey: string | null; perio
                       onClick={() => flagRow(p)}
                       disabled={!p.url_hash || flagState === "pending" || flagState === "done"}
                       title="이 게시글을 무관(noise)으로 신고. 신고된 행은 즉시 숨겨지고 다음 수집부터 학습에 반영됩니다."
-                      class={"rounded border px-2 py-0.5 text-[11px] transition-colors " +
+                      class={"rounded border px-2 py-0.5 text-hint transition-colors " +
                         (flagState === "error"
                           ? "border-red-500/40 text-red-300"
                           : flagState === "pending"

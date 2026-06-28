@@ -499,17 +499,17 @@ function GroupEventTimeline({ groupKey }: { groupKey: string }) {
                 <span class="tabular-nums text-zinc-500">{e.event_date}</span>
                 <span class="font-semibold text-zinc-200">{e.title}</span>
                 {isFuture && (
-                  <span class="rounded bg-emerald-500/20 px-1.5 text-[11px] text-emerald-300">예정</span>
+                  <span class="rounded bg-emerald-500/20 px-1.5 text-hint text-emerald-300">예정</span>
                 )}
                 {e.confidence === "medium" && (
-                  <span class="rounded bg-zinc-800 px-1.5 text-[11px] text-zinc-400" title="신뢰도 medium">~</span>
+                  <span class="rounded bg-zinc-800 px-1.5 text-hint text-zinc-400" title="신뢰도 medium">~</span>
                 )}
               </div>
               {e.description && (
                 <div class="mt-0.5 text-xs text-zinc-400">{e.description}</div>
               )}
               {e.source_url && (
-                <a class="mt-0.5 inline-block text-[11px] text-zinc-500 hover:text-zinc-400 hover:underline"
+                <a class="mt-0.5 inline-block text-hint text-zinc-500 hover:text-zinc-400 hover:underline"
                    href={e.source_url} target="_blank" rel="noopener">출처 ↗</a>
               )}
             </li>

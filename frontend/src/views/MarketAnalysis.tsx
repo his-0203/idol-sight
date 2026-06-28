@@ -171,7 +171,7 @@ export function MarketAnalysis({
           <div>
             <div class="text-hint mb-1 text-cyan-300/80">📋 이번 주 추천 — 무엇부터 할까 ({dPlus} · 갱신 {analytics.snapshot_at.slice(0, 10)})</div>
             <div class="text-sm font-semibold text-zinc-100">{headline(enriched)}</div>
-            <div class="mt-0.5 text-[11px] text-zinc-500">아래는 "왜 그런지" 근거입니다. 모르는 용어는 오른쪽 ? 를 보세요.</div>
+            <div class="mt-0.5 text-hint text-zinc-500">아래는 "왜 그런지" 근거입니다. 모르는 용어는 오른쪽 ? 를 보세요.</div>
           </div>
           <button type="button" onClick={() => setShowHelp((v) => !v)}
             aria-expanded={showHelp}
@@ -223,7 +223,7 @@ export function MarketAnalysis({
           </div>
           <div class="rounded-card border border-zinc-800 bg-zinc-900/40 p-3">
             <div class="mb-2 text-xs font-semibold text-zinc-400">예산 배분 계획</div>
-            <p class="mb-2 text-[11px] text-zinc-500">예산을 흩으면 효과 측정이 어려워 한 번에 2곳만 집중합니다. 자막 테스트는 무료라 여러 곳 동시 가능.</p>
+            <p class="mb-2 text-hint text-zinc-500">예산을 흩으면 효과 측정이 어려워 한 번에 2곳만 집중합니다. 자막 테스트는 무료라 여러 곳 동시 가능.</p>
             <div class="space-y-2 text-xs">
               <QueueRow label="🎯 지금 광고할 곳 (2곳까지)" tone="text-cyan-300"
                 items={queue.paidSlots.map((e) => e.row.country)} />
@@ -281,7 +281,7 @@ export function MarketAnalysis({
                 </div>
               ))}
             </div>
-            <p class="mt-2 text-[11px] text-zinc-500">1.0× = 본진(한국)과 동등. 길수록 오래(끝까지) 봄.</p>
+            <p class="mt-2 text-hint text-zinc-500">1.0× = 본진(한국)과 동등. 길수록 오래(끝까지) 봄.</p>
           </div>
         </div>
       </section>
@@ -407,7 +407,7 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
         {/* 한 줄 결론 — 주인공 */}
         <div class={"inline-block rounded-md border px-2.5 py-1 text-sm font-semibold " + CONCLUSION_TONE[concl.tone]}>{concl.text}</div>
         {/* 근거 — 강등(작게/회색). 5개 척도를 '근거'로 종속. */}
-        <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-500">
+        <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-hint text-zinc-500">
           <span class="text-zinc-500">근거:</span>
           <span class={TIER_TONE[e.tier] ?? ""}>{e.interpretation.label}</span>
           <span>· {TIER_LABEL_KO[e.tier]} {e.score}점 · {QUADRANT_LABEL[e.quadrant]} ·</span>
@@ -434,12 +434,12 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
               {name === weakest[0] && <span class="text-[10px] text-amber-400">⚠ 약점</span>}
             </div>
           ))}
-          <div class="pt-1 text-[11px] text-zinc-500">
+          <div class="pt-1 text-hint text-zinc-500">
             시장: {m.market} · 언어격차: {m.langGap} · 교포: {m.diasporaKr}
             {e.row.watchMinutes != null && <> · 표본 {fmt(e.row.watchMinutes)}분</>}
           </div>
           {e.row.organicShare != null && (
-            <div class="text-[11px] text-zinc-500">
+            <div class="text-hint text-zinc-500">
               유입 품질: 오가닉(검색·추천) {Math.round(e.row.organicShare * 100)}% vs
               외부·공유 {Math.round((1 - e.row.organicShare) * 100)}%
               {e.row.organicShare >= 0.6
@@ -462,7 +462,7 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
           <div class="rounded-lg border border-amber-500/25 bg-amber-500/[0.04] p-3">
             <div class="mb-2 flex items-baseline gap-1.5">
               <span class="text-xs font-semibold text-amber-300">⚠ 약점: {adv.driver}</span>
-              <span class="text-[11px] text-zinc-500">— 원인 단정 어려워 가능성 순</span>
+              <span class="text-hint text-zinc-500">— 원인 단정 어려워 가능성 순</span>
             </div>
             <div class="space-y-1.5">
               {adv.hypotheses.map((h, i) => (
@@ -485,10 +485,10 @@ function CountryDrilldown({ e }: { e: EnrichedCountry }) {
             <div class="mb-1 text-xs font-semibold text-cyan-300">➜ 지금 할 한 가지 (추천)</div>
             <div class="text-sm font-medium text-zinc-100">{e.action.verb}</div>
             <div class="mt-1.5"><RungBar rung={e.action.costTier} /></div>
-            <div class="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-zinc-500">
+            <div class="mt-1 flex flex-wrap items-center gap-x-2 text-hint text-zinc-500">
               <span>{e.action.owner} · {e.action.due}</span>
             </div>
-            <div class="mt-1 text-[11px] text-zinc-500">성공 기준: {e.action.measurable}</div>
+            <div class="mt-1 text-hint text-zinc-500">성공 기준: {e.action.measurable}</div>
           </div>
         </div>
       </div>
@@ -529,7 +529,7 @@ function GoodsBoard({ memberPopularity, analytics }: {
               <span class="w-12 shrink-0 text-right text-sm tabular-nums text-zinc-300">{m.sharePct.toFixed(1)}%</span>
             </div>
           ))}
-          <p class="mt-1 text-[11px] text-zinc-500">하한 10%·상한 평균×2 — 0장·과잉생산 동시 방어.</p>
+          <p class="mt-1 text-hint text-zinc-500">하한 10%·상한 평균×2 — 0장·과잉생산 동시 방어.</p>
         </div>
         <div class="space-y-2">
           <PendingCard title="총 제작 수량 (하한)"
@@ -583,7 +583,7 @@ function PendingCard({ title, value, note }: { title: string; value: string | nu
         {value == null && <span class="rounded border border-zinc-600/40 bg-zinc-700/30 px-1.5 py-0.5 text-[10px] text-zinc-400">대기</span>}
       </div>
       {value != null && <div class="mt-0.5 text-base font-semibold tabular-nums text-zinc-100">{value}</div>}
-      <p class="mt-1 text-[11px] text-zinc-500">{note}</p>
+      <p class="mt-1 text-hint text-zinc-500">{note}</p>
     </div>
   );
 }

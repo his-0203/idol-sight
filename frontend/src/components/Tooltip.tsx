@@ -188,7 +188,7 @@ export function DataSourceDetails(props: {
   return (
     <details class="mt-1.5 group">
       <summary
-        class="cursor-pointer select-none text-[11px] text-zinc-500
+        class="cursor-pointer select-none text-hint text-zinc-500
                hover:text-zinc-300 list-none flex items-center gap-1"
       >
         <span class="text-zinc-600 group-open:rotate-90 transition-transform inline-block w-2 leading-none">
@@ -199,7 +199,7 @@ export function DataSourceDetails(props: {
       </summary>
       <ul class="mt-1 ml-3 space-y-0.5">
         {condensed.map((r, i) => (
-          <li key={i} class="text-[11px] text-zinc-500" title={`${r.table}: ${r.pk}`}>
+          <li key={i} class="text-hint text-zinc-500" title={`${r.table}: ${r.pk}`}>
             {r.label}
           </li>
         ))}
