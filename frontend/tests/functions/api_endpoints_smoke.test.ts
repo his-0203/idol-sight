@@ -19,10 +19,10 @@ describe("smoke: 5 endpoints", () => {
       request: new Request("https://x/api/market-share?weeks=4") } as any);
     expect(((await r.json()) as any).weeks).toBe(4);
   });
-  it("weekly returns insights+hanteo+movers", async () => {
+  it("weekly returns week_start+hanteo+movers (insights moved to /api/insights)", async () => {
     const r = await weekly({ env: env([]), request: new Request("https://x/") } as any);
     const b = await r.json() as any;
-    expect(b).toHaveProperty("insights");
+    expect(b).toHaveProperty("week_start");
     expect(b).toHaveProperty("hanteo");
     expect(b).toHaveProperty("movers");
   });
