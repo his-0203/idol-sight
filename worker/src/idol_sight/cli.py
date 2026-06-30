@@ -13,6 +13,7 @@ import click
 import typer
 
 from idol_sight.analysis.challenge_scan import run_challenge_scan
+from idol_sight.analysis.news_backfill import rearbitrate
 from idol_sight.collectors.channel_stats import ChannelStatsCollector
 from idol_sight.collectors.dc import DcCollector
 from idol_sight.collectors.hanteo import HanteoCollector
@@ -1714,6 +1715,66 @@ def _load_active_groups_full(client) -> list[dict]:
 def _shift_date(iso_date: str, days: int) -> str:
     from datetime import date, timedelta
     return (date.fromisoformat(iso_date) + timedelta(days=days)).isoformat()
+
+
+@app.command(
+    name="reeval-naver-relevance",
+    help="Backfill: re-arbitrate naver_articles group ownership with the "
+         "anchor-gated NewsFilter. Re-evaluates each stored title against "
+         "every active group and re-owns it to the highest-scoring group, "
+         "excluding rows no group can anchor. Use --dry-run to preview.",
+)
+def reeval_naver_relevance(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print change counts without writing."),
+) -> None:
+    settings = load_settings()
+    client = _make_d1_client(settings)
+
+    active = client.execute("SELECT key FROM groups WHERE is_active=1")
+    groups = [_load_group(client, r["key"]) for r in active]
+
+    rows = client.execute(
+        "SELECT url_hash, title, published_at, group_key, is_excluded, "
+        "match_score FROM naver_articles"
+    )
+    updates = rearbitrate(rows, groups)
+    by_hash = {r["url_hash"]: r for r in rows}
+
+    statements: list[tuple[str, list[Any]]] = []
+    reattributed = newly_excluded = restored = 0
+    for u in updates:
+        before = by_hash[u.url_hash]
+        b_key = before.get("group_key")
+        b_excl = int(before.get("is_excluded") or 0)
+        b_score = int(before.get("match_score") or 0)
+        if (u.group_key == b_key and u.is_excluded == b_excl
+                and u.match_score == b_score):
+            continue
+        if u.group_key != b_key:
+            reattributed += 1
+        if u.is_excluded == 1 and b_excl == 0:
+            newly_excluded += 1
+        if u.is_excluded == 0 and b_excl == 1:
+            restored += 1
+        statements.append((
+            "UPDATE naver_articles SET group_key=?, is_excluded=?, "
+            "exclude_reason=?, match_score=? WHERE url_hash=?",
+            [u.group_key, u.is_excluded, u.reason, u.match_score, u.url_hash],
+        ))
+
+    typer.echo(
+        f"reeval-naver-relevance: rows={len(rows)} changed={len(statements)} "
+        f"reattributed={reattributed} newly_excluded={newly_excluded} "
+        f"restored={restored} dry_run={dry_run}"
+    )
+    if dry_run or not statements:
+        return
+    summary = client.batch(statements)
+    typer.echo(
+        f"applied {summary.statements_executed}/{summary.statements_sent} "
+        f"total_changes={summary.total_changes}"
+    )
 
 
 def main() -> None:

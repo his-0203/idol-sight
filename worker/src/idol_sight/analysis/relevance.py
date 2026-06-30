@@ -104,7 +104,7 @@ def is_global_spam(title: str) -> bool:
     return any(phrase.lower() in t for phrase in GLOBAL_NEGATIVE_KEYWORDS)
 
 
-def _has_anchor(title: str, group: GroupConfig) -> bool:
+def has_anchor(title: str, group: GroupConfig) -> bool:
     """True if the title contains the group's English or Korean name.
 
     The English name is matched case-insensitively because some posts
@@ -176,7 +176,7 @@ def is_relevant(
     # the title (disambiguation). Anchor presence alone is NOT enough —
     # we still want a context keyword to fire, otherwise unrelated
     # posts that happen to mention 'PLAVE' as a comparison would match.
-    if short_tokens and _has_anchor(title, group):
+    if short_tokens and has_anchor(title, group):
         for kw in short_tokens:
             if kw in title:
                 return True

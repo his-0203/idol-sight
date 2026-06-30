@@ -1,0 +1,38 @@
+name: backfill-naver-relevance
+# One-shot: re-arbitrate naver_articles group ownership with the anchor-
+# gated NewsFilter (migration 0103 + news_filter/news_backfill). Repairs
+# cross-group leaks where an article that merely shared a genre token
+# ("버추얼") surfaced under the wrong group's PR/리스크 tab — e.g. BTHD /
+# 비던 articles showing under ISEDOL.
+#
+# Idempotent: re-evaluates each stored title against every active group
+# and re-owns it to the highest-scoring group, so re-runs converge. The
+# dry_run input (default true) previews change counts without writing —
+# uncheck to apply. Requires migration 0103 to be applied first (the
+# match_score column).
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview change counts without writing (uncheck to apply)'
+        type: boolean
+        default: true
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+        working-directory: worker
+      - name: Re-arbitrate naver_articles relevance
+        working-directory: worker
+        run: |
+          uv run python -m idol_sight reeval-naver-relevance \
+            ${{ inputs.dry_run == true && '--dry-run' || '' }}
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:   ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:  ${{ secrets.CF_API_TOKEN }}
