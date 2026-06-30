@@ -52,6 +52,46 @@ log = logging.getLogger(__name__)
 
 SEARCH_URL = "https://search.naver.com/search.naver?where=news&sm=tab_jum&query={q}"
 
+# Upsert with cross-group arbitration. url_hash is the PK, so one article
+# is one row owned by exactly one group. When several groups collect the
+# same round-up article, ownership settles on the relevant group with the
+# highest NewsFilter score (the primary subject), and a relevant verdict
+# beats a previously-excluded one — independent of collection order.
+#
+# "Takeover" predicate: the incoming row is relevant AND (the stored row
+# is currently excluded OR the incoming score is strictly higher). Title
+# and collected_at always refresh (same article); group ownership and the
+# relevance verdict only move on takeover.
+NAVER_ARTICLES_UPSERT_SQL = """
+INSERT INTO naver_articles
+  (url_hash, group_key, title, source, url, published_at,
+   is_excluded, exclude_reason, collected_at, match_score)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(url_hash) DO UPDATE SET
+  group_key = CASE
+    WHEN excluded.is_excluded = 0
+         AND (naver_articles.is_excluded = 1
+              OR excluded.match_score > naver_articles.match_score)
+    THEN excluded.group_key ELSE naver_articles.group_key END,
+  is_excluded = CASE
+    WHEN excluded.is_excluded = 0
+         AND (naver_articles.is_excluded = 1
+              OR excluded.match_score > naver_articles.match_score)
+    THEN excluded.is_excluded ELSE naver_articles.is_excluded END,
+  exclude_reason = CASE
+    WHEN excluded.is_excluded = 0
+         AND (naver_articles.is_excluded = 1
+              OR excluded.match_score > naver_articles.match_score)
+    THEN excluded.exclude_reason ELSE naver_articles.exclude_reason END,
+  match_score = CASE
+    WHEN excluded.is_excluded = 0
+         AND (naver_articles.is_excluded = 1
+              OR excluded.match_score > naver_articles.match_score)
+    THEN excluded.match_score ELSE naver_articles.match_score END,
+  title = excluded.title,
+  collected_at = excluded.collected_at
+""".strip()
+
 # Default delay between successive Naver fetches when a group expands to
 # multiple queries. Naver doesn't publish an RPS limit for anonymous
 # news search, but anecdotal observation puts soft-throttling around
@@ -184,16 +224,7 @@ class NaverCollector:
             pub_iso = pub.strftime("%Y-%m-%dT00:00:00Z") if pub else None
 
             statements.append((
-                """
-                INSERT INTO naver_articles
-                  (url_hash, group_key, title, source, url, published_at,
-                   is_excluded, exclude_reason, collected_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(url_hash) DO UPDATE SET
-                  title=excluded.title,
-                  is_excluded=excluded.is_excluded,
-                  exclude_reason=excluded.exclude_reason
-                """.strip(),
+                NAVER_ARTICLES_UPSERT_SQL,
                 [
                     url_hash(art["url"]),
                     group.key,
@@ -204,6 +235,7 @@ class NaverCollector:
                     0 if verdict.relevant else 1,
                     verdict.reason,
                     now_iso,
+                    verdict.score,
                 ],
             ))
             inserted += 1
