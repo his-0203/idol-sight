@@ -244,7 +244,7 @@ describe("organicityCaveat", () => {
 
   it("shows for caution tiers, hides for organic/strong", () => {
     expect(organicityCaveat(g(35)).show).toBe(true);   // likely_paid
-    expect(organicityCaveat(g(35)).label).toBe("유료 의심↑");
+    expect(organicityCaveat(g(35)).label).toBe("유료 가능성 높음");
     expect(organicityCaveat(g(50)).show).toBe(true);   // suspect
     expect(organicityCaveat(g(50)).label).toBe("유료 의심");
     expect(organicityCaveat(g(60)).show).toBe(true);   // borderline

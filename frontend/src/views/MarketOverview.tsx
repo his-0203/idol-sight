@@ -18,6 +18,7 @@ import {
   DEFAULT_ORGANICITY_MODE,
   computeGroupOrganicities,
   organicityCaveat,
+  verdictColor,
   type GroupOrganicity,
   type OrganicitySummaryRow,
 } from "../lib/organicity";
@@ -111,7 +112,7 @@ const HELP = {
   quad:      "넓이(인지도)×깊이(추정 코어) 사분면. 진성강세=둘 다 높음 · 광고형/바이럴=넓지만 얕음 · 니치 충성=좁지만 깊음 · 저조=둘 다 낮음 (카테고리 중앙값 기준).",
   viewconv:  "시청전환율 = 라이브 방송 동시접속(방송별 peak CCV 중앙값) ÷ 구독자. 구독자 중 실제 라이브에 오는 비율(충성도 신호). 위버스 등 오프플랫폼 라이브가 있는 그룹(PLAVE)은 유튜브 실측 + 위버스 추정(≥10만) 합산값(≈ 표시). 라이브 CCV 미수집 그룹은 —.",
   sov:       "관심 점유율(Share of Voice) — 그룹들 사이 상대 비중(유튜브 조회 33%·커뮤니티 28%·뉴스 22%·구독 17%). 옆 ▲▼ = 전주 대비 변화(pp).",
-  caveat:    "영상 카탈로그 organicity가 주의 구간(유료로 산 도달 의심). 인지도 점수엔 반영 안 되는 직교 참고 신호.",
+  caveat:    "영상 카탈로그 organicity가 주의 구간(유료로 산 도달 의심). 심각도 순: 노랑=오가닉성 주의 < 주황=유료 의심 < 빨강=유료 가능성 높음. 인지도 점수엔 반영 안 되는 직교 참고 신호.",
 } satisfies Record<string, string>;
 
 /** ts=null이면 기본 순서(sortByRank=등급순) 유지. 값 없는 그룹은 방향과 무관하게 항상 뒤로. */
@@ -491,7 +492,7 @@ export function MarketOverview() {
                         </td>
                         <td class="px-2 py-2 whitespace-nowrap">
                           {cav.show ? (
-                            <span class="text-hint text-amber-400" title="영상 카탈로그 organicity 주의 — 광고로 산 도달 가능성. 인지도 점수엔 미반영(직교 참고).">⚠ {cav.label}</span>
+                            <span class="text-hint" style={{ color: verdictColor(cav.verdict) }} title="영상 카탈로그 organicity 주의 — 광고로 산 도달 가능성. 인지도 점수엔 미반영(직교 참고).">⚠ {cav.label}</span>
                           ) : (
                             <span class="text-zinc-600">·</span>
                           )}
