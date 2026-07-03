@@ -207,11 +207,14 @@ export interface OrganicityCaveat {
   label: string;
 }
 
-// caution tiers only — organic / organic_strong never flag.
+// caution tiers only — organic / organic_strong never flag. likely_paid is
+// deliberately "가능성 높음", not "확신" — the score is a like/comment-pattern
+// heuristic, not evidence of paid spend, and this label describes 3rd-party
+// artists in a cross-company tool.
 const CAVEAT_LABEL: Partial<Record<Verdict, string>> = {
   borderline: "오가닉성 주의",
   suspect: "유료 의심",
-  likely_paid: "유료 의심↑",
+  likely_paid: "유료 가능성 높음",
 };
 
 /** Orthogonal caveat for a group's awareness card. Shows ONLY when the
