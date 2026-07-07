@@ -50,6 +50,13 @@ export function QuadrantScatter({
     const yLo = 0;
     const yHi = clamp(percentile(rs, 0.95), 1.4, 2.5);
 
+    // 버블 반지름(픽셀)이 축 경계에 걸쳐 짤리지 않도록, 데이터 클램프 범위(xLo..xHi/
+    // yLo..yHi, 핀 위치)는 그대로 두고 '표시 축 범위'만 상하좌우로 넓혀 여백을 준다.
+    // 위쪽(2.5×)·양옆(±극단)에 핀되는 큰 버블이 있어 위/좌우를 조금 더 넉넉히.
+    const xSpan = xHi - xLo || 1, ySpan = yHi - yLo || 1;
+    const xMin = xLo - xSpan * 0.09, xMax = xHi + xSpan * 0.09;
+    const yMin = yLo - ySpan * 0.07, yMax = yHi + ySpan * 0.12;
+
     const points = countries.map((c) => {
       const gx = clamp(c.row.growthMoM, xLo, xHi);
       const gy = clamp(c.row.retentionRel, yLo, yHi);
@@ -105,6 +112,7 @@ export function QuadrantScatter({
       data: {
         datasets: [{
           data: points as any,
+          clip: false,   // 축 패딩을 넘는 최대 크기 버블도 캔버스 여백으로 흘려 잘리지 않게
           backgroundColor: (cx: any) => {
             const c: EnrichedCountry = cx.raw?._c; if (!c) return "#475569";
             const base = TIER_COLOR[c.tier] ?? "#64748b";
@@ -125,6 +133,7 @@ export function QuadrantScatter({
       },
       options: {
         responsive: true, maintainAspectRatio: false,
+        layout: { padding: { top: 10, right: 12, bottom: 4, left: 4 } }, // 플롯 외곽 여백
         onClick(_e, els) {
           if (!els.length) return;
           const p = points[els[0]!.index];
@@ -132,14 +141,15 @@ export function QuadrantScatter({
         },
         scales: {
           x: {
-            min: xLo, max: xHi,
+            min: xMin, max: xMax,
             title: { display: true, text: "→ 뜨는 중 (전월비 성장)" },
             ticks: { callback: (v: any) => `${Math.round(Number(v) * 100)}%` },
           },
           y: {
-            min: yLo, max: yHi,
+            min: yMin, max: yMax,
             title: { display: true, text: "↑ 끝까지 보는 정도 (본진=1.0×)" },
-            ticks: { callback: (v: any) => `${Number(v).toFixed(1)}×` },
+            // 아래쪽 여백 구간의 음수 눈금(−0.x×)은 숨긴다 — 유지율은 0 미만이 없음.
+            ticks: { callback: (v: any) => (Number(v) < -1e-9 ? "" : `${Number(v).toFixed(1)}×`) },
           },
         },
         plugins: {
