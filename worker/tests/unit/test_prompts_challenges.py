@@ -14,6 +14,15 @@ def test_classify_system_prompt():
     assert "dance" in s and "meme" in s
 
 
+def test_classify_system_description_forbids_external_facts():
+    # 환각 차단(2026-07): description 은 영상에서 관찰 가능한 것만. 소속사·레이블 등
+    # 목록에 없는 외부 사실 서술 금지 (MEOVV 소속사 환각 사례 재발 방지).
+    s = CHALLENGE_CLASSIFY_SYSTEM
+    assert "description:" in s          # description 필드 서술 지침 명시
+    assert "소속사" in s                 # 소속사/레이블 등 외부 사실 언급 금지 명시
+    assert "관찰" in s                   # 영상에서 관찰 가능한 것만 서술
+
+
 def test_classify_system_count_and_longtail_target():
     # V2 풍부화 — 개수 목표(최대 10) + 중소·신생 그룹 롱테일 포함 + 최신성 3개월 완화.
     s = CHALLENGE_CLASSIFY_SYSTEM
