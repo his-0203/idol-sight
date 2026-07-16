@@ -17,6 +17,8 @@ export const GROUP_COLORS = {
   bdawn:    "#ef4444", // red-500
   wegosix:  "#f97316", // orange-500 — 23rd Century Kids virtual boy group
   uryael:   "#84cc16", // lime-500   — UR:L (유아렐) Sandbox Network 첫 버추얼
+  hollin:   "#d946ef", // fuchsia-500 — WhOLLiN (홀린) 플레이리스트 첫 버추얼 보이그룹
+  begritz:  "#0ea5e9", // sky-500    — BEGRITZ (비그릿츠) 디네이블 버추얼 아이돌
 } as const;
 
 export type GroupKey = keyof typeof GROUP_COLORS;
@@ -41,4 +43,5 @@ export function fillOf(key: string | null | undefined, alpha = 0.18): string {
 export const GROUP_KEYS: GroupKey[] = [
   "plave", "isedol", "stellive", "skinz",
   "myrakl", "owis", "miiwan", "bdawn", "wegosix", "uryael",
+  "hollin", "begritz",
 ];

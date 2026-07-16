@@ -31,6 +31,8 @@ export default {
           bdawn:    "#ef4444",
           wegosix:  "#f97316",
           uryael:   "#84cc16",
+          hollin:   "#d946ef",
+          begritz:  "#0ea5e9",
         },
         grade: {
           S:   "#10b981",

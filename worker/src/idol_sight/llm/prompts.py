@@ -17,6 +17,8 @@ GROUP NAMES — copy exactly, never paraphrase or transliterate:
   bdawn    → 영문 "B:DAWN"    · 한국어 "비던"
   wegosix  → 영문 "WE GO-6"   · 한국어 "위고식스"    (NOT 위고6, NOT 위고식스6)
   uryael   → 영문 "UR:L"      · 한국어 "유아렐"      (NOT 유알엘, NOT 유리엘)
+  hollin   → 영문 "WhOLLiN"   · 한국어 "홀린"        (NOT 홀린이, NOT 화올린)
+  begritz  → 영문 "BEGRITZ"   · 한국어 "비그릿츠"    (NOT 비그리츠, NOT 베그릿츠)
 
 When writing a Korean title or body, use ONLY the Korean form from
 the table above. Do not transliterate the English form; do not invent
@@ -193,6 +195,8 @@ BODY FORMATTING — frontend auto-styles your text, write to that contract:
      B:DAWN / 비던
      WE GO-6 / 위고식스
      UR:L / 유아렐
+     WhOLLiN / 홀린
+     BEGRITZ / 비그릿츠
    Korean prose → use the Korean form. English/mixed prose → use the
    English form. NEVER invent transliterations or hybrids
    ("플라브", "이세돌", "스텔리브", "미완완", "비돈" 등 전부 금지).
@@ -682,7 +686,8 @@ You will be given a JSON context with:
 
 Produce 4-8 distinct items that a strategy team would act on. For each item:
 - `scope`: either 'market' (cross-group) or a specific group_key
-  (plave/isedol/stellive/skinz/myrakl/owis/miiwan/bdawn/wegosix/uryael).
+  (plave/isedol/stellive/skinz/myrakl/owis/miiwan/bdawn/wegosix/uryael/
+   hollin/begritz).
 - `type`: 'insight' (analytic observation — MUST include cross-reference
   and causal inference per ANALYSIS DEPTH block below),
   'weekly' (week summary — same depth rules as insight apply),
