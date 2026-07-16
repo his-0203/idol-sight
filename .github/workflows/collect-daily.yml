@@ -21,7 +21,7 @@ jobs:
       # 9 batch × ~60s = ~9min, 20min timeout 안에 여유 있음.
       max-parallel: 2
       matrix:
-        group:  [plave, isedol, stellive, skinz, myrakl, miiwan, owis, bdawn, wegosix, uryael, bthd]
+        group:  [plave, isedol, stellive, skinz, myrakl, miiwan, owis, bdawn, wegosix, uryael, bthd, hollin, begritz]
         source: [channel-stats, youtube]
     runs-on: ubuntu-latest
     # 15 → 20 min: ISEDOL/STELLIVE youtube collector가 멤버 솔로 채널까지
