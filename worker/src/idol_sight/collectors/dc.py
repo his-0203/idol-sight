@@ -138,11 +138,15 @@ class DcCollector:
         supplemental = list(group.dc_supplemental_galleries or [])
 
         if not primary and not supplemental:
-            return CollectionResult(
-                rows_inserted=0,
-                rows_updated=0,
-                errors=[f"{group.key}: no dc_gallery_id and no supplemental"],
-            )
+            # DC 존재 자체가 없는 그룹(예: begritz — 데뷔 전, 전용 갤러리
+            # 미개설 + supplemental 미지정)은 정상적인 no-op 이지 에러가
+            # 아니다. group×source 매트릭스라 dc 슬롯은 생기지만, 수집할
+            # 갤러리가 없으면 그냥 0행 반환. errors 를 채우면 orchestrator 가
+            # status=failed 로 보고 → 6h 크론이 매 사이클 dc:<group> 실패
+            # 알림을 쏜다(알림 피로). 갤러리 개설 후 0NNN_* 마이그레이션이
+            # dc_gallery_id / dc_supplemental_galleries 를 세팅하면 그때부터
+            # 수집 시작. 여기서는 clean(에러 없는) 결과로 크론을 green 유지.
+            return CollectionResult(rows_inserted=0, rows_updated=0)
 
         started = perf_counter()
         rows_all: list[dict[str, Any]] = []
