@@ -165,6 +165,26 @@ export const GROUP_LEXICON: GroupEntry[] = [
       { alias: "URL-유아렐",   label: "유아렐", word: false },
     ],
   },
+  {
+    key: "hollin",
+    display: "WhOLLiN",
+    aliases: [
+      // 영문 WhOLLiN 을 primary anchor 로 — 한글 "홀린" 은 동사 홀리다
+      // 활용형/효린 충돌이 커 word=false 로만 (양옆 문맥은 insight 텍스트라
+      // 수집 대비 FP 위험 낮음).
+      { alias: "WhOLLiN", label: "WhOLLiN", word: true },
+      { alias: "WHOLLIN", label: "WhOLLiN", word: true },
+      { alias: "홀린",    label: "WhOLLiN", word: false },
+    ],
+  },
+  {
+    key: "begritz",
+    display: "BEGRITZ",
+    aliases: [
+      { alias: "BEGRITZ",   label: "BEGRITZ", word: true },
+      { alias: "비그릿츠", label: "BEGRITZ", word: false },
+    ],
+  },
 ];
 
 // 매칭 시 사용할 (alias, key, label, word) 평탄 배열을 alias 길이 내림차순으로

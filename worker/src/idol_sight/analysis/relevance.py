@@ -74,6 +74,15 @@ GENERIC_KEYWORD_BLOCKLIST: frozenset[str] = frozenset({
     "URL", "url", "Url",
     "모카", "Mocha",
     "마냥", "Manyang",
+    # V2.x — hollin (홀린, WhOLLiN) 일반어 충돌 가드.
+    #   "홀린" — 동사 홀리다 활용형 ("홀린 듯이") + 가수 효린(HYOLYN)
+    #            음차 혼동. 일상어 출현이 매우 잦아 그룹명이지만 단독
+    #            anchor 금지 → strict 모드 (vboyband supplemental) 에서
+    #            WhOLLiN / 네이버웹툰 등 고유 anchor 동반 시에만 매치.
+    #   "플레이리스트" / "Playlist" — 음악 재생목록 일반어. 소속사명이나
+    #            anchor 로 쓰기엔 충돌이 커 demote.
+    "홀린",
+    "플레이리스트", "Playlist",
 })
 
 # Phrases that mark a post as commercial/거래/광고/도배 noise. We match

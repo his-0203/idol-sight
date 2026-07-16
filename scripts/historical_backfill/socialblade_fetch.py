@@ -86,6 +86,16 @@ GROUPS: list[dict[str, Any]] = [
     # 직접 시드 — handle '@URL-유아렐' 은 SocialBlade API 에 URL-encoded
     # 한글 핸들이 거절될 수 있어 channel ID 우선. V2.33.
     {"key": "uryael",  "handle": "UCLAA9TKj-EYf2RUl1gLB9pQ", "debut": "2025-12-31"},
+    # WhOLLiN (홀린, hollin) — 플레이리스트 첫 버추얼 보이그룹. 데뷔
+    # 2026-09-01. Channel ID UCQZ5dfVSTui3yfhkHtw0kEg 직접 시드
+    # (migration 0104). 신생 채널이라 SB 히스토리는 얕음 — 데뷔 후 누적
+    # 시 재실행 대상. handle 대신 channel ID 우선 (SB 안정성).
+    {"key": "hollin",  "handle": "UCQZ5dfVSTui3yfhkHtw0kEg", "debut": "2026-09-01"},
+    # BEGRITZ (비그릿츠, begritz) — 디네이블(R.Tee/블락비 태일) 버추얼
+    # 아이돌. 2026-08 론칭, 정확한 데뷔일 미확정 → debut None
+    # (normalize_daily short-circuit). Channel ID UCrzghjaLT0BTRICYQl7EI0Q
+    # (migration 0104).
+    {"key": "begritz", "handle": "UCrzghjaLT0BTRICYQl7EI0Q", "debut": None},
 ]
 
 WINDOW_BEFORE_DAYS = 180

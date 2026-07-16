@@ -55,7 +55,7 @@ def test_resolve_backfill_targets_all_groups_force_bypasses_freshness():
     )
     assert result == sorted(["plave", "isedol", "stellive", "skinz",
                               "myrakl", "miiwan", "owis", "bdawn", "wegosix",
-                              "uryael", "bthd"])
+                              "uryael", "bthd", "hollin", "begritz"])
     client.execute.assert_not_called()
 
 
@@ -82,7 +82,7 @@ def test_resolve_backfill_targets_fresh_days_zero_means_walk_all():
     result = _resolve_backfill_targets(
         client, group=None, force=False, fresh_days=0,
     )
-    assert len(result) == 11
+    assert len(result) == 13
     client.execute.assert_not_called()
 
 
@@ -108,7 +108,7 @@ def test_backfill_targets_cmd_all_filters_fresh(capsys, monkeypatch):
     assert "miiwan" not in out
     assert "owis" not in out
     assert "plave" in out
-    assert len(out) == 9   # 11 KNOWN_GROUPS − 2 fresh
+    assert len(out) == 11   # 13 KNOWN_GROUPS − 2 fresh
 
 
 def test_backfill_targets_cmd_force_returns_all(capsys, monkeypatch):
@@ -119,7 +119,7 @@ def test_backfill_targets_cmd_force_returns_all(capsys, monkeypatch):
     backfill_targets_cmd(group="all", force=True, fresh_days=7)
     import json as _json
     out = _json.loads(capsys.readouterr().out.strip())
-    assert len(out) == 11
+    assert len(out) == 13
     client.execute.assert_not_called()
 
 

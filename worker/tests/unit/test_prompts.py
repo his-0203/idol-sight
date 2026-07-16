@@ -222,8 +222,8 @@ def test_prompt_weekly_includes_wegosix_uryael_roster():
 
 
 def test_body_formatting_guidelines_lists_all_ten_groups():
-    # 기존 test_body_formatting_guidelines_lists_group_lexicon(8그룹)의
-    # 확장판 — 10그룹 전체 한/영 쌍을 핀(frontend GROUP_KEYS 와 1:1).
+    # 8그룹 → 10그룹 → 12그룹으로 확장 — 전체 한/영 쌍을 핀
+    # (frontend GROUP_KEYS 와 1:1).
     from idol_sight.llm.prompts import PROMPT_WEEKLY_BODY_FORMATTING
     pairs = [
         ("PLAVE", "플레이브"),
@@ -236,6 +236,8 @@ def test_body_formatting_guidelines_lists_all_ten_groups():
         ("B:DAWN", "비던"),
         ("WE GO-6", "위고식스"),
         ("UR:L", "유아렐"),
+        ("WhOLLiN", "홀린"),
+        ("BEGRITZ", "비그릿츠"),
     ]
     for en, ko in pairs:
         assert en in PROMPT_WEEKLY_BODY_FORMATTING, f"missing EN form: {en}"
