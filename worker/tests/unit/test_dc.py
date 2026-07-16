@@ -201,7 +201,10 @@ def test_supplemental_fetch_also_requests_list_num_100():
 
 def test_no_primary_no_supplemental_returns_error():
     """When both primary and supplemental are missing, the collector
-    short-circuits with an explanatory error rather than fetching."""
+    short-circuits as a clean no-op (0 rows, NO error) rather than
+    fetching. A group with no DC presence yet (e.g. begritz pre-debut)
+    is a legitimate no-op — populating errors would make the 6h cron
+    report status=failed and fire a recurring dc:<group> alert."""
     stealthy = MagicMock()
     empty = GroupConfig(
         key="empty", name="X", name_kr="엑스",
@@ -215,5 +218,4 @@ def test_no_primary_no_supplemental_returns_error():
     result = c.collect(empty)
     assert result.rows_inserted == 0
     assert stealthy.fetch.call_count == 0
-    assert result.errors
-    assert "no dc_gallery_id" in result.errors[0]
+    assert not result.errors  # clean no-op, not a failure
