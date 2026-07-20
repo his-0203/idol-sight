@@ -34,6 +34,17 @@ interface CoreFanEstimateRow {
   est_active_core: number | null; basis: string;
 }
 
+// V2.53 Organic Trust Layer — mig 0106/0107 adj 컬럼 (별도 쿼리로 조회).
+interface AwarenessAdjRow {
+  group_key: string; awareness_score_adj: number | null;
+  category_rank_adj: number | null; organic_confidence: number | null;
+}
+
+interface CoreFanAdjRow {
+  group_key: string; est_engaged_fans_adj: number | null;
+  est_active_core_adj: number | null; organic_video_count: number | null;
+}
+
 interface LoyaltyRow {
   group_key: string; conversion_rate: number | null;
   conversion_rate_ceiling: number | null; ccv_ceiling: number | null;
@@ -124,6 +135,21 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_core_fan_estimate)`)
     .catch(() => [] as CoreFanEstimateRow[]);
 
+  // V2.53 Organic Trust Layer — adj 컬럼은 mig 0106/0107. 별도 쿼리로 분리
+  // 조회(mig 0095 graceful 패턴): 미적용 D1에서도 기존 awareness/core_fan_estimate
+  // 쿼리·응답 형태는 절대 깨지지 않아야 하므로, 이 두 쿼리만 개별 .catch(()=>[]).
+  const awarenessAdj = await d1Query<AwarenessAdjRow>(env.DB,
+    `SELECT group_key, awareness_score_adj, category_rank_adj, organic_confidence
+       FROM agg_awareness
+      WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_awareness)`)
+    .catch(() => [] as AwarenessAdjRow[]);   // mig 0106 미적용 → 원값만 (graceful)
+
+  const coreFanAdj = await d1Query<CoreFanAdjRow>(env.DB,
+    `SELECT group_key, est_engaged_fans_adj, est_active_core_adj, organic_video_count
+       FROM agg_core_fan_estimate
+      WHERE snapshot_at = (SELECT MAX(snapshot_at) FROM agg_core_fan_estimate)`)
+    .catch(() => [] as CoreFanAdjRow[]);     // mig 0107 미적용 → 원값만 (graceful)
+
   // 시청전환율 = median peak 라이브 동접(CCV) ÷ 구독자. agg_fan_loyalty는 group_key PK(그룹당 1행).
   const loyalty = await d1Query<LoyaltyRow>(env.DB,
     `SELECT group_key, conversion_rate, conversion_rate_ceiling, ccv_ceiling,
@@ -143,6 +169,10 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   for (const cf of coreFanEstimates) cfByKey[cf.group_key] = cf;
   const loyaltyByKey: Record<string, LoyaltyRow> = {};
   for (const l of loyalty) loyaltyByKey[l.group_key] = l;
+  const awAdjByKey: Record<string, AwarenessAdjRow> = {};
+  for (const a of awarenessAdj) awAdjByKey[a.group_key] = a;
+  const cfAdjByKey: Record<string, CoreFanAdjRow> = {};
+  for (const cf of coreFanAdj) cfAdjByKey[cf.group_key] = cf;
 
   const out: Record<string, unknown> = {};
   for (const g of groups) {
@@ -181,12 +211,19 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       awareness: aw ? {
         score: aw.basis === "scored" ? aw.awareness_score : null,
         category_rank: aw.basis === "scored" ? aw.category_rank : null,
+        score_adj: aw.basis === "scored" ? (awAdjByKey[g.key]?.awareness_score_adj ?? null) : null,
+        category_rank_adj: aw.basis === "scored" ? (awAdjByKey[g.key]?.category_rank_adj ?? null) : null,
+        organic_confidence: aw.basis === "scored" ? (awAdjByKey[g.key]?.organic_confidence ?? null) : null,
       } : null,
       // basis !== "scored"(영상 없는 데뷔전 그룹 등)는 null → 카드에서 미표시
       // (참고 표기이므로 '추정 코어팬 —'을 띄우지 않는다).
-      core_fan_estimate: cf && cf.basis === "scored" ? {
+      // scored = 정상 / insufficient_organic = 유료 의심 제외 후 표본 부족(원값만 보유)
+      core_fan_estimate: cf && (cf.basis === "scored" || cf.basis === "insufficient_organic") ? {
         est_engaged_fans: cf.est_engaged_fans,
         est_active_core: cf.est_active_core,
+        est_engaged_fans_adj: cfAdjByKey[g.key]?.est_engaged_fans_adj ?? null,
+        est_active_core_adj: cfAdjByKey[g.key]?.est_active_core_adj ?? null,
+        basis: cf.basis,
       } : null,
       // 시청전환율 = median peak 라이브 동접(CCV) ÷ 구독자. rate=YouTube 실측(floor),
       // rate_ceiling=유튜브+위버스 add-on 합산(있는 그룹=PLAVE만). CCV 미수집(서브컬처

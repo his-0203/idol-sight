@@ -67,7 +67,10 @@ describe("/api/market", () => {
     });
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
     const body = await res.json() as any;
-    expect(body.groups.plave.awareness).toEqual({ score: 87.4, category_rank: 1 });
+    expect(body.groups.plave.awareness).toEqual({
+      score: 87.4, category_rank: 1,
+      score_adj: null, category_rank_adj: null, organic_confidence: null,
+    });
   });
 
   it("nulls awareness score/rank when basis=insufficient", async () => {
@@ -81,7 +84,52 @@ describe("/api/market", () => {
     });
     const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
     const body = await res.json() as any;
-    expect(body.groups.wegosix.awareness).toEqual({ score: null, category_rank: null });
+    expect(body.groups.wegosix.awareness).toEqual({
+      score: null, category_rank: null,
+      score_adj: null, category_rank_adj: null, organic_confidence: null,
+    });
+  });
+
+  // V2.53 Organic Trust Layer — awareness adj (mig 0106).
+  it("includes score_adj/category_rank_adj/organic_confidence when adj row present (basis=scored)", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+      if (sql.includes("awareness_score_adj"))
+        return [{ group_key: "plave", awareness_score_adj: 81.2,
+                  category_rank_adj: 2, organic_confidence: 0.73 }];
+      if (sql.includes("FROM agg_awareness"))
+        return [{ group_key: "plave", awareness_score: 87.4,
+                  category_rank: 1, basis: "scored" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.groups.plave.awareness).toEqual({
+      score: 87.4, category_rank: 1,
+      score_adj: 81.2, category_rank_adj: 2, organic_confidence: 0.73,
+    });
+  });
+
+  // mig 0106 미적용 D1 모사 — adj 전용 쿼리만 reject, 기존 awareness 응답 형태는 그대로 + adj는 null.
+  it("agg_awareness adj query reject (mig 0106 미적용) → awareness score/rank intact, adj fields null", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "plave", name: "PLAVE", name_kr: "플레이브" }];
+      if (sql.includes("awareness_score_adj"))
+        throw new Error("no such column: awareness_score_adj");
+      if (sql.includes("FROM agg_awareness"))
+        return [{ group_key: "plave", awareness_score: 87.4,
+                  category_rank: 1, basis: "scored" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(res.status).toBe(200);
+    expect(body.groups.plave.awareness).toEqual({
+      score: 87.4, category_rank: 1,
+      score_adj: null, category_rank_adj: null, organic_confidence: null,
+    });
   });
 
   it("awareness is null when no agg_awareness row exists", async () => {
@@ -109,6 +157,29 @@ describe("/api/market", () => {
     const body = await res.json() as any;
     expect(body.groups.plave.core_fan_estimate).toEqual({
       est_engaged_fans: 12000, est_active_core: 3500,
+      est_engaged_fans_adj: null, est_active_core_adj: null, basis: "scored",
+    });
+  });
+
+  // V2.53 Organic Trust Layer — 유료 의심 영상 제외 후 표본 부족(원값만 보유)이어도
+  // 카드에는 raw 값 표시 + adj는 null.
+  it("core_fan_estimate basis=insufficient_organic exposes raw values with adj fields null", async () => {
+    const env = envWith((sql) => {
+      if (sql.includes("FROM groups"))
+        return [{ key: "wegosix", name: "WeGoSix", name_kr: "위고식스" }];
+      if (sql.includes("est_engaged_fans_adj"))
+        return [];
+      if (sql.includes("FROM agg_core_fan_estimate"))
+        return [{ group_key: "wegosix", est_engaged_fans: 4200,
+                  est_active_core: 900, basis: "insufficient_organic" }];
+      return [];
+    });
+    const res = await onRequestGet({ env, request: new Request("https://x/") } as any);
+    const body = await res.json() as any;
+    expect(body.groups.wegosix.core_fan_estimate).toEqual({
+      est_engaged_fans: 4200, est_active_core: 900,
+      est_engaged_fans_adj: null, est_active_core_adj: null,
+      basis: "insufficient_organic",
     });
   });
 
