@@ -135,6 +135,12 @@ class _FakeClient:
         self, sql: str, params: list[Any] | None = None
     ) -> list[dict[str, Any]]:
         self._calls.append((sql, params))
+        # mig 0107 미적용 D1 모사: adj 컬럼 probe 는 raise → base INSERT 경로 사용.
+        if "est_engaged_fans_adj" in sql:
+            raise RuntimeError("no such column: est_engaged_fans_adj")
+        # organicity 판정 로드: 이 fixture 엔 suspect 없음.
+        if "debut_window_video_organicity" in sql:
+            return []
         if "FROM groups" in sql:
             return list(self._groups)
         # video 쿼리: params[0] = group_key
@@ -374,6 +380,7 @@ class _OrganicFakeClient:
         videos_fallback: dict[str, list[dict[str, Any]]] | None = None,
         suspect_ids: set[str] | None = None,
         has_adj: bool = True,
+        suspect_raises: bool = False,
     ) -> None:
         self._groups = groups
         self._videos_window = videos_window
@@ -382,6 +389,7 @@ class _OrganicFakeClient:
         )
         self._suspect_ids = suspect_ids or set()
         self._has_adj = has_adj
+        self._suspect_raises = suspect_raises
         self._calls: list[tuple[str, list[Any] | None]] = []
 
     def execute(
@@ -390,6 +398,8 @@ class _OrganicFakeClient:
         self._calls.append((sql, params))
         # suspect 판정 로드 (params 없음)
         if "debut_window_video_organicity" in sql:
+            if self._suspect_raises:
+                raise RuntimeError("no such table: debut_window_video_organicity")
             return [{"video_id": vid} for vid in self._suspect_ids]
         # adj 컬럼 감지 probe (params 없음, LIMIT 포함 — video 분기보다 앞에)
         if "FROM agg_core_fan_estimate" in sql:
@@ -444,3 +454,21 @@ def test_build_no_adj_columns_falls_back_to_base_insert():
     assert insert_sql.count("?") == 9            # 기존 INSERT (adj 없음)
     assert len(params) == 9
     assert params[7] == "scored"                 # basis 위치 불변
+
+
+def test_build_suspect_load_failure_falls_back_to_no_filter():
+    """organicity 쿼리 raise → suspect_ids=set() 폴백, 필터 없이 전 영상 organic."""
+    window = [_vid(1), _vid(2), _vid(3)]
+    client = _OrganicFakeClient(
+        groups=[{"key": "plave"}],
+        videos_window={"plave": window},
+        suspect_ids={"v1"},          # 있어도 로드 실패면 무시돼야 함
+        has_adj=True,
+        suspect_raises=True,
+    )
+    res = build_core_fan_estimate(client, snapshot_at="2026-06-27T00:00:00Z")
+    _, params = res.statements[1]
+    # suspect 로드 실패 → 제외 없음, 전체 3편이 adj 표본
+    assert params[7] == "scored"                 # basis
+    assert params[6] == 3                        # video_count (full)
+    assert params[11] == 3                       # organic_video_count (필터 없음)
