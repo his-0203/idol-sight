@@ -221,3 +221,64 @@ def test_recompute_falls_back_when_table_absent():
     )
     _recompute_health_scores(client, "2026-07-20T00:00:00Z")
     assert _risk_of(client.batched, "isedol") == pytest.approx(0.6 * 15)
+
+
+# ─── V2.56 hanteo standing value(초동 + 180d 반감기) 배선 ─────────────────
+
+def test_recompute_wires_decayed_hanteo_standing_into_agg():
+    """hanteo_weekly 행 → hanteo_standing_value 감쇠 → agg_dict['hanteo_sales'].
+    초동 800k, 반감기(180d) 경과 컴백 → ×0.5 = 400k 가 스코어러로 전달돼야 한다."""
+    from datetime import date, timedelta
+    from unittest.mock import patch
+
+    from idol_sight.analysis import health_score as hs
+
+    anchor = (date.today() - timedelta(days=180)).isoformat()
+
+    class _HanteoClient(_FakeHealthClient):
+        def execute(self, sql, params=None):
+            if "FROM hanteo_weekly" in sql:
+                return [{
+                    "group_key": "plave", "week_start": anchor,
+                    "week_end": anchor, "album": "A1", "sales": 800_000,
+                }]
+            return super().execute(sql, params)
+
+    client = _HanteoClient(
+        [_confirmed_group("plave")], cohort=[_cohort_row("plave")])
+
+    captured: list[dict] = []
+    orig = hs.compute_health_score
+
+    def _spy(group_key, agg, debut_date, **kw):
+        captured.append(dict(agg))
+        return orig(group_key, agg, debut_date, **kw)
+
+    with patch("idol_sight.analysis.health_score.compute_health_score",
+               side_effect=_spy):
+        _recompute_health_scores(client, "2026-07-20T00:00:00Z")
+
+    assert captured, "compute_health_score not called"
+    assert captured[0]["hanteo_sales"] == pytest.approx(400_000.0)
+
+
+def test_recompute_hanteo_empty_yields_zero_standing():
+    """hanteo_weekly 빈 결과(프로덕션 현황) → hanteo_sales = 0."""
+    from unittest.mock import patch
+
+    from idol_sight.analysis import health_score as hs
+
+    client = _FakeHealthClient(
+        [_confirmed_group("plave")], cohort=[_cohort_row("plave")])
+    captured: list[dict] = []
+    orig = hs.compute_health_score
+
+    def _spy(group_key, agg, debut_date, **kw):
+        captured.append(dict(agg))
+        return orig(group_key, agg, debut_date, **kw)
+
+    with patch("idol_sight.analysis.health_score.compute_health_score",
+               side_effect=_spy):
+        _recompute_health_scores(client, "2026-07-20T00:00:00Z")
+
+    assert captured[0]["hanteo_sales"] == 0

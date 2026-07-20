@@ -421,6 +421,78 @@ def compute_dynamic_refs(
     return refs
 
 
+# V2.56: Hanteo 초동 standing value 시간 감쇠 반감기(일). hanteo_weekly 는 주차
+# 스냅샷이라 컴백 주 이후엔 신호가 자연히 사라진다(초동은 1회성) — 최신 앨범
+# 초동에 0.5**(경과일/180) 을 곱해 컴백 사이 구간에 ritual 이 0으로 붕괴하는
+# 문제를 막는다(캘리브레이션 리포트 §C). 180d: 대략 반년마다 초동 영향력 절반.
+HANTEO_DECAY_HALF_LIFE_DAYS = 180
+
+
+def hanteo_standing_value(
+    rows: list[dict[str, Any]], *, today: date
+) -> dict[str, float]:
+    """hanteo_weekly rows → 그룹별 '최신 앨범 초동 × 시간 감쇠' standing value.
+
+    앨범별 첫 주(min ``week_start``)의 ``sales`` = 초동. 그룹의 최신 앨범(첫
+    주가 가장 늦은 앨범)의 초동에 ``0.5**(경과일/HANTEO_DECAY_HALF_LIFE_DAYS)``
+    감쇠를 곱한다. 컴백 직후 경과일 0 → 감쇠 1.0, 반감기 경과 → ×0.5.
+
+    ``rows``: dicts with ``group_key``, ``week_start``, ``week_end``, ``album``,
+    ``sales``. sales NULL 행은 호출자 SQL 에서 이미 걸러진 전제(방어적으로 한 번
+    더 무시). album None → 앨범 키를 (album or '') 로 취급. week_end 없으면
+    week_start 기준 경과일. 미래 주(음수 경과일)는 0 으로 클램프.
+
+    ``today``: 감쇠 기준일. 반환: dict[group_key, standing_value]. 빈 입력 → {}
+    (프로덕션 hanteo_weekly 는 현재 0행 — 다운스트림은 missing 을 0 으로 처리).
+    """
+    # (group, album) → 그 앨범의 첫 주 (min week_start) 행을 초동으로 선택.
+    debut_by_album: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in rows:
+        gk = r.get("group_key")
+        if gk is None:
+            continue
+        sales = r.get("sales")
+        if sales is None:
+            continue
+        ws = r.get("week_start")
+        if not ws:
+            continue
+        album_key = r.get("album") or ""
+        key = (gk, album_key)
+        prev = debut_by_album.get(key)
+        if prev is None or ws < prev["week_start"]:
+            debut_by_album[key] = {
+                "group_key": gk,
+                "week_start": ws,
+                "week_end": r.get("week_end"),
+                "sales": sales,
+            }
+
+    # 그룹별 최신 앨범 = 초동(첫 주)이 가장 늦은 앨범. 그 초동에 감쇠 적용.
+    latest_by_group: dict[str, dict[str, Any]] = {}
+    for debut in debut_by_album.values():
+        gk = debut["group_key"]
+        cur = latest_by_group.get(gk)
+        if cur is None or debut["week_start"] > cur["week_start"]:
+            latest_by_group[gk] = debut
+
+    out: dict[str, float] = {}
+    for gk, debut in latest_by_group.items():
+        # 경과일 기준 = week_end(있으면) 아니면 week_start.
+        anchor = debut.get("week_end") or debut["week_start"]
+        try:
+            anchor_date = date.fromisoformat(str(anchor)[:10])
+        except ValueError:
+            anchor_date = None
+        if anchor_date is None:
+            elapsed_days = 0
+        else:
+            elapsed_days = max(0, (today - anchor_date).days)
+        decay = 0.5 ** (elapsed_days / HANTEO_DECAY_HALF_LIFE_DAYS)
+        out[gk] = float(debut["sales"]) * decay
+    return out
+
+
 # Comment weight in the engagement-rate formula. Comments require strictly more
 # effort than a like, so they're a stronger fandom signal. Single source for the
 # (likes + COMMENT_WEIGHT·comments)/views formula — also used by

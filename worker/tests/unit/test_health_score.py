@@ -4,11 +4,13 @@ import pytest
 
 from idol_sight.analysis.health_score import (
     DEFAULT_REFS,
+    HANTEO_DECAY_HALF_LIFE_DAYS,
     WEIGHTS,
     _controversy_factor,
     _factor_inputs,
     compute_dynamic_refs,
     compute_health_score,
+    hanteo_standing_value,
 )
 
 
@@ -786,3 +788,71 @@ def test_confirmed_default_keeps_existing_behavior():
     b = compute_health_score(
         "g", {"yt_subscribers": 1000}, "2020-01-01", debut_confirmed=None)
     assert a.grade == b.grade != "PRE"
+
+
+# ─── V2.56 hanteo_standing_value (초동 standing value + 180d 반감기) ──────
+
+def _h(group_key, week_start, sales, *, week_end=None, album="A1"):
+    return {"group_key": group_key, "week_start": week_start,
+            "week_end": week_end, "album": album, "sales": sales}
+
+
+def test_hanteo_standing_empty_returns_empty():
+    assert hanteo_standing_value([], today=date(2026, 7, 20)) == {}
+
+
+def test_hanteo_standing_single_album_single_week_no_decay_at_release():
+    # 컴백 당주(week_end == today) → 감쇠 1.0, standing == 초동.
+    rows = [_h("plave", "2026-07-14", 500_000, week_end="2026-07-20")]
+    out = hanteo_standing_value(rows, today=date(2026, 7, 20))
+    assert out["plave"] == pytest.approx(500_000.0)
+
+
+def test_hanteo_standing_initial_week_only_ignores_later_weeks():
+    # 초동 = 앨범 첫 주(min week_start)의 sales. 이후 주차 판매는 무시.
+    rows = [
+        _h("plave", "2026-07-14", 500_000, week_end="2026-07-20"),
+        _h("plave", "2026-07-21", 120_000, week_end="2026-07-27"),
+        _h("plave", "2026-07-28", 40_000, week_end="2026-08-03"),
+    ]
+    # today = 첫 주 week_end → 감쇠 1.0, 초동 500k 만 반영(이후 주차 무시).
+    out = hanteo_standing_value(rows, today=date(2026, 7, 20))
+    assert out["plave"] == pytest.approx(500_000.0)
+
+
+def test_hanteo_standing_multi_album_picks_latest():
+    # 최신 앨범(첫 주가 가장 늦은 앨범)의 초동을 선택. 감쇠 없게 today 정렬.
+    rows = [
+        _h("plave", "2025-01-06", 300_000, week_end="2025-01-12", album="OLD"),
+        _h("plave", "2026-07-14", 700_000, week_end="2026-07-20", album="NEW"),
+    ]
+    out = hanteo_standing_value(rows, today=date(2026, 7, 20))
+    assert out["plave"] == pytest.approx(700_000.0)
+
+
+def test_hanteo_standing_decay_at_exactly_half_life():
+    # 반감기(180d) 경과 → 정확히 ×0.5.
+    rows = [_h("plave", "2026-01-01", 800_000, week_end="2026-01-01")]
+    today = date(2026, 1, 1) + timedelta(days=HANTEO_DECAY_HALF_LIFE_DAYS)
+    out = hanteo_standing_value(rows, today=today)
+    assert out["plave"] == pytest.approx(400_000.0)
+
+
+def test_hanteo_standing_future_week_clamps_to_zero_elapsed():
+    # 미래 주(week_end > today) → 경과일 음수 → 0 클램프 → 감쇠 1.0.
+    rows = [_h("plave", "2026-08-01", 600_000, week_end="2026-08-07")]
+    out = hanteo_standing_value(rows, today=date(2026, 7, 20))
+    assert out["plave"] == pytest.approx(600_000.0)
+
+
+def test_hanteo_standing_uses_week_start_when_week_end_missing():
+    rows = [_h("plave", "2026-01-01", 800_000, week_end=None)]
+    today = date(2026, 1, 1) + timedelta(days=HANTEO_DECAY_HALF_LIFE_DAYS)
+    out = hanteo_standing_value(rows, today=today)
+    assert out["plave"] == pytest.approx(400_000.0)
+
+
+def test_hanteo_standing_none_album_treated_as_key():
+    rows = [_h("plave", "2026-07-14", 500_000, week_end="2026-07-20", album=None)]
+    out = hanteo_standing_value(rows, today=date(2026, 7, 20))
+    assert out["plave"] == pytest.approx(500_000.0)

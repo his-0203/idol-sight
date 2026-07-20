@@ -41,8 +41,12 @@ def test_compute_leader_normalized_to_one_each_signal():
     assert plave["awareness_score"] == pytest.approx(100.0)
     assert plave["basis"] == "scored"
     skinz = out["skinz"]
+    # V2.56 band: [log1p(0.01·ref), log1p(ref)] 로 정규화. skinz 구독 10만은
+    # 리더(100만)의 10% → 밴드 중앙 근처(≈0.50).
+    _lo = math.log1p(0.01 * 1_000_000)
+    _hi = math.log1p(1_000_000)
     assert skinz["sub_n"] == pytest.approx(
-        math.log1p(100_000) / math.log1p(1_000_000))
+        (math.log1p(100_000) - _lo) / (_hi - _lo))
     assert skinz["awareness_score"] < 100.0
 
 
@@ -59,17 +63,26 @@ def test_compute_weighting_sub_only_is_half():
         AWARENESS_WEIGHTS["sub"] * 100.0)
 
 
-def test_compute_uses_log1p_normalization():
+def test_compute_band_normalization_within_and_below_floor():
+    # V2.56 band: 리더 대비 [1%, 100%] 규모를 [0, 1]에 log 스케일로 펼침.
+    # 리더의 1% 이하는 0.0 으로 클램프(과대포장 차단).
     groups = [
         {"key": "lead", "group_model": "corporate",
          "yt_subscribers": 1_000_000, "yt_total_views": 0, "naver_total_news": 0},
         {"key": "mid", "group_model": "corporate",
+         "yt_subscribers": 100_000, "yt_total_views": 0, "naver_total_news": 0},
+        {"key": "tiny", "group_model": "corporate",
          "yt_subscribers": 1000, "yt_total_views": 0, "naver_total_news": 0},
     ]
     out = _by_key(compute_awareness(groups))
-    expected = math.log1p(1000) / math.log1p(1_000_000)
-    assert out["mid"]["sub_n"] == pytest.approx(expected)
-    assert expected > 0.4
+    assert out["lead"]["sub_n"] == pytest.approx(1.0)   # 리더 = 정확히 1.0
+    _lo = math.log1p(0.01 * 1_000_000)
+    _hi = math.log1p(1_000_000)
+    expected_mid = (math.log1p(100_000) - _lo) / (_hi - _lo)   # 10% → ≈0.5
+    assert out["mid"]["sub_n"] == pytest.approx(expected_mid)
+    assert 0.4 < expected_mid < 0.6
+    # tiny 구독 1000 = 리더의 0.1% (< 1% 밴드 하한) → 0.0 으로 클램프.
+    assert out["tiny"]["sub_n"] == 0.0
 
 
 def test_compute_category_max_zero_guard():
@@ -95,7 +108,11 @@ def test_compute_null_and_negative_signals_coerced_to_zero():
     nully = _by_key(compute_awareness(groups))["nully"]
     assert nully["sub_n"] == 0.0
     assert nully["view_n"] == 0.0
-    assert nully["news_n"] == pytest.approx(math.log1p(50) / math.log1p(100))
+    # V2.56 band: news ref=100(lead), val=50 → 밴드 [log1p(1), log1p(100)].
+    _lo = math.log1p(0.01 * 100)
+    _hi = math.log1p(100)
+    assert nully["news_n"] == pytest.approx(
+        (math.log1p(50) - _lo) / (_hi - _lo))
     assert nully["basis"] == "scored"
 
 
@@ -148,10 +165,12 @@ def test_compute_tiebreak_by_subscribers_descending():
         {"key": "hi", "group_model": "segmentary",
          "yt_subscribers": 5000, "yt_total_views": 0, "naver_total_news": 0},
         {"key": "lo", "group_model": "segmentary",
-         "yt_subscribers": 4980, "yt_total_views": 0, "naver_total_news": 0},
+         "yt_subscribers": 4999, "yt_total_views": 0, "naver_total_news": 0},
     ]
     out = _by_key(compute_awareness(groups))
-    assert out["hi"]["awareness_score"] == out["lo"]["awareness_score"] == 46.2
+    # V2.56 band: hi/lo 구독이 근접(5000 vs 4999)해 밴드 정규화 점수가 1자리
+    # 반올림에서 동률(42.5) → subscribers 내림차순 tiebreak 로 순위 결정.
+    assert out["hi"]["awareness_score"] == out["lo"]["awareness_score"] == 42.5
     assert out["lead"]["category_rank"] == 1
     assert out["hi"]["category_rank"] == 2
     assert out["lo"]["category_rank"] == 3

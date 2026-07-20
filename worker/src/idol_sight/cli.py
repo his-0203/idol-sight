@@ -1582,10 +1582,13 @@ def _recompute_health_scores(
     Extracted from analyze_weekly so the daily ``aggregate`` cmd can refresh
     health scores on the same cadence as agg_summary.
     """
+    from datetime import date
+
     from idol_sight.analysis.health_score import (
         compute_dynamic_refs,
         compute_health_score,
         compute_live_metrics,
+        hanteo_standing_value,
     )
     cohort_snap = read_snap or snap
     cohort_rows = client.execute(
@@ -1619,11 +1622,15 @@ def _recompute_health_scores(
     dyn_refs = compute_dynamic_refs(cohort) if cohort else None
     cohort_by_key = {c["key"]: c for c in cohort}
 
+    # V2.56: 최신 앨범 초동 × 180d 반감기 감쇠(hanteo_standing_value). 기존
+    # all-time MAX(sales) 는 감쇠가 없어 초동을 영구 보존하고 초동/임의 주차를
+    # 혼동했다(캘리브레이션 리포트 §C). hanteo_weekly 는 현재 0행 — 빈 결과면
+    # {} 반환, 다운스트림은 missing 을 0 으로 처리(불변).
     hanteo_rows = client.execute(
-        "SELECT group_key, MAX(sales) AS sales FROM hanteo_weekly "
-        "WHERE sales IS NOT NULL GROUP BY group_key"
+        "SELECT group_key, week_start, week_end, album, sales "
+        "FROM hanteo_weekly WHERE sales IS NOT NULL"
     )
-    hanteo_by_key = {r["group_key"]: (r.get("sales") or 0) for r in hanteo_rows}
+    hanteo_by_key = hanteo_standing_value(hanteo_rows, today=date.today())
     for c in cohort:
         c["hanteo_sales"] = hanteo_by_key.get(c["key"], 0)
 

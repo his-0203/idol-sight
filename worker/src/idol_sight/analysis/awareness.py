@@ -72,14 +72,29 @@ def _coerce(value: Any) -> float:
 
 
 def _normalize_log(value: float, ref: float) -> float:
-    """log1p 기반 [0, 1] 정규화 (health_score._normalize_log 미러).
+    """log 밴드 정규화 — [log1p(0.01·ref), log1p(ref)] 구간을 [0, 1]로 매핑.
 
-    카테고리 리더(ref = 해당 카테고리 내 그 신호의 최댓값) 대비. value <= 0 또는
-    ref <= 0 (category_max=0 가드) → 0. 리더(value==ref>0)는 정확히 1.0.
+    카테고리 리더(ref = 해당 카테고리 내 그 신호의 최댓값) 대비.
+
+    V2.56: 기존 ``log1p(value)/log1p(ref)`` 는 리더 대비 0.76% 규모의 그룹
+    (bdawn: 구독 9K vs PLAVE 1.19M, 132배 차)도 정규화 후 0.65~0.77 로 찍어
+    소형 그룹을 과대 압축했다 — 캘리브레이션 리포트 §B: bdawn 인지도 raw 68.6
+    (PLAVE의 69%)로 표시되나 실제 보유청중은 PLAVE의 0.76%. 리더 대비 [1%,
+    100%] 규모 구간을 log 스케일로 [0, 1]에 펼쳐 점수 크기가 실제 규모차를
+    정직하게 전달하게 한다(§B: bdawn 68.6→7.6, owis 79.8→36.2). log1p 자체가
+    단조 변환이라 **순위는 불변** — 밴드 정규화도 단조이므로 순위 보존.
+
+    리더(value==ref>0)는 정확히 1.0, 리더의 1% 이하 규모는 0.0 으로 클램프.
+    value <= 0 또는 ref <= 0 (category_max=0 가드) → 0.
     """
     if value <= 0 or ref <= 0:
         return 0.0
-    return min(math.log1p(value) / math.log1p(ref), 1.0)
+    lo = math.log1p(0.01 * ref)
+    hi = math.log1p(ref)
+    if hi <= lo:
+        return 1.0 if value >= ref else 0.0
+    x = (math.log1p(value) - lo) / (hi - lo)
+    return min(max(x, 0.0), 1.0)
 
 
 def compute_awareness(
