@@ -1484,6 +1484,31 @@ def analyze_weekly(
             client.batch(ratio_stmts)
         typer.echo(f"sentiment: classified {len(sent_stmts)} posts, "
                    f"updated {len(ratio_stmts)} ratio rows")
+
+        # 4.5. V2.55 Controversy issue clustering — 감성 분류 직후. 그룹별
+        #      14일 윈도우 controversy 글을 실제 사건 단위 이슈로 dedup 해
+        #      effective_weight 를 controversy_issues(mig 0108)에 저장한다.
+        #      다음 health 재계산(_recompute_health_scores, stale 8일 가드)이
+        #      count 대신 이 weight 로 감점 — 커뮤니티 볼륨이 아닌 이슈 심각도
+        #      기반. try/except 로 감싸 실패해도 analyze 전체는 안 죽는다.
+        try:
+            from idol_sight.analysis.controversy_issues import (
+                build_for_group as build_controversy,
+            )
+            ci_gemini = GeminiClient(api_key=settings.gemini_api_key)
+            ci_stmts: list = []
+            for g in _load_active_groups(client):
+                ci_stmts.extend(build_controversy(
+                    client, ci_gemini,
+                    group_key=g["key"],
+                    group_name_kr=g.get("name_kr") or g["key"],
+                    computed_at=snap,
+                ))
+            if ci_stmts:
+                client.batch(ci_stmts)
+            typer.echo(f"controversy_issues: wrote {len(ci_stmts)} rows")
+        except Exception as exc:  # noqa: BLE001
+            typer.echo(f"controversy_issues: skipped ({exc})", err=True)
     else:
         typer.echo("sentiment: skipped (GEMINI_API_KEY unset)")
 
@@ -1637,6 +1662,27 @@ def _recompute_health_scores(
         typer.echo(f"[warn] loyalty fallback (agg_fan_loyalty 조회 실패): {exc}", err=True)
         loyalty_by_key = {}
 
+    # V2.55: 이슈 dedup weight 주입용 조회. 테이블 미적용(mig 0108 전)이면
+    # graceful — 빈 dict 폴백 → 전 그룹 count 기반 감점(불변). computed_at 이
+    # STALE_DAYS(8일)보다 오래된 행은 신뢰하지 않고 None → count 폴백.
+    from idol_sight.analysis.controversy_issues import is_stale
+    controversy_weight_by_key: dict[str, float] = {}
+    try:
+        _now = datetime.now(UTC)
+        ci_rows = client.execute(
+            "SELECT group_key, computed_at, effective_weight "
+            "FROM controversy_issues"
+        )
+        for r in ci_rows:
+            if is_stale(r.get("computed_at"), now=_now):
+                continue
+            controversy_weight_by_key[r["group_key"]] = float(
+                r.get("effective_weight") or 0
+            )
+    except Exception as exc:
+        typer.echo(f"[warn] controversy_issues fallback (조회 실패): {exc}", err=True)
+        controversy_weight_by_key = {}
+
     health_stmts: list = []
     for g in _load_active_groups_full(client):
         s = cohort_by_key.get(g["key"])
@@ -1676,6 +1722,7 @@ def _recompute_health_scores(
             refs=dyn_refs, group_model=g.get("group_model"),
             live_metrics=live_metrics,
             debut_confirmed=g.get("debut_confirmed", 1),
+            controversy_weight=controversy_weight_by_key.get(g["key"]),
         )
         health_stmts.append((
             "INSERT INTO agg_health_scores"

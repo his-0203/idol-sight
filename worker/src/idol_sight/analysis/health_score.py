@@ -456,10 +456,30 @@ def _quality_score_from_engagement(rate: float, ref: float) -> float:
 # 같은 이슈로 다수 게시글이 쏟아지므로(라벨 rare 설계) 3건부터 기존 기울기로 감점.
 CONTROVERSY_NOISE_FLOOR = 2
 
+# V2.55: 감점 하한 캡. 이슈 dedup 이 켜져도(weight path) 안 켜져도(count
+# 폴백) 한 controversy 신호가 전 팩터를 −40% 넘게 깎지 못하게 한다. 이전
+# 실증(ISEDOL 8건 → ×0.4 → 4.1)에서 커뮤니티 볼륨이 등급을 붕괴시킨 회귀를
+# 차단. 폴백에도 적용 — count≥7 에서 V2.54(하한 0) 대비 동작이 바뀐다.
+CONTROVERSY_FACTOR_FLOOR = 0.6
 
-def _controversy_factor(count: int) -> float:
-    """Return a 0-1 factor where 1.0 = no controversy and 0 = many."""
-    return max(0.0, 1.0 - max(0, count - CONTROVERSY_NOISE_FLOOR) / 10.0)
+
+def _controversy_factor(count: int, weight: float | None = None) -> float:
+    """Return a 0-1 factor where 1.0 = no controversy and 0.6 = capped floor.
+
+    V2.55 이슈 기반: ``weight`` (effective_weight = Σ severity weight) 신호가
+    있으면 ``max(0.6, 1 - weight/10)`` — high 이슈 1건(weight 3) → ×0.7. 이슈
+    여러 개면 합산, 하한 0.6.
+
+    폴백: ``weight`` 가 None(0108 미적용 / 행 없음 / stale)이면 V2.54 count
+    기반 ``max(0.6, 1 - max(0, count-2)/10)``. V2.55 캡 0.6 은 폴백에도 적용
+    (count≥7 에서 V2.54 대비 하한이 0 → 0.6 으로 바뀜).
+    """
+    if weight is not None:
+        return max(CONTROVERSY_FACTOR_FLOOR, 1.0 - weight / 10.0)
+    return max(
+        CONTROVERSY_FACTOR_FLOOR,
+        1.0 - max(0, count - CONTROVERSY_NOISE_FLOOR) / 10.0,
+    )
 
 
 def _recent_bonus(v90: int, v30: int) -> tuple[float, dict]:
@@ -643,6 +663,7 @@ def compute_health_score(
     group_model: str | None = None,
     live_metrics: set[str] | frozenset[str] | None = None,
     debut_confirmed: Any = 1,
+    controversy_weight: float | None = None,
 ) -> HealthScore:
     """Health Score 를 계산한다.
 
@@ -652,6 +673,10 @@ def compute_health_score(
     게이트한다. ``None`` / ``1`` / 미전달 = 확정 취급(하위 호환·mig 0105
     미적용 D1). ``_is_pre_debut`` 자체는 불변 — 미래 debut_date 는 그대로
     PRE, 이 게이트는 "과거 앵커지만 미확정" 케이스만 추가로 잡는다.
+
+    V2.55 ``controversy_weight``: 이슈 dedup 의 effective_weight 신호. 주어지면
+    ``_controversy_factor`` 가 count 대신 weight path 로 감점. None(0108 미적용
+    / 행 없음 / stale) → count 폴백. 둘 다 하한 0.6 캡.
     """
     if _is_pre_debut(debut_date) or debut_confirmed in (0, False):
         return HealthScore(
@@ -705,7 +730,11 @@ def compute_health_score(
     #    by the model-specific weight, then the factor totals are
     #    multiplied by the controversy factor (so a scandal compresses
     #    *all four* dimensions, not just risk).
-    risk_factor = _controversy_factor(agg.get("controversy_count", 0))
+    # V2.55: 이슈 dedup weight 신호가 있으면 weight path, 없으면(0108 미적용
+    # / 행 없음 / stale) count 폴백. 둘 다 하한 0.6 캡.
+    risk_factor = _controversy_factor(
+        agg.get("controversy_count", 0), controversy_weight,
+    )
     fi = _factor_inputs(agg, r, live_metrics=L, cohort_live=cohort_L)
     factor_scores = {
         name: round(fi[name] * weights[name] * risk_factor, 2)

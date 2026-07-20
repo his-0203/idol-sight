@@ -245,11 +245,64 @@ def test_controversy_compresses_all_four_factors():
         (1, 1.0),
         (2, 1.0),   # noise floor: 잡담/오분류 1-2건은 무감점
         (3, 0.9),   # 플로어 이후부터 기존 기울기(count-2)/10로 감점 재개
-        (12, 0.0),  # floors at 0
+        (6, 0.6),   # count-2=4 → 1-0.4=0.6, 캡 경계
+        # V2.55: 캡 0.6 이 폴백에도 적용 — V2.54 에선 count=12 가 0.0 이었으나
+        # 이제 하한 0.6 에서 멈춘다(count≥7 부터 동작 변경).
+        (12, 0.6),
     ],
 )
 def test_controversy_factor_noise_floor(count, expected):
     assert _controversy_factor(count) == pytest.approx(expected)
+
+
+# ─── V2.55 이슈 기반 weight path + 캡 ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("weight", "expected"),
+    [
+        (0.0, 1.0),   # 신호는 있으나 실제 이슈 0 → 무감점
+        (3.0, 0.7),   # high 1건 → ×0.7
+        (2.0, 0.8),   # medium 1건
+        (5.0, 0.6),   # 1-0.5=0.5 이지만 하한 0.6 캡
+        (10.0, 0.6),  # 캡
+        (20.0, 0.6),  # 캡
+    ],
+)
+def test_controversy_factor_weight_path(weight, expected):
+    """weight 신호가 주어지면 count 무시하고 max(0.6, 1-weight/10)."""
+    # count=99 를 줘도 weight path 가 이긴다.
+    assert _controversy_factor(99, weight) == pytest.approx(expected)
+
+
+def test_controversy_factor_weight_none_is_count_fallback():
+    """weight=None → count 폴백 경로 (weight 0.0 과 구분)."""
+    assert _controversy_factor(12, None) == pytest.approx(0.6)
+    assert _controversy_factor(0, None) == pytest.approx(1.0)
+    # weight 0.0(신호 있음) 도 1.0 이지만 이건 별개 경로.
+    assert _controversy_factor(0, 0.0) == pytest.approx(1.0)
+
+
+def test_compute_health_score_weight_signal_overrides_count():
+    """compute_health_score(controversy_weight=...) 가 count 를 무시하고
+    weight path 로 risk_factor 를 정한다."""
+    past = (date.today() - timedelta(days=400)).isoformat()
+    common = _agg(
+        yt_subscribers=300_000, yt_total_views=30_000_000,
+        likes_total=2_000_000, comments_total=200_000,
+        dc_total_posts=20_000, naver_total_news=80,
+        controversy_count=8,  # count 폴백이면 크게 깎일 값
+    )
+    # weight 3 (high 1건) → ×0.7. count=8 폴백(×0.6)보다 덜 깎임.
+    weighted = compute_health_score(
+        "x", common, debut_date=past, group_model="corporate",
+        controversy_weight=3.0,
+    )
+    fallback = compute_health_score(
+        "x", common, debut_date=past, group_model="corporate",
+    )
+    for k in ("reach", "ritual", "mobilization", "intimacy"):
+        assert weighted.factors[k] > fallback.factors[k]
 
 
 def test_plave_chatter_regression():

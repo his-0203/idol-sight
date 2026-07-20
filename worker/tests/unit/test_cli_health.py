@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+import pytest
+
 from idol_sight.cli_health import audit_freshness
 
 
@@ -68,10 +70,13 @@ class _FakeHealthClient:
     mig 0105 미적용 D1(컬럼 부재) 상황을 재현한다.
     """
 
-    def __init__(self, groups, cohort, raise_on_confirmed=False):
+    def __init__(self, groups, cohort, raise_on_confirmed=False,
+                 controversy_rows=None, raise_on_controversy=False):
         self._groups = groups
         self._cohort = cohort
         self._raise_on_confirmed = raise_on_confirmed
+        self._controversy_rows = controversy_rows or []
+        self._raise_on_controversy = raise_on_controversy
         self.batched = []
 
     def execute(self, sql, params=None):
@@ -87,6 +92,10 @@ class _FakeHealthClient:
             ]
         if "FROM agg_summary WHERE snapshot_at = ?" in sql:
             return self._cohort
+        if "FROM controversy_issues" in sql:
+            if self._raise_on_controversy:
+                raise Exception("no such table: controversy_issues")
+            return self._controversy_rows
         if "FROM youtube_videos" in sql:
             return [{"n": 0}]
         # hanteo_weekly / music_show_wins_log / agg_fan_loyalty → 빈 결과.
@@ -142,3 +151,73 @@ def test_recompute_records_pre_for_unconfirmed_debut_group():
     client = _FakeHealthClient(groups, cohort=[_cohort_row("bthd")])
     _recompute_health_scores(client, "2026-07-20T00:00:00Z")
     assert _grade_of(client.batched, "bthd") == "PRE"
+
+
+# ─── V2.55 controversy_issues weight 배선 ────────────────────────────────
+
+import json
+from datetime import UTC, datetime, timedelta
+
+
+def _confirmed_group(key):
+    return {
+        "key": key, "name": key.upper(), "name_kr": key,
+        "debut_date": "2024-01-01", "group_model": "corporate",
+        "debut_confirmed": 1,
+    }
+
+
+def _risk_of(batched, key):
+    """INSERT params[6] = breakdown_json → risk = risk_factor * 15."""
+    for _sql, params in batched:
+        if params[0] == key:
+            return json.loads(params[6])["risk"]
+    return None
+
+
+def _cohort_with_controversy(key, count):
+    row = _cohort_row(key)
+    row["controversy_count"] = count
+    return row
+
+
+def test_recompute_uses_issue_weight_when_row_fresh():
+    """fresh controversy_issues 행 → weight path. count=8 폴백(×0.6)보다 덜
+    깎이는 weight 3(×0.7)이 반영돼야 한다."""
+    groups = [_confirmed_group("isedol")]
+    fresh = datetime.now(UTC).isoformat()
+    client = _FakeHealthClient(
+        groups, cohort=[_cohort_with_controversy("isedol", 8)],
+        controversy_rows=[{
+            "group_key": "isedol", "computed_at": fresh, "effective_weight": 3.0,
+        }],
+    )
+    _recompute_health_scores(client, "2026-07-20T00:00:00Z")
+    # weight 3 → factor 0.7 → risk 10.5.
+    assert _risk_of(client.batched, "isedol") == pytest.approx(0.7 * 15)
+
+
+def test_recompute_falls_back_when_row_stale():
+    """8일 넘은 computed_at → stale → count 폴백(×0.6)."""
+    groups = [_confirmed_group("isedol")]
+    stale = (datetime.now(UTC) - timedelta(days=9)).isoformat()
+    client = _FakeHealthClient(
+        groups, cohort=[_cohort_with_controversy("isedol", 8)],
+        controversy_rows=[{
+            "group_key": "isedol", "computed_at": stale, "effective_weight": 3.0,
+        }],
+    )
+    _recompute_health_scores(client, "2026-07-20T00:00:00Z")
+    # count=8 폴백 → factor max(0.6, 1-6/10)=0.6 → risk 9.0.
+    assert _risk_of(client.batched, "isedol") == pytest.approx(0.6 * 15)
+
+
+def test_recompute_falls_back_when_table_absent():
+    """mig 0108 미적용(테이블 부재 raise) → graceful, 전 그룹 count 폴백."""
+    groups = [_confirmed_group("isedol")]
+    client = _FakeHealthClient(
+        groups, cohort=[_cohort_with_controversy("isedol", 8)],
+        raise_on_controversy=True,
+    )
+    _recompute_health_scores(client, "2026-07-20T00:00:00Z")
+    assert _risk_of(client.batched, "isedol") == pytest.approx(0.6 * 15)
