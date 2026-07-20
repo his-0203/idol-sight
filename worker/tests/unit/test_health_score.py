@@ -5,6 +5,7 @@ import pytest
 from idol_sight.analysis.health_score import (
     DEFAULT_REFS,
     WEIGHTS,
+    _controversy_factor,
     _factor_inputs,
     compute_dynamic_refs,
     compute_health_score,
@@ -229,8 +230,47 @@ def test_controversy_compresses_all_four_factors():
     scandal = compute_health_score("x", {**common, "controversy_count": 5},
                                     debut_date=past, group_model="corporate")
     for k in ("reach", "ritual", "mobilization", "intimacy"):
-        # Strictly less when risk fires (5 controversies → factor 0.5).
+        # Strictly less when risk fires. V2.54: with the 2-count noise
+        # floor, 5 controversies → factor 0.7 (was 0.5 pre-V2.54).
         assert scandal.factors[k] < clean.factors[k]
+
+
+# ─── V2.54 Controversy Noise Guard ─────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("count", "expected"),
+    [
+        (0, 1.0),
+        (1, 1.0),
+        (2, 1.0),   # noise floor: 잡담/오분류 1-2건은 무감점
+        (3, 0.9),   # 플로어 이후부터 기존 기울기(count-2)/10로 감점 재개
+        (12, 0.0),  # floors at 0
+    ],
+)
+def test_controversy_factor_noise_floor(count, expected):
+    assert _controversy_factor(count) == pytest.approx(expected)
+
+
+def test_plave_chatter_regression():
+    """PLAVE 08-15: '슬리퍼놀란'(놀란→논란 오독) + '부동산 이슈 괜찮음?'
+    ('이슈' 마커 오분류) = 잡담 2건이 controversy_count=2로 집계돼 등급이
+    A→B로 밀렸던 회귀 케이스. V2.54 노이즈 플로어 하에서는 count=2가
+    count=0과 동일한 factors를 내야 한다."""
+    past = (date.today() - timedelta(days=400)).isoformat()
+    common = _agg(
+        yt_subscribers=1_140_000, yt_total_views=160_000_000,
+        likes_total=8_000_000, comments_total=600_000,
+        dc_total_posts=50_000, theqoo_posts=20_000, instiz_posts=35_000,
+        naver_total_news=300, hanteo_sales=1_000_000,
+        v90_count=20, v30_count=5,
+    )
+    clean = compute_health_score("plave", {**common, "controversy_count": 0},
+                                  debut_date=past, group_model="corporate")
+    chatter = compute_health_score("plave", {**common, "controversy_count": 2},
+                                    debut_date=past, group_model="corporate")
+    assert chatter.factors == clean.factors
+    assert chatter.grade == clean.grade
 
 
 # ─── V2.16 산식 보정 ────────────────────────────────────────────────────

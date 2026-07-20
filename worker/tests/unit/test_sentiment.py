@@ -2,6 +2,7 @@
 from unittest.mock import MagicMock
 
 from idol_sight.analysis.sentiment import (
+    PROMPT_SENTIMENT,
     classify_for_group,
     update_negative_ratio_statements,
 )
@@ -105,6 +106,13 @@ def test_classify_swallows_batch_errors_and_continues():
     )
     # First batch (50) failed → 0 updates from it. Second batch (10) → 10.
     assert len(stmts) == 10
+
+
+def test_prompt_sentiment_requires_concrete_incident():
+    """V2.54: marker words alone (논란/이슈/의혹 etc.) must not be enough
+    to trigger 'controversy' — the prompt has to spell out that the
+    title needs to name a concrete incident."""
+    assert "NOT sufficient" in PROMPT_SENTIMENT
 
 
 def test_negative_ratio_skips_groups_with_zero_classified():

@@ -62,7 +62,10 @@ For each title classify into exactly one of:
   - negative    — hostile criticism: insults, profanity, malicious
                   mockery, hate, demeaning or attacking remarks toward
                   the member/group
-  - controversy — 논란, scandal, leak, 의혹, 사건, 폭로
+  - controversy — a real, identifiable scandal or dispute involving the
+                  group: the title itself names a concrete incident or
+                  allegation (학폭, 표절, 사생활 폭로, 계약 분쟁, 법적 문제,
+                  기술 유출, 운영 사고 등)
   - neutral     — news, info, schedule, factual update
 
 Rules:
@@ -73,8 +76,12 @@ Rules:
     is NOT negative. It is protective affection; classify as 'neutral'
     even when phrased anxiously or with negative-sounding words.
   - When ambiguous, prefer 'neutral' over guessing.
-  - 'controversy' is a STRONG label — only use it when there is a
-    clear scandal/issue marker, not for ordinary criticism.
+  - 'controversy' is a STRONG label. Marker words alone (논란, 이슈, 의혹,
+    사건, 폭로) are NOT sufficient — the title must identify WHAT the
+    incident is. Casual questions or chatter that mention an issue
+    without naming a concrete incident (e.g. "부동산 이슈 괜찮음?",
+    "이거 논란 아니냐?") are 'neutral'. Words that merely LOOK like
+    논란 (e.g. 놀란 = surprised) are not controversy markers.
   - Output ONE classification per input post; preserve the url_hash
     EXACTLY as given (do not invent or modify).
 """

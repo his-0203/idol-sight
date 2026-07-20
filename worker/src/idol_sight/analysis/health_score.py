@@ -452,11 +452,14 @@ def _quality_score_from_engagement(rate: float, ref: float) -> float:
     return _normalize(rate, ref)
 
 
+# V2.54: 잡담·오분류 1~2건이 전 팩터를 깎는 노이즈 반응 차단. 진짜 논란은
+# 같은 이슈로 다수 게시글이 쏟아지므로(라벨 rare 설계) 3건부터 기존 기울기로 감점.
+CONTROVERSY_NOISE_FLOOR = 2
+
+
 def _controversy_factor(count: int) -> float:
     """Return a 0-1 factor where 1.0 = no controversy and 0 = many."""
-    if count <= 0:
-        return 1.0
-    return max(0.0, 1.0 - (count / 10.0))
+    return max(0.0, 1.0 - max(0, count - CONTROVERSY_NOISE_FLOOR) / 10.0)
 
 
 def _recent_bonus(v90: int, v30: int) -> tuple[float, dict]:

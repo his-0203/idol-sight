@@ -1,7 +1,7 @@
 # IDOL-SIGHT 산식 레퍼런스 (Dashboard Formula Reference)
 
 > **목적**: 대시보드가 계산하는 **모든 결정론적 산식**(가중치·임계값·정규화·분류 규칙)을 한 곳에 정리한 단일 참조 문서.
-> **기준일**: 2026-07-20 (V2.53 Organic Trust Layer까지 반영 — §16 Organic Confidence 신설, §1.1 `debut_confirmed` PRE 게이트, §15 인지도 adj, §14.5 추정 코어 adj). 이전 기준일 2026-06-27(P2c) 포함 범위: SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness.
+> **기준일**: 2026-07-20 (V2.54 Controversy Noise Guard까지 반영 — §1.6 `_controversy_factor` 노이즈 플로어, §13 `PROMPT_SENTIMENT` controversy 분류 엄격화). 이전 V2.53 Organic Trust Layer 포함 범위: §16 Organic Confidence 신설, §1.1 `debut_confirmed` PRE 게이트, §15 인지도 adj, §14.5 추정 코어 adj. 이전 기준일 2026-06-27(P2c) 포함 범위: SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness.
 > **읽는 법**: 각 항목은 두 겹이다 — **🟢 쉽게** = 수식 없이 비유로 "뭘 보는 건지", 그 아래 **산식** = 정확한 공식·상수·`파일:라인`. 비전문가는 🟢만 읽어도 되고, 구현/검증은 산식까지 본다.
 > **출처**: `worker/src/idol_sight/analysis/*.py`, `worker/src/idol_sight/cli.py`, `frontend/src/lib/*.ts`, `frontend/functions/lib/*.ts`, `frontend/functions/api/*.ts`, `frontend/src/components/FanLoyaltyCard.tsx`, `frontend/src/views/MarketOverview.tsx`, `migrations/*.sql`.
 > **갱신 규칙**: 산식/상수 변경 시 이 문서와 `CLAUDE.md` 체인지로그를 함께 갱신한다. 코드가 진실의 원천이며, 인용 라인은 drift할 수 있으니 의심되면 원본 확인.
@@ -139,10 +139,14 @@
 
 `min(v90/30, 1)*7 + min(v30/10, 1)*3` → 0–10 가산 overlay (group_model 무관).
 
-### 1.6 Controversy Factor (`_controversy_factor`, `:448`)
-> 🟢 **쉽게**: 논란 건수가 많을수록 전체 점수에 곱하는 '깎임 배수'. 10건이면 0(전부 깎임).
+### 1.6 Controversy Factor (`_controversy_factor`, `health_score.py:460`)
+> 🟢 **쉽게**: 논란 건수가 많을수록 전체 점수에 곱하는 '깎임 배수'. 단, 1~2건은 잡담/오분류 노이즈로 보고 무감점 — 3건째부터 깎이기 시작해서 12건이면 0(전부 깎임).
 
-`count<=0 → 1.0`, 아니면 `max(0, 1 - count/10)`. 10건+ → 0. 4개 팩터 전부에 곱.
+**V2.54 노이즈 플로어** (`health_score.py:455-462`): `max(0, 1 - max(0, count - CONTROVERSY_NOISE_FLOOR) / 10)`, `CONTROVERSY_NOISE_FLOOR = 2`. count 0/1/2 → 1.0(무감점), count 3 → 0.9, count 12+ → 0. 4개 팩터 전부에 곱.
+
+- **배경**: PLAVE 2026-08-15 — 디시 잡담 글 2건("슬리퍼놀란"=놀란→논란 오독, "부동산 이슈 괜찮음?"='이슈' 마커 오분류)만으로 `controversy_count=2` → 구 산식(`1 - count/10`)에서 factor 0.8 → 전 팩터 −20% → 등급 A(7.7)→B(6.3)로 밀림.
+- **근거**: 진짜 논란은 같은 이슈로 다수 게시글이 쏟아지는 게 정상 패턴(라벨이 rare하도록 설계된 `sentiment.py`의 분류 기준과 짝을 이룸) — 1~2건은 노이즈로 취급해도 진짜 스캔들 탐지력을 잃지 않는다.
+- **분류 엄격화** (`sentiment.py:65-81`의 `PROMPT_SENTIMENT`): controversy 버킷 정의를 "논란/이슈/의혹 등 마커 단어"에서 "제목이 구체적 사건·의혹을 명시(학폭/표절/사생활 폭로/계약 분쟁/법적 문제/기술 유출/운영 사고 등)"로 강화. Rules에 마커 단어만으로는 불충분(NOT sufficient)함과, 사건을 특정하지 않는 잡담("부동산 이슈 괜찮음?")·유사 형태 오독(놀란≠논란) 배제 규칙을 명문화. 기존 분류 데이터는 재분류하지 않음(14일 윈도우로 자연 소멸 + 플로어가 즉시 상쇄) — 신규 분류부터 적용.
 
 ### 1.7 동적 REF (코호트 percentile)
 > 🟢 **쉽게**: 만점 기준을 고정하지 않고 '경쟁사들 중 상위 25% 수준'을 매번 기준으로 잡는다. 1.0 = 상위권. (반 평균이 바뀌면 'A 받는 점수'도 바뀌는 셈)
