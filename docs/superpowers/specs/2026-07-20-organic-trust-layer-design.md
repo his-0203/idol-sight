@@ -28,7 +28,7 @@ BTHD(비더후드, 데뷔 전·잠정 앵커 2026-06-26)가 대시보드에서 �
 - thin-sample shrinkage (mig 0092 패턴 재사용): `conf = (n·mean + K·PRIOR) / (n + K)`, `PRIOR=0.75`, `K=3`
 - **n=0 (organicity 데이터 없음) → conf=1.0 (무할인)**. 판정 근거 없이 감점하지 않는다 (정직 원칙). prior로 수렴시키지 않는 이유: prior 적용 시 organicity 미채점 그룹 전원이 25% 감점되는 부작용.
 - 순수 함수로 구현 (`analysis/organic_confidence.py` 신규 모듈), awareness·core_fan_estimate 양쪽에서 import.
-- BTHD 검산: mean=(3·1.0+6·0.7+5·0.4+8·0.15)/22≈0.472 → conf=(22·0.472+3·0.75)/25≈**0.505**
+- BTHD 검산: mean=(3·1.0+6·0.7+5·0.4+8·0.15)/22≈0.472 → conf=(22·0.472+3·0.75)/25≈**0.506**
 
 ## B. 인지도 보정 (`analysis/awareness.py`)
 
@@ -37,7 +37,7 @@ BTHD(비더후드, 데뷔 전·잠정 앵커 2026-06-26)가 대시보드에서 �
 - 동점 tiebreak은 기존과 동일(subscribers).
 - `basis` 의미 변경 없음. 세 신호 전부 0/NULL이면 기존대로 `insufficient`(보정값도 NULL).
 - 스키마 (additive): `agg_awareness`에 `awareness_score_adj REAL`, `organic_confidence REAL`, `category_rank_adj INTEGER`
-- BTHD 검산: 76.1 × 0.505 ≈ **38.4** → kpop 3위에서 중하위권으로 하락.
+- BTHD 검산: 76.1 × 0.506 ≈ **38.5** → kpop 3위에서 중하위권으로 하락.
 
 ## C. 추정 코어 보정 (`analysis/core_fan_estimate.py`)
 
@@ -75,7 +75,7 @@ BTHD(비더후드, 데뷔 전·잠정 앵커 2026-06-26)가 대시보드에서 �
 - 워커 빌더는 컬럼 부재 시 죽지 않게 try/except (V2.52 `build_fan_loyalty` 패턴).
 - 파이프라인 순서 변경 없음: organicity(2단계) → awareness(3) → core(4) → health(5) 순서가 이미 의존성 충족.
 - TDD: 신규 순수 함수·필터·게이트 전부 단위 테스트. 기존 worker/frontend 전체 테스트 유지.
-- 검산 fixture: BTHD 실측 분포(3/6/5/8)로 conf≈0.505, adj≈38.4 회귀 테스트.
+- 검산 fixture: BTHD 실측 분포(3/6/5/8)로 conf≈0.506, adj≈38.5 회귀 테스트.
 - **원격 migration apply는 운영자 직접 실행** (기존 규칙). 적용 전까지 프론트는 원값 폴백으로 동작.
 - frontend 커밋 subject는 ASCII-only (Cloudflare Pages 8000111).
 
