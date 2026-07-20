@@ -639,8 +639,18 @@ def compute_health_score(
     refs: dict[str, float] | None = None,
     group_model: str | None = None,
     live_metrics: set[str] | frozenset[str] | None = None,
+    debut_confirmed: Any = 1,
 ) -> HealthScore:
-    if _is_pre_debut(debut_date):
+    """Health Score 를 계산한다.
+
+    V2.53 등급 게이트: ``debut_confirmed`` 는 정식 데뷔 확정 여부다.
+    ``0`` / ``False`` = 잠정 앵커(예: BTHD 의 선공개 싱글로 잡힌 임시
+    debut_date) — debut_date 가 과거여도 정식 데뷔가 아직이므로 PRE 로
+    게이트한다. ``None`` / ``1`` / 미전달 = 확정 취급(하위 호환·mig 0105
+    미적용 D1). ``_is_pre_debut`` 자체는 불변 — 미래 debut_date 는 그대로
+    PRE, 이 게이트는 "과거 앵커지만 미확정" 케이스만 추가로 잡는다.
+    """
+    if _is_pre_debut(debut_date) or debut_confirmed in (0, False):
         return HealthScore(
             total=None, raw_total=None,
             grade="PRE", label=GRADE_LABELS["PRE"],

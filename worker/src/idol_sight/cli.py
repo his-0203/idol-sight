@@ -1675,6 +1675,7 @@ def _recompute_health_scores(
             g["key"], agg_dict, g.get("debut_date"),
             refs=dyn_refs, group_model=g.get("group_model"),
             live_metrics=live_metrics,
+            debut_confirmed=g.get("debut_confirmed", 1),
         )
         health_stmts.append((
             "INSERT INTO agg_health_scores"
@@ -1705,11 +1706,23 @@ def _load_active_groups_full(client) -> list[dict]:
     """Same as _load_active_groups but pulls debut_date and group_model
     too — needed by the 4-factor Health Score so it can apply the
     correct model-specific weights and skip pre-debut groups.
+
+    V2.53: debut_confirmed(잠정 앵커 게이트)도 함께 SELECT 시도한다. mig
+    0105 미적용 D1(컬럼 부재)이면 예외가 나므로 기존 SELECT 로 폴백한다 —
+    이 경우 debut_confirmed 키가 없어 호출부의 .get(..., 1) 로 전 그룹이
+    확정(=1) 취급되어 하위 호환이 유지된다.
     """
-    return client.execute(
-        "SELECT key, name, name_kr, debut_date, group_model "
-        "FROM groups WHERE is_active=1"
-    )
+    try:
+        return client.execute(
+            "SELECT key, name, name_kr, debut_date, group_model, "
+            "debut_confirmed "
+            "FROM groups WHERE is_active=1"
+        )
+    except Exception:
+        return client.execute(
+            "SELECT key, name, name_kr, debut_date, group_model "
+            "FROM groups WHERE is_active=1"
+        )
 
 
 def _shift_date(iso_date: str, days: int) -> str:

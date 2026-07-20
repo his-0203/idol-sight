@@ -678,3 +678,18 @@ def test_community_metric_dead_cohort_wide_is_dropped_not_zeroed():
     fi_live = _factor_inputs(agg, refs, live_metrics={"quality", "community"})
     # dead일 때 intimacy가 더 높아야(재분배 vs 페널티).
     assert fi_dead["intimacy"] > fi_live["intimacy"]
+
+
+def test_unconfirmed_debut_gates_to_pre():
+    """잠정 앵커(BTHD): debut_date 가 과거여도 debut_confirmed=0 → PRE."""
+    score = compute_health_score(
+        "bthd", {"yt_subscribers": 100000}, "2026-06-26", debut_confirmed=0)
+    assert score.grade == "PRE"
+    assert score.total is None
+
+
+def test_confirmed_default_keeps_existing_behavior():
+    a = compute_health_score("g", {"yt_subscribers": 1000}, "2020-01-01")
+    b = compute_health_score(
+        "g", {"yt_subscribers": 1000}, "2020-01-01", debut_confirmed=None)
+    assert a.grade == b.grade != "PRE"
