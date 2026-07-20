@@ -171,6 +171,59 @@ def test_compute_includes_pre_debut_group():
     assert out["established"]["category_rank"] == 1
 
 
+# ── V2.53 Organic Trust Layer ──────────────────────────────────────
+
+def test_awareness_adj_discounts_by_confidence():
+    groups = [
+        {"key": "clean", "group_model": "corporate",
+         "yt_subscribers": 1000, "yt_total_views": 100000, "naver_total_news": 10},
+        {"key": "paidish", "group_model": "corporate",
+         "yt_subscribers": 900, "yt_total_views": 90000, "naver_total_news": 9},
+    ]
+    rows = compute_awareness(groups, confidence_by_key={"paidish": 0.5})
+    by = {r["group_key"]: r for r in rows}
+    # clean: confidence 부재 → 1.0 무할인, adj == raw
+    assert by["clean"]["organic_confidence"] == 1.0
+    assert by["clean"]["awareness_score_adj"] == by["clean"]["awareness_score"]
+    # paidish: adj = raw * 0.5 (1자리 반올림)
+    assert by["paidish"]["awareness_score_adj"] == round(
+        by["paidish"]["awareness_score"] * 0.5, 1)
+
+
+def test_awareness_rank_adj_reorders():
+    # raw 는 big 이 1위지만 conf 0.3 할인 후 small 이 1위
+    groups = [
+        {"key": "big", "group_model": "corporate",
+         "yt_subscribers": 10000, "yt_total_views": 1000000, "naver_total_news": 50},
+        {"key": "small", "group_model": "corporate",
+         "yt_subscribers": 3000, "yt_total_views": 200000, "naver_total_news": 20},
+    ]
+    rows = compute_awareness(groups, confidence_by_key={"big": 0.3})
+    by = {r["group_key"]: r for r in rows}
+    assert by["big"]["category_rank"] == 1          # 원값 랭킹 불변
+    assert by["small"]["category_rank_adj"] == 1    # 보정 랭킹 역전
+    assert by["big"]["category_rank_adj"] == 2
+
+
+def test_awareness_insufficient_has_null_adj():
+    rows = compute_awareness([
+        {"key": "ghost", "group_model": "corporate",
+         "yt_subscribers": 0, "yt_total_views": 0, "naver_total_news": 0},
+    ])
+    assert rows[0]["awareness_score_adj"] is None
+    assert rows[0]["category_rank_adj"] is None
+
+
+def test_awareness_no_confidence_map_backward_compat():
+    # confidence_by_key 미전달 → 전원 1.0, adj == raw, rank_adj == rank
+    rows = compute_awareness([
+        {"key": "a", "group_model": "corporate",
+         "yt_subscribers": 100, "yt_total_views": 1000, "naver_total_news": 1},
+    ])
+    assert rows[0]["awareness_score_adj"] == rows[0]["awareness_score"]
+    assert rows[0]["category_rank_adj"] == rows[0]["category_rank"]
+
+
 # -- build_awareness (D1, _FakeClient) --
 
 class _FakeClient:
@@ -260,6 +313,35 @@ def test_build_awareness_insufficient_group_still_written():
     assert ghost[3] is None
     assert ghost[4] is None
     assert by_group["plave"][4] == 1
+
+
+# -- build_awareness V2.53 adj graceful INSERT (D1) --
+
+def test_build_awareness_adj_columns_present_uses_extended_insert():
+    # adj 컬럼 감지 성공(fake 가 해당 SELECT 에서 [] 반환) → 확장 INSERT.
+    res = build_awareness(_fake(), snapshot_at="2026-06-27T00:00:00Z")
+    insert_sql = res.statements[1][0]
+    assert "awareness_score_adj" in insert_sql
+    assert "organic_confidence" in insert_sql
+    assert "category_rank_adj" in insert_sql
+    # 확장 바인딩: 원본 10개 + adj 3개 = 13.
+    assert len(res.statements[1][1]) == 13
+
+
+def test_build_awareness_adj_columns_absent_falls_back_to_legacy_insert():
+    # mig 0106 미적용 D1 시뮬: adj 프로브 SELECT 에서 raise → 기존 INSERT.
+    class _NoAdjClient(_FakeClient):
+        def execute(self, sql, params=None):
+            if "awareness_score_adj" in sql:
+                raise Exception("no such column: awareness_score_adj")
+            return super().execute(sql, params)
+
+    base = _fake()
+    client = _NoAdjClient(groups=base._groups, agg=base._agg)
+    res = build_awareness(client, snapshot_at="2026-06-27T00:00:00Z")
+    insert_sql = res.statements[1][0]
+    assert "awareness_score_adj" not in insert_sql
+    assert len(res.statements[1][1]) == 10
 
 
 # -- migration 0097 (_apply_all 스모크) --

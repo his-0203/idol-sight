@@ -14,6 +14,11 @@ Health Score 와 독립된 1차원 지표 — Health Reach 와 입력은 겹치�
 **데뷔 전 그룹도 포함**한다(데뷔 전에도 구독·조회로 인지도가 존재). 점수 산식
 변경이 아니라 신규 표시 지표. 검색량(search_n)은 후속 플러그인 자리만 비워둔다 —
 지수 구조 동일, 추가 시 가중치 재배분.
+
+V2.53 Organic Trust Layer: 원값(awareness_score/category_rank)은 불변으로 두고,
+그룹별 organicity 신뢰 계수(load_organic_confidence)를 곱한 보정값
+(awareness_score_adj/category_rank_adj)을 **추가** 산출한다. confidence 부재
+그룹은 1.0(무할인). 보정 랭킹은 원값 랭킹과 동일 tiebreak(subscribers 내림차순).
 """
 from __future__ import annotations
 
@@ -74,7 +79,11 @@ def _normalize_log(value: float, ref: float) -> float:
     return min(math.log1p(value) / math.log1p(ref), 1.0)
 
 
-def compute_awareness(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def compute_awareness(
+    groups: list[dict[str, Any]],
+    *,
+    confidence_by_key: dict[str, float] | None = None,
+) -> list[dict[str, Any]]:
     """그룹별 최신 신호 + group_model → 카테고리별 인지도 row dict 리스트 (순수).
 
     입력 dict(그룹당): ``key``, ``group_model``, ``yt_subscribers``,
@@ -86,7 +95,14 @@ def compute_awareness(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     각 신호를 카테고리 리더 대비 log1p 정규화 → 가중합 ×100 → 카테고리별 내림차순
     순위(동점은 yt_subscribers 내림차순 tiebreak). 데뷔 전 게이트 없음(전부 포함).
     세 신호 전부 NULL/0 인 그룹은 basis='insufficient'(score/rank None, 랭킹 제외).
+
+    V2.53: ``confidence_by_key`` (그룹별 0~1 organicity 신뢰 계수, 부재 그룹=1.0)를
+    받아 보정 출력 3키를 **추가** 한다 — ``organic_confidence`` (적용 계수),
+    ``awareness_score_adj`` (= round(awareness_score × conf, 1), insufficient=None),
+    ``category_rank_adj`` (보정 점수 기준 카테고리별 랭킹, 원값과 동일 tiebreak).
+    원값 컬럼의 값·산정 로직은 불변.
     """
+    conf_map = confidence_by_key or {}
     # 1) 카테고리 분류 + 신호 정제(NULL/음수 → 0) + 신호 유무 판정.
     enriched: list[dict[str, Any]] = []
     for g in groups:
@@ -127,6 +143,9 @@ def compute_awareness(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
         else:
             score = None
             basis = "insufficient"
+        # V2.53: 신뢰 계수 할인(부재=1.0). 원값 불변, adj 는 추가만.
+        conf = conf_map.get(e["group_key"], 1.0)
+        score_adj = round(score * conf, 1) if score is not None else None
         rows.append({
             "group_key": e["group_key"],
             "category": e["category"],
@@ -136,6 +155,9 @@ def compute_awareness(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "view_n": view_n,
             "news_n": news_n,
             "basis": basis,
+            "awareness_score_adj": score_adj,
+            "organic_confidence": conf,
+            "category_rank_adj": None,
             "_sub_raw": e["sub"],   # tiebreak 용 (출력 직전 제거)
         })
 
@@ -150,6 +172,15 @@ def compute_awareness(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for i, r in enumerate(scored, start=1):
             r["category_rank"] = i
 
+    # 5) V2.53 보정 랭킹 — awareness_score_adj 기준(원값 랭킹과 동일 구조·tiebreak).
+    #    insufficient(adj None)는 제외. 원값 랭킹과 독립적으로 재정렬.
+    for cat_rows in by_cat.values():
+        scored = [r for r in cat_rows if r["awareness_score_adj"] is not None]
+        scored.sort(key=lambda r: (-r["awareness_score_adj"], -r["_sub_raw"]))
+        for i, r in enumerate(scored, start=1):
+            r["category_rank_adj"] = i
+
+    # 두 랭킹 블록이 모두 _sub_raw 를 참조하므로 pop 은 마지막에.
     for r in rows:
         r.pop("_sub_raw", None)
     return rows
@@ -182,6 +213,24 @@ INSERT INTO agg_awareness
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """.strip()
 
+# V2.53: mig 0106 적용 D1 전용 — 원본 10컬럼 + adj 3컬럼.
+_INSERT_SQL_ADJ = """
+INSERT INTO agg_awareness
+  (group_key, snapshot_at, category, awareness_score, category_rank,
+   sub_n, view_n, news_n, basis, generated_at,
+   awareness_score_adj, organic_confidence, category_rank_adj)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+""".strip()
+
+
+def _has_adj_columns(client: _Executor) -> bool:
+    """mig 0106 적용 여부 감지 — 미적용 D1에서도 기존 INSERT로 동작(graceful)."""
+    try:
+        client.execute("SELECT awareness_score_adj FROM agg_awareness LIMIT 1")
+        return True
+    except Exception:
+        return False
+
 
 def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
     """그룹별 최신 agg_summary + group_model → compute → 스냅샷별 멱등 쓰기.
@@ -189,7 +238,12 @@ def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
     데뷔 전 포함(debut 게이트 없음). 이번 스냅샷에 agg_summary 행이 있는 모든
     활성 그룹을 대상으로 한다(행이 없으면 그 그룹은 신호 자체가 없어 제외). 세 신호
     전부 NULL/0 인 그룹은 insufficient row 로 적재(랭킹 제외, 카드에서 '—' 표시).
+
+    V2.53: organicity 신뢰 계수를 로드해 보정 컬럼(adj)을 함께 산출한다. D1에 adj
+    컬럼이 있으면 확장 INSERT, 없으면(mig 0106 미적용) 기존 INSERT 로 나간다.
     """
+    from idol_sight.analysis.organic_confidence import load_organic_confidence
+
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     model_by_key = {
@@ -212,16 +266,29 @@ def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
         if key in model_by_key   # 비활성/미등록 그룹의 잔여 행 무시
     ]
 
-    rows = compute_awareness(groups_in)
+    # V2.53: organicity 신뢰 계수 로드. 테이블 이상/미적용 시 무할인(graceful).
+    try:
+        confidence_by_key = load_organic_confidence(client)
+    except Exception:
+        confidence_by_key = {}
+    rows = compute_awareness(groups_in, confidence_by_key=confidence_by_key)
+    use_adj = _has_adj_columns(client)
 
     statements: list[tuple[str, list[Any]]] = [(_CLEAR_SQL, [snapshot_at])]
     for r in rows:
-        statements.append((_INSERT_SQL, [
+        base_params = [
             r["group_key"], snapshot_at, r["category"],
             r["awareness_score"], r["category_rank"],
             r["sub_n"], r["view_n"], r["news_n"],
             r["basis"], now,
-        ]))
+        ]
+        if use_adj:
+            statements.append((_INSERT_SQL_ADJ, base_params + [
+                r["awareness_score_adj"], r["organic_confidence"],
+                r["category_rank_adj"],
+            ]))
+        else:
+            statements.append((_INSERT_SQL, base_params))
 
     return CollectionResult(
         rows_inserted=0,
