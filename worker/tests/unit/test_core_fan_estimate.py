@@ -14,6 +14,7 @@ import pytest
 from idol_sight.analysis.core_fan_estimate import (
     build_core_fan_estimate,
     compute_core_fan_estimate,
+    select_organic_videos,
 )
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
@@ -221,7 +222,11 @@ def test_build_window_sufficient_no_fallback() -> None:
         videos_fallback={"plave": [{"views": 100, "likes": 1, "comments": 0}] * 12},
     )
     build_core_fan_estimate(client, snapshot_at="2026-06-27T00:00:00Z")
-    fallback_calls = [c for c in client._calls if "LIMIT" in c[0]]
+    # video 폴백 쿼리만 판별 (adj-probe SQL도 LIMIT 1 을 포함하므로 테이블로 구분).
+    fallback_calls = [
+        c for c in client._calls
+        if "youtube_videos" in c[0] and "LIMIT" in c[0]
+    ]
     assert len(fallback_calls) == 0
 
 
@@ -291,3 +296,151 @@ def test_migration_agg_core_fan_estimate_pk_is_group_key_snapshot() -> None:
     conn.execute(ins)
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(ins)
+
+
+# ---------------------------------------------------------------------------
+# ── V2.53 Organic Trust Layer ──────────────────────────────────────
+# ---------------------------------------------------------------------------
+
+
+def _vid(i, views=1000, likes=50, comments=10):
+    return {"video_id": f"v{i}", "published_at": "2026-07-01T00:00:00Z",
+            "views": views, "likes": likes, "comments": comments}
+
+
+def test_select_organic_videos_filters_suspects():
+    window = [_vid(1), _vid(2), _vid(3), _vid(4)]
+    out = select_organic_videos(window, [], {"v4"})
+    assert [v["video_id"] for v in out] == ["v1", "v2", "v3"]
+
+
+def test_select_organic_videos_falls_back_then_none():
+    window = [_vid(1), _vid(2), _vid(3)]
+    fallback = [_vid(1), _vid(2), _vid(3), _vid(4), _vid(5)]
+    # window 필터 후 1편 → 폴백 필터 적용 3편 → 폴백 채택
+    out = select_organic_videos(window, fallback, {"v2", "v3"})
+    assert [v["video_id"] for v in out] == ["v1", "v4", "v5"]
+    # 폴백도 2편뿐 → None
+    assert select_organic_videos(window, fallback[:4], {"v2", "v3", "v4"}) is None
+
+
+def test_compute_adj_excludes_paid_medians():
+    videos = [_vid(1, likes=100, comments=20), _vid(2, likes=110, comments=22),
+              _vid(3, likes=90, comments=18),
+              _vid(4, likes=9000, comments=2)]   # 팜 의심 (likes 폭발)
+    rows = compute_core_fan_estimate([
+        {"key": "g", "videos": videos, "videos_adj": videos[:3]},
+    ])
+    r = rows[0]
+    assert r["basis"] == "scored"
+    assert r["est_engaged_fans_adj"] == 100     # median(100,110,90)
+    assert r["est_active_core_adj"] == 20
+    assert r["organic_video_count"] == 3
+    # 원값 경로는 불변 (4편 전체 median)
+    assert r["est_engaged_fans"] == 105
+
+
+def test_compute_insufficient_organic_basis():
+    videos = [_vid(1), _vid(2), _vid(3)]
+    rows = compute_core_fan_estimate([
+        {"key": "g", "videos": videos, "videos_adj": None},
+    ])
+    r = rows[0]
+    assert r["basis"] == "insufficient_organic"
+    assert r["est_engaged_fans_adj"] is None
+    assert r["est_engaged_fans"] is not None    # 원값은 유지 저장
+
+
+def test_compute_missing_videos_adj_key_backward_compat():
+    # videos_adj 키 자체가 없으면 videos 전체를 adj 로 간주 (기존 호출 호환)
+    videos = [_vid(1), _vid(2), _vid(3)]
+    rows = compute_core_fan_estimate([{"key": "g", "videos": videos}])
+    assert rows[0]["basis"] == "scored"
+    assert rows[0]["est_engaged_fans_adj"] == rows[0]["est_engaged_fans"]
+
+
+# ---------------------------------------------------------------------------
+# build_core_fan_estimate — V2.53 suspect 필터 + graceful adj INSERT
+# ---------------------------------------------------------------------------
+
+
+class _OrganicFakeClient:
+    """V2.53 확장 FakeClient. suspect 판정 로드 + adj 컬럼 감지(probe) 제어."""
+
+    def __init__(
+        self,
+        groups: list[dict[str, Any]],
+        videos_window: dict[str, list[dict[str, Any]]],
+        videos_fallback: dict[str, list[dict[str, Any]]] | None = None,
+        suspect_ids: set[str] | None = None,
+        has_adj: bool = True,
+    ) -> None:
+        self._groups = groups
+        self._videos_window = videos_window
+        self._videos_fallback = (
+            videos_fallback if videos_fallback is not None else videos_window
+        )
+        self._suspect_ids = suspect_ids or set()
+        self._has_adj = has_adj
+        self._calls: list[tuple[str, list[Any] | None]] = []
+
+    def execute(
+        self, sql: str, params: list[Any] | None = None
+    ) -> list[dict[str, Any]]:
+        self._calls.append((sql, params))
+        # suspect 판정 로드 (params 없음)
+        if "debut_window_video_organicity" in sql:
+            return [{"video_id": vid} for vid in self._suspect_ids]
+        # adj 컬럼 감지 probe (params 없음, LIMIT 포함 — video 분기보다 앞에)
+        if "FROM agg_core_fan_estimate" in sql:
+            if not self._has_adj:
+                raise RuntimeError("no such column: est_engaged_fans_adj")
+            return []
+        if "FROM groups" in sql:
+            return list(self._groups)
+        key: str = str(params[0]) if params else ""
+        if "LIMIT" in sql:
+            return list(self._videos_fallback.get(key, []))
+        return list(self._videos_window.get(key, []))
+
+
+def test_build_suspect_filter_reflected_in_adj_insert_params():
+    """suspect 영상 제외분이 adj INSERT 파라미터에 반영(원값은 전체 유지)."""
+    window = [_vid(1, likes=100, comments=20), _vid(2, likes=110, comments=22),
+              _vid(3, likes=90, comments=18), _vid(4, likes=9000, comments=2)]
+    client = _OrganicFakeClient(
+        groups=[{"key": "plave"}],
+        videos_window={"plave": window},
+        suspect_ids={"v4"},
+        has_adj=True,
+    )
+    res = build_core_fan_estimate(client, snapshot_at="2026-06-27T00:00:00Z")
+    insert_sql, params = res.statements[1]
+    assert insert_sql.count("?") == 12          # 확장 INSERT (9 + adj 3)
+    # 원값 경로 불변: 전체 4편 median
+    assert params[2] == 105                      # est_engaged_fans (full)
+    assert params[6] == 4                        # video_count (full)
+    assert params[7] == "scored"                 # basis
+    # adj 경로: suspect(v4) 제외 3편
+    assert params[9] == 100                      # est_engaged_fans_adj
+    assert params[10] == 20                      # est_active_core_adj
+    assert params[11] == 3                       # organic_video_count
+    # fallback 불필요 (window ≥3 이고 필터 후에도 ≥3) — video 폴백 쿼리만 판별.
+    assert [c for c in client._calls
+            if "youtube_videos" in c[0] and "LIMIT" in c[0]] == []
+
+
+def test_build_no_adj_columns_falls_back_to_base_insert():
+    """adj 컬럼 미존재(mig 0107 미적용) → 기존 9-컬럼 INSERT 로 graceful."""
+    window = [_vid(1), _vid(2), _vid(3), _vid(4)]
+    client = _OrganicFakeClient(
+        groups=[{"key": "plave"}],
+        videos_window={"plave": window},
+        suspect_ids={"v4"},
+        has_adj=False,
+    )
+    res = build_core_fan_estimate(client, snapshot_at="2026-06-27T00:00:00Z")
+    insert_sql, params = res.statements[1]
+    assert insert_sql.count("?") == 9            # 기존 INSERT (adj 없음)
+    assert len(params) == 9
+    assert params[7] == "scored"                 # basis 위치 불변
