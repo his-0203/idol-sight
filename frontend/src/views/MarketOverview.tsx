@@ -82,7 +82,7 @@ export function fmtAwareness(score: number | null | undefined): string {
 // adj-first: mig 0106 적용 + organicity 채점 그룹만 adj 보유. 미적용/구 스냅샷은 원값 폴백.
 export function awarenessDisplay(aw: AwarenessV253 | null | undefined) {
   if (!aw) return { score: null, rank: null, discounted: false };
-  const discounted = aw.score_adj != null;
+  const discounted = aw.score_adj != null && aw.organic_confidence != null && aw.organic_confidence < 1;
   return {
     score: aw.score_adj ?? aw.score ?? null,
     rank: (aw.category_rank_adj ?? aw.category_rank) ?? null,
@@ -382,7 +382,7 @@ export function MarketOverview() {
               <div class="text-hint text-zinc-500">자사 MiiWAN</div>
               <div class="mt-1 text-lg font-bold tabular-nums text-own">
                 {mw?.health_score?.grade ?? "—"}
-                {mw?.awareness?.category_rank != null ? ` · 인지도 #${mw.awareness.category_rank}` : ""}
+                {awarenessDisplay(mw?.awareness).rank != null ? ` · 인지도 #${awarenessDisplay(mw?.awareness).rank}` : ""}
               </div>
             </div>
           </div>

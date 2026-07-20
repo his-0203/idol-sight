@@ -37,12 +37,16 @@ describe("sortByAwareness", () => {
 
 describe("V2.53 organic trust display", () => {
   it("awarenessDisplay prefers adj and marks discounted", () => {
-    expect(awarenessDisplay({ score: 76.1, category_rank: 3, score_adj: 38.4, category_rank_adj: 7, organic_confidence: 0.506 }))
-      .toEqual({ score: 38.4, rank: 7, discounted: true });
+    expect(awarenessDisplay({ score: 76.1, category_rank: 3, score_adj: 38.5, category_rank_adj: 7, organic_confidence: 0.506 }))
+      .toEqual({ score: 38.5, rank: 7, discounted: true });
   });
   it("awarenessDisplay falls back to raw when adj null (unmigrated)", () => {
     expect(awarenessDisplay({ score: 50, category_rank: 2, score_adj: null, category_rank_adj: null, organic_confidence: null }))
       .toEqual({ score: 50, rank: 2, discounted: false });
+  });
+  it("awarenessDisplay is not discounted when organic_confidence is 1.0 (adj==raw)", () => {
+    expect(awarenessDisplay({ score: 76.1, category_rank: 3, score_adj: 76.1, category_rank_adj: 3, organic_confidence: 1.0 }))
+      .toEqual({ score: 76.1, rank: 3, discounted: false });
   });
   it("coreDisplay hides value on insufficient_organic", () => {
     expect(coreDisplay({ est_engaged_fans: 218, est_active_core: 18, est_engaged_fans_adj: null, est_active_core_adj: null, basis: "insufficient_organic" }))
