@@ -1,7 +1,7 @@
 # IDOL-SIGHT 산식 레퍼런스 (Dashboard Formula Reference)
 
 > **목적**: 대시보드가 계산하는 **모든 결정론적 산식**(가중치·임계값·정규화·분류 규칙)을 한 곳에 정리한 단일 참조 문서.
-> **기준일**: 2026-07-20 (V2.54 Controversy Noise Guard까지 반영 — §1.6 `_controversy_factor` 노이즈 플로어, §13 `PROMPT_SENTIMENT` controversy 분류 엄격화). 이전 V2.53 Organic Trust Layer 포함 범위: §16 Organic Confidence 신설, §1.1 `debut_confirmed` PRE 게이트, §15 인지도 adj, §14.5 추정 코어 adj. 이전 기준일 2026-06-27(P2c) 포함 범위: SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness.
+> **기준일**: 2026-07-20 (V2.55 Controversy Issue Dedup까지 반영 — §1.6 `_controversy_factor` 이슈 가중 기반 v3 + §1.6.1 `controversy_issues.py` 클러스터링 모듈 신설). 이전 V2.54 Controversy Noise Guard 포함 범위: §1.6 노이즈 플로어(count 기반), §13 `PROMPT_SENTIMENT` controversy 분류 엄격화. 이전 V2.53 Organic Trust Layer 포함 범위: §16 Organic Confidence 신설, §1.1 `debut_confirmed` PRE 게이트, §15 인지도 adj, §14.5 추정 코어 adj. 이전 기준일 2026-06-27(P2c) 포함 범위: SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness.
 > **읽는 법**: 각 항목은 두 겹이다 — **🟢 쉽게** = 수식 없이 비유로 "뭘 보는 건지", 그 아래 **산식** = 정확한 공식·상수·`파일:라인`. 비전문가는 🟢만 읽어도 되고, 구현/검증은 산식까지 본다.
 > **출처**: `worker/src/idol_sight/analysis/*.py`, `worker/src/idol_sight/cli.py`, `frontend/src/lib/*.ts`, `frontend/functions/lib/*.ts`, `frontend/functions/api/*.ts`, `frontend/src/components/FanLoyaltyCard.tsx`, `frontend/src/views/MarketOverview.tsx`, `migrations/*.sql`.
 > **갱신 규칙**: 산식/상수 변경 시 이 문서와 `CLAUDE.md` 체인지로그를 함께 갱신한다. 코드가 진실의 원천이며, 인용 라인은 drift할 수 있으니 의심되면 원본 확인.
@@ -139,14 +139,36 @@
 
 `min(v90/30, 1)*7 + min(v30/10, 1)*3` → 0–10 가산 overlay (group_model 무관).
 
-### 1.6 Controversy Factor (`_controversy_factor`, `health_score.py:460`)
-> 🟢 **쉽게**: 논란 건수가 많을수록 전체 점수에 곱하는 '깎임 배수'. 단, 1~2건은 잡담/오분류 노이즈로 보고 무감점 — 3건째부터 깎이기 시작해서 12건이면 0(전부 깎임).
+### 1.6 Controversy Factor (`_controversy_factor`, `health_score.py:466-482`)
+> 🟢 **쉽게**: 논란이 전체 점수에 곱하는 '깎임 배수'. V2.55부터는 **글 건수가 아니라 이슈 심각도**로 깎는다 — 같은 사건을 두고 글이 10개 올라와도 이슈는 1개면 감점은 1개분. 어느 경로든 최대 −40%(배수 0.6)까지만 깎이고 그 밑으론 안 내려간다.
 
-**V2.54 노이즈 플로어** (`health_score.py:455-462`): `max(0, 1 - max(0, count - CONTROVERSY_NOISE_FLOOR) / 10)`, `CONTROVERSY_NOISE_FLOOR = 2`. count 0/1/2 → 1.0(무감점), count 3 → 0.9, count 12+ → 0. 4개 팩터 전부에 곱.
+**V2.55 이슈 가중 기반(우선 경로)** — `controversy_weight`(effective_weight)가 주어지면: `max(0.6, 1 - effective_weight/10)` (`CONTROVERSY_FACTOR_FLOOR = 0.6`, `health_score.py:463`).
+- `effective_weight` = 그룹의 클러스터링된 이슈들의 `Σ SEVERITY_WEIGHTS` — `SEVERITY_WEIGHTS = {low: 1, medium: 2, high: 3}` (`controversy_issues.py:39`).
+- 예: high 이슈 1건(weight 3) → factor `1 - 3/10 = 0.7`. medium 2건(weight 4) → `1 - 4/10 = 0.6`(이미 플로어). weight ≥ 4부터는 이슈가 더 쌓여도 0.6에 고정.
 
-- **배경**: PLAVE 2026-08-15 — 디시 잡담 글 2건("슬리퍼놀란"=놀란→논란 오독, "부동산 이슈 괜찮음?"='이슈' 마커 오분류)만으로 `controversy_count=2` → 구 산식(`1 - count/10`)에서 factor 0.8 → 전 팩터 −20% → 등급 A(7.7)→B(6.3)로 밀림.
-- **근거**: 진짜 논란은 같은 이슈로 다수 게시글이 쏟아지는 게 정상 패턴(라벨이 rare하도록 설계된 `sentiment.py`의 분류 기준과 짝을 이룸) — 1~2건은 노이즈로 취급해도 진짜 스캔들 탐지력을 잃지 않는다.
+**폴백(count 기반, weight 신호 없을 때)** — `controversy_issues` 테이블 미적용/그룹 행 없음/`computed_at`이 stale이면 count로 폴백: `max(0.6, 1 - max(0, count - CONTROVERSY_NOISE_FLOOR) / 10)`, `CONTROVERSY_NOISE_FLOOR = 2`(`health_score.py:457`). count 0/1/2 → 1.0(무감점), count 3 → 0.9, count 6 이상 → 0.6에서 고정(`(6-2)/10=0.4` → `1-0.4=0.6`이 플로어와 같아지는 지점).
+- **V2.54 대비 변경점**: V2.54는 하한이 0이라 count 12+에서 factor가 0(전 팩터 전멸)까지 갔다. V2.55는 폴백 경로에도 0.6 플로어가 적용돼 **count가 아무리 커도 0에 도달할 수 없다** — count≥6부터는 사실상 0.6 고정.
+
+**신호 소스** (§1.6.1 참조): `controversy_issues` 테이블(`migrations/0108_controversy_issues.sql`, `group_key` PK, 그룹당 최신 1행) — `analyze-weekly` 4.5단계(`cli.py:1488-1511`)가 감성 분류 직후 채운다. `_recompute_health_scores`(`cli.py:1665-1684`)가 이 테이블을 조회해 `is_stale(computed_at, max_age_days=STALE_DAYS=8)`(`controversy_issues.py:35, 149`)로 8일 초과 행을 걸러내고 살아있는 행만 `controversy_weight_by_key`에 담아 `compute_health_score(..., controversy_weight=...)`(`cli.py:1725`)로 넘긴다. 테이블 미적용/조회 실패는 통째로 try/except 폴백(`cli.py:1682-1684`).
+- **순서 주의(다음 런 수렴)**: `analyze_weekly` 안에서 Health Score 재계산(`cli.py:1411`, "2.5.")이 controversy 클러스터링(`cli.py:1488`, "4.5.")보다 **먼저** 실행된다. 즉 같은 런에서 갓 계산된 `effective_weight`는 그 런의 Health Score에 반영되지 않고, 다음 `analyze_weekly` 또는 다음 일간 `aggregate`(둘 다 `_recompute_health_scores` 호출)에서 읽혀 수렴한다.
+- **배경**: PLAVE 2026-08-15 — 디시 잡담 글 2건("슬리퍼놀란"=놀란→논란 오독, "부동산 이슈 괜찮음?"='이슈' 마커 오분류)만으로 `controversy_count=2` → 구 산식(`1 - count/10`)에서 factor 0.8 → 전 팩터 −20% → 등급 A(7.7)→B(6.3)로 밀림(V2.54 노이즈 플로어 도입 배경). V2.55는 그 위에 "이슈 심각도가 아니라 커뮤니티 볼륨(글 N건)에 비례해 깎이던" 구조 결함(ISEDOL 실증 — controversy_count 8건 → factor 0.4 → 등급 붕괴)을 교정한다.
 - **분류 엄격화** (`sentiment.py:65-84`의 `PROMPT_SENTIMENT`): controversy 버킷 정의를 "논란/이슈/의혹 등 마커 단어"에서 "제목이 구체적 사건·의혹을 명시(학폭/표절/사생활 폭로/계약 분쟁/법적 문제/기술 유출/운영 사고 등)"로 강화. Rules에 마커 단어만으로는 불충분(NOT sufficient)함과, 사건을 특정하지 않는 잡담("부동산 이슈 괜찮음?")·유사 형태 오독(놀란≠논란) 배제 규칙을 명문화. 기존 분류 데이터는 재분류하지 않음(14일 윈도우로 자연 소멸 + 플로어가 즉시 상쇄) — 신규 분류부터 적용.
+
+### 1.6.1 Controversy Issue Clustering (`controversy_issues.py`, V2.55)
+> 🟢 **쉽게**: 논란 글 여러 개를 AI가 읽고 "이거 같은 사건이네"로 묶어주는 전처리 단계. 묶은 이슈 단위로만 심각도를 매기니까 같은 사건 재탕 글이 감점을 여러 번 먹지 않는다.
+
+`analyze_weekly` 4.5단계(`cli.py:1488-1511`)에서 활성 그룹마다 `build_for_group`(`controversy_issues.py:170`)을 호출한다.
+
+1. **입력**: 그룹별 최근 `WINDOW_DAYS=14`일(`:30`) `community_posts` 중 `sentiment='controversy'`, 최대 `LIMIT_PER_GROUP=200`건(`:31`), title만(`:187-194`).
+2. **글 0건** → 기존 `controversy_issues` 행을 `DELETE`(`:195-200`) — 신호 소멸을 즉시 반영, health가 옛 weight를 계속 깎지 않게 함.
+3. **Gemini 호출은 그룹당 1회**(`_call_gemini`, `:225-239`) — 그룹의 전체 controversy 글 목록을 한 번에 넣어 `ISSUE_SCHEMA`(`:42-65`) 구조화 출력으로 이슈 리스트를 받는다.
+4. **이슈 = 같은 실제 사건 단위**: 프롬프트(`PROMPT_CONTROVERSY`, `:67-92`)가 "같은 사건/의혹/분쟁을 다루는 제목은 표현이 달라도 한 이슈로, 무관한 사건은 별개 이슈로" 클러스터링을 지시. 이슈마다 `label`(한 줄 요약)·`severity`(high/medium/low)·`post_hashes`(소속 글).
+5. **잡담 제외(2차 노이즈 필터)**: 프롬프트 Rules(`:86-91`) — 구체적 실제 사건을 가리키지 않는 잡담/밈/막연한 질문은 어느 이슈에도 넣지 말고 통째로 제외. `sentiment.py`의 1차 controversy 분류 위에 얹는 2차 필터. severity 모호 시 낮은 tier 선택 규칙도 포함.
+6. **응답 검증** (`parse_issues`, `:111-141`): severity가 `SEVERITY_WEIGHTS` 밖이거나 `post_hashes`/`label`이 비면 해당 항목을 버림(유령 이슈 방어).
+7. **effective_weight 합산** (`effective_weight`, `:144-146`): `Σ SEVERITY_WEIGHTS[severity]` — `low=1, medium=2, high=3`(`:39`).
+8. **저장**: `controversy_issues`(`migrations/0108_controversy_issues.sql`, `group_key` PK) UPSERT — 그룹당 최신 1행만(히스토리 없음), `computed_at`/`issue_count`/`effective_weight`/`issues_json`(`:211-222`).
+9. **가드**: Gemini 예외 시 빈 리스트 반환 → 기존 행 유지 + warning 로그, 그룹 스킵하고 나머지는 계속(`:202-207`). 클러스터링 단계 전체도 `cli.py`에서 try/except로 감싸 `analyze_weekly`를 죽이지 않음(`:1494-1511`).
+10. **stale 판정**: `is_stale(computed_at, max_age_days=STALE_DAYS=8)`(`:35, 149-164`) — 파싱 실패/None도 stale 취급(안전측). Health 쪽 소비는 §1.6 참조.
 
 ### 1.7 동적 REF (코호트 percentile)
 > 🟢 **쉽게**: 만점 기준을 고정하지 않고 '경쟁사들 중 상위 25% 수준'을 매번 기준으로 잡는다. 1.0 = 상위권. (반 평균이 바뀌면 'A 받는 점수'도 바뀌는 셈)
