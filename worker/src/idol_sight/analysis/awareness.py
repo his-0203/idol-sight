@@ -22,6 +22,7 @@ V2.53 Organic Trust Layer: 원값(awareness_score/category_rank)은 불변으로
 """
 from __future__ import annotations
 
+import logging
 import math
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -33,6 +34,8 @@ __all__ = [
     "compute_awareness",
     "build_awareness",
 ]
+
+log = logging.getLogger(__name__)
 
 # 신호 가중치 (합 = 1.0, first-pass — 데이터 축적 후 보정). 구독 0.5(보유 청중=
 # 현 인지도 최강 신호) / 조회 0.35(도달) / 뉴스 0.15(언론, 표기 비대칭 편향 고려해
@@ -269,7 +272,8 @@ def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
     # V2.53: organicity 신뢰 계수 로드. 테이블 이상/미적용 시 무할인(graceful).
     try:
         confidence_by_key = load_organic_confidence(client)
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        log.warning("load_organic_confidence failed, falling back to no discount: %s", e)
         confidence_by_key = {}
     rows = compute_awareness(groups_in, confidence_by_key=confidence_by_key)
     use_adj = _has_adj_columns(client)

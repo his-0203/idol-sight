@@ -344,6 +344,32 @@ def test_build_awareness_adj_columns_absent_falls_back_to_legacy_insert():
     assert len(res.statements[1][1]) == 10
 
 
+# -- build_awareness V2.53 confidence wiring (D1) --
+
+def test_build_awareness_wires_organic_confidence_into_adj_columns():
+    # debut_window_video_organicity 가 실제 verdict 행을 반환할 때, build_awareness
+    # 가 load_organic_confidence 결과를 INSERT_SQL_ADJ 파라미터에 올바른 인덱스로
+    # 채워 넣는지 end-to-end 로 확인. plave: organic 1 + likely_paid 1
+    # → mean=(1.0+0.15)/2=0.575 → conf=(2*0.575+3*0.75)/5=0.68.
+    class _ConfClient(_FakeClient):
+        def execute(self, sql, params=None):
+            if "debut_window_video_organicity" in sql:
+                return [
+                    {"group_key": "plave", "verdict": "organic"},
+                    {"group_key": "plave", "verdict": "likely_paid"},
+                ]
+            return super().execute(sql, params)
+
+    base = _fake()
+    client = _ConfClient(groups=base._groups, agg=base._agg)
+    res = build_awareness(client, snapshot_at="2026-06-27T00:00:00Z")
+    by_group = {st[1][0]: st[1] for st in res.statements[1:]}
+    plave = by_group["plave"]
+    assert plave[3] == pytest.approx(100.0)          # raw score unaffected
+    assert plave[11] == pytest.approx(0.68)           # organic_confidence
+    assert plave[10] == pytest.approx(round(100.0 * 0.68, 1))  # awareness_score_adj
+
+
 # -- migration 0097 (_apply_all 스모크) --
 
 def _apply_all():

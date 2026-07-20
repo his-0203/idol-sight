@@ -22,6 +22,7 @@ basis='insufficient_organic'(adj NULL, 원값은 유지 저장). suspect 셋 로
 """
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
@@ -33,6 +34,8 @@ __all__ = [
     "compute_core_fan_estimate",
     "build_core_fan_estimate",
 ]
+
+log = logging.getLogger(__name__)
 
 # live_activity.py 의 module-private 상수 복제 (해당 모듈에서 import 금지)
 _WINDOW_DAYS: int = 56
@@ -213,7 +216,8 @@ def build_core_fan_estimate(
     # 빈 셋 → 전 영상 organic 취급(graceful).
     try:
         suspect_ids = {r["video_id"] for r in client.execute(_SUSPECT_SQL)}
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        log.warning("suspect video set load failed, treating all videos as organic: %s", e)
         suspect_ids = set()
 
     groups = client.execute(_GROUPS_SQL)
