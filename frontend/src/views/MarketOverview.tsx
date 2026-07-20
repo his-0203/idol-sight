@@ -69,18 +69,40 @@ function sortByRank(
 
 export interface Awareness { score: number | null; category_rank: number | null; }
 
+export interface AwarenessV253 extends Awareness {
+  score_adj?: number | null; category_rank_adj?: number | null;
+  organic_confidence?: number | null;
+}
+
 // '—' when basis=insufficient (null score) or no agg_awareness row.
 export function fmtAwareness(score: number | null | undefined): string {
   return score == null ? "—" : String(score);
 }
 
-// Sort by category_rank ASC (1 = 가장 잘 알려짐). 순위 없는 그룹은 맨 뒤로→name.
+// adj-first: mig 0106 적용 + organicity 채점 그룹만 adj 보유. 미적용/구 스냅샷은 원값 폴백.
+export function awarenessDisplay(aw: AwarenessV253 | null | undefined) {
+  if (!aw) return { score: null, rank: null, discounted: false };
+  const discounted = aw.score_adj != null;
+  return {
+    score: aw.score_adj ?? aw.score ?? null,
+    rank: (aw.category_rank_adj ?? aw.category_rank) ?? null,
+    discounted,
+  };
+}
+
+export function coreDisplay(cf: any) {
+  if (!cf) return { value: null, insufficientOrganic: false };
+  if (cf.basis === "insufficient_organic") return { value: null, insufficientOrganic: true };
+  return { value: cf.est_engaged_fans_adj ?? cf.est_engaged_fans ?? null, insufficientOrganic: false };
+}
+
+// Sort by category_rank(adj-first) ASC (1 = 가장 잘 알려짐). 순위 없는 그룹은 맨 뒤로→name.
 export function sortByAwareness(
   entries: Array<[string, any]>,
 ): Array<[string, any]> {
   return [...entries].sort(([, ga], [, gb]) => {
-    const ra = ga.awareness?.category_rank;
-    const rb = gb.awareness?.category_rank;
+    const ra = awarenessDisplay(ga.awareness).rank;
+    const rb = awarenessDisplay(gb.awareness).rank;
     const aHas = ra != null;
     const bHas = rb != null;
     if (aHas && bHas && ra !== rb) return ra - rb;
@@ -93,11 +115,11 @@ export function sortByAwareness(
 export type TableSortKey = "grade" | "awareness" | "core" | "viewconv" | "sov";
 export interface TableSort { key: TableSortKey; dir: 1 | -1 } // dir 1=내림차순, -1=오름차순
 
-function tableSortValue(key: TableSortKey, k: string, g: any, shares: Record<string, number>): number | null {
+export function tableSortValue(key: TableSortKey, k: string, g: any, shares: Record<string, number>): number | null {
   switch (key) {
     case "grade":     return g.health_score?.total ?? null;
-    case "awareness": return g.awareness?.score ?? null;
-    case "core":      return g.core_fan_estimate?.est_engaged_fans ?? null;
+    case "awareness": return awarenessDisplay(g.awareness).score;
+    case "core":      return coreDisplay(g.core_fan_estimate).value;
     case "viewconv":  return g.view_conversion?.rate_ceiling ?? g.view_conversion?.rate ?? null;
     case "sov":       return shares[k] ?? null;
   }
@@ -107,12 +129,12 @@ function tableSortValue(key: TableSortKey, k: string, g: any, shares: Record<str
 const HELP = {
   group:     "색 = 그룹 식별 · '자사' 배지 = MiiWAN(우리 그룹). 행 클릭 = 그룹 심층 페이지.",
   grade:     "건강 점수(0~10)의 등급(S>A>B>C>D). Reach·Ritual·Mobilize·Intimacy 4축 가중합. 옆 숫자는 원점수, PRE = 데뷔 전(또는 점수 집계 전·활동량 부족).",
-  awareness: "인지 폭(0~100, '얼마나 많이 알려졌나'). 카테고리 리더 대비 구독·조회·뉴스를 log 정규화. #N = 카테고리 내 순위.",
-  core:      "추정 코어 = 최근 56일 영상별 '좋아요' 중앙값(고유 반응 팬 근사). 추정 휴리스틱 — 실측 아님.",
-  quad:      "넓이(인지도)×깊이(추정 코어) 사분면. 진성강세=둘 다 높음 · 광고형/바이럴=넓지만 얕음 · 니치 충성=좁지만 깊음 · 저조=둘 다 낮음 (카테고리 중앙값 기준).",
+  awareness: "인지 폭(0~100). 카테고리 리더 대비 구독·조회·뉴스 log 정규화 후 organicity 신뢰 계수로 할인한 보정값(원값은 셀 툴팁). #N = 보정값 기준 카테고리 내 순위.",
+  core:      "추정 코어 = 최근 56일 영상별 '좋아요' 중앙값(고유 반응 팬 근사). 유료 의심(suspect/likely_paid) 영상은 제외. 추정 휴리스틱 — 실측 아님.",
+  quad:      "넓이(인지도)×깊이(추정 코어) 사분면. 진성강세=둘 다 높음 · 광고형/바이럴=넓지만 얕음 · 니치 충성=좁지만 깊음 · 저조=둘 다 낮음 (카테고리 중앙값 기준). 사분면의 인지도는 할인 전 원값 — '넓지만 얕음(광고형)' 패턴 탐지가 목적.",
   viewconv:  "시청전환율 = 라이브 방송 동시접속(방송별 peak CCV 중앙값) ÷ 구독자. 구독자 중 실제 라이브에 오는 비율(충성도 신호). 위버스 등 오프플랫폼 라이브가 있는 그룹(PLAVE)은 유튜브 실측 + 위버스 추정(≥10만) 합산값(≈ 표시). 라이브 CCV 미수집 그룹은 —.",
   sov:       "관심 점유율(Share of Voice) — 그룹들 사이 상대 비중(유튜브 조회 33%·커뮤니티 28%·뉴스 22%·구독 17%). 옆 ▲▼ = 전주 대비 변화(pp).",
-  caveat:    "영상 카탈로그 organicity가 주의 구간(유료로 산 도달 의심). 심각도 순: 노랑=오가닉성 주의 < 주황=유료 의심 < 빨강=유료 가능성 높음. 인지도 점수엔 반영 안 되는 직교 참고 신호.",
+  caveat:    "영상 카탈로그 organicity가 주의 구간(유료로 산 도달 의심). 심각도 순: 노랑=오가닉성 주의 < 주황=유료 의심 < 빨강=유료 가능성 높음. 인지도·추정 코어에는 신뢰 할인으로 반영됨(V2.53).",
 } satisfies Record<string, string>;
 
 /** ts=null이면 기본 순서(sortByRank=등급순) 유지. 값 없는 그룹은 방향과 무관하게 항상 뒤로. */
@@ -443,21 +465,40 @@ export function MarketOverview() {
                             {total != null ? `${total}` : fallback != null ? fmt(fallback) : "—"}
                           </span>
                         </td>
-                        <td class="px-2 py-2 text-right tabular-nums">
-                          {g.awareness?.score != null ? (
-                            <span class="text-sky-300">
-                              {fmtAwareness(g.awareness.score)}
-                              {g.awareness.category_rank != null && (
-                                <span class="text-hint text-zinc-500"> #{g.awareness.category_rank}</span>
+                        {(() => {
+                          const awDisp = awarenessDisplay(g.awareness);
+                          return (
+                            <td class="px-2 py-2 text-right tabular-nums"
+                                title={awDisp.discounted
+                                  ? `원값 ${g.awareness.score} · 신뢰 계수 ${g.awareness.organic_confidence} — 유료 의심 영상 비중만큼 할인`
+                                  : undefined}>
+                              {awDisp.score != null ? (
+                                <span class="text-sky-300">
+                                  {fmtAwareness(awDisp.score)}
+                                  {awDisp.rank != null && (
+                                    <span class="text-hint text-zinc-500"> #{awDisp.rank}</span>
+                                  )}
+                                </span>
+                              ) : (
+                                <span class="text-zinc-600" title="신호 부족 — 인지도 산정 제외">—</span>
                               )}
-                            </span>
-                          ) : (
-                            <span class="text-zinc-600" title="신호 부족 — 인지도 산정 제외">—</span>
-                          )}
-                        </td>
-                        <td class="px-2 py-2 text-right tabular-nums" title="좋아요·댓글 기반 추정(관여 팬) — 라이브 측정과 다른 축, 참고">
-                          {cf?.est_engaged_fans != null ? <>~{fmt(cf.est_engaged_fans)}</> : <span class="text-zinc-600">—</span>}
-                        </td>
+                            </td>
+                          );
+                        })()}
+                        {(() => {
+                          const coreDisp = coreDisplay(cf);
+                          return (
+                            <td class="px-2 py-2 text-right tabular-nums" title="좋아요·댓글 기반 추정(관여 팬) — 라이브 측정과 다른 축, 참고">
+                              {coreDisp.value != null ? (
+                                <>~{fmt(coreDisp.value)}</>
+                              ) : coreDisp.insufficientOrganic ? (
+                                <span class="text-zinc-600" title="유료 의심 영상 제외 후 표본 부족 — 추정 보류">—</span>
+                              ) : (
+                                <span class="text-zinc-600">—</span>
+                              )}
+                            </td>
+                          );
+                        })()}
                         {(() => {
                           const vc = g.view_conversion;
                           const shown = vc?.rate_ceiling ?? vc?.rate ?? null;     // ceiling(유튜브+위버스) 우선
@@ -492,7 +533,7 @@ export function MarketOverview() {
                         </td>
                         <td class="px-2 py-2 whitespace-nowrap">
                           {cav.show ? (
-                            <span class="text-hint" style={{ color: verdictColor(cav.verdict) }} title="영상 카탈로그 organicity 주의 — 광고로 산 도달 가능성. 인지도 점수엔 미반영(직교 참고).">⚠ {cav.label}</span>
+                            <span class="text-hint" style={{ color: verdictColor(cav.verdict) }} title="영상 카탈로그 organicity 주의 — 광고로 산 도달 가능성. 인지도·추정 코어에는 신뢰 할인으로 반영됨(V2.53).">⚠ {cav.label}</span>
                           ) : (
                             <span class="text-zinc-600">·</span>
                           )}

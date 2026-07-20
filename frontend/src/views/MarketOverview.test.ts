@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtAwareness, sortByAwareness } from "./MarketOverview";
+import { fmtAwareness, sortByAwareness, tableSortValue, awarenessDisplay, coreDisplay } from "./MarketOverview";
 
 const g = (name: string, rank: number | null, score: number | null = rank) =>
   [name.toLowerCase(), { name, awareness: { score, category_rank: rank } }] as [string, any];
@@ -32,5 +32,29 @@ describe("sortByAwareness", () => {
     const before = input.map(([k]) => k);
     sortByAwareness(input);
     expect(input.map(([k]) => k)).toEqual(before);
+  });
+});
+
+describe("V2.53 organic trust display", () => {
+  it("awarenessDisplay prefers adj and marks discounted", () => {
+    expect(awarenessDisplay({ score: 76.1, category_rank: 3, score_adj: 38.4, category_rank_adj: 7, organic_confidence: 0.506 }))
+      .toEqual({ score: 38.4, rank: 7, discounted: true });
+  });
+  it("awarenessDisplay falls back to raw when adj null (unmigrated)", () => {
+    expect(awarenessDisplay({ score: 50, category_rank: 2, score_adj: null, category_rank_adj: null, organic_confidence: null }))
+      .toEqual({ score: 50, rank: 2, discounted: false });
+  });
+  it("coreDisplay hides value on insufficient_organic", () => {
+    expect(coreDisplay({ est_engaged_fans: 218, est_active_core: 18, est_engaged_fans_adj: null, est_active_core_adj: null, basis: "insufficient_organic" }))
+      .toEqual({ value: null, insufficientOrganic: true });
+  });
+  it("coreDisplay prefers adj value", () => {
+    expect(coreDisplay({ est_engaged_fans: 218, est_active_core: 18, est_engaged_fans_adj: 120, est_active_core_adj: 9, basis: "scored" }))
+      .toEqual({ value: 120, insufficientOrganic: false });
+  });
+  it("tableSortValue awareness/core use adjusted values", () => {
+    const g = { awareness: { score: 76.1, score_adj: 38.4 }, core_fan_estimate: { est_engaged_fans: 218, est_engaged_fans_adj: 120, basis: "scored" } };
+    expect(tableSortValue("awareness", "k", g, {})).toBe(38.4);
+    expect(tableSortValue("core", "k", g, {})).toBe(120);
   });
 });
