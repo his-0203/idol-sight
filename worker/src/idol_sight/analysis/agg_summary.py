@@ -20,7 +20,8 @@ from idol_sight.collectors.base import CollectionResult
 
 # Controversy is re-sourced from community_posts (sentiment='controversy')
 # over a TRAILING window — not a cumulative all-time count. The downstream
-# health_score._controversy_factor = max(0, 1 - count/10) is raw-count
+# health_score._controversy_factor = max(0, 1 - max(0, count-2)/10) (V2.54
+# noise floor) is raw-count
 # based, so a cumulative community tally would grow without bound and pin
 # Health (and the crisis alert) to 0 forever. 14d sits at the top of the
 # design's 7-14d range: enough signal for a stable cohort-z on the
