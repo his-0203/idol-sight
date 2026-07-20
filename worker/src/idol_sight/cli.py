@@ -1342,6 +1342,8 @@ def analyze_weekly(
     if hanteo_result.statements:
         client.batch(hanteo_result.statements)
     typer.echo(f"hanteo: matched {hanteo_result.rows_inserted} groups")
+    if getattr(hanteo_result, "errors", None):
+        typer.echo(f"hanteo errors: {hanteo_result.errors}")
 
     # 2. Share of Voice (formerly "market share") — V2 reformulation.
     # Each signal (yt_views/community/news/subscribers) is now

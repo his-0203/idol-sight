@@ -1,7 +1,7 @@
 # IDOL-SIGHT 산식 레퍼런스 (Dashboard Formula Reference)
 
 > **목적**: 대시보드가 계산하는 **모든 결정론적 산식**(가중치·임계값·정규화·분류 규칙)을 한 곳에 정리한 단일 참조 문서.
-> **기준일**: 2026-07-20 (V2.55 Controversy Issue Dedup까지 반영 — §1.6 `_controversy_factor` 이슈 가중 기반 v3 + §1.6.1 `controversy_issues.py` 클러스터링 모듈 신설). 이전 V2.54 Controversy Noise Guard 포함 범위: §1.6 노이즈 플로어(count 기반), §13 `PROMPT_SENTIMENT` controversy 분류 엄격화. 이전 V2.53 Organic Trust Layer 포함 범위: §16 Organic Confidence 신설, §1.1 `debut_confirmed` PRE 게이트, §15 인지도 adj, §14.5 추정 코어 adj. 이전 기준일 2026-06-27(P2c) 포함 범위: SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness.
+> **기준일**: 2026-07-20 (V2.56 Awareness Band Normalization + Hanteo Standing Decay까지 반영 — §15.2 step 2 인지도 log-within-band 정규화, §1.3 RitualVictory `hanteo_n` 입력이 all-time MAX(sales)에서 `hanteo_standing_value`(최신 앨범 초동 × 180일 반감기 감쇠)로 교체, migrations/0109 초동 seed). 이전 V2.55 Controversy Issue Dedup 포함 범위: §1.6 `_controversy_factor` 이슈 가중 기반 v3 + §1.6.1 `controversy_issues.py` 클러스터링 모듈 신설. 이전 V2.54 Controversy Noise Guard 포함 범위: §1.6 노이즈 플로어(count 기반), §13 `PROMPT_SENTIMENT` controversy 분류 엄격화. 이전 V2.53 Organic Trust Layer 포함 범위: §16 Organic Confidence 신설, §1.1 `debut_confirmed` PRE 게이트, §15 인지도 adj, §14.5 추정 코어 adj. 이전 기준일 2026-06-27(P2c) 포함 범위: SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness.
 > **읽는 법**: 각 항목은 두 겹이다 — **🟢 쉽게** = 수식 없이 비유로 "뭘 보는 건지", 그 아래 **산식** = 정확한 공식·상수·`파일:라인`. 비전문가는 🟢만 읽어도 되고, 구현/검증은 산식까지 본다.
 > **출처**: `worker/src/idol_sight/analysis/*.py`, `worker/src/idol_sight/cli.py`, `frontend/src/lib/*.ts`, `frontend/functions/lib/*.ts`, `frontend/functions/api/*.ts`, `frontend/src/components/FanLoyaltyCard.tsx`, `frontend/src/views/MarketOverview.tsx`, `migrations/*.sql`.
 > **갱신 규칙**: 산식/상수 변경 시 이 문서와 `CLAUDE.md` 체인지로그를 함께 갱신한다. 코드가 진실의 원천이며, 인용 라인은 drift할 수 있으니 의심되면 원본 확인.
@@ -114,7 +114,7 @@
 
 **RitualVictory (의례적 승리)** (`:604-616`, `redistribute=False` 기본 — dead 신호가 분모에 남아 실제 하락):
 `wmean[(hanteo_n,0.50), (news_n,0.10), (music_show_n,0.20), (chart_peak_n,0.10), (chart_depth_n,0.10)]`
-- `hanteo_n=min(hanteo_sales/1_000_000, 1)` (100만장 saturate).
+- `hanteo_n=min(hanteo_sales/1_000_000, 1)` (100만장 saturate). **V2.56**: `hanteo_sales` 자체가 all-time `MAX(sales)`(감쇠 없음 — 초동을 영구 보존해 초동/임의 주차를 혼동시키던 결함, 캘리브레이션 리포트 §C)에서 `hanteo_standing_value`(`health_score.py:431-490`, `cli.py:1625-1635`)로 교체됐다: 그룹의 최신 앨범(첫 주가 가장 늦은 앨범)의 초동(`min week_start` 행의 `sales`)에 `0.5**(경과일/HANTEO_DECAY_HALF_LIFE_DAYS)`(`HANTEO_DECAY_HALF_LIFE_DAYS=180`, `:428`) 시간 감쇠를 곱한 "standing value". 컴백 직후 경과일 0→감쇠 1.0, 반감기(180일) 경과→×0.5. `hanteo_weekly` 는 주차 스냅샷이라 감쇠 없이는 컴백 주 이후 ritual 신호가 0으로 붕괴하는 문제를 막는다. 입력 소스: `migrations/0109_hanteo_seed.sql`(plave/isedol/stellive 초동 3건 웹 검증 seed, 2026-07-20) — 이전까지 `hanteo_weekly` 프로덕션 0행이라 `hanteo_n`이 항상 0으로 죽어 있었음.
 - `music_show_n=_normalize(wins, ref=5.0)`.
 - `chart_peak_n`: peak∈[1,100] → `(101-peak)/100` (1위=1.0), 아니면 0.
 - `chart_depth_n`: `min(depth/depth_ref, 1)`, `depth_ref=ref or 5.0`.
@@ -661,19 +661,21 @@ Full DELETE rebuild 패턴(loyalty.py 미러). `basis='scored'`인 summary만 He
 
 검색량(`search_n`)은 후속 플러그인 자리만 비워 둠 — 추가 시 가중치 재배분.
 
-### 15.2 산식 (`compute_awareness`, `:77-155`)
+### 15.2 산식 (`compute_awareness`, `awareness.py:100-204`)
 
 1. **카테고리 분류** (`_category_of`, `:43-54`): `corporate → kpop`, `segmentary/confederation → subculture`. **3곳 미러** — `awareness.py` / `weekly_diagnosis_signals._category_of` / `frontend MarketOverview.categoryOf`: 매핑 변경 시 세 곳 동시 갱신.
-2. **리더 대비 log1p 정규화** (`_normalize_log`): `신호 값 → log1p(value) / log1p(category_max)`. 리더 = 카테고리 내 해당 신호 최댓값(기준 1.0). min-max 대신 리더 대비 채택 이유 — min-max는 카테고리 최하위를 강제로 0으로 만들어(SOV의 "최하위 0%" 문제) 실측 청중 보유 그룹이 0으로 깔린다.
+2. **리더 대비 log-within-band 정규화** (`_normalize_log`, `awareness.py:74-97`, **V2.56 재정의**): 밴드 `[log1p(0.01·ref), log1p(ref)]`(ref = 카테고리 내 해당 신호 최댓값)를 `[0, 1]`로 선형 매핑 — `x = (log1p(value) - lo) / (hi - lo)`, `lo=log1p(0.01·ref)`, `hi=log1p(ref)`, 클램프 `[0,1]`. 리더(`value==ref>0`)는 정확히 1.0, 리더의 1% 이하 규모는 0.0. `value<=0` 또는 `ref<=0` → 0.
+   - **V2.56 변경 이유**: 기존 `log1p(value)/log1p(ref)` 는 리더 대비 극소 규모 그룹(예: bdawn 구독 9K vs PLAVE 1.19M, 132배 차)도 0.65~0.77 로 찍어 과대 압축했다 — 캘리브레이션 리포트 §B: bdawn 인지도 raw 68.6(PLAVE의 69%로 표시)이나 실제 보유청중은 PLAVE의 0.76%. 리더 대비 [1%, 100%] 규모 구간을 log 스케일로 [0,1]에 펼쳐 점수 크기가 실제 규모차를 정직하게 전달하게 한다(§B 재계산: bdawn 68.6→7.6, owis 79.8→36.2). log1p·밴드 정규화 모두 단조 변환이라 **순위는 불변**(§B 근거는 크기 왜곡 교정이지 순위 재정렬이 아님).
+   - min-max 대신 리더 대비 밴드 채택 이유(기존 설계 유지) — min-max는 카테고리 최하위를 강제로 0으로 만들어(SOV의 "최하위 0%" 문제) 실측 청중 보유 그룹이 0으로 깔린다.
 3. **가중합**: `score_raw = Σ AWARENESS_WEIGHTS[k] * norm[k]`.
 4. **0–100 스케일링**: `score = round(score_raw * 100, 1)`.
 5. **카테고리별 분리 랭킹**: kpop/subculture 내에서 `score` 내림차순. 동점 tiebreak → `yt_subscribers` 큰 쪽 우선.
 6. **basis**: `yt_subscribers`와 `yt_total_views` 모두 None/0 → `insufficient`(score=None); else `scored`.
-7. **`awareness_score_adj` / `category_rank_adj` (V2.53, `:99-103, 146-160, 175-182`)**: §16 Organic Confidence 계수(`conf`, 그룹별 0~1)로 원값을 곱만 하는 **추가** 산출값 — 원값(`awareness_score`/`category_rank`) 자체는 불변.
-   - `awareness_score_adj = round(awareness_score * conf, 1)` (`:148`). `basis='insufficient'`(score=None) → adj도 None.
-   - `category_rank_adj`: adj 점수 기준으로 카테고리 내 **재랭킹**(`:177-181`) — 원값 랭킹과 독립적으로 다시 정렬. tiebreak은 원값과 동일(`yt_subscribers` 내림차순, `:179`).
-   - `conf` 부재 그룹(organicity 채점 영상 0) → 1.0 무할인(`:105, 147`).
-   - **저장**: mig 0106(`migrations/0106_awareness_adj.sql`) 적용 D1만 adj 3컬럼 INSERT(`_INSERT_SQL_ADJ`, `:217-223`); 미적용이면 `_has_adj_columns`(`:226-232`)가 감지해 기존 10컬럼 INSERT로 graceful 폴백.
+7. **`awareness_score_adj` / `category_rank_adj` (V2.53, `awareness.py:117-121, 164-166, 193-199`)**: §16 Organic Confidence 계수(`conf`, 그룹별 0~1)로 원값을 곱만 하는 **추가** 산출값 — 원값(`awareness_score`/`category_rank`) 자체는 불변.
+   - `awareness_score_adj = round(awareness_score * conf, 1)` (`:166`). `basis='insufficient'`(score=None) → adj도 None.
+   - `category_rank_adj`: adj 점수 기준으로 카테고리 내 **재랭킹**(`:193-199`) — 원값 랭킹과 독립적으로 다시 정렬. tiebreak은 원값과 동일(`yt_subscribers` 내림차순, `:197`).
+   - `conf` 부재 그룹(organicity 채점 영상 0) → 1.0 무할인(`:165`).
+   - **저장**: mig 0106(`migrations/0106_awareness_adj.sql`) 적용 D1만 adj 3컬럼 INSERT(`_INSERT_SQL_ADJ`, `awareness.py:235-241`); 미적용이면 `_has_adj_columns`(`:244-250`)가 감지해 기존 10컬럼 INSERT로 graceful 폴백.
 
 ### 15.3 SOV와의 차이
 
