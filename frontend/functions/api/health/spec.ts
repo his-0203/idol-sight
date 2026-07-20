@@ -13,7 +13,10 @@ export const onRequestGet: PagesFunction = async () =>
     grade_thresholds: [["S",9],["A",7],["B",5],["C",3],["D",0]],
     grade_labels: {
       S: "정상 궤도", A: "안정적", B: "성장 중",
-      C: "초기 진입", D: "활동 미미", PRE: "데뷔 전 (활동량 부족)",
+      C: "초기 진입", D: "활동 미미",
+      // V2.53: debut_date 없음/미래 또는 정식 데뷔 미확정(잠정 앵커, debut_confirmed=0)
+      // 둘 다 PRE. 산식은 worker/src/idol_sight/analysis/health_score.py:653.
+      PRE: "데뷔 전 (활동량 부족, 정식 데뷔 미확정(잠정 앵커) 포함)",
     },
     references: {
       subscribers: "yt_subscribers / 내부 코호트 p75 (linear)",

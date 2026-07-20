@@ -1,9 +1,9 @@
 # IDOL-SIGHT 산식 레퍼런스 (Dashboard Formula Reference)
 
 > **목적**: 대시보드가 계산하는 **모든 결정론적 산식**(가중치·임계값·정규화·분류 규칙)을 한 곳에 정리한 단일 참조 문서.
-> **기준일**: 2026-06-27 (P2c까지 반영 — SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness 포함).
+> **기준일**: 2026-07-20 (V2.53 Organic Trust Layer까지 반영 — §16 Organic Confidence 신설, §1.1 `debut_confirmed` PRE 게이트, §15 인지도 adj, §14.5 추정 코어 adj). 이전 기준일 2026-06-27(P2c) 포함 범위: SOV 재정의·controversy 재소싱·ritual 조건부 재분배·velocity 보간·서브컬처 진단·live_activity·awareness.
 > **읽는 법**: 각 항목은 두 겹이다 — **🟢 쉽게** = 수식 없이 비유로 "뭘 보는 건지", 그 아래 **산식** = 정확한 공식·상수·`파일:라인`. 비전문가는 🟢만 읽어도 되고, 구현/검증은 산식까지 본다.
-> **출처**: `worker/src/idol_sight/analysis/*.py`, `worker/src/idol_sight/cli.py`, `frontend/src/lib/*.ts`, `frontend/functions/lib/*.ts`, `frontend/src/components/FanLoyaltyCard.tsx`.
+> **출처**: `worker/src/idol_sight/analysis/*.py`, `worker/src/idol_sight/cli.py`, `frontend/src/lib/*.ts`, `frontend/functions/lib/*.ts`, `frontend/functions/api/*.ts`, `frontend/src/components/FanLoyaltyCard.tsx`, `frontend/src/views/MarketOverview.tsx`, `migrations/*.sql`.
 > **갱신 규칙**: 산식/상수 변경 시 이 문서와 `CLAUDE.md` 체인지로그를 함께 갱신한다. 코드가 진실의 원천이며, 인용 라인은 drift할 수 있으니 의심되면 원본 확인.
 > **비-결정론 제외**: LLM(Gemini) 판단 항목(감성 분류, weekly 본문, 챌린지 분류)은 "산식"이 아니므로 규칙만 — §13 참조.
 > **윤리 주의**: 모든 지표는 공개 외형 신호 기반. 위기 알림(논란/본체노출)은 인간 검증 필수(`v2-roadmap.md §7`).
@@ -30,6 +30,7 @@
 **부록**
 - [§14. Live Activity — 찐팬 활동량 (P2a)](#14-live-activity--찐팬-활동량-p2a)
 - [§15. Awareness Index — 인지도 지수 (P2b)](#15-awareness-index--인지도-지수-p2b)
+- [§16. Organic Confidence — Organicity 신뢰 계수 (V2.53)](#16-organic-confidence--organicity-신뢰-계수-v253)
 
 ---
 
@@ -68,18 +69,20 @@
 
 ### 1.1 총점 & 등급
 
-> 🟢 **쉽게**: 네 영역 점수 합 + 최근활동 보너스 → 10점 만점으로 환산 → 점수대로 S/A/B/C/D 등급. 데뷔 전 그룹은 아직 "PRE"(점수 없음).
+> 🟢 **쉽게**: 네 영역 점수 합 + 최근활동 보너스 → 10점 만점으로 환산 → 점수대로 S/A/B/C/D 등급. 데뷔 전 그룹은 아직 "PRE"(점수 없음). **정식 데뷔 미확정(잠정 앵커) 포함** — 선공개 싱글 등으로 `debut_date`는 있어도 정식 데뷔가 아직이면(V2.53) 마찬가지로 PRE.
 
-**산식** (`compute_health_score`, `:604-704`):
-1. **Pre-debut 게이트** (`:613-618`): `debut_date` 없음/미래 → `grade="PRE"`, `total=None`.
-2. **effective live 메트릭** `L` (`:630`): 코호트 live ∩ 이 그룹 live (죽은 신호 제거).
-3. **가중치 선택** (`:631`): `FACTOR_WEIGHTS[group_model]` (없으면 corporate).
-4. **risk_factor** = `_controversy_factor(controversy_count)` (`:665`).
-5. **팩터 점수** (`:667-670`): `factor_scores[name] = round(factor_input[name] * weight[name] * risk_factor, 2)` — risk가 4개 팩터 전부에 곱해짐.
-6. **factor_base** = Σ factor_scores (`:671`).
-7. **bonus** = `_recent_bonus(v90, v30)` (최대 10) (`:673`).
-8. **total** (`:678`): `round((factor_base + bonus) / FACTOR_DENOM * 10.0, 1)`, **`FACTOR_DENOM = 110`** (100 + bonus_max 10).
-9. **grade** (`:683`): `GRADE_THRESHOLDS`에서 `total >= thr` 첫 등급.
+**산식** (`compute_health_score`, `:634-744`):
+1. **Pre-debut/미확정 게이트** (`:653`): `debut_date` 없음/미래(`_is_pre_debut`, `:189-196`) **또는** `debut_confirmed ∈ (0, False)` → `grade="PRE"`, `total=None`.
+   - **`debut_confirmed` (V2.53)**: `groups.debut_confirmed` 컬럼(`migrations/0105_debut_confirmed.sql`, 기본값 1). `debut_date`는 있으나 정식 데뷔가 아직 미확정인 "잠정 앵커" 케이스를 잡는다(예: BTHD — `debut_date='2026-06-26'`은 선공개 싱글일이고 정식 데뷔는 10월 초 예정이라 mig 0105가 `debut_confirmed=0`으로 시딩). `None`/`1`/미전달(mig 0105 미적용 D1, `cli.py:1715-1725` SELECT가 예외 시 컬럼 없이 폴백) → 확정 취급(하위 호환). 호출부 `cli.py:1678`: `debut_confirmed=g.get("debut_confirmed", 1)`.
+   - **소비처는 이 게이트뿐** — `debut_date` 자체는 organicity 윈도우 버킷(§6.8)·Debut Window 표시·인지도(§15, 데뷔 전도 포함)에서 그대로 쓰이고 `debut_confirmed`의 영향을 받지 않는다.
+2. **effective live 메트릭** `L` (`:670`): 코호트 live ∩ 이 그룹 live (죽은 신호 제거).
+3. **가중치 선택** (`:671-672`): `FACTOR_WEIGHTS[group_model]` (없으면 corporate).
+4. **risk_factor** = `_controversy_factor(controversy_count)` (`:705`).
+5. **팩터 점수** (`:707-710`): `factor_scores[name] = round(factor_input[name] * weight[name] * risk_factor, 2)` — risk가 4개 팩터 전부에 곱해짐.
+6. **factor_base** = Σ factor_scores (`:711`).
+7. **bonus** = `_recent_bonus(v90, v30)` (최대 10) (`:713-715`).
+8. **total** (`:717-718`): `round((factor_base + bonus) / FACTOR_DENOM * 10.0, 1)`, **`FACTOR_DENOM = 110`** (100 + bonus_max 10).
+9. **grade** (`:723`): `GRADE_THRESHOLDS`에서 `total >= thr` 첫 등급.
 
 **출력**: total 0.0–10.0, grade ∈ {S,A,B,C,D,PRE}.
 
@@ -601,13 +604,24 @@ Per-broadcast basis: `unique_chatters==0 → insufficient`; `returning_rate is N
 
 Full DELETE rebuild 패턴(loyalty.py 미러). `basis='scored'`인 summary만 Health Intimacy 주입 경로에 진입(미구현, 향후 연결 예정).
 
+### 14.5 전 그룹 추정 코어 (`core_fan_estimate.py`, MarketOverview 카드)
+
+`core_fan_estimate.py` · §14.3 (B) Estimated(`estimate_video_engagement`)를 MiiWAN 전용에서 **전 그룹**으로 확대. 신규 수집 0 — youtube_videos/youtube_video_stats 재가공. 정렬/순위 키 아님, 카드 참고 표기 전용(Heuristic, not ground-truth).
+
+> 🟢 **쉽게**: MiiWAN만 보여주던 "추정 코어팬"(최근 영상 좋아요·댓글 중앙값)을 전 그룹 카드에 확대 적용. §14.3과 같은 산식, 대상만 확장.
+
+- **영상 표본** (`build_core_fan_estimate`, `:183-241`): 그룹당 최근 `_WINDOW_DAYS=56`일 영상. `< _MIN_WINDOW_VIDEOS=3`편이면 최신 `_VIDEO_FALLBACK_LIMIT=12`편 폴백(§14.1 live_activity.py 상수를 module-private라 로컬 복제).
+- **산식** (`compute_core_fan_estimate`, `:111-164`): 표본을 `estimate_video_engagement`(§14.3)에 그대로 전달 → `est_engaged_fans=median(likes)`, `est_active_core=median(comments)`, `like_rate`/`comment_rate`.
+- **basis**: `videos` 빈 리스트 → `insufficient`(원값·adj 전부 None). 그 외는 §16.3 참조(V2.53 adj 필터 결과에 따라 `scored`/`insufficient_organic`).
+- **저장**: 스냅샷별 멱등(`DELETE WHERE snapshot_at=?` 선두), 그룹당 1행.
+
 ---
 
 ## 15. Awareness Index — 인지도 지수 (P2b)
 
 `awareness.py` · 카테고리별 상대 인지도 지수(0–100). 신규 수집 0 — `agg_summary` 최신 신호(구독·조회·뉴스) 재가공. **데뷔 전 그룹 포함**(데뷔 전에도 구독·조회로 인지도 존재).
 
-> 🟢 **쉽게**: "버추얼 아이돌 인지도 순위"에 직접 답하는 1차원 지표. SOV와 달리 zero-sum이 아님(점유가 아니라 리더 대비 상대값).
+> 🟢 **쉽게**: "버추얼 아이돌 인지도 순위"에 직접 답하는 1차원 지표. SOV와 달리 zero-sum이 아님(점유가 아니라 리더 대비 상대값). **V2.53**: 화면 표시는 원값이 아니라 organicity 신뢰 계수로 할인한 보정값(adj)이 기본 — 유료 의심 영상 비중이 높은 그룹은 인지도가 깎여 보인다(§16).
 
 ### 15.1 상수
 
@@ -629,6 +643,11 @@ Full DELETE rebuild 패턴(loyalty.py 미러). `basis='scored'`인 summary만 He
 4. **0–100 스케일링**: `score = round(score_raw * 100, 1)`.
 5. **카테고리별 분리 랭킹**: kpop/subculture 내에서 `score` 내림차순. 동점 tiebreak → `yt_subscribers` 큰 쪽 우선.
 6. **basis**: `yt_subscribers`와 `yt_total_views` 모두 None/0 → `insufficient`(score=None); else `scored`.
+7. **`awareness_score_adj` / `category_rank_adj` (V2.53, `:99-103, 146-160, 175-182`)**: §16 Organic Confidence 계수(`conf`, 그룹별 0~1)로 원값을 곱만 하는 **추가** 산출값 — 원값(`awareness_score`/`category_rank`) 자체는 불변.
+   - `awareness_score_adj = round(awareness_score * conf, 1)` (`:148`). `basis='insufficient'`(score=None) → adj도 None.
+   - `category_rank_adj`: adj 점수 기준으로 카테고리 내 **재랭킹**(`:177-181`) — 원값 랭킹과 독립적으로 다시 정렬. tiebreak은 원값과 동일(`yt_subscribers` 내림차순, `:179`).
+   - `conf` 부재 그룹(organicity 채점 영상 0) → 1.0 무할인(`:105, 147`).
+   - **저장**: mig 0106(`migrations/0106_awareness_adj.sql`) 적용 D1만 adj 3컬럼 INSERT(`_INSERT_SQL_ADJ`, `:217-223`); 미적용이면 `_has_adj_columns`(`:226-232`)가 감지해 기존 10컬럼 INSERT로 graceful 폴백.
 
 ### 15.3 SOV와의 차이
 
@@ -639,6 +658,59 @@ Full DELETE rebuild 패턴(loyalty.py 미러). `basis='scored'`인 summary만 He
 | 신호 수 | 4종 + 모멘텀 | 3종(구독·조회·뉴스) |
 | 데뷔 전 | 포함(agg_summary 있으면) | 포함 |
 | 목적 | "이번 주 이 그룹이 주목 많이 받았나" | "이 그룹이 카테고리 리더 대비 얼마나 알려졌나" |
+
+---
+
+## 16. Organic Confidence — Organicity 신뢰 계수 (V2.53)
+
+`organic_confidence.py` · Debut Window Organicity(§6)의 영상별 verdict 분포를 그룹당 0~1 계수 하나로 압축해, 인지도(§15)·추정 코어(§14.5)가 유료 의심 할인에 공용으로 쓰는 신호. Health Score PRE 게이트(§1.1의 `debut_confirmed`)와는 별개 축(신뢰 vs 데뷔 확정).
+
+> 🟢 **쉽게**: 그룹의 데뷔 영상들이 대체로 "진짜"인지 "유료로 띄운 것"인지를 점수 하나(0~1)로 압축한 신뢰도. 1에 가까우면 그대로 믿고, 낮으면 인지도·추정 코어 숫자를 깎아서 보여준다. 판정할 영상이 아예 없으면 의심할 근거가 없으니 깎지 않는다(1.0).
+
+### 16.1 상수 & 계수 산식
+
+| 상수 | 값 | 위치 |
+|---|---|---|
+| `VERDICT_WEIGHTS` | organic_strong/organic=1.0, borderline=0.7, suspect=0.4, likely_paid=0.15 | `organic_confidence.py:22-28` |
+| `CONFIDENCE_PRIOR` | 0.75 | `:29` |
+| `CONFIDENCE_SHRINKAGE_K` | 3 | `:30` |
+
+**산식** (`compute_organic_confidence`, `:39-49`):
+1. 그룹의 §6.6 verdict 리스트에서 `insufficient_data`(판정 불가) 제외(SQL `:32-36`, 함수 내 필터 `:41`) — 판정 근거 없이 유료 의심으로 몰지 않는다.
+2. `n=0`(채점 영상 없음) → **`conf=1.0`**(무할인, `:43-44`). *prior(0.75)로 수렴시키지 않는 이유(모듈 docstring `:6-8`): 미채점 그룹 전원이 25% 감점되는 부작용 방지.*
+3. `n>0`: **단순(count 기반) 평균** `mean = Σ VERDICT_WEIGHTS[v] / n`(`:45`) — 조회수 가중 아님(§6.9 V2.40 simple-mean 원칙과 동일 사상).
+4. **thin-sample shrinkage**(§6.9 `organic_score_mean_shrunk`와 같은 패턴, `:46-49`): `conf = (n·mean + K·PRIOR) / (n+K)`, `round(.,3)`.
+
+**BTHD 검산 예** — verdict 분포 organic(+strong) 3편 / borderline 6편 / suspect 5편 / likely_paid 8편(n=22):
+`mean = (3·1.0 + 6·0.7 + 5·0.4 + 8·0.15) / 22 = 10.4/22 ≈ 0.4727`
+`conf = (22·0.4727 + 3·0.75) / (22+3) = 12.65/25 = 0.506`.
+
+### 16.2 그룹별 로딩 (`load_organic_confidence`, `:56-61`)
+
+`debut_window_video_organicity` 전 영상을 `WHERE verdict != 'insufficient_data'`로 조회(`_VERDICTS_SQL`, `:33-36`) → 그룹별 verdict 리스트로 묶어 `compute_organic_confidence` 적용. **채점 영상이 아예 없는 그룹은 dict에 키가 없다** — 호출부(§15.2 step 7, §16.3/§16.4)가 `.get(key, 1.0)`로 무할인 처리.
+
+### 16.3 적용처 A — 인지도 곱셈 할인 (§15.2 step 7 상세)
+
+`awareness.py`: `awareness_score_adj = round(awareness_score * conf, 1)`(`:148`). 원값(`awareness_score`/`category_rank`) 불변, adj는 추가 컬럼. `category_rank_adj`는 adj 기준 재랭킹(동일 tiebreak). mig 0106(`migrations/0106_awareness_adj.sql`) 미적용 D1은 adj 컬럼 없이 기존 INSERT로 graceful 폴백(`_has_adj_columns`, `awareness.py:226-232`).
+
+### 16.4 적용처 B — 추정 코어 median 제외 필터 (`core_fan_estimate.py`)
+
+원값 경로(§14.5)는 불변. V2.53은 데뷔윈도우 영상 organicity 판정 중 **`suspect`/`likely_paid`** verdict 영상만 표본에서 제외하고 median을 다시 낸 보정값을 추가 산출한다(§6.6의 organic_strong/organic/borderline과 **미채점** 영상은 그대로 포함 — 배제 대상이 아님).
+
+- **필터** (`select_organic_videos`, `:91-108`): 윈도우 영상에서 suspect_ids 제외 → `< _MIN_WINDOW_VIDEOS(=3)`편이면 폴백(최신 12편)에도 **동일 필터** 적용 → 그래도 부족하면 `None`.
+- **suspect 셋 로딩** (`_SUSPECT_SQL`, `:85-88`): `SELECT video_id FROM debut_window_video_organicity WHERE verdict IN ('suspect','likely_paid')`. 테이블 이상/미적용 시 빈 셋(전부 organic 취급, graceful).
+- **basis** (`compute_core_fan_estimate`, `:144-151`): 원값 표본(`videos`) 있고 필터 후 표본(`videos_adj`)이 `None`(< 3편) → **`basis='insufficient_organic'`**(adj 전부 None, 원값은 그대로 유지 저장). 둘 다 있으면 `'scored'`. `videos` 자체가 없으면 `'insufficient'`(§14.5).
+- **저장**: mig 0107(`migrations/0107_core_fan_adj.sql`) 적용 D1만 adj 3컬럼(`est_engaged_fans_adj`/`est_active_core_adj`/`organic_video_count`) INSERT, 미적용이면 `_has_adj_columns`(`:173-180`) 감지로 기존 9컬럼 INSERT 폴백.
+
+### 16.5 Health PRE 게이트와의 관계
+
+Organic Confidence는 인지도·추정 코어에만 곱해지는 **신뢰 할인**이고, §1.1의 `debut_confirmed` PRE 게이트는 별개로 "정식 데뷔 확정 여부"만 본다 — 서로 다른 축(신뢰 vs 확정)이라 한 그룹에 동시에 적용될 수 있다. 예: BTHD는 `debut_confirmed=0`으로 Health가 PRE인 것과 무관하게, 채점된 영상이 있으면 organic_confidence도 별도로(낮게) 계산될 수 있다.
+
+### 16.6 프런트 표시 (`frontend/src/views/MarketOverview.tsx`)
+
+- **adj-first**: `awarenessDisplay()`(`:83-91`)는 `score_adj ?? score`, `category_rank_adj ?? category_rank`를 표시값으로 쓰고 `discounted = score_adj != null`을 함께 반환. `coreDisplay()`(`:93-97`)는 `est_engaged_fans_adj ?? est_engaged_fans`(단 `basis='insufficient_organic'`이면 `value=null`). 할인된 셀은 원값 + `organic_confidence`를 툴팁에 노출(`title="원값 {score} · 신뢰 계수 {organic_confidence} — 유료 의심 영상 비중만큼 할인"`, `:468` 부근).
+- **사분면(quadrant)은 원값 유지** — 광고형(넓지만 얕음) 패턴 탐지가 사분면의 목적이라, 할인하면 그 패턴 자체가 지워진다. `x=g.awareness?.score`, `y=g.core_fan_estimate?.est_active_core` 모두 원값(`:397-404`). 도움말 문구(`HELP.quad`, `:134`): "사분면의 인지도는 할인 전 원값 — '넓지만 얕음(광고형)' 패턴 탐지가 목적."
+- **API 노출** (`frontend/functions/api/market.ts`): adj 컬럼은 원값 쿼리와 **분리된 쿼리**로 조회(`:141-151`, 각각 `.catch(()=>[])`로 mig 0106/0107 미적용 D1에서도 원값 응답은 절대 깨지지 않게 graceful), 응답 조립 시 `awareness.score_adj`/`category_rank_adj`/`organic_confidence`(`:214-216`), `core_fan_estimate.est_engaged_fans_adj`/`est_active_core_adj`(`:224-225`)로 병합.
 
 ---
 
