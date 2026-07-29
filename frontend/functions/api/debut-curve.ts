@@ -22,6 +22,7 @@
 
 import { d1Query, type D1Database } from "../lib/d1";
 import { jsonResponse } from "../lib/jsonResponse";
+import { alignByDebut } from "../lib/debutAligned";
 
 const ALLOWED_METRICS = new Set([
   "yt_subscribers",
@@ -72,49 +73,19 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
       ORDER BY g.key, s.snapshot_at ASC`,
     [from, to]);
 
-  // Group by group_key, then bucket by integer day offset. For each
-  // (group, day) we keep the MAX value across snapshots, not the
-  // chronologically-latest. Reason: cumulative metrics (subscribers,
-  // total_views, total_videos, news count) only grow over time, so
-  // the larger of two same-day rows is the trustworthier signal. This
-  // matters when backfill_estimate rows (e.g. Social Blade
-  // channel-level totals, tens of millions for PLAVE) coexist with
-  // live collector rows that SUM only the indexed-video subset (which
-  // underestimates by 10-100× when the worker hasn't paginated the
-  // full channel history). The earlier latest-wins rule produced
-  // visible "drops" near the current date for groups where we have
-  // rich backfill but partial live data.
-  const byGroup: Record<string, {
-    name: string; debut_date: string; group_model: string;
-    points: Map<number, { value: number; source: string }>;
-  }> = {};
-
+  // (group, day) MAX 버킷팅 규칙은 ../lib/debutAligned.ts 참조.
+  const aligned = alignByDebut(rows, from, to);
+  const meta: Record<string, { name: string; debut_date: string; group_model: string }> = {};
   for (const r of rows) {
-    if (!r.debut_date || r.value == null) continue;
-    const offset = Math.round(
-      (Date.parse(r.snapshot_at.slice(0, 10)) - Date.parse(r.debut_date)) / 86_400_000
-    );
-    if (offset < from || offset > to) continue;
-    const slot = byGroup[r.group_key] ?? {
-      name: r.name,
-      debut_date: r.debut_date,
-      group_model: r.group_model ?? "corporate",
-      points: new Map<number, { value: number; source: string }>(),
+    if (!r.debut_date) continue;
+    meta[r.group_key] ??= {
+      name: r.name, debut_date: r.debut_date, group_model: r.group_model ?? "corporate",
     };
-    const v = Number(r.value);
-    const existing = slot.points.get(offset);
-    if (!existing || v > existing.value) {
-      slot.points.set(offset, { value: v, source: r.source });
-    }
-    byGroup[r.group_key] = slot;
   }
-
-  const series = Object.entries(byGroup).map(([key, v]) => ({
+  const series = Object.entries(aligned).map(([key, points]) => ({
     group_key: key,
-    name: v.name,
-    debut_date: v.debut_date,
-    group_model: v.group_model,
-    points: [...v.points.entries()]
+    ...meta[key]!,
+    points: [...points.entries()]
       .sort((a, b) => a[0] - b[0])
       .map(([day, p]) => ({ day_offset: day, value: p.value, source: p.source })),
   }));
