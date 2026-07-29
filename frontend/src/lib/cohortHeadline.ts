@@ -70,16 +70,19 @@ export const METRIC_UNITS: Record<string, string> = {
 export const PRIMARY_METRIC = "yt_subscribers";
 
 /**
- * 자연 유입 점수가 이 값 미만이면 그 그룹의 유튜브 성장에 "광고 영향 의심"
- * 배지를 단다. 숫자를 새로 정하지 않고 organicity.ts 의 `organic` 등급 컷을
- * 그대로 재사용한다 — 이 화면이 말하는 "광고가 아니라 팬이 만든 성장"은
- * 곧 "이 팀의 데뷔 창 점수가 organic 등급 이상"이라는 뜻이고, 그 경계는
- * 워커(debut_window.py:_classify_verdict)와 다른 유기성 화면들이 이미
- * 쓰는 값이기 때문이다. 손으로 70 을 적어두면 등급을 재보정했을 때 이
- * 배지만 조용히 옛 기준으로 남는다 — organicity.ts 헤더가 경고하는
- * hand-copy desync(V2.21 → V2.37) 와 정확히 같은 사고다.
+ * 자연 유입 점수가 이 값 미만이면 "광고 영향 의심" 배지를 단다.
+ * 컷은 organicity.ts 등급 체계의 `suspect` 경계(40) — 그 아래는 likely_paid
+ * 티어, 즉 "광고를 과하게 쓴 것으로 보이는" 팀이다.
+ *
+ * 왜 organic(70)이 아닌가: 판정 점수는 편수·조회수 중 **낮은 쪽**(adJudgeScore)
+ * 인데, 조회수 기준은 소수의 고조회 영상에 끌려 구조적으로 낮게 나온다
+ * (2026-07-29 실측: 전 그룹 min 29.8~58.9, 참조 PLAVE조차 58.9). organic 컷을
+ * 그대로 쓰면 전원이 걸려 배지가 변별력을 잃는다 — 배지는 "광고 과다 사용이
+ * 뚜렷한 팀"만 가리켜야 하고, 경계 대역은 산점도·막대의 연속 점수가 보여준다.
+ * 숫자를 손으로 적지 않고 organicity.ts 컷을 참조하는 이유는 종전과 같다
+ * (재보정 시 hand-copy desync 방지).
  */
-export const ORG_AD_SUSPECT_THRESHOLD = VERDICT_THRESHOLDS.organic;
+export const ORG_AD_SUSPECT_THRESHOLD = VERDICT_THRESHOLDS.suspect;
 
 /**
  * 광고 의심 배지를 다는 지표. 자연 유입 점수는 "영상"이 유료로 밀린

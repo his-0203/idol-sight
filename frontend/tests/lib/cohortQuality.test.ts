@@ -153,12 +153,12 @@ describe("buildQualityScatter", () => {
     const s = buildQualityScatter(cohort(
       [row("miiwan", 2, 100), row("owis", 3, 100)],
       [
-        org("miiwan", 90, false, 40), // 조회수로는 40 → 판정 40
+        org("miiwan", 90, false, 30), // 조회수로는 30 → 판정 30
         org("owis", 55),              // 조회수 점수 없음 → 편수 55
       ],
     ));
     const mi = s.points.find((p) => p.group_key === "miiwan")!;
-    expect(mi.organic).toBe(40);
+    expect(mi.organic).toBe(30);
     expect(mi.adSuspect).toBe(true);
     expect(s.points.find((p) => p.group_key === "owis")!.organic).toBe(55);
   });
@@ -189,7 +189,7 @@ describe("scatterNote", () => {
   test("중앙값 왼쪽이면 이유(출발선)까지 함께 쓴다", () => {
     const s = buildQualityScatter(cohort(
       [row("miiwan", 1.1, 26_400), row("owis", 2.2, 5_000), row("bthd", 3.0, 3_000)],
-      [org("miiwan", 68), org("owis", 40), org("bthd", 90)],
+      [org("miiwan", 45), org("owis", 40), org("bthd", 90)],
     ));
     const note = scatterNote(s)!;
     expect(note).toContain("왼쪽");

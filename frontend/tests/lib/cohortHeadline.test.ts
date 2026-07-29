@@ -1,6 +1,6 @@
 // 동시기 성과 헤드라인 순수 로직 — 투자사에게 그대로 읽히는 문구라
 // "언제 강점으로 세우고 언제 광고 근거를 붙이는가"를 테스트로 고정한다.
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
   AD_SUSPECT_METRICS, NEAR_TIE_RATIO, ORG_AD_SUSPECT_THRESHOLD,
   PRE_EFFICIENCY_OUTLIER_RATIO,
@@ -259,10 +259,10 @@ describe("headline — 자연 유입 문장(H4)", () => {
     expect(adJudgeScore(org("x", null, false, 40))).toBeNull();
     const h = headline(cohort({
       scorecard: { yt_subscribers: sc(1, 4) },
-      // 편수로는 기준 위(90)지만 조회수로는 아래(40) → 판정은 40.
-      organicity: [org("miiwan", 90, false, 40), org("myrakl", 20)],
+      // 편수로는 기준 위(90)지만 조회수로는 아래(30) → 판정은 30.
+      organicity: [org("miiwan", 90, false, 30), org("myrakl", 20)],
     }));
-    expect(h.organicNote).toContain("40점");
+    expect(h.organicNote).toContain("30점");
     expect(h.organicNote).toContain("자체 기준");
   });
 });
@@ -411,11 +411,21 @@ describe("코호트 구성·데뷔일 범위", () => {
   });
 });
 
+describe("ORG_AD_SUSPECT_THRESHOLD", () => {
+  it("과다 사용 티어(suspect 컷) 미만만 광고 의심으로 본다", () => {
+    // 2026-07-29 실측: min 판정점수가 전 그룹 29.8~58.9라 organic(70) 컷은
+    // 참조 PLAVE까지 전원을 걸어 배지가 정보를 잃었다. suspect(40) 컷이면
+    // 뚜렷한 하위 2팀(myrakl 29.8 · bdawn 37.4)만 남는다.
+    expect(ORG_AD_SUSPECT_THRESHOLD).toBe(VERDICT_THRESHOLDS.suspect);
+    expect(ORG_AD_SUSPECT_THRESHOLD).toBe(40);
+  });
+});
+
 describe("상수·표기", () => {
-  // 손으로 적은 70 이 아니라 organic 등급 컷을 재사용해야 한다 —
+  // 손으로 적은 40 이 아니라 suspect 등급 컷을 재사용해야 한다 —
   // organicity.ts 헤더가 경고하는 hand-copy desync 방지.
-  test("광고 의심 임계 = organicity.ts 의 organic 등급 컷", () => {
-    expect(ORG_AD_SUSPECT_THRESHOLD).toBe(VERDICT_THRESHOLDS.organic);
+  test("광고 의심 임계 = organicity.ts 의 suspect 등급 컷", () => {
+    expect(ORG_AD_SUSPECT_THRESHOLD).toBe(VERDICT_THRESHOLDS.suspect);
   });
 
   test("광고 의심 대상은 유튜브 지표만", () => {
