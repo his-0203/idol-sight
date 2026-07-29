@@ -24,8 +24,10 @@ export const MAX_RADIUS = 22;
 export interface QualityPoint {
   group_key: string;
   name: string;
-  /** x — 데뷔일 대비 성장배수. */
+  /** x — 데뷔 전 앵커 대비 총 성장배수. */
   growth: number;
+  /** x 값의 분모를 잰 경과일 (음수 = 데뷔 전, 0 = 데뷔일 폴백). */
+  anchorDay: number;
   /** y — 자연 유입 점수(0~100). */
   organic: number;
   /** 원 크기의 근거가 된 D+N 시점 절대값(구독자). */
@@ -105,14 +107,16 @@ export function buildQualityScatter(d: CohortData): QualityScatter {
 
   for (const r of sc?.rows ?? []) {
     const name = d.groups[r.group_key]?.name ?? r.group_key;
-    const growth = r.growth_multiple;
+    // 데뷔 전 앵커(D-30 우선) → D+N 총 성장배수. growth_multiple(데뷔 후만)이
+    // 아니라 total_multiple을 쓴다 — 데뷔 전 구간의 성장을 잘라내지 않기 위해서다.
+    const growth = r.total_multiple;
     const organic = orgScore.get(r.group_key) ?? null;
     if (growth == null || organic == null) {
       // 사유를 뭉뚱그리지 않는다 — 운영 대응이 다르다(수집 백필 vs 영상 판정).
       const reason = growth == null && organic == null
         ? "성장배수·자연 유입 점수 모두 없음"
         : growth == null
-          ? "데뷔일 시점 값이 없어 성장배수를 낼 수 없음"
+          ? "데뷔 전·데뷔일 값이 없어 성장배수를 낼 수 없음"
           : "판정된 데뷔 초기 영상이 없어 자연 유입 점수가 없음";
       excluded.push({ group_key: r.group_key, name, reason });
       continue;
@@ -121,6 +125,9 @@ export function buildQualityScatter(d: CohortData): QualityScatter {
       group_key: r.group_key,
       name,
       growth,
+      // 앵커가 없으면(백엔드 폴백 누락) 데뷔일(0)로 본다 — total_anchor_day가
+      // null이어도 화면에서 "앵커 불명"으로 새지 않게 한다.
+      anchorDay: r.total_anchor_day ?? 0,
       organic,
       scale: r.value_at_day ?? 0,
       reference: r.reference,
@@ -158,11 +165,18 @@ export function scatterNote(s: QualityScatter): string | null {
   if (!mine) return null;
   const parts: string[] = [];
 
+  // 성장 배수의 분모(앵커) 시점을 항상 밝힌다 — "데뷔 30일 전 값 대비"가
+  // 기본 전제지만, 데뷔 전 측정이 없는 팀(myrakl류)은 데뷔일로 폴백해
+  // 전제 자체가 달라지므로 그 사실도 문장에 그대로 싣는다.
+  const anchorLabel = mine.anchorDay < 0
+    ? `데뷔 ${-mine.anchorDay}일 전 값 대비` : "데뷔일 값 대비(데뷔 전 측정 없음)";
+
   if (s.medianGrowth != null) {
     parts.push(mine.growth < s.medianGrowth
-      ? `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 왼쪽 — 성장 속도는 가운데보다 느리다.`
-        + " 출발선이 큰 팀은 배수가 작아 구조적으로 왼쪽에 놓인다."
-      : `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 오른쪽 — 성장 속도는 가운데보다 빠르다.`);
+      ? `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 왼쪽 — 성장 속도(${anchorLabel})는`
+        + " 가운데보다 느리다. 출발선이 큰 팀은 배수가 작아 구조적으로 왼쪽에 놓인다."
+      : `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 오른쪽 — 성장 속도(${anchorLabel})는`
+        + " 가운데보다 빠르다.");
   }
 
   const gap = mine.organic - s.threshold;

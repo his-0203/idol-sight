@@ -345,7 +345,7 @@ export function MiiWANCohortReport() {
         maintainAspectRatio: false,
         scales: {
           x: {
-            title: { display: true, text: "데뷔 후 성장 배수 (데뷔일 대비 몇 배)" },
+            title: { display: true, text: "총 성장 배수 (데뷔 전 값 대비, 데뷔 전~현재)" },
             ticks: { callback: (v) => fmtMultiple(Number(v)) },
           },
           y: {
@@ -362,8 +362,10 @@ export function MiiWANCohortReport() {
               label: (item) => {
                 const p = s.points[item.datasetIndex];
                 if (!p) return item.dataset.label ?? "";
-                return `${p.name}: ${fmtMultiple(p.growth)} · 자연 유입 ${p.organic}점`
-                  + ` · 구독자 ${fmt(p.scale)}`;
+                const anchor = p.anchorDay < 0
+                  ? `데뷔 ${-p.anchorDay}일 전 대비` : "데뷔일 대비(데뷔 전 측정 없음)";
+                return `${p.name}: 총 ${fmtMultiple(p.growth)} (${anchor})`
+                  + ` · 자연 유입 ${p.organic}점 · 구독자 ${fmt(p.scale)}`;
               },
             },
           },
@@ -492,8 +494,8 @@ export function MiiWANCohortReport() {
           </div>
           <p class={SECTION_LEAD}>
             <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> —
-            오른쪽일수록 빠르게 컸고, 위쪽일수록 광고 없이 컸다. 원이 클수록 현재
-            팬 규모가 크다.
+            오른쪽일수록 데뷔 전(약 30일 전)부터 지금까지 빠르게 컸고, 위쪽일수록
+            광고 없이 컸다. 원이 클수록 현재 팬 규모가 크다.
           </p>
           <div style={{ height: "320px" }}>
             <canvas ref={qCanvasRef} />
@@ -503,7 +505,7 @@ export function MiiWANCohortReport() {
           {qNote && <p class="mt-2 text-sm text-zinc-300">{qNote}</p>}
           <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
             가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
-            팀들의 성장 배수 중앙값
+            팀들의 총 성장 배수(데뷔 전 값 대비) 중앙값
             {quality.medianGrowth != null && <> ({fmtMultiple(quality.medianGrowth)})</>}.
             {" "}오른쪽 아래 팀은 빠르게 컸지만 자연 유입 점수가 낮아 광고 효과가
             섞여 있을 수 있고, 위쪽 팀은 속도가 느려도 광고 없이 팬이 모인 쪽이다.
@@ -517,6 +519,15 @@ export function MiiWANCohortReport() {
           {quality.excluded.length > 0 && (
             <p class="mt-1 text-hint text-zinc-500">
               표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}
+            </p>
+          )}
+          {/* 앵커가 데뷔 전이 아닌 팀(예: myrakl)은 "데뷔 전 값 대비"라는 x축
+              전제가 그 팀에는 그대로 적용되지 않는다 — 조용히 넘기지 않고
+              데뷔일로 폴백했음을 자동으로 공시한다. */}
+          {quality.points.some((p) => p.anchorDay === 0) && (
+            <p class="text-hint text-zinc-600">
+              {quality.points.filter((p) => p.anchorDay === 0).map((p) => p.name).join(", ")}
+              {"은(는) 데뷔 전 측정값이 없어 데뷔일 대비 배수로 그렸다."}
             </p>
           )}
         </div>
