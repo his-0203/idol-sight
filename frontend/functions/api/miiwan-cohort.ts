@@ -311,6 +311,33 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     organicityUnavailable = true;
     return [] as OrgRow[];
   });
+  // 영상 단위 유료 판정 제외 집계 — "조회수 점수가 낮은 이유가 소수 집행
+  // 콘텐츠 쏠림인가"를 한눈에 보여주기 위한 보조 층. 판정(min)·배지는
+  // 이 수치와 무관하게 유지된다(동어반복 방지: 화면은 반드시 쏠림 규모와
+  // 함께 표기). 창은 summary 쿼리와 같은 버킷 — 화면마다 창이 다르면
+  // 숫자끼리 대조가 안 된다.
+  interface ExPaidRow {
+    group_key: string; n: number; views: number | null;
+    paid_n: number; paid_views: number | null;
+    ex_wsum: number | null; ex_views: number | null;
+  }
+  const exPaidRows = await d1Query<ExPaidRow>(
+    env.DB,
+    `SELECT group_key,
+            COUNT(*) AS n,
+            SUM(view_count) AS views,
+            SUM(CASE WHEN verdict = 'likely_paid' THEN 1 ELSE 0 END) AS paid_n,
+            SUM(CASE WHEN verdict = 'likely_paid' THEN view_count ELSE 0 END) AS paid_views,
+            SUM(CASE WHEN verdict != 'likely_paid' THEN organic_score * view_count ELSE 0 END) AS ex_wsum,
+            SUM(CASE WHEN verdict != 'likely_paid' THEN view_count ELSE 0 END) AS ex_views
+       FROM debut_window_video_organicity
+      WHERE group_key IN (${ph}) AND window_bucket IN (${orgPh})
+        AND organic_score IS NOT NULL AND view_count IS NOT NULL
+      GROUP BY group_key`,
+    [...ALL_KEYS, ...orgWindow.buckets],
+  ).catch(() => [] as ExPaidRow[]);
+  const exPaidBy = new Map(exPaidRows.map((r) => [r.group_key, r]));
+
   const orgAgg = new Map<string, { wsum: number; n: number }>();
   // 뷰 가중 집계: organic_score_mean 은 **버킷 안에서 이미 뷰 가중 평균**이라
   // 버킷 사이를 합칠 때의 가중치는 편수가 아니라 그 버킷의 조회수여야 한다
@@ -343,6 +370,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     : ALL_KEYS.filter((gk) => byKey.has(gk)).map((gk) => {
         const a = orgAgg.get(gk);
         const v = orgViewAgg.get(gk);
+        const ep = exPaidBy.get(gk);
+        const epViews = ep?.views ?? 0;
+        const epExViews = ep?.ex_views ?? 0;
         return {
           group_key: gk,
           score: a && a.n > 0 ? Math.round((a.wsum / a.n) * 10) / 10 : null,
@@ -353,6 +383,14 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
           // 실효 표본 수 = 점수에 실제로 실린 scored_video_count 합.
           video_count: a?.n ?? 0,
           reference: isRef(gk),
+          // 영상 단위 유료 판정 제외 집계 — 쿼리 실패/데이터 없음이면
+          // count는 0, 비율·점수는 null(가짜 수치 금지).
+          window_video_count: ep?.n ?? 0,
+          paid_video_count: ep?.paid_n ?? 0,
+          paid_view_share: ep && epViews > 0 && ep.paid_views != null
+            ? Math.round((ep.paid_views / epViews) * 1000) / 1000 : null,
+          score_view_weighted_ex_paid: ep && epExViews > 0 && ep.ex_wsum != null
+            ? Math.round((ep.ex_wsum / epExViews) * 10) / 10 : null,
         };
       });
 

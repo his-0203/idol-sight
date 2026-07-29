@@ -30,6 +30,13 @@ export type OrgRow = {
   group_key: string; score: number | null; video_count: number; reference: boolean;
   /** 같은 창의 조회수 기준(뷰 가중) 점수. 편수 기준 score 와 나란히 읽는다. */
   score_view_weighted?: number | null;
+  /** 유기성 창 내 판정 영상 수 / 그중 유료 판정 수 (영상 단위 집계). */
+  window_video_count?: number;
+  paid_video_count?: number;
+  /** 유료 판정 영상의 조회수 점유(0~1). 분모 0이면 null. */
+  paid_view_share?: number | null;
+  /** 유료 판정 영상 제외 조회수 가중 점수. 남는 조회수가 없으면 null. */
+  score_view_weighted_ex_paid?: number | null;
 };
 /** score가 실제로 있는 행만 남긴 뒤 쓰는 좁힌 타입 (막대 폭 계산에 non-null 필요). */
 export type OrgRowScored = Omit<OrgRow, "score"> & { score: number };

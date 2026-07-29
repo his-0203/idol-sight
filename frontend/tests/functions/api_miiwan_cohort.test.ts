@@ -346,6 +346,77 @@ describe("/api/miiwan-cohort", () => {
     expect(mi.video_count).toBe(10);
   });
 
+  // 영상 단위 유료 판정 제외 집계 — "조회수 점수가 낮은 이유가 소수 집행
+  // 콘텐츠 쏠림인가"를 organicity 행에서 바로 읽을 수 있어야 한다.
+  // 픽스처: paid 1편(80k뷰·score 30) + organic 1편(20k뷰·score 80).
+  it("영상 단위 유료 판정 제외 집계 — 쏠림 규모 + 제외 점수", async () => {
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) return [
+        { group_key: "miiwan", organic_score_mean_shrunk: 80,
+          organic_score_mean_simple: 55, scored_video_count: 10 },
+      ];
+      if (sql.includes("debut_window_video_organicity")) return [
+        { group_key: "miiwan", n: 2, views: 100_000,
+          paid_n: 1, paid_views: 80_000,
+          ex_wsum: 80 * 20_000, ex_views: 20_000 },
+      ];
+      return [];
+    });
+    const mi = body.organicity.find((o: any) => o.group_key === "miiwan");
+    expect(mi.window_video_count).toBe(2);
+    expect(mi.paid_video_count).toBe(1);
+    expect(mi.paid_view_share).toBeCloseTo(0.8);
+    expect(mi.score_view_weighted_ex_paid).toBeCloseTo(80);
+  });
+
+  it("전부 paid인 그룹은 ex_paid null (분모 0, 가짜 수치 금지)", async () => {
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) return [
+        { group_key: "myrakl", organic_score_mean_shrunk: 50,
+          organic_score_mean_simple: 50, scored_video_count: 5 },
+      ];
+      if (sql.includes("debut_window_video_organicity")) return [
+        { group_key: "myrakl", n: 3, views: 30_000,
+          paid_n: 3, paid_views: 30_000,
+          ex_wsum: 0, ex_views: 0 },
+      ];
+      return [];
+    });
+    const my = body.organicity.find((o: any) => o.group_key === "myrakl");
+    expect(my.window_video_count).toBe(3);
+    expect(my.paid_video_count).toBe(3);
+    expect(my.paid_view_share).toBeCloseTo(1);
+    expect(my.score_view_weighted_ex_paid).toBeNull();
+  });
+
+  it("영상 단위 쿼리 실패해도 organicity 행은 살아있고 새 필드만 degrade", async () => {
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) return [
+        { group_key: "miiwan", organic_score_mean_shrunk: 80,
+          organic_score_mean_simple: 55, scored_video_count: 10 },
+      ];
+      if (sql.includes("debut_window_video_organicity")) {
+        throw new Error("D1 error: table locked");
+      }
+      return [];
+    });
+    // 전체 응답을 죽이지 않는다 — organicity_unavailable(요약 쿼리 전용
+    // 플래그)은 그대로 false, 기존 score 필드도 살아있다.
+    expect(body.organicity_unavailable).toBe(false);
+    const mi = body.organicity.find((o: any) => o.group_key === "miiwan");
+    expect(mi.score).toBe(80);
+    expect(mi.window_video_count).toBe(0);
+    expect(mi.paid_video_count).toBe(0);
+    expect(mi.paid_view_share).toBeNull();
+    expect(mi.score_view_weighted_ex_paid).toBeNull();
+  });
+
   it("측정 허용폭·데뷔 전 구간 상수를 응답에 노출 (화면 각주 desync 방지)", async () => {
     const body = await call(baseHandler);
     expect(body.windows).toEqual({ base: 3, at: 7, pre_debut: PRE_DEBUT_DAYS });
