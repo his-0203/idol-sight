@@ -472,9 +472,15 @@ export function MiiWANBriefing() {
 
       {/* 5) 동시기 성과 — 데뷔일 정렬(D+N) 코호트 벤치마크. 절대값이 아니라
           성장 기울기·순위로 "동시기 대비 잘하고 있는가"를 증명하는 보고서형
-          섹션 (투자사 보고 근거). */}
+          섹션 (투자사 보고 근거). 헤더 문구는 컴포넌트 내부 카피와 같은
+          눈높이 — 내부 용어(코호트·벤치마크) 대신 평이한 말로 쓴다. */}
       <section>
-        <h2 class="section-title mb-3">동시기 성과 — 데뷔 코호트 벤치마크</h2>
+        <h2 class="section-title mb-1">동시기 성과 — 같은 시기에 데뷔한 팀들과 비교</h2>
+        <p class="mb-3 text-hint text-zinc-500 leading-relaxed">
+          팀마다 데뷔한 날이 다르니 규모를 그냥 비교하면 먼저 시작한 팀이 이긴다.
+          그래서 각 팀의 데뷔일을 똑같이 출발선에 놓고, 데뷔 후 같은 날짜에 얼마나
+          늘었는지를 본다.
+        </p>
         <MiiWANCohortReport />
       </section>
 

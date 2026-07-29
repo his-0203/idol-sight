@@ -36,11 +36,11 @@ const summaryRows = () => {
     { group_key: gk, debut_date: iso(debutDaysAgo),
       snapshot_at: iso(debutDaysAgo) + "T09:00:00Z",
       yt_subscribers: d0, yt_total_views: d0 * 100,
-      naver_total_news: 10, dc_total_posts: 5, data_source: "live" },
+      naver_total_news: 10, data_source: "live" },
     { group_key: gk, debut_date: iso(debutDaysAgo),
       snapshot_at: iso(debutDaysAgo - 30) + "T09:00:00Z",
       yt_subscribers: d30, yt_total_views: d30 * 100,
-      naver_total_news: 20, dc_total_posts: 9, data_source: "live" },
+      naver_total_news: 20, data_source: "live" },
   ];
   return [...mk("miiwan", 30, 1000, 2000), ...mk("myrakl", 200, 5000, 15000)];
 };
@@ -74,6 +74,22 @@ describe("/api/miiwan-cohort", () => {
     expect(mi[mi.length - 1].index).toBe(200); // 1000→2000 = 2배
   });
 
+  // 커뮤니티 활동(dc_total_posts)은 갤러리 개설 시점이 팀마다 달라 데뷔일
+  // 기준값이 성장의 출발선이 되지 못한다 — 동시기 성과에서만 뺀 것이라
+  // 목록·쿼리 양쪽에서 사라졌는지 함께 고정한다(다른 화면은 계속 쓴다).
+  it("동시기 지표 목록에 dc_total_posts 없음 (SELECT 에서도 빠짐)", async () => {
+    let summarySql = "";
+    const body = await call(baseHandler, (sql) => {
+      if (sql.includes("FROM agg_summary")) summarySql = sql;
+    });
+    expect(body.metrics).toEqual([
+      "yt_subscribers", "yt_total_views", "naver_total_news",
+    ]);
+    expect(body.scorecard.dc_total_posts).toBeUndefined();
+    expect(body.curves.dc_total_posts).toBeUndefined();
+    expect(summarySql).not.toContain("dc_total_posts");
+  });
+
   it("plave는 reference=true, 순위 모수 제외", async () => {
     const body = await call(baseHandler);
     expect(body.groups.plave.reference).toBe(true);
@@ -94,7 +110,7 @@ describe("/api/miiwan-cohort", () => {
         { group_key: "myrakl", debut_date: iso(200),
           snapshot_at: iso(50) + "T09:00:00Z",
           yt_subscribers: 9999, yt_total_views: 1, naver_total_news: 1,
-          dc_total_posts: 1, data_source: "backfill_estimate" },
+          data_source: "backfill_estimate" },
       ];
       return [];
     });
@@ -174,7 +190,7 @@ describe("/api/miiwan-cohort", () => {
       group_key: gk, debut_date: iso(debutDaysAgo),
       snapshot_at: iso(debutDaysAgo - dayOffset) + "T09:00:00Z",
       yt_subscribers: v, yt_total_views: v, naver_total_news: v,
-      dc_total_posts: v, data_source: "live",
+      data_source: "live",
     });
     // 미완이 데뷔 당일(as_of_day = 0) 기준 — 곡선 창은 [D0, D+0].
     const body = await call((sql) => {

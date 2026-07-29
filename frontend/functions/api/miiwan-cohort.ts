@@ -22,8 +22,13 @@ const TARGET = "miiwan";
 const COHORT = ["myrakl", "owis", "bdawn", "bthd", "skinz"] as const;
 const REFERENCE = ["plave"] as const;
 const ALL_KEYS = [TARGET, ...COHORT, ...REFERENCE];
+// 지표는 "데뷔일 대비 얼마나 늘었나"를 성장배수로 말할 수 있는 것만 둔다.
+// dc_total_posts(커뮤니티 활동)는 여기서 뺐다 — 갤러리 개설 시점이 그룹마다
+// 달라 D-Day 기준값이 성장의 출발선이 아니라 "갤러리가 언제 열렸나"를
+// 재는 값이 되고, 그 위에서 낸 성장배수는 동시기 비교로 읽히지 않는다.
+// (다른 화면의 dc_total_posts 는 그대로 — 여기 동시기 성과에서만 제외.)
 const METRICS = [
-  "yt_subscribers", "yt_total_views", "naver_total_news", "dc_total_posts",
+  "yt_subscribers", "yt_total_views", "naver_total_news",
 ] as const;
 // 유기성 창의 왼쪽 끝 = D-Day 버킷 (debutWindowBuckets 시퀀스 index 3).
 // 오른쪽 끝은 고정이 아니라 미완이의 현재 경과일이 도달한 버킷까지 —
@@ -45,7 +50,7 @@ interface GroupRow { key: string; name: string; debut_date: string | null }
 interface SummaryRow {
   group_key: string; debut_date: string | null; snapshot_at: string;
   yt_subscribers: number | null; yt_total_views: number | null;
-  naver_total_news: number | null; dc_total_posts: number | null;
+  naver_total_news: number | null;
   data_source: string;
 }
 // 헤드라인 유기성 점수는 코드베이스 표준(src/lib/organicity.ts
@@ -73,7 +78,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const rawAge = debutAgeDaysKST(miiwan.debut_date, new Date());
   const asOfDay = Number.isFinite(rawAge) ? Math.max(0, rawAge) : 0;
 
-  // 한 방 쿼리: 대상 그룹 × 4지표. 정렬 범위는 D-7(기준값 탐색 여유)~D+asOf+7.
+  // 한 방 쿼리: 대상 그룹 × METRICS. 정렬 범위는 D-7(기준값 탐색 여유)~D+asOf+7.
   // date(snapshot_at, '+9 hours') — debut_date 가 KST 달력 날짜이고 정확한
   // 버킷팅(alignByDebut)도 KST 기준이라 프리필터도 같은 달력을 써야 한다.
   const from = -7;
@@ -82,7 +87,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     env.DB,
     `SELECT s.group_key, g.debut_date, s.snapshot_at,
             s.yt_subscribers, s.yt_total_views, s.naver_total_news,
-            s.dc_total_posts, s.data_source
+            s.data_source
        FROM agg_summary s
        JOIN groups g ON g.key = s.group_key
       WHERE s.group_key IN (${ph})
