@@ -60,7 +60,7 @@ export function barWidthPct(value: number, max: number): number {
   return (value / max) * 100;
 }
 
-function EstBadge() {
+function EstimateMark() {
   return (
     <span
       title="공개 외형 신호로 가늠한 추정치 — 인간 판단을 대체하지 않음"
@@ -76,7 +76,7 @@ function TierCell(
   return (
     <div class="rounded border border-zinc-800 bg-zinc-900/40 p-2" title={tip}>
       <div class="flex items-center text-hint text-zinc-500">
-        {label}{estimated && <EstBadge />}
+        {label}{estimated && <EstimateMark />}
       </div>
       <div class="text-lg font-bold tabular-nums text-zinc-100">{value}</div>
       <div class="text-[10px] text-zinc-500">{sub}</div>
@@ -141,7 +141,7 @@ export function FanActivityCard({ activity }: { activity: FanActivity }) {
           {/* 영상 참여율 — 추정(estimated) 보조 라인 */}
           {(like_rate != null || view_through != null) && (
             <div class="mt-1 flex flex-wrap items-center gap-x-3 text-hint text-zinc-500">
-              <span class="flex items-center">영상 참여율<EstBadge /></span>
+              <span class="flex items-center">영상 참여율<EstimateMark /></span>
               <span>좋아요율 {fmtRate(like_rate)}</span>
               <span>댓글율 {fmtRate(comment_rate)}</span>
               <span title="구독자 중 실제로 영상을 본 추정 비율">시청 전환 {fmtRate(view_through)}</span>

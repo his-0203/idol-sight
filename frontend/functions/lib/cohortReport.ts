@@ -36,6 +36,13 @@ export function baseValueAt(
  * `no_d0_baseline` 은 "데뷔 시점 수집이 비었다"(영구적, 백필로만 해소),
  * `empty_window` 는 "기준값은 있는데 D0~D+N 사이 스냅샷이 없다"(수집 공백).
  * 엔드포인트가 이걸 재계산하다 규칙이 어긋나지 않도록 여기서 함께 낸다.
+ *
+ * `empty_window` 도달 조건: fromDay = min(base.day, 0) 이므로 base.day <= asOfDay
+ * 이면 base 점 자신이 항상 [fromDay, asOfDay] 안에 들어 out 이 절대 비지 않는다.
+ * 즉 이 분기가 나오려면 base.day > asOfDay 여야 하는데, base.day 는 D0±BASE_WINDOW
+ * (최대 D+3)에서만 잡힌다. 엔드포인트가 asOfDay 를 0 이상으로 clamp 하므로
+ * 실무에서는 asOfDay ∈ {0, 1, 2}(데뷔 극초반) 이면서 base 가 asOfDay 보다 뒤
+ * (예: D+2)에서 잡힌 경우에만 도달 가능 — asOfDay <= 2 일 때만.
  */
 export type CurveFailure = "no_d0_baseline" | "empty_window";
 export type CurveResult =

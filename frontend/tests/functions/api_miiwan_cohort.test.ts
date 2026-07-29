@@ -57,10 +57,10 @@ describe("/api/miiwan-cohort", () => {
     if (sql.includes("FROM agg_summary")) return summaryRows();
     if (sql.includes("debut_window_organicity_summary")) return [
       { group_key: "miiwan", organic_score_mean_shrunk: 80,
-        organic_score_mean_simple: 55, scored_video_count: 10, video_count: 12 },
-      // shrunk NULL (pre-0092 행) → simple 로 fallback, 가중치도 video_count 로
+        organic_score_mean_simple: 55, scored_video_count: 10 },
+      // shrunk NULL (pre-0092 행) → simple 로 fallback, 가중치는 scored_video_count
       { group_key: "myrakl", organic_score_mean_shrunk: null,
-        organic_score_mean_simple: 60, scored_video_count: 0, video_count: 20 },
+        organic_score_mean_simple: 60, scored_video_count: 5 },
     ];
     return [];
   };
@@ -137,27 +137,29 @@ describe("/api/miiwan-cohort", () => {
     expect(byKey.miiwan.video_count).toBe(10);
   });
 
-  // canonical 집계(debut-window/summary.ts): shrunk 는 scored_video_count,
-  // simple 은 video_count 가중. 폴백 행에 scored_video_count 를 쓰면
-  // scored=0 인 pre-0092 행이 통째로 사라져 두 화면 숫자가 어긋난다.
-  it("simple 폴백 행의 가중치는 video_count (canonical 집계와 동일)", async () => {
+  // 그룹 수준 규칙은 organicity.ts 의 headlineOrganicScore(버킷당 shrunk ??
+  // simple 택일)와 동일 — 행별 COALESCE(shrunk, simple)를 scored_video_count
+  // 가중 평균한다. 워커 특성상 shrunk 가 null이면 simple 도 null이라 "shrunk
+  // null·simple 존재"인 행은 실무에 없고, 있다면(pre-0092 잔재) scored_video_
+  // count=0이라 가중치 0으로 자연 탈락한다 — 별도 폴백 가중치 분기는 없다.
+  it("행별 COALESCE(shrunk, simple)를 scored_video_count 가중 평균 (scored=0 행은 자연 탈락)", async () => {
     const body = await call((sql) => {
       if (sql.includes("FROM groups")) return GROUPS();
       if (sql.includes("FROM agg_summary")) return summaryRows();
       if (sql.includes("debut_window_organicity_summary")) return [
-        // shrunk 행: scored_video_count=10 가중
+        // 정상 행: scored_video_count=10 가중
         { group_key: "miiwan", organic_score_mean_shrunk: 90,
-          organic_score_mean_simple: 10, scored_video_count: 10, video_count: 999 },
-        // simple 폴백 행: scored_video_count=0 여도 video_count=30 으로 살아남는다
+          organic_score_mean_simple: 10, scored_video_count: 10 },
+        // pre-0092 잔재: shrunk null → simple 50 이지만 scored_video_count=0
+        // 이라 가중 0 → 자연 탈락(폴백 분기 없이도 결과에 영향 없음).
         { group_key: "miiwan", organic_score_mean_shrunk: null,
-          organic_score_mean_simple: 50, scored_video_count: 0, video_count: 30 },
+          organic_score_mean_simple: 50, scored_video_count: 0 },
       ];
       return [];
     });
     const mi = body.organicity.find((o: any) => o.group_key === "miiwan");
-    // (90×10 + 50×30) / 40 = 60
-    expect(mi.score).toBe(60);
-    expect(mi.video_count).toBe(40);
+    expect(mi.score).toBe(90);
+    expect(mi.video_count).toBe(10);
   });
 
   it("측정 허용폭 상수를 응답에 노출 (화면 각주 하드코딩 desync 방지)", async () => {
