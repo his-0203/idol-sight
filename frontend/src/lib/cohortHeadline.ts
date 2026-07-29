@@ -244,7 +244,11 @@ export function exPaidNote(o: OrgRow | undefined | null): ExPaidNote | null {
   const T = ORG_AD_SUSPECT_THRESHOLD;
   return {
     headline: `${EX_PAID_LABEL} ${exScore}점`,
-    note: `전체 ${total}편 중 광고 투입 판정 ${paid}편(편수의 ${Math.round(paid / total * 100)}%)이`
+    // R4-C1 — '전체'는 화면에서 한 뜻만 가져야 한다. 데뷔 창 활동 표가
+    // "업로드 전수"를 세기 시작하면서, 여기 total(= 판정이 가능했던 영상)을
+    // '전체'라 부르면 같은 화면의 두 모집단이 같은 이름을 쓴다. 이쪽을
+    // '판정 대상'으로 바꿔 이름을 하나씩만 갖게 한다(수치·게이트 불변).
+    note: `판정 대상 ${total}편 중 광고 투입 판정 ${paid}편(편수의 ${Math.round(paid / total * 100)}%)이`
       + ` 조회수의 ${Math.round(share * 100)}%를 가져갔다.`
       + ` 제외 기준이 판정선(${T}점 미만)과 같아 제외 후 점수가 ${T}점 위인 것 자체는`
       + ` 당연하다 — 볼 것은 쏠림의 규모다.`,
@@ -524,6 +528,27 @@ export function scorecardVerdict(d: CohortData, metric: string): SectionVerdict 
  * 충돌했다. 그래서 ⓐ 순위는 기준을 문장에 박아 쓰고("편수 기준으로는")
  * ⓑ 등급 선언은 판정 점수가 실제로 우세 등급일 때만 낸다.
  */
+/**
+ * 판정 점수가 임계선들에 대해 어디 서 있는가 — 3분기.
+ * `below` 기준선 아래 · `near` 기준선 부근(단측 완충 대역) ·
+ * `short_of_organic` 기준선에서 충분히 떨어졌지만 자연 유입 우세 미만 ·
+ * `organic` 우세 등급.
+ *
+ * R4-I1 — ⑤ 섹션 weak 과 "다음 보고까지" 카드가 **같은 점수를 서로 다른
+ * 앵커로** 말하고 있었다(섹션은 광고 과다 기준선 부근, 카드는 자연 유입
+ * 우세 미달 고정). 요약이 본문보다 관대해지고, 점수가 기준선 아래로
+ * 떨어져도 카드 문구만 그대로 남는다. 분기 자체를 한 곳에 두고 두 문장이
+ * 같은 컷을 쓰게 한다 — 문구는 각자의 위계에 맞게 다르되 판단은 하나다.
+ */
+export type JudgePosition = "below" | "near" | "short_of_organic" | "organic";
+
+export function judgePosition(judge: number): JudgePosition {
+  if (judge >= VERDICT_THRESHOLDS.organic) return "organic";
+  const gap = judge - ORG_AD_SUSPECT_THRESHOLD;
+  if (gap < 0) return "below";
+  return gap <= THRESHOLD_NEAR_BAND ? "near" : "short_of_organic";
+}
+
 export function organicityVerdict(d: CohortData): SectionVerdict {
   const standing = organicStanding(d);
   if (!standing) return { good: null, weak: null };
@@ -559,8 +584,8 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
   const good = `영상 편수 기준 ${standing.score}점${rankClause}.`
     + [bulk, grade].filter((s): s is string => s != null).map((s) => ` ${s}`).join("");
   let weak: string | null = null;
-  if (standing.judgeScore < VERDICT_THRESHOLDS.organic) {
-    const nearLine = standing.judgeScore - ORG_AD_SUSPECT_THRESHOLD;
+  const pos = judgePosition(standing.judgeScore);
+  if (pos !== "organic") {
     // A2(07-30 3방향 리뷰) — 예전 weak 은 판정 위치 + 쏠림 원인 절을 한 문단에
     // 다 담아 세 절짜리 문장이 됐고, 바로 아래 제외 점수 문단이 같은 쏠림을
     // 다시 말했다. 역할을 나눈다: **weak = 판정과 그 위치(한 문장)**,
@@ -573,9 +598,9 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
     const rankClause = standing.size >= 2 ? ` ${standing.size}팀 중 ${standing.rank}위,` : "";
     weak = `판정 점수(편수·조회수 중 낮은 쪽) ${standing.judgeScore}점은${rankClause}`
       + ` 광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) `
-      + (nearLine < 0
+      + (pos === "below"
         ? "아래라"
-        : nearLine <= THRESHOLD_NEAR_BAND
+        : pos === "near"
           ? "부근이라"
           : `위지만 자연 유입 우세(${VERDICT_THRESHOLDS.organic}점)에는 못 미쳐`)
       + " 광고 영향을 배제하기 어렵다.";
@@ -645,16 +670,24 @@ export function activityVerdict(d: CohortData): SectionVerdict {
   // 순서는 표의 컬럼 순서와 같다(업로드 → 조회수 → 반응 밀도) — 문장과 표가
   // 다른 순서로 읽히면 같은 수치를 두 번 찾게 된다.
   if (up) put(up, `업로드 ${up.value.toLocaleString("ko-KR")}편은 ${up.size}팀 중 ${up.rank}위`);
+  // R4-I2 — 대비 절만 서술어로 끝나(…따라오지 않는 + 다.) 절 목록의 마지막에
+  // 설 때만 문장이 성립한다. 예전엔 컬럼 순서대로 꽂아서 반응 밀도도 함께
+  // 하위권인 창에서 "…따라오지 않는, 조회 1,000회당 반응 …위다."라는 비문이
+  // 나왔다. 대비 절은 따로 들고 있다가 항상 맨 끝에 붙인다.
+  let viewsContrast: string | null = null;
   if (views) {
-    put(views, up && topHalf(up) && !topHalf(views)
-      ? `창 내 조회수는 ${views.size}팀 중 ${views.rank}위로,`
-        + ` 업로드 순위(${up.rank}위)만큼 도달이 따라오지 않는`
-      : `창 내 조회수는 ${views.size}팀 중 ${views.rank}위`);
+    if (up && topHalf(up) && !topHalf(views)) {
+      viewsContrast = `창 내 조회수는 ${views.size}팀 중 ${views.rank}위로,`
+        + ` 업로드 순위(${up.rank}위)만큼 도달이 따라오지 않는`;
+    } else {
+      put(views, `창 내 조회수는 ${views.size}팀 중 ${views.rank}위`);
+    }
   }
   if (dens) {
     put(dens, `조회 1,000회당 반응 ${dens.value.toFixed(1)}건은`
       + ` ${dens.size}팀 중 ${dens.rank}위`);
   }
+  if (viewsContrast) weak.push(viewsContrast);
   const join = (parts: string[]) => parts.length ? `${parts.join(", ")}다.` : null;
   return { good: join(good), weak: join(weak) };
 }
@@ -668,6 +701,10 @@ export function activityVerdict(d: CohortData): SectionVerdict {
  * 파생한다) ⓑ "무엇을 해서 → 다음 보고 때 무엇을 가져올지"의 쌍 구조를
  * 유지한다. 쌍이 깨지면 이 카드는 그냥 할 일 목록이 되고, 투자사·경영진이
  * 다음 보고에서 무엇을 검증할 수 있는지가 사라진다.
+ * R4-I4 — 산출물은 **액션을 했을 때만 존재하는 것**이어야 한다. 예전 ②③은
+ * "다음 보고 시점의 배수·순증 재측정"·"활동 표의 추이 비교"였는데, 둘 다
+ * 아무도 아무것도 하지 않아도 대시보드가 알아서 갖고 있는 값이라 약속이
+ * 지켜졌는지 반증할 방법이 없었다(= 약속이 아니다).
  * 문구를 바꿀 때는 화면 다른 곳(자연 유입 섹션의 ORG_ACTION_HINT)과
  * 어긋나지 않는지 함께 본다.
  */
@@ -680,11 +717,11 @@ export const NEXT_REPORT_ACTIONS: ReadonlyArray<{
   },
   {
     action: "데뷔 후 성장 레버(콘텐츠 주기·구독 유도 지점)를 실행한다",
-    deliverable: "다음 보고 시점의 데뷔 후 성장 배수·순증 재측정",
+    deliverable: "실행한 레버 목록과 시행 전후 순증 비교",
   },
   {
-    action: "업로드 구성(롱·숏)과 반응 밀도를 유지하며 관찰한다",
-    deliverable: "데뷔 창 활동 표의 추이 비교",
+    action: "업로드 구성(롱·숏)과 반응 밀도의 목표치를 정해 운영한다",
+    deliverable: "이번 창 대비 롱·숏 비중·반응 밀도 변화와 유지·전환 결정",
   },
 ];
 
@@ -732,7 +769,13 @@ export function nextReportCard(d: CohortData, verdicts: {
   if (mine?.total_multiple != null && totals.length >= 2) {
     const rank = rankDesc(mine.total_multiple, totals.map((r) => r.total_multiple!));
     if (rank <= 2) {
-      strengths.push(`총 성장 ${fmtMultiple(mine.total_multiple)} — ${totals.length}팀 중 ${rank}위.`);
+      // R4-C2 — 배수는 출발점이 작을수록 구조적으로 커진다. 화면의 다른
+      // 배수들은 그 캐비앗을 옆칸(출발선)·각주·인과절로 늘 달고 다니는데,
+      // 이 카드 첫 불릿만 캐비앗 없이 단독으로 나갔다 — 캡처가 가장 많이
+      // 되는 자리에서 유리한 수치만 무방비로 노출되면 비대칭 공시가 된다.
+      // 같은 절을 불필요하게 길게 쓰지 않도록 괄호 한 절로 붙인다.
+      strengths.push(`총 성장 ${fmtMultiple(mine.total_multiple)}`
+        + ` — ${totals.length}팀 중 ${rank}위(출발점이 작을수록 크게 나오는 값).`);
     }
   }
   // ② 데뷔 전 배수 1위 (헤드라인 H2·상세표 good 과 같은 모수 규칙).
@@ -775,9 +818,20 @@ export function nextReportCard(d: CohortData, verdicts: {
       + ` — ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위${baseClause}.`);
   }
   // ② 판정 점수가 자연 유입 우세에 못 미치는 창 — 게이트는 ⑤ 섹션의 weak.
+  // R4-I1 — 앵커도 ⑤ 와 같은 분기(judgePosition)를 쓴다. 예전엔 위치와
+  // 무관하게 "자연 유입 우세(70점) 미달" 한 문구라, 점수가 광고 과다
+  // 기준선 아래로 떨어져도 카드만 관대한 말을 계속했다. 순위는 ⑤ weak 과
+  // 같은 규칙으로 병기한다(겨룰 상대가 있을 때만).
   if (verdicts.organicity.weak && standing) {
-    focus.push(`판정 점수 ${standing.judgeScore}점`
-      + ` — 자연 유입 우세(${VERDICT_THRESHOLDS.organic}점)에 못 미친다.`);
+    const pos = judgePosition(standing.judgeScore);
+    const rankClause = standing.size >= 2
+      ? ` ${standing.size}팀 중 ${standing.rank}위,` : "";
+    const where = pos === "below"
+      ? `광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) 아래`
+      : pos === "near"
+        ? `광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) 부근`
+        : `자연 유입 우세(${VERDICT_THRESHOLDS.organic}점) 미달`;
+    focus.push(`판정 점수 ${standing.judgeScore}점 —${rankClause} ${where}.`);
   }
   // ③ 조회수 쏠림 — 광고 투입 판정 영상이 창 조회수를 얼마나 가져갔나.
   const org = d.organicity.find((o) => o.group_key === "miiwan");

@@ -497,6 +497,12 @@ export function MiiWANCohortReport() {
   // ⑤-b 데뷔 창 활동 — 표에 세울 행과 그 해석. 둘 다 lib 산출(같은 규칙).
   const actRows = activityRows(data);
   const aVerdict = activityVerdict(data);
+  // R4-C1 — 표 각주가 "업로드 전수 ≠ 판정 표본"을 단정하기 전에 실제로 갈리는
+  // 행이 있는지 센다. 판정이 불가능한(insufficient_data) 영상이 하나도 없는
+  // 창에서는 두 수가 같아서, 정적 문구를 두면 화면이 스스로 거짓이 된다.
+  const uploadsDifferFromScored = actRows.some(
+    (o) => (o.uploads ?? 0) > 0 && o.uploads !== o.video_count,
+  );
   // "다음 보고까지" 카드 — 강점·보완은 위 섹션들이 쓰는 **같은 게이트**를
   // 재사용해 파생하고(문장만 카드용), 액션·산출물은 운영 약속 상수다.
   const nextCard = nextReportCard(data, { curve: cVerdict, organicity: oVerdict });
@@ -1244,15 +1250,19 @@ export function MiiWANCohortReport() {
               <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
                 <tr>
                   <th scope="col" class="px-3 py-2 text-left">그룹</th>
-                  {/* 라벨 주의 — 여기서 세는 것은 창 안에 올라온 **전체** 영상이고,
+                  {/* 라벨 주의 — 여기서 세는 것은 창 안에 올라온 업로드 전수이고,
                       위 자연 유입의 '영상 N편'은 판정이 가능했던 표본이다.
                       두 수를 같은 이름으로 부르면 독자가 같은 숫자로 읽는다. */}
                   <th scope="col" class="px-3 py-2 text-right">업로드 (롱·숏)</th>
                   <th scope="col" class="px-3 py-2 text-right">창 내 조회수</th>
                   <th scope="col" class="px-3 py-2 text-right">
                     조회 1,000회당 반응
+                    {/* R4-I3 — "높을수록 좋다"만 적어 두면 밀도 1위가 곧 성과로
+                        읽힌다. 실제로는 분모(도달)가 작아도 커지는 값이라,
+                        이 창에서 밀도 1위 팀이 조회수 꼴찌다. 방향 대신
+                        읽는 법을 적어 옆 컬럼과 함께 보게 만든다. */}
                     <div class="font-normal normal-case tracking-normal text-zinc-600">
-                      높을수록 반응이 밀도 있다
+                      도달(분모)이 작을수록 커진다 — 창 내 조회수와 함께 읽는다
                     </div>
                   </th>
                 </tr>
@@ -1297,14 +1307,18 @@ export function MiiWANCohortReport() {
                 })}
               </tbody>
             </table>
-            {/* 라벨 충돌 방지 — 이 각주가 없으면 "업로드 107편"과 위 섹션의
-                "영상 122편"이 같은 모집단으로 읽혀, 둘이 다를 때 화면이
-                자기모순처럼 보인다. 반응의 정의도 여기서 한 번만 말한다. */}
+            {/* 라벨 충돌 방지 — 업로드 전수와 위 섹션의 '영상 N편'(판정 표본)이
+                같은 모집단으로 읽히면 안 된다. R4-C1 — 다만 "두 숫자는 다르다"를
+                정적으로 적어 두면 실측에서 둘이 같은 창(현재 전 팀 일치)에서
+                화면이 스스로 거짓말을 한다. 실제로 다른 팀이 있는지 세어보고
+                문장을 고른다. */}
             <p class="px-3 py-2 text-hint text-zinc-500 leading-relaxed border-t border-zinc-800/60">
-              업로드 편수는 창 안에 올라온 <strong class="text-zinc-400">전체</strong> 영상 수이고,
-              위 자연 유입의 &lsquo;영상 N편&rsquo;은 그중 점수를 낼 수 있었던 표본이라 두
-              숫자는 다르다. 반응은 공개된 좋아요·댓글 합이며, 조회수가 없는 팀은
-              &mdash;로 둔다.
+              업로드 편수는 창 안에 올라온 업로드 전수이고, 위 자연 유입의
+              {" "}&lsquo;영상 N편&rsquo;은 그중 점수를 낼 수 있었던 표본이다
+              {uploadsDifferFromScored
+                ? <> — 판정이 불가능한 영상이 있으면 두 숫자가 갈린다</>
+                : <> (지금 창에서는 두 숫자가 같다)</>}. 반응은 공개된 좋아요·댓글
+              합이며, 조회수가 없는 팀은 &mdash;로 둔다.
             </p>
           </div>
         </div>

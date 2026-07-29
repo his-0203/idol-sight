@@ -999,7 +999,10 @@ describe("exPaidNote", () => {
   // 읽힌다. organicityVerdict.weak 에서 내려온 역할이다(weak = 판정과 위치만).
   test("note ⓐ — 편수 비중과 조회수 점유를 한 문장에서 맞세운다", () => {
     const r = exPaidNote(base as OrgRow)!;
-    expect(r.note).toContain("전체 122편");
+    // R4-C1 — '전체'는 데뷔 창 활동 표의 "업로드 전수"가 가져갔다. 한 화면에서
+    // 두 모집단이 같은 이름을 쓰지 않도록 이쪽은 '판정 대상'으로 부른다.
+    expect(r.note).toContain("판정 대상 122편");
+    expect(r.note).not.toContain("전체 122편");
     expect(r.note).toContain("14편");
     expect(r.note).toContain("편수의 11%");   // 14 / 122
     expect(r.note).toContain("조회수의 71%"); // 0.712
@@ -1009,7 +1012,7 @@ describe("exPaidNote", () => {
     const r = exPaidNote({
       ...base, window_video_count: 40, paid_video_count: 10, paid_view_share: 0.5,
     } as OrgRow)!;
-    expect(r.note).toContain("전체 40편");
+    expect(r.note).toContain("판정 대상 40편");
     expect(r.note).toContain("편수의 25%");
     expect(r.note).toContain("조회수의 50%");
   });
@@ -1119,6 +1122,24 @@ describe("activityVerdict", () => {
     expect(sentenceCount(v.weak!)).toBe(1);
   });
 
+  // R4-I2 회귀 — 대비 절만 서술어로 끝나(…따라오지 않는 + 다.) 절 목록의
+  // 마지막에 설 때만 문장이 성립한다. 반응 밀도까지 하위권이면 예전 순서에서
+  // "…따라오지 않는, 조회 1,000회당 반응 …위다."라는 비문이 나갔다.
+  test("대비 절은 항상 문장 끝 — 조회수·밀도가 함께 하위권이어도 비문이 없다", () => {
+    const v = activityVerdict(cohort({
+      organicity: [
+        actRow("miiwan", 107, 1_000_000, 1.0),
+        actRow("owis", 60, 12_000_000, 6.7),
+        actRow("bdawn", 50, 5_000_000, 3.6),
+        actRow("bthd", 20, 2_000_000, 2.0),
+      ],
+    }));
+    expect(v.weak).toContain("조회 1,000회당 반응 1.0건은 4팀 중 4위");
+    expect(v.weak!.endsWith("도달이 따라오지 않는다.")).toBe(true);
+    expect(v.weak).not.toContain("않는,");
+    expect(sentenceCount(v.weak!)).toBe(1);
+  });
+
   test("데이터가 없으면 문장을 지어내지 않는다", () => {
     expect(activityVerdict(cohort({ organicity: [] })))
       .toEqual({ good: null, weak: null });
@@ -1192,6 +1213,9 @@ describe("nextReportCard", () => {
     expect(c.strengths.length).toBeLessThanOrEqual(3);
     expect(c.strengths[0]).toContain("총 성장 15.0×");
     expect(c.strengths[0]).toContain("3팀 중 1위");   // 참조선(PLAVE 40×) 제외
+    // R4-C2 — 캡처가 가장 많이 되는 자리라 유리한 배수만 캐비앗 없이 나가면
+    // 비대칭 공시가 된다. 화면의 다른 배수들과 같은 캐비앗을 같은 줄에 단다.
+    expect(c.strengths[0]).toContain("출발점이 작을수록 크게 나오는 값");
     expect(c.strengths[1]).toContain("데뷔 전 성장 13.8×");
     expect(c.strengths[2]).toContain("+2,200명");     // 데뷔 후 순증 지속
     for (const s of c.strengths) expect(sentenceCount(s)).toBe(1);
@@ -1205,8 +1229,13 @@ describe("nextReportCard", () => {
     // 출발선이 상위권이면 그 사실을 같은 줄에 단다 — 헤드라인 결론·상세표
     // 보완이 쓰는 것과 같은 게이트다(요약이 본문보다 가혹하면 안 된다).
     expect(c.focus[0]).toContain("출발선 1위 규모");
+    // R4-I1 — 앵커는 ⑤ 섹션과 같은 분기를 쓴다. 41.4점은 기준선(40) 부근이라
+    // "자연 유입 우세 미달"이 아니라 "기준선 부근"으로 말해야 한다(요약이
+    // 본문보다 관대해지지 않게). 순위도 ⑤ weak 과 같은 규칙으로 병기.
     expect(c.focus[1]).toContain("판정 점수 41.4점");
-    expect(c.focus[1]).toContain(`${VERDICT_THRESHOLDS.organic}점`);
+    expect(c.focus[1]).toContain(`광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) 부근`);
+    expect(c.focus[1]).toContain("3팀 중 2위");
+    expect(c.focus[1]).not.toContain(`${VERDICT_THRESHOLDS.organic}점`);
     expect(c.focus[2]).toContain("14편");
     expect(c.focus[2]).toContain("71%");
     for (const s of c.focus) expect(sentenceCount(s)).toBe(1);
@@ -1233,6 +1262,24 @@ describe("nextReportCard", () => {
     expect(c.focus.some((s) => s.includes("판정 점수"))).toBe(false);
   });
 
+  // R4-I1 — 점수가 기준선 아래로 떨어지거나 기준선에서 충분히 떨어진 창에서
+  // 카드 문구가 따라 움직여야 한다. 예전엔 위치와 무관하게 "우세(70점) 미달"
+  // 한 문구라, 더 나빠져도 요약은 같은 말을 계속했다.
+  test("판정 점수 앵커가 위치를 따라간다 (⑤ 섹션과 같은 컷)", () => {
+    const at = (judge: number) => {
+      const d = live();
+      d.organicity = [
+        { ...d.organicity[0]!, score: judge, score_view_weighted: judge },
+        org("myrakl", 60, false, 55), org("owis", 55, false, 50),
+      ];
+      return nextReportCard(d, verdicts(d)).focus
+        .find((s) => s.includes("판정 점수"))!;
+    };
+    expect(at(31)).toContain(`광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) 아래`);
+    expect(at(45)).toContain(`광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) 부근`);
+    expect(at(65)).toContain(`자연 유입 우세(${VERDICT_THRESHOLDS.organic}점) 미달`);
+  });
+
   test("액션은 편집 가능한 운영 상수 — 액션→가져올 것 쌍, 수치를 담지 않는다", () => {
     const c = card();
     expect(c.actions).toEqual(NEXT_REPORT_ACTIONS);
@@ -1245,6 +1292,17 @@ describe("nextReportCard", () => {
       expect(a.action).not.toMatch(/\d/);
       expect(a.deliverable).not.toMatch(/\d/);
     }
+  });
+
+  // R4-I4 — 산출물이 "아무도 아무것도 안 해도 대시보드가 갖고 있는 값"이면
+  // 약속이 지켜졌는지 반증할 수 없다(= 약속이 아니다). 액션을 했을 때만
+  // 존재하는 결과물을 가리켜야 한다.
+  test("산출물은 액션을 했을 때만 존재하는 것 — 자동 재계산은 산출물이 아니다", () => {
+    for (const a of NEXT_REPORT_ACTIONS) {
+      expect(a.deliverable).not.toMatch(/재측정|추이 비교/);
+    }
+    expect(NEXT_REPORT_ACTIONS[1]!.deliverable).toContain("실행한 레버 목록");
+    expect(NEXT_REPORT_ACTIONS[2]!.deliverable).toContain("결정");
   });
 });
 
