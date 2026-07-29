@@ -484,10 +484,7 @@ def hanteo_standing_value(
             anchor_date = date.fromisoformat(str(anchor)[:10])
         except ValueError:
             anchor_date = None
-        if anchor_date is None:
-            elapsed_days = 0
-        else:
-            elapsed_days = max(0, (today - anchor_date).days)
+        elapsed_days = 0 if anchor_date is None else max(0, (today - anchor_date).days)
         decay = 0.5 ** (elapsed_days / HANTEO_DECAY_HALF_LIFE_DAYS)
         out[gk] = float(debut["sales"]) * decay
     return out
