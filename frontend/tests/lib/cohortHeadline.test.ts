@@ -394,6 +394,30 @@ describe("scorecardVerdict", () => {
     expect(v.weak).toContain("출발선이 큰 만큼");
   });
 
+  // 리뷰 지적 — 다른 3개 verdict 함수는 같은 shape 픽스처에서 숫자만 바꿔
+  // 문장이 따라가는지 고정하는 전용 테스트가 있는데 scorecardVerdict만
+  // 없었다. 같은 shape로 pre_multiple(good)·growth_multiple(weak) 각각을
+  // 바꿔 출력 숫자가 하드코딩이 아니라 픽스처에서 파생됨을 고정한다.
+  test("숫자는 픽스처에서 파생 — 같은 shape에서 값만 바꾸면 good·weak 숫자도 바뀐다", () => {
+    const build = (pre: number, growth: number) => cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 900, pre_multiple: pre, growth_multiple: growth }),
+            row({ group_key: "owis", base_value: 400, pre_multiple: 1.5, growth_multiple: 3.0 }),
+          ],
+          miiwan_rank: 2, cohort_size: 2,
+        },
+      },
+    });
+    const v1 = scorecardVerdict(build(2.0, 1.1), "yt_subscribers");
+    const v2 = scorecardVerdict(build(4.0, 2.2), "yt_subscribers");
+    expect(v1.good).toContain(fmtMultiple(2.0));
+    expect(v2.good).toContain(fmtMultiple(4.0));
+    expect(v1.weak).toContain(fmtMultiple(1.1));
+    expect(v2.weak).toContain(fmtMultiple(2.2));
+  });
+
   test("null-안전 — 순위 모수(miiwan_rank·cohort_size)가 없으면 weak는 null", () => {
     const d = cohort({
       scorecard: {
@@ -482,9 +506,11 @@ describe("organicityVerdict", () => {
     expect(v2.good).toContain("72점");
   });
 
-  test("THRESHOLD_NEAR_BAND는 cohortQuality.ts의 산점도 판단과 값이 같다", () => {
-    // 브리프 지시: THRESHOLD_NEAR_BAND는 삭제하지 않고 재사용 — cohortHeadline.ts로
-    // 옮긴 뒤에도 값 자체(10)는 그대로다.
+  // Task 2에서 cohortQuality.ts → cohortHeadline.ts로 옮긴 단일 정의 —
+  // 두 파일이 각자 값을 들고 있던 게 아니라 이제 같은 바인딩이라 cross-file
+  // desync 가드는 아니고, 이관 과정에서 값(10)이 조용히 바뀌지 않았음을
+  // 고정하는 리그레션 핀이다.
+  test("THRESHOLD_NEAR_BAND 이관 값 고정 — 10 그대로다", () => {
     expect(THRESHOLD_NEAR_BAND).toBe(10);
   });
 });
