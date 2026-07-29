@@ -43,8 +43,8 @@ import {
   PRIMARY_METRIC,
   activityRows, activityVerdict,
   adJudgeScore, adScoreMap, cohortComposition, curveVerdict, debutDateRange,
-  exPaidNote, fmtDelta, fmtMultiple, headline, nearTieKeys, organicityVerdict,
-  scorecardVerdict,
+  exPaidNote, fmtDelta, fmtMultiple, headline, nearTieKeys, nextReportCard,
+  organicityVerdict, scorecardVerdict,
   type CohortData, type CurvePoint, type OrgRow, type SectionVerdict,
 } from "../lib/cohortHeadline";
 // 산점도 데이터 준비도 순수 로직 (테스트: tests/lib/cohortQuality.test.ts).
@@ -497,6 +497,9 @@ export function MiiWANCohortReport() {
   // ⑤-b 데뷔 창 활동 — 표에 세울 행과 그 해석. 둘 다 lib 산출(같은 규칙).
   const actRows = activityRows(data);
   const aVerdict = activityVerdict(data);
+  // "다음 보고까지" 카드 — 강점·보완은 위 섹션들이 쓰는 **같은 게이트**를
+  // 재사용해 파생하고(문장만 카드용), 액션·산출물은 운영 약속 상수다.
+  const nextCard = nextReportCard(data, { curve: cVerdict, organicity: oVerdict });
   const composition = cohortComposition(data, metric);
   const debutRange = debutDateRange(data);
   const nearTie = nearTieKeys(sc?.rows ?? []);
@@ -1303,6 +1306,62 @@ export function MiiWANCohortReport() {
               숫자는 다르다. 반응은 공개된 좋아요·댓글 합이며, 조회수가 없는 팀은
               &mdash;로 둔다.
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* "다음 보고까지" — ⑥ 각주 바로 위. 화면 전체에 흩어진 판정을 강점 /
+          보완 / 다음 액션으로 모아 **행동**으로 닫는다. 헤드라인(①)과 시각
+          위계가 같은 강조 카드인 이유: 읽는 사람이 위에서 결론을 잡고
+          아래에서 근거를 따라 내려온 뒤, 마지막에 "그래서 무엇을 할 것인가"를
+          같은 무게로 받아야 하기 때문이다. 역할 구분은 리드 한 줄이 말한다.
+          블록 제목에 ✅·⚠️ 를 쓰지 않는 이유: 헤드라인이 이미 그 글리프로
+          자기 목록을 표시하고 있어, 같은 글리프를 두 카드가 쓰면 아래 카드가
+          위 카드의 반복으로 읽힌다. 색(emerald/amber)만 VerdictLines 와
+          맞춰 뜻을 잇는다. */}
+      {(nextCard.strengths.length > 0 || nextCard.focus.length > 0) && (
+        <div class="card border-l-4" style={{ borderLeftColor: accent }}>
+          <h3 class={SECTION_TITLE}>다음 보고까지</h3>
+          {/* 시점은 상수에 박지 않고 응답에서 파생한다 — "다음 보고"는 지금
+              시점(D+N) 이후라는 뜻이고, 상수에 날짜를 적으면 보고가 밀릴 때
+              문구만 옛날 값으로 남는다. */}
+          <p class={SECTION_LEAD}>
+            맨 위 헤드라인이 한 줄 결론이라면, 여기는 무엇을 해서 다음 보고
+            (지금은 D+{data.as_of_day}) 때 무엇을 가져올지다.
+          </p>
+          <div class="mt-2 grid gap-4 md:grid-cols-3">
+            {nextCard.strengths.length > 0 && (
+              <div>
+                <p class="text-sm font-medium text-emerald-400">종합 강점</p>
+                <ul class="mt-1 list-disc space-y-0.5 pl-5 text-sm text-zinc-300">
+                  {nextCard.strengths.map((s) => <li key={s}>{s}</li>)}
+                </ul>
+              </div>
+            )}
+            {nextCard.focus.length > 0 && (
+              <div>
+                <p class="text-sm font-medium text-amber-400">보완할 것</p>
+                <ul class="mt-1 list-disc space-y-0.5 pl-5 text-sm text-zinc-300">
+                  {nextCard.focus.map((s) => <li key={s}>{s}</li>)}
+                </ul>
+              </div>
+            )}
+            {/* 액션·산출물은 데이터 파생이 아니라 운영 약속(NEXT_REPORT_ACTIONS).
+                "가져올 것"을 액션 밑에 붙여 쌍으로 읽히게 한다 — 쌍이 끊기면
+                다음 보고에서 무엇을 검증할 수 있는지가 사라진다. */}
+            <div>
+              <p class="text-sm font-medium text-zinc-200">다음 액션 → 가져올 것</p>
+              <ul class="mt-1 space-y-1.5 text-sm text-zinc-300">
+                {nextCard.actions.map((a) => (
+                  <li key={a.action}>
+                    {a.action}
+                    <span class="block text-hint text-zinc-500">
+                      → 가져올 것: {a.deliverable}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </div>
       )}

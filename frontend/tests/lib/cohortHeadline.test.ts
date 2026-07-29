@@ -2,8 +2,9 @@
 // "언제 강점으로 세우고 언제 광고 근거를 붙이는가"를 테스트로 고정한다.
 import { describe, expect, it, test } from "vitest";
 import {
-  AD_SUSPECT_METRICS, EX_PAID_LABEL, NEAR_TIE_RATIO,
+  AD_SUSPECT_METRICS, EX_PAID_LABEL, NEAR_TIE_RATIO, NEXT_REPORT_ACTIONS,
   ORG_ACTION_HINT, ORG_AD_SUSPECT_THRESHOLD, THRESHOLD_NEAR_BAND,
+  nextReportCard,
   activityRows, activityVerdict,
   adJudgeScore, cohortComposition, curveVerdict, debutDateRange, exPaidNote, fmtDelta,
   fmtMultiple, headline, nearTieKeys, organicStanding, organicityVerdict, scorecardVerdict,
@@ -1148,6 +1149,102 @@ describe("activityVerdict", () => {
     // 업로드·조회수는 3팀 모수, 반응 밀도는 값이 있는 2팀 모수.
     expect(v.good).toContain("업로드 107편은 3팀 중 2위");
     expect(v.good).toContain("2팀 중 1위");
+  });
+});
+
+// ── "다음 보고까지" 카드 ────────────────────────────────────────────────
+describe("nextReportCard", () => {
+  /** 2026-07-30 실측 근사 — 총 성장 1위 · 데뷔 전 1위 · 데뷔 후 하위권. */
+  const live = () => cohort({
+    scorecard: {
+      yt_subscribers: {
+        rows: [
+          row({ group_key: "miiwan", growth_multiple: 1.08, pre_multiple: 13.8,
+            total_multiple: 15.0, base_value: 26_000, value_at_day: 28_200 }),
+          row({ group_key: "myrakl", growth_multiple: 2.4, pre_multiple: 2.0,
+            total_multiple: 4.8, base_value: 3_000, value_at_day: 7_200 }),
+          row({ group_key: "owis", growth_multiple: 1.9, pre_multiple: 3.1,
+            total_multiple: 5.9, base_value: 9_000, value_at_day: 17_100 }),
+          row({ group_key: "plave", reference: true, growth_multiple: 9.9,
+            pre_multiple: 20, total_multiple: 40 }),
+        ],
+        miiwan_rank: 3, cohort_size: 3,
+      },
+    },
+    organicity: [
+      { group_key: "miiwan", score: 74, video_count: 122, reference: false,
+        score_view_weighted: 41.4, window_video_count: 122, paid_video_count: 14,
+        paid_view_share: 0.712, score_view_weighted_ex_paid: 69.5 },
+      org("myrakl", 60, false, 29.8),
+      org("owis", 55, false, 50),
+    ],
+  });
+  const verdicts = (d: CohortData) => ({
+    curve: curveVerdict(d), organicity: organicityVerdict(d),
+  });
+  const card = () => {
+    const d = live();
+    return nextReportCard(d, verdicts(d));
+  };
+
+  test("강점은 각 섹션이 이미 쓰는 게이트에서 파생된다 (최대 3)", () => {
+    const c = card();
+    expect(c.strengths.length).toBeLessThanOrEqual(3);
+    expect(c.strengths[0]).toContain("총 성장 15.0×");
+    expect(c.strengths[0]).toContain("3팀 중 1위");   // 참조선(PLAVE 40×) 제외
+    expect(c.strengths[1]).toContain("데뷔 전 성장 13.8×");
+    expect(c.strengths[2]).toContain("+2,200명");     // 데뷔 후 순증 지속
+    for (const s of c.strengths) expect(sentenceCount(s)).toBe(1);
+  });
+
+  test("보완할 것도 데이터 파생 — 배수 하위권·판정 점수·조회수 쏠림", () => {
+    const c = card();
+    expect(c.focus.length).toBeLessThanOrEqual(3);
+    expect(c.focus[0]).toContain("데뷔 후 성장 배수 1.1×");
+    expect(c.focus[0]).toContain("3팀 중 3위");
+    // 출발선이 상위권이면 그 사실을 같은 줄에 단다 — 헤드라인 결론·상세표
+    // 보완이 쓰는 것과 같은 게이트다(요약이 본문보다 가혹하면 안 된다).
+    expect(c.focus[0]).toContain("출발선 1위 규모");
+    expect(c.focus[1]).toContain("판정 점수 41.4점");
+    expect(c.focus[1]).toContain(`${VERDICT_THRESHOLDS.organic}점`);
+    expect(c.focus[2]).toContain("14편");
+    expect(c.focus[2]).toContain("71%");
+    for (const s of c.focus) expect(sentenceCount(s)).toBe(1);
+  });
+
+  test("조건이 안 맞으면 불릿을 지어내지 않는다 (빈 배열 허용)", () => {
+    const d = cohort();
+    const c = nextReportCard(d, verdicts(d));
+    expect(c.strengths).toEqual([]);
+    expect(c.focus).toEqual([]);
+    // 액션은 운영 약속이라 데이터와 무관하게 남는다.
+    expect(c.actions.length).toBe(NEXT_REPORT_ACTIONS.length);
+  });
+
+  test("판정 점수가 우세 등급이면 그 보완 항목이 빠진다 (같은 게이트 재사용)", () => {
+    const d = live();
+    d.organicity = [
+      { ...d.organicity[0]!, score: 85, score_view_weighted: 80 },
+      org("myrakl", 60, false, 55),
+      org("owis", 55, false, 50),
+    ];
+    const c = nextReportCard(d, verdicts(d));
+    expect(organicityVerdict(d).weak).toBeNull();
+    expect(c.focus.some((s) => s.includes("판정 점수"))).toBe(false);
+  });
+
+  test("액션은 편집 가능한 운영 상수 — 액션→가져올 것 쌍, 수치를 담지 않는다", () => {
+    const c = card();
+    expect(c.actions).toEqual(NEXT_REPORT_ACTIONS);
+    expect(NEXT_REPORT_ACTIONS.length).toBe(3);
+    for (const a of NEXT_REPORT_ACTIONS) {
+      expect(a.action.length).toBeGreaterThan(0);
+      expect(a.deliverable.length).toBeGreaterThan(0);
+      // 수치·시점을 상수에 박으면 데이터가 바뀌어도 문구만 옛날 값으로 남는다
+      // (시점 표기는 화면이 as_of_day 에서 파생한다).
+      expect(a.action).not.toMatch(/\d/);
+      expect(a.deliverable).not.toMatch(/\d/);
+    }
   });
 });
 

@@ -659,6 +659,140 @@ export function activityVerdict(d: CohortData): SectionVerdict {
   return { good: join(good), weak: join(weak) };
 }
 
+/**
+ * "다음 보고까지" 카드의 액션·산출물.
+ *
+ * ⚠ 운영 약속 — **데이터에서 파생되지 않는다. 보고 주기마다 사람이 갱신한다.**
+ * 이 파일의 다른 문장들과 성격이 정반대인 유일한 상수다(나머지는 전부 응답에서
+ * 계산한다). 그래서 ⓐ 수치·시점을 여기에 적지 않고(화면이 as_of_day 에서
+ * 파생한다) ⓑ "무엇을 해서 → 다음 보고 때 무엇을 가져올지"의 쌍 구조를
+ * 유지한다. 쌍이 깨지면 이 카드는 그냥 할 일 목록이 되고, 투자사·경영진이
+ * 다음 보고에서 무엇을 검증할 수 있는지가 사라진다.
+ * 문구를 바꿀 때는 화면 다른 곳(자연 유입 섹션의 ORG_ACTION_HINT)과
+ * 어긋나지 않는지 함께 본다.
+ */
+export const NEXT_REPORT_ACTIONS: ReadonlyArray<{
+  action: string; deliverable: string;
+}> = [
+  {
+    action: "광고 집행 내역(영상·기간·금액)을 정리해 자연 유입 판정과 대조한다",
+    deliverable: "판정 점수 검증 결과와 광고 의존도 실측",
+  },
+  {
+    action: "데뷔 후 성장 레버(콘텐츠 주기·구독 유도 지점)를 실행한다",
+    deliverable: "다음 보고 시점의 데뷔 후 성장 배수·순증 재측정",
+  },
+  {
+    action: "업로드 구성(롱·숏)과 반응 밀도를 유지하며 관찰한다",
+    deliverable: "데뷔 창 활동 표의 추이 비교",
+  },
+];
+
+export interface NextReportCard {
+  /** 데이터 파생 강점 불릿 (최대 3, 조건 미충족이면 생략). */
+  strengths: string[];
+  /** 데이터 파생 보완 불릿 (최대 3). */
+  focus: string[];
+  /** 운영 약속 (NEXT_REPORT_ACTIONS 그대로 — 파생 아님). */
+  actions: ReadonlyArray<{ action: string; deliverable: string }>;
+}
+
+/** 카드 불릿 상한 — 넷 이상이면 "요약"이 아니라 또 하나의 목록이 된다. */
+const NEXT_REPORT_BULLETS = 3;
+
+/**
+ * ⑥ 각주 바로 위의 "다음 보고까지" 카드.
+ *
+ * 헤드라인(①)은 **한 줄 결론**이고 이 카드는 **행동 지향 요약**이다 —
+ * 화면 전체(산점도·곡선·표·자연 유입·데뷔 창 활동)에 흩어진 판정을 강점 /
+ * 보완 / 다음 액션 세 덩어리로 모은다. 문장을 새로 쓰되 **판단은 새로 하지
+ * 않는다**: 각 항목의 게이트는 그 섹션 verdict 가 이미 쓰는 것과 같은 것을
+ * 재사용하고(총 성장·데뷔 전 배수·순증·편수 점수·판정 점수·쏠림), 수치는
+ * 전부 응답에서 파생한다. 그래야 카드와 아래 섹션이 서로 다른 말을 하지 않는다.
+ *
+ * verdicts 로 받는 두 판정은 **게이트 재사용**이 목적이다(문장을 베끼지
+ * 않는다): curve.good = "데뷔 후 순증이 이어지는 창", organicity.weak =
+ * "판정 점수가 자연 유입 우세에 못 미치는 창". 같은 조건을 여기서 다시
+ * 구현하면 한쪽만 바뀌었을 때 화면이 자기모순에 빠진다.
+ */
+export function nextReportCard(d: CohortData, verdicts: {
+  curve: SectionVerdict; organicity: SectionVerdict;
+}): NextReportCard {
+  const sc = d.scorecard[PRIMARY_METRIC];
+  const rows = sc?.rows ?? [];
+  const mine = rows.find((r) => r.group_key === "miiwan");
+  const peers = peersOf(rows);
+  const standing = organicStanding(d);
+  const strengths: string[] = [];
+  const focus: string[] = [];
+
+  // ── 강점 ────────────────────────────────────────────────────────────
+  // ① 총 성장 배수 = 산점도 x축이 쓰는 값(데뷔 전 구간 포함). 1~2위일 때만.
+  const totals = peers.filter((r) => r.total_multiple != null);
+  if (mine?.total_multiple != null && totals.length >= 2) {
+    const rank = rankDesc(mine.total_multiple, totals.map((r) => r.total_multiple!));
+    if (rank <= 2) {
+      strengths.push(`총 성장 ${fmtMultiple(mine.total_multiple)} — ${totals.length}팀 중 ${rank}위.`);
+    }
+  }
+  // ② 데뷔 전 배수 1위 (헤드라인 H2·상세표 good 과 같은 모수 규칙).
+  const preRows = peers.filter((r) => r.pre_multiple != null);
+  if (mine?.pre_multiple != null && preRows.length >= 2) {
+    const rank = rankDesc(mine.pre_multiple, preRows.map((r) => r.pre_multiple!));
+    if (rank === 1) {
+      strengths.push(`데뷔 전 성장 ${fmtMultiple(mine.pre_multiple)}`
+        + ` — 데뷔 전 값이 있는 ${preRows.length}팀 중 1위.`);
+    }
+  }
+  // ③ 데뷔 후 순증 지속 — 게이트는 곡선 verdict 의 good(= 순증 > 0)과 동일.
+  const delta = mine?.value_at_day != null && mine.base_value != null
+    ? mine.value_at_day - mine.base_value : null;
+  if (verdicts.curve.good && delta != null && delta > 0) {
+    strengths.push(`데뷔 후 ${METRIC_LABELS[PRIMARY_METRIC] ?? PRIMARY_METRIC}`
+      + ` ${fmtDelta(delta, METRIC_UNITS[PRIMARY_METRIC] ?? "")} — 증가가 이어진다.`);
+  }
+  // ④ 편수 기준 자연 유입 점수 상위 절반 (자연 유입 섹션 good 과 같은 순위).
+  if (standing && standing.size >= 2
+    && standing.scoreRank <= Math.ceil(standing.size / 2)) {
+    strengths.push(`영상 편수 기준 자연 유입 ${standing.score}점`
+      + ` — ${standing.size}팀 중 ${standing.scoreRank}위.`);
+  }
+
+  // ── 보완 ────────────────────────────────────────────────────────────
+  // ① 데뷔 후 배수 하위권 (헤드라인 루프와 같은 상위 절반 규칙).
+  if (sc?.miiwan_rank != null && sc.cohort_size >= 2 && mine?.growth_multiple != null
+    && sc.miiwan_rank > Math.ceil(sc.cohort_size / 2)) {
+    // 출발선이 상위권이면 그 사실을 같은 줄에 단다 — 화면의 다른 두 곳
+    // (헤드라인 결론·상세표 보완)이 이미 "출발선이 큰 만큼 배수는 구조적으로
+    // 작게 나온다"를 같은 게이트로 말하고 있어서, 여기서만 맨 순위로 끝내면
+    // 요약 카드가 본문보다 가혹한 판정을 내리는 꼴이 된다.
+    const based = peers.filter((r) => r.base_value != null);
+    const baseRank = mine.base_value != null && based.length >= 2
+      ? rankDesc(mine.base_value, based.map((r) => r.base_value!)) : null;
+    const baseClause = baseRank != null && baseRank <= Math.ceil(based.length / 2)
+      ? `(출발선 ${baseRank}위 규모)` : "";
+    focus.push(`데뷔 후 성장 배수 ${fmtMultiple(mine.growth_multiple)}`
+      + ` — ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위${baseClause}.`);
+  }
+  // ② 판정 점수가 자연 유입 우세에 못 미치는 창 — 게이트는 ⑤ 섹션의 weak.
+  if (verdicts.organicity.weak && standing) {
+    focus.push(`판정 점수 ${standing.judgeScore}점`
+      + ` — 자연 유입 우세(${VERDICT_THRESHOLDS.organic}점)에 못 미친다.`);
+  }
+  // ③ 조회수 쏠림 — 광고 투입 판정 영상이 창 조회수를 얼마나 가져갔나.
+  const org = d.organicity.find((o) => o.group_key === "miiwan");
+  if (org?.paid_view_share != null && (org.paid_video_count ?? 0) > 0) {
+    focus.push(`광고 투입 판정 ${org.paid_video_count}편이`
+      + ` 창 조회수의 ${Math.round(org.paid_view_share * 100)}%.`);
+  }
+
+  return {
+    strengths: strengths.slice(0, NEXT_REPORT_BULLETS),
+    focus: focus.slice(0, NEXT_REPORT_BULLETS),
+    actions: NEXT_REPORT_ACTIONS,
+  };
+}
+
 export interface Headline {
   /** "데뷔 D+43일 차 (2026-06-16 데뷔), …" — 달력 날짜 병기. */
   lead: string;
