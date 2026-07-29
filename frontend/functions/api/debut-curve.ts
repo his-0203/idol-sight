@@ -11,9 +11,13 @@
 //     ISEDOL 2021, STELLIVE 2023) only have post-debut points at
 //     large positive offsets; their D-30 / D+30 region is empty
 //     because we have no backfill for that period.
-//   - For each (group, day_offset) bucket we keep the LAST snapshot
-//     in the day so the curve smooths over multi-snapshot days
-//     without double-counting.
+//   - For each (group, day_offset) bucket we keep the MAX value of
+//     that day's snapshots, not the last one: the metrics here are
+//     cumulative, so when a backfill_estimate row and a partially
+//     aggregated live row land on the same day the larger value is
+//     the trustworthy one. See ../lib/debutAligned.ts.
+//   - day_offset is counted on the KST calendar (debut_date is a KST
+//     date), so a 15:00Z snapshot already belongs to the next day.
 //
 // Query params:
 //   metric: column name on agg_summary. Default 'yt_subscribers'.
