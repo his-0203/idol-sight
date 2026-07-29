@@ -1,14 +1,24 @@
 // frontend/src/components/MiiWANCohortReport.tsx
 //
 // 동시기 성과 — 같은 시기에 데뷔한 팀들과의 비교 (투자사 보고 서사).
-// 구조: ① 결론 헤드라인(스코어카드에서 자동 산출, 하드코딩 금지)
-//      ② 성장곡선(데뷔일=100) ③ 스코어카드 표 ④ 성장의 질 산점도
-//      ⑤ 자연 유입 점수 ⑥ 방법론 각주.
+//
+// 구조는 **포괄 → 세부** 피라미드다. 위로 갈수록 결론, 아래로 갈수록 근거:
+//   ① 결론 헤드라인 (한 줄 결론 → 강·약점 → 자연 유입 위치)
+//   ② 성장의 질 산점도 — 속도×자연 유입×규모를 한 장에. 지표 탭 **밖**에
+//      두어 "탭을 눌러도 안 바뀐다"는 혼란을 위치로 없앤다.
+//   ③ 지표 탭 + 성장곡선 (시간 흐름)
+//   ④ 스코어카드 표 (팀별 세부)
+//   ⑤ 자연 유입 점수 (②의 세로축 해부 — 가장 깊은 드릴다운)
+//   ⑥ 방법론 각주·제외 목록 (파인 프린트)
+// 시각 위계도 같은 방향으로 내려간다 — ①은 강조 카드, ②~⑤는 통일된
+// 소제목+리드(SECTION_TITLE / SECTION_LEAD), ⑥은 text-hint 소자.
 // 열세 지표도 숨기지 않는다 — 가짜 없는 보고가 전제.
 //
-// 배수 하나로 서열이 만들어지는 걸 세 군데서 막는다: 표의 '출발선' 컬럼
-// (저베이스일수록 배수가 구조적으로 커진다) · 곡선의 흐린 선(광고 의심)
-// · 산점도(속도와 자연 유입을 분리한 2축). 셋 다 같은 임계 상수를 쓴다.
+// 배수 하나로 서열이 만들어지는 걸 네 군데서 막는다: 표의 '출발선' 컬럼
+// (저베이스일수록 배수가 구조적으로 커진다) · '데뷔 전/후 성장' 분리 ·
+// 곡선의 흐린 선(광고 의심) · 산점도(속도와 자연 유입을 분리한 2축).
+// 광고 의심 판정은 네 곳 모두 같은 숫자를 쓴다 — 편수·조회수 두 점수 중
+// 낮은 쪽(adJudgeScore) 대 ORG_AD_SUSPECT_THRESHOLD.
 //
 // 카피 원칙: 읽는 사람은 투자사·경영진이지 데이터 담당자가 아니다.
 // "코호트 / 유기성 / 인덱스 / 스냅샷 / 허용폭" 같은 내부 용어는 화면에
@@ -24,17 +34,23 @@ import { EmptyState } from "./EmptyState";
 import { EstBadge } from "./EstBadge";
 // 헤드라인 문구·임계값은 순수 로직이라 lib 로 뺐다 (테스트: tests/lib/cohortHeadline.test.ts).
 import {
-  AD_SUSPECT_METRICS, METRIC_LABELS, ORG_AD_SUSPECT_THRESHOLD,
-  fmtMultiple, headline, type CohortData, type CurvePoint, type OrgRowScored,
+  AD_SUSPECT_METRICS, METRIC_LABELS, METRIC_UNITS, ORG_AD_SUSPECT_THRESHOLD,
+  ORG_SCORE_GAP_CHIP, PRIMARY_METRIC,
+  adJudgeScore, adScoreMap, cohortComposition, debutDateRange, fmtDelta,
+  fmtMultiple, headline, nearTieKeys,
+  type CohortData, type CurvePoint, type OrgRow,
 } from "../lib/cohortHeadline";
 // 산점도 데이터 준비도 순수 로직 (테스트: tests/lib/cohortQuality.test.ts).
-import { QUALITY_METRIC, buildQualityScatter } from "../lib/cohortQuality";
+import { QUALITY_METRIC, buildQualityScatter, scatterNote } from "../lib/cohortQuality";
 
 // 광고 의심 라인의 투명도 — 참조선(PLAVE)이 이미 점선을 쓰고 있어
-// "의심"에 점선을 또 쓰면 두 인코딩이 겹쳐 읽힌다. 의심 = 흐림 + ⚠,
+// "의심"에 점선을 또 쓰면 두 인코딩이 겹쳐 읽힌다. 의심 = 흐림 + 텍스트 칩,
 // 참조 = 점선으로 채널을 분리한다.
 const SUSPECT_LINE_ALPHA = 0.45;
-const SUSPECT_MARK = " ⚠";
+// ⚠ 는 이 화면에서 이미 헤드라인 '보완할 것'과 로드 실패 상태가 쓰고 있다.
+// 같은 글리프를 세 뜻으로 쓰면 아이콘이 뜻을 잃는다 — 곡선 범례는 글리프
+// 대신 말로 적는다(범례 폭이 조금 늘 뿐, 뜻이 정확해진다).
+const SUSPECT_MARK = " (광고 의심)";
 
 /**
  * excluded.reason → 화면 문구. 사유별로 운영 대응이 달라 뭉뚱그리지 않는다.
@@ -56,6 +72,18 @@ function fmtEfficiency(v: number | null): string {
   return v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1);
 }
 
+/** 0~100 점수를 막대 위치(%)로. 범위를 벗어난 값은 잘라 붙인다. */
+function clampPct(v: number): number {
+  return Math.max(0, Math.min(100, v));
+}
+
+// 시각 위계: 결론 카드 > 섹션 카드(제목 + 리드) > 각주. 카드마다 제각각이던
+// 소제목·리드 스타일을 이 두 상수로 통일한다 — 새 색·새 토큰은 도입하지
+// 않고 기존 zinc 스케일과 text-hint 만 쓴다.
+const SECTION_TITLE = "text-sm font-medium text-zinc-200";
+const SECTION_LEAD = "mb-2 text-hint text-zinc-400";
+const CHIP = "rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400";
+
 const accent = colorOf("miiwan");
 
 // 지표 탭 ↔ 패널 연결용 고정 id. 패널은 하나이고 내용만 바뀌므로
@@ -76,6 +104,15 @@ function tol(n: number | undefined): string {
 /** 데뷔 경과일 라벨 — 음수(데뷔 전 기준 스냅샷)면 "D-2" 로 쓴다. */
 function dayLabel(day: number): string {
   return day < 0 ? `D${day}` : `D+${day}`;
+}
+
+/**
+ * 표 서브라인용 자연어 측정일. "기준 D-2" 는 내부 표기라 처음 보는 사람이
+ * 읽지 못한다 — 축·툴팁처럼 공간이 좁은 곳에만 D± 를 남긴다.
+ */
+function measuredOn(day: number): string {
+  if (day === 0) return "데뷔 당일 측정";
+  return day < 0 ? `데뷔 ${-day}일 전 측정` : `데뷔 ${day}일 후 측정`;
 }
 
 export function MiiWANCohortReport() {
@@ -120,17 +157,14 @@ export function MiiWANCohortReport() {
     // 곡선은 출발선이 작은 팀을 압승처럼 그린다. 표의 배지는 표까지 내려와야
     // 읽히므로, 첫인상을 만드는 곡선 자체에 같은 신호를 얹는다 — 배지와
     // 동일 스코프(유튜브 지표 한정 · 점수 없는 팀은 손대지 않음).
+    // 판정 점수는 편수·조회수 중 낮은 쪽(B1) — 표의 배지·산점도 y축과 같은
+    // 숫자를 써야 세 화면이 같은 팀을 같은 이유로 가리킨다.
     const adScope = AD_SUSPECT_METRICS.has(metric);
-    const orgScore = new Map(
-      data.organicity.filter((o) => o.score != null).map((o) => [o.group_key, o.score!]),
-    );
+    const orgScore = adScoreMap(data);
     const isSuspect = (gk: string): boolean => {
       const s = orgScore.get(gk);
       return adScope && s != null && s < ORG_AD_SUSPECT_THRESHOLD;
     };
-    // 툴팁이 라벨만 보고 판단할 수 있게 의심 계열 라벨을 모아둔다
-    // (dataset.label 에는 ⚠ 만 붙고 "왜"는 툴팁에서 풀어 쓴다).
-    const suspectLabels = new Set<string>();
     const preDebut = data.windows?.pre_debut;
 
     // 곡선이 데뷔 전 구간까지 그려지므로 "어디가 데뷔일인가"가 한눈에
@@ -173,7 +207,6 @@ export function MiiWANCohortReport() {
           const suspect = isSuspect(gk);
           const label = (data.groups[gk]?.name ?? gk)
             + (ref ? " (참조)" : "") + (suspect ? SUSPECT_MARK : "");
-          if (suspect) suspectLabels.add(label);
           return {
             label,
             data: pts.map((p) => ({ x: p.day, y: p.index })),
@@ -182,8 +215,11 @@ export function MiiWANCohortReport() {
             borderWidth: isMine ? 3 : 1.5,
             // 점선은 참조선 전용 — 의심은 투명도로만 표현해 두 인코딩을 분리.
             borderDash: ref ? [6, 4] : undefined,
-            pointRadius: 0,
-            pointHoverRadius: 4,
+            // 실측점을 상시 표시한다. 곡선이 실측만 잇기 때문에 점 사이는
+            // 직선인데, 점이 안 보이면 그 직선이 "완만한 성장"으로 읽힌다.
+            // 점이 드문 구간 = 측정이 드물었던 구간임을 호버 없이도 본다.
+            pointRadius: isMine ? 3 : 2,
+            pointHoverRadius: 5,
             tension: 0.25,
           };
         }),
@@ -191,7 +227,10 @@ export function MiiWANCohortReport() {
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: { mode: "index", intersect: false },
+        // 팀마다 측정일이 달라 index 모드는 서로 다른 날짜의 점을 한 툴팁에
+        // 묶어 보여준다("D+12" 제목 아래 실은 D+9·D+14 값이 섞임). nearest
+        // 로 커서에 가장 가까운 실측점 하나만 정확히 집는다.
+        interaction: { mode: "nearest", axis: "x", intersect: false },
         scales: {
           x: {
             type: "linear",
@@ -211,15 +250,18 @@ export function MiiWANCohortReport() {
         plugins: {
           tooltip: {
             callbacks: {
+              // nearest 라 items 는 실측점 하나 — 그 점이 실제로 측정된
+              // 날짜를 제목에 그대로 쓴다(커서 위치가 아니라 점의 날짜).
               title: (items) => {
                 const x = items[0]?.parsed.x;
-                return x == null ? "" : dayLabel(x);
+                return x == null ? "" : `${dayLabel(x)} 측정`;
               },
-              label: (item) => {
-                const l = item.dataset.label ?? "";
-                return `${l}: ${item.parsed.y}`
-                  + (suspectLabels.has(l) ? " (광고 영향 의심)" : "");
-              },
+              // 라벨(dataset.label)에 이미 "(광고 의심)" 이 들어 있으므로
+              // 툴팁에서 다시 붙이지 않는다 — 한 줄에 같은 말이 두 번 나온다.
+              // 절대값은 CurvePoint 에 없다 — 곡선은 인덱스 전용 계열이라
+              // 여기서 표에 있는 값을 다시 끌어오면 두 출처가 어긋날 위험만
+              // 커진다. 절대값은 표에서 읽는다.
+              label: (item) => `${item.dataset.label ?? ""}: ${item.parsed.y}`,
             },
           },
         },
@@ -303,12 +345,15 @@ export function MiiWANCohortReport() {
         maintainAspectRatio: false,
         scales: {
           x: {
-            title: { display: true, text: "성장배수 (데뷔일 대비 몇 배)" },
+            title: { display: true, text: "데뷔 후 성장 배수 (데뷔일 대비 몇 배)" },
             ticks: { callback: (v) => fmtMultiple(Number(v)) },
           },
           y: {
-            title: { display: true, text: "자연 유입 점수" },
-            suggestedMin: 0, suggestedMax: 100,
+            // 0~100 고정이면 전 팀이 60~80에 몰렸을 때 세로 차이가 안 보여
+            // "다 비슷하다"로 읽힌다. 범위는 데이터에 맞추되 임계선은 항상
+            // 화면 안에 남도록 lib 에서 클램프한다.
+            title: { display: true, text: "자연 유입 점수 (낮은 쪽 기준)" },
+            min: s.yRange.min, max: s.yRange.max,
           },
         },
         plugins: {
@@ -335,29 +380,36 @@ export function MiiWANCohortReport() {
   // 아래는 전부 훅이 아닌 일반 계산 — 조기 종료 뒤에 와도 훅 규칙에 안전하다.
   const head = headline(data);
   const sc = data.scorecard[metric];
-  const orgRows: OrgRowScored[] = data.organicity
-    .filter((o): o is OrgRowScored => o.score != null)
-    .sort((a, b) => b.score - a.score);
-  const miiwanOrg = orgRows.find((o) => o.group_key === "miiwan");
-  // 성장배수 ↔ 자연 유입 점수 교차 검증용 조회표. 점수가 없는 그룹은 맵에
-  // 아예 들어가지 않고, 없으면 배지도 달지 않는다 — 판정 근거 없이 "광고
-  // 의심"을 씌우지 않는다(기존 "가짜 수치 없음"과 같은 원칙).
-  const orgScoreOf = new Map(
-    data.organicity.filter((o) => o.score != null).map((o) => [o.group_key, o.score!]),
-  );
+  // 판정 점수(편수·조회수 중 낮은 쪽) 오름/내림 정렬 — 막대가 그 순서로 선다.
+  const orgRows: OrgRow[] = data.organicity
+    .filter((o) => o.score != null)
+    .sort((a, b) => (adJudgeScore(b) ?? 0) - (adJudgeScore(a) ?? 0));
+  // 성장배수 ↔ 자연 유입 교차 검증용 조회표. 점수가 없는 그룹은 맵에 아예
+  // 들어가지 않고, 없으면 배지도 달지 않는다 — 판정 근거 없이 "광고 의심"을
+  // 씌우지 않는다(기존 "가짜 수치 없음"과 같은 원칙).
+  const orgScoreOf = adScoreMap(data);
   const adSuspectMetric = AD_SUSPECT_METRICS.has(metric);
   // 구독 효율은 조회수 대비 구독자라 구독자 탭에서만 뜻이 통한다.
-  const showEfficiency = metric === "yt_subscribers";
+  const showEfficiency = metric === PRIMARY_METRIC;
   // 산점도는 캔버스(useEffect)와 캡션(아래 JSX)이 같은 결과를 봐야 한다 —
   // 제외 목록·중앙값을 두 곳에서 따로 계산하면 화면이 자기모순에 빠진다.
   const quality = buildQualityScatter(data);
-  // 코호트 후보 = 참조선(PLAVE)을 뺀 동시기 그룹 수 — **미완이 포함**.
-  // cohort_size(백엔드)도 미완이 기준값이 있으면 미완이를 포함해 세므로
-  // 포함 기준을 여기에 맞춘다. (미완이를 뺀 5팀과 비교하면 "후보 5팀 중
-  // 확보 6팀" 같은 부분집합 > 전체집합 모순이 생긴다.)
-  // cohort_size 는 그중 이 지표의 D-Day 기준값이 확보된 그룹만 세므로
-  // 후보 수 이하 — 각주가 둘을 함께 밝힌다.
-  const cohortCandidates = Object.values(data.groups).filter((g) => !g.reference).length;
+  const qNote = scatterNote(quality);
+  const composition = cohortComposition(data, metric);
+  const debutRange = debutDateRange(data);
+  const nearTie = nearTieKeys(sc?.rows ?? []);
+  const unitLabel = METRIC_UNITS[metric] ?? "";
+  // R9 — 순위 대상(비참조)을 배수 내림차순으로 세우고 참조행은 그 아래로.
+  const orderedRows = [...(sc?.rows ?? [])].sort((a, b) => {
+    if (a.reference !== b.reference) return a.reference ? 1 : -1;
+    return (b.growth_multiple ?? -1) - (a.growth_multiple ?? -1);
+  });
+  // B5 — 구독 효율 미니 바의 기준 = 코호트 최대값(상대 비교 전용).
+  // 새 임계를 만들지 않는다 — 절대선을 그으면 데뷔 전 대역에서 전 팀이
+  // 걸리거나 아무도 안 걸린다.
+  const effMax = Math.max(
+    0, ...(sc?.rows ?? []).map((r) => r.subs_per_1k_pre ?? 0),
+  );
   // miiwan_rank == null 의 원인 구분: 미완이 자신의 기준값이 없어서인지
   // (그러면 cohort_size 는 피어만 센다) 피어가 없어서인지.
   const miiwanBaselineMissing =
@@ -375,21 +427,29 @@ export function MiiWANCohortReport() {
 
   return (
     <div class="space-y-4">
-      {/* ① 결론 헤드라인 — 스코어카드 자동 산출 (수치·순위 하드코딩 금지) */}
+      {/* ① 결론 — 한 줄 결론 → 잘하고 있는 것 / 보완할 것 → 방법.
+          수치·순위·문구 조합은 전부 headline() 자동 산출(하드코딩 금지). */}
       <div class="card border-l-4" style={{ borderLeftColor: accent }}>
-        <p class="font-semibold text-zinc-100">{head.lead}</p>
+        <p class="text-hint text-zinc-500">{head.lead}</p>
+        {head.conclusion && (
+          <p class="mt-1 text-base font-semibold leading-relaxed text-zinc-100">
+            {head.conclusion}
+          </p>
+        )}
         {head.neutral && <p class="mt-1 text-hint text-zinc-400">{head.neutral}</p>}
-        {head.strengths.length > 0 && (
-          <div class="mt-3">
-            <p class="text-sm font-medium text-zinc-200">✅ 잘하고 있는 것</p>
+
+        {/* H3 — 강점이 없어도 블록을 지우지 않는다. 빈 블록은 '숨김'으로 읽힌다. */}
+        <div class="mt-3">
+          <p class="text-sm font-medium text-zinc-200">✅ 잘하고 있는 것</p>
+          {head.strengths.length > 0 ? (
             <ul class="mt-1 list-disc space-y-0.5 pl-5 text-sm text-zinc-300">
               {head.strengths.map((s) => <li key={s}>{s}</li>)}
             </ul>
-            {head.strengthWhy && (
-              <p class="mt-1 pl-5 text-hint text-zinc-400">{head.strengthWhy}</p>
-            )}
-          </div>
-        )}
+          ) : (
+            <p class="mt-1 pl-5 text-sm text-zinc-400">{head.strengthsEmpty}</p>
+          )}
+        </div>
+
         {head.weaknesses.length > 0 && (
           <div class="mt-3">
             <p class="text-sm font-medium text-zinc-200">⚠️ 보완할 것</p>
@@ -398,6 +458,22 @@ export function MiiWANCohortReport() {
             </ul>
           </div>
         )}
+
+        {/* H4 — 자연 유입 위치는 강·약점과 독립. 자기 점수가 기준 아래면
+            상위권이어도 그 사실을 먼저 쓴다. H8 은 팀명 없이 정황만. */}
+        {(head.organicNote || head.paidSignalNote) && (
+          <div class="mt-3 space-y-1">
+            {head.organicNote && (
+              <p class="text-sm text-zinc-300">{head.organicNote}</p>
+            )}
+            {head.paidSignalNote && (
+              <p class="text-hint text-zinc-400">{head.paidSignalNote}</p>
+            )}
+          </div>
+        )}
+
+        {/* R1 — "출발선을 맞춰 본다"는 설명이 나오는 두 자리 중 하나(결론 아래).
+            나머지 한 자리는 표 위 캡션이고, 그 밖에서는 다른 정보를 쓴다. */}
         <p class="mt-3 text-hint text-zinc-500">
           규모가 큰 팀이 이기는 비교가 아니다 — 각 팀의 데뷔일을 똑같이 출발선에
           놓고, <strong class="text-zinc-300">데뷔한 지 같은 날짜(D+{data.as_of_day})에
@@ -405,25 +481,58 @@ export function MiiWANCohortReport() {
         </p>
       </div>
 
-      {/* ② 성장곡선(데뷔일=100) + 지표 pill 탭 */}
+      {/* ② 성장의 질 — 속도(x)·자연 유입(y)·규모(원)를 한 장에 담은 가장
+          포괄적인 뷰라 결론 바로 아래. 지표 탭 영역 **밖**에 있어 "탭을 눌러도
+          안 바뀐다"는 혼란이 위치로 해소된다. */}
+      {quality.points.length > 0 && (
+        <div class="card">
+          <div class="mb-1 flex flex-wrap items-center gap-2">
+            <h3 class={SECTION_TITLE}>성장의 질</h3>
+            <span class={CHIP}>{METRIC_LABELS[QUALITY_METRIC] ?? QUALITY_METRIC} 기준</span>
+          </div>
+          <p class={SECTION_LEAD}>
+            <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> —
+            오른쪽일수록 빠르게 컸고, 위쪽일수록 광고 없이 컸다. 원이 클수록 현재
+            팬 규모가 크다.
+          </p>
+          <div style={{ height: "320px" }}>
+            <canvas ref={qCanvasRef} />
+          </div>
+          {/* R5 — 자사 위치를 문장으로 못 박는다. 그림만 두면 가장 흔한 오독이
+              "왼쪽 = 뒤처짐"이고, 왼쪽인 이유(출발선)가 화면에서 사라진다. */}
+          {qNote && <p class="mt-2 text-sm text-zinc-300">{qNote}</p>}
+          <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
+            가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
+            팀들의 성장 배수 중앙값
+            {quality.medianGrowth != null && <> ({fmtMultiple(quality.medianGrowth)})</>}.
+            {" "}오른쪽 아래 팀은 빠르게 컸지만 자연 유입 점수가 낮아 광고 효과가
+            섞여 있을 수 있고, 위쪽 팀은 속도가 느려도 광고 없이 팬이 모인 쪽이다.
+            속이 빈 원은 참고용(PLAVE)이라 순위·중앙값에서 뺐다.
+            {" "}세로축은 <strong class="text-zinc-300">편수·조회수 두 기준 중 낮은
+            점수</strong>다 — 어느 한쪽으로도 방어할 수 없는 보수적 판정이며, 자사를
+            포함한 전 팀에 같은 기준을 적용한다.
+          </p>
+          {/* 값이 없는 팀을 조용히 지우면 "코호트가 원래 이만큼"으로 읽힌다 —
+              누가 왜 빠졌는지 함께 밝힌다(가짜 없음 · 열세 숨김 금지). */}
+          {quality.excluded.length > 0 && (
+            <p class="mt-1 text-hint text-zinc-500">
+              표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ③ 성장곡선(데뷔일=100) + 지표 pill 탭 — 시간 흐름(중간 층위). */}
       <div>
-        <p class="mb-2 text-hint text-zinc-400">
-          <strong class="text-zinc-300">이 그래프로 알 수 있는 것</strong> — 출발선을
-          맞췄을 때 누가 더 가파르게 크고 있는지. 각 팀의 데뷔일 값을 100으로 놓고,
-          거기서 몇까지 올라왔는지를 그린다 (200이면 두 배).
-        </p>
-        {/* 데뷔 전 구간을 왜 같이 그리는지 — 미완이는 데뷔 전부터 팬덤을
-            쌓아온 팀이라 이 구간이 곧 "출발선이 큰 이유"의 근거다. */}
-        <p class="mb-2 text-hint text-zinc-500">
-          곡선은 {preDebutLabel} 표시한다 — 데뷔 전 구간(옅은 배경)이 가파른
-          팀은 데뷔 시점에 이미 팬이 모여 있었다는 뜻이다. 성장배수와 순위는
-          지금도 <strong class="text-zinc-300">데뷔일(세로선)</strong> 값이 기준이라
-          이 표시 범위 변경에 영향을 받지 않는다. 곡선은 실제로 측정된 점만
-          잇는다 — 측정이 주 1회였던 팀은 점 사이가 직선으로 보이며, 그 사이를
-          메운 추정값은 그리지 않는다(없던 급등이 그려지는 것을 막는다).
+        <h3 class={SECTION_TITLE}>시간에 따른 성장</h3>
+        {/* R2 — 곡선 캡션은 두 문장으로. 나머지 설명은 차트 위 칩과 각주로 뺐다. */}
+        <p class={SECTION_LEAD}>
+          <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> — 각 팀의
+          데뷔일 값을 100으로 놓았을 때 누가 더 가파른지 (200이면 두 배).
+          옅은 배경은 데뷔 전 구간이고, 세로선이 데뷔일이다.
         </p>
         <div role="tablist" aria-label="지표 선택"
-             class="mb-3 flex overflow-x-auto gap-1 card p-1">
+             class="mb-2 flex overflow-x-auto gap-1 card p-1">
           {data.metrics.map((m) => {
             const active = m === metric;
             return (
@@ -438,6 +547,10 @@ export function MiiWANCohortReport() {
             );
           })}
         </div>
+        {/* 점이 드문 구간이 "완만한 성장"으로 읽히지 않게 칩으로 먼저 알린다. */}
+        <div class="mb-2 flex flex-wrap gap-2">
+          <span class={CHIP}>점 = 실제 측정 시점 · 일부 팀은 주 1회 측정이라 직선 구간 있음</span>
+        </div>
         {/* 패널은 하나(내용만 교체) — tabIndex 0 이라 캔버스밖에 없어도
             키보드로 도달·스크롤할 수 있다. */}
         <div id={PANEL_ID} role="tabpanel" tabIndex={0} aria-labelledby={tabId(metric)}>
@@ -450,72 +563,121 @@ export function MiiWANCohortReport() {
             </div>
           )}
         </div>
-        {/* 흐린 선의 뜻은 곡선 바로 아래서 밝힌다 — 표까지 내려가야 알 수
-            있으면 첫인상은 이미 굳는다. 뉴스 탭에는 적용되지 않으므로
-            캡션도 유튜브 지표에서만 보인다(배지와 같은 스코프). */}
+        {/* R7 — 흐린 선의 뜻. ⚠ 글리프는 위 '보완할 것'과 겹치므로 말로 쓴다. */}
         {hasCurves && adSuspectMetric && (
           <p class="mt-2 text-hint text-zinc-500">
-            흐린 선 ⚠ = 자연 유입 점수가 {ORG_AD_SUSPECT_THRESHOLD}점 미만이라
-            광고 효과가 섞여 있을 수 있는 팀. 점선은 참고용(PLAVE)이라는 뜻으로
-            의미가 다르다.
+            흐린 선 &lsquo;(광고 의심)&rsquo; = 자연 유입 점수가 {ORG_AD_SUSPECT_THRESHOLD}점
+            미만이라 광고 효과가 섞여 있을 수 있는 팀. 점선은 참고용(PLAVE)이라는
+            뜻으로 의미가 다르다. 곡선은 실제로 측정된 점만 잇고, 그 사이를 메운
+            추정값은 그리지 않는다.
           </p>
         )}
       </div>
 
-      {/* ③ 동시기 스코어카드 */}
+      {/* ④ 스코어카드 — 팀별 세부. */}
       {sc && (
-        <div class="overflow-x-auto rounded-lg border border-zinc-800">
-          <p class="px-3 py-2 text-hint text-zinc-400 border-b border-zinc-800/60">
-            <strong class="text-zinc-300">이 표로 알 수 있는 것</strong> — 같은 시기에
-            데뷔한 팀들 사이에서 우리가 몇 번째로 크게 늘었는지. 성장을 데뷔 전
-            ({preDebutLabel} 데뷔일까지)과 데뷔 후(데뷔일 → D+{data.as_of_day})로
-            나눠 적었다 — 같은 출발선이라도 그 값이 데뷔 전에 쌓인 것인지 데뷔
-            직전에 채워진 것인지가 다르기 때문이다.
+        <div>
+          <h3 class={SECTION_TITLE}>팀별 상세</h3>
+          <p class={SECTION_LEAD}>
+            <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> — 같은 시기에
+            데뷔한 팀들 사이에서 우리가 몇 번째로 크게 늘었는지, 그리고 그 성장이
+            데뷔 전에 쌓인 것인지 데뷔 후에 만든 것인지.
           </p>
-          <table class="w-full min-w-[860px] text-sm tabular-nums">
+          {/* C1 — 비교 대상 구성을 표 앞에 고정 노출. 각주까지 내려가야 알 수
+              있으면 "왜 4팀뿐이냐"는 질문이 먼저 나온다. */}
+          <p class="mb-2 text-hint text-zinc-500">
+            비교 대상: 같은 시기 데뷔 {composition.candidates}팀 중 데이터 확보
+            {" "}{composition.withData}팀
+            {composition.excluded > 0 && <> · 제외 {composition.excluded}팀(아래 사유)</>}
+            {composition.referenceNames.length > 0 && (
+              <> · 참고 {composition.referenceNames.length}팀
+                ({composition.referenceNames.join(", ")}, 순위 제외)</>
+            )}
+          </p>
+          {/* R1 두 번째(마지막) 자리 — 출발선 읽는 법을 표 바로 위로 승격. */}
+          <p class="mb-2 text-hint text-zinc-500">
+            <strong class="text-zinc-300">출발선을 같이 볼 것</strong> — 출발선이 클수록
+            배수는 구조적으로 작게 나온다. 1천에서 2천이 되면 2.0×지만, 30만에서
+            32만이 되면 1.1×다. 늘어난 사람 수는 뒤가 훨씬 많은데도 배수는 앞이 크다.
+          </p>
+          {/* E1 — 배지 뜻을 hover 없이 상시 노출. hover 는 모바일에서 존재하지 않는다. */}
+          <p class="mb-2 text-hint text-zinc-600">
+            <span class="rounded bg-zinc-800/60 px-1 py-[1px] text-[10px] text-zinc-500">est</span>
+            {" "}= 나중에 되짚어 채운 추정치(모양은 믿되 절대값은 참고) ·
+            {" "}<span class="rounded bg-zinc-800/60 px-1 py-[1px] text-[10px] text-zinc-500">bf</span>
+            {" "}= 검색 키워드 집계로 확인한 값 · 배지 없음 = 그날 직접 수집한 실측값
+          </p>
+          <div class="overflow-x-auto rounded-lg border border-zinc-800">
+          <table class="w-full min-w-[900px] text-sm tabular-nums">
             <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
               <tr>
                 <th scope="col" class="px-3 py-2 text-left">그룹</th>
                 <th scope="col" class="px-3 py-2 text-right">출발선 (데뷔일 값)</th>
                 <th scope="col" class="px-3 py-2 text-right">D+{data.as_of_day} 시점 값</th>
-                <th scope="col" class="px-3 py-2 text-right">데뷔 전 성장</th>
-                <th scope="col" class="px-3 py-2 text-right">데뷔 후 성장</th>
+                <th scope="col" class="px-3 py-2 text-right">데뷔 전 성장 배수</th>
+                <th scope="col" class="px-3 py-2 text-right">데뷔 후 성장 배수</th>
                 {/* 구독 효율은 "조회수 대비 구독자"라 구독자 탭에서만 뜻이 통한다. */}
                 {showEfficiency && (
-                  <th scope="col" class="px-3 py-2 text-right">데뷔 전 구독 효율</th>
+                  <th scope="col" class="px-3 py-2 text-right">
+                    구독 효율 (데뷔 전/후)
+                    <div class="font-normal normal-case tracking-normal text-zinc-600">
+                      낮을수록 자연스러움
+                    </div>
+                  </th>
                 )}
               </tr>
             </thead>
             <tbody>
-              {[...sc.rows]
-                .sort((a, b) => (b.growth_multiple ?? -1) - (a.growth_multiple ?? -1))
-                .map((r) => {
+              {/* R9 — 참조행(PLAVE)은 순위 모수 밖이라 아래로 내린다. 같은 표
+                  안에 섞여 있으면 "1위 PLAVE" 로 읽혀 순위가 통째로 오독된다. */}
+              {orderedRows.flatMap((r, i) => {
                   const isMine = r.group_key === "miiwan";
+                  const firstRef = r.reference && !orderedRows[i - 1]?.reference;
                   // 성장배수만 보면 "잘 컸네"로 읽히지만 광고비로도 만들 수
-                  // 있는 숫자다. 같은 그룹의 자연 유입 점수가 낮으면 그 성장에
-                  // 광고 몫이 섞여 있다는 뜻이라 배수 옆에서 바로 경고한다.
-                  // 점수 자체가 없으면(맵에 없음) 배지 없음.
+                  // 있는 숫자다. 판정 점수(편수·조회수 중 낮은 쪽)가 기준 아래면
+                  // 배수 옆에서 바로 알린다. 점수가 없으면 배지도 없다.
                   const orgScore = orgScoreOf.get(r.group_key);
                   const adSuspect = adSuspectMetric
                     && r.growth_multiple != null
                     && orgScore != null
                     && orgScore < ORG_AD_SUSPECT_THRESHOLD;
-                  return (
+                  const delta = r.value_at_day != null && r.base_value != null
+                    ? fmtDelta(r.value_at_day - r.base_value, unitLabel) : null;
+                  const effShare = effMax > 0 && r.subs_per_1k_pre != null
+                    ? Math.max(0, Math.min(1, r.subs_per_1k_pre / effMax)) : null;
+                  // 구분선 행과 데이터 행을 한 배열로 낸다 — Fragment 로 묶으면
+                  // key 가 Fragment 에 붙어야 해서 목록 갱신 시 경고가 난다.
+                  return [
+                    firstRef ? (
+                      <tr key="ref-divider">
+                        <td colSpan={showEfficiency ? 6 : 5}
+                            class="border-t-2 border-zinc-700 px-3 py-2 text-hint text-zinc-500">
+                          아래는 순위에서 제외한 참고 사례 — 데뷔 시기·규모가 달라
+                          같이 세지 않는다.
+                        </td>
+                      </tr>
+                    ) : null,
                     <tr key={r.group_key}
                         class={"border-t border-zinc-800/60" + (isMine ? " bg-zinc-800/40" : "")}>
                       <td class="px-3 py-2" style={{ color: colorOf(r.group_key) }}>
                         {data.groups[r.group_key]?.name ?? r.group_key}
-                        {r.reference && (
-                          <span class="ml-1 text-hint text-zinc-500"
-                                title="먼저 성공한 선례라 체급이 달라 순위에서 뺀다">참고용 · 순위 제외</span>
+                        {/* C2 — 팀별 데뷔일. "같은 시기"의 실제 폭을 표에서 본다. */}
+                        {data.groups[r.group_key]?.debut_date && (
+                          <div class="text-hint text-zinc-600">
+                            {data.groups[r.group_key]!.debut_date} 데뷔
+                          </div>
                         )}
                       </td>
                       {/* 출발선 = 성장배수의 분모. 이 칸이 없으면 "왜 우리 배수가
                           작은가"에 표가 답하지 못하고, 배수 순위가 곧 실력 순위로
-                          읽힌다. 측정일은 옆 칸(기준 D+N)에 이미 병기돼 있다. */}
+                          읽힌다. */}
                       <td class="px-3 py-2 text-right text-zinc-400">
                         {r.base_value == null ? "—" : fmt(r.base_value)}
                         <EstBadge source={r.base_source} />
+                        {/* R8 — "기준 D-2" 는 내부 표기다. 자연어로 쓴다. */}
+                        {r.base_day != null && (
+                          <div class="text-hint text-zinc-600">{measuredOn(r.base_day)}</div>
+                        )}
                       </td>
                       <td class="px-3 py-2 text-right text-zinc-300">
                         <div>
@@ -523,10 +685,7 @@ export function MiiWANCohortReport() {
                           <EstBadge source={r.source} />
                         </div>
                         {r.at_day != null && (
-                          <div class="text-hint text-zinc-600">
-                            실측 {dayLabel(r.at_day)}
-                            {r.base_day != null && <> · 기준 {dayLabel(r.base_day)}</>}
-                          </div>
+                          <div class="text-hint text-zinc-600">{measuredOn(r.at_day)}</div>
                         )}
                       </td>
                       {/* 데뷔 전 / 데뷔 후를 나눠 놓으면 "출발선이 크다"가
@@ -538,29 +697,43 @@ export function MiiWANCohortReport() {
                       <td class={"px-3 py-2 text-right " + (isMine ? "font-semibold" : "text-zinc-300")}
                           style={isMine ? { color: accent } : undefined}>
                         {fmtMultiple(r.growth_multiple)}
+                        {/* E2 — 추정치가 낀 근소한 차이는 순서를 확정하지 않는다. */}
+                        {nearTie.has(r.group_key) && (
+                          <span class="ml-1 text-hint font-normal text-zinc-500"
+                                title="이 차이는 추정 오차 안일 수 있어 순서를 확정하지 않는다">≈</span>
+                        )}
+                        {/* R8 — 배수 옆에 실제로 몇 명 늘었는지. */}
+                        {delta && (
+                          <div class="text-hint font-normal text-zinc-600">{delta}</div>
+                        )}
                         {adSuspect && (
                           <div class="text-hint font-normal text-amber-500"
-                               title={"데뷔 초기 영상 중 유료 광고로 판정된 비중이 높아, "
+                               title={"데뷔 전후 영상 중 유료 광고로 판정된 비중이 높아, "
                                  + "이 성장에는 광고 효과가 섞여 있을 수 있음 "
-                                 + `(자연 유입 점수 ${orgScore}점 · 기준 ${ORG_AD_SUSPECT_THRESHOLD}점 미만)`}>
+                                 + `(판정 점수 ${orgScore}점 · 기준 ${ORG_AD_SUSPECT_THRESHOLD}점 미만)`}>
                             광고 영향 의심
                           </div>
                         )}
                       </td>
-                      {/* 수치만 — 임계선·판정 플래그를 두지 않는다. 읽는 법은
-                          아래 캡션이 설명하고 판단은 읽는 사람 몫이다. */}
+                      {/* B5 — 새 임계를 만들지 않고 코호트 내 상대 위치만 막대로.
+                          수치가 주인공이고 막대는 눈이 줄을 세우는 것을 돕는다. */}
                       {showEfficiency && (
                         <td class="px-3 py-2 text-right text-zinc-400">
                           {fmtEfficiency(r.subs_per_1k_pre)}
-                          {r.subs_per_1k_post != null && (
-                            <div class="text-hint text-zinc-600">
-                              데뷔 후 {fmtEfficiency(r.subs_per_1k_post)}
+                          {" / "}
+                          <span class="text-zinc-500">{fmtEfficiency(r.subs_per_1k_post)}</span>
+                          {effShare != null && (
+                            <div class="mt-1 ml-auto h-1 w-16 rounded bg-zinc-800">
+                              <div class="h-1 rounded"
+                                   style={{ width: `${Math.round(effShare * 100)}%`,
+                                            background: colorOf(r.group_key),
+                                            opacity: r.group_key === "miiwan" ? 1 : 0.55 }} />
                             </div>
                           )}
                         </td>
                       )}
-                    </tr>
-                  );
+                    </tr>,
+                  ];
                 })}
             </tbody>
           </table>
@@ -569,7 +742,7 @@ export function MiiWANCohortReport() {
                 의미가 없다 — 순위 대신 모수 부족을 명시한다(빈칸 금지). */}
             {sc.miiwan_rank != null && sc.cohort_size >= 2 ? (
               <>
-                성장배수 기준 같은 시기 데뷔 {sc.cohort_size}팀 중 <strong style={{ color: accent }}>
+                데뷔 후 성장 배수 기준 같은 시기 데뷔 {sc.cohort_size}팀 중 <strong style={{ color: accent }}>
                 MiiWAN {sc.miiwan_rank}위</strong> (참고용 팀 제외).
               </>
             ) : miiwanBaselineMissing ? (
@@ -582,68 +755,39 @@ export function MiiWANCohortReport() {
             )}
             {" "}값은 데뷔일({baseTol}) / D+{data.as_of_day}({atTol}) 안에서 가장 가까운 날의
             측정값을 썼고, 줄마다 실제로 잰 날짜를 함께 적었다.
+            {nearTie.size > 0 && (
+              <> <strong class="text-zinc-400">≈</strong> 표시가 붙은 순위는 추정치가
+              섞인 근소한 차이라 순서를 확정하지 않는다.</>
+            )}
           </p>
           {/* 광고 의심 배지와 짝이 되는 각주 — 배지가 안 뜨는 지표·시점에도
               "배수는 돈으로도 만들 수 있다"는 읽는 법 자체를 남긴다. */}
           <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
-            성장배수는 광고비를 써서도 만들 수 있는 숫자다. 그래서 이 표만 보지 말고
+            성장 배수는 광고비를 써서도 만들 수 있는 숫자다. 그래서 이 표만 보지 말고
             아래 <strong class="text-zinc-300">자연 유입 점수</strong>(광고 없이 팬이 스스로
-            찾아온 정도)와 같이 봐야 한다 — 유튜브 지표는 그 점수가
-            {" "}{ORG_AD_SUSPECT_THRESHOLD}점 미만인 팀에 &lsquo;광고 영향 의심&rsquo;을 표시해 뒀다.
+            찾아온 정도)와 같이 봐야 한다 — 판정은 <strong class="text-zinc-300">편수·조회수
+            두 기준 중 낮은 점수</strong>로 하고, {ORG_AD_SUSPECT_THRESHOLD}점 미만인 팀에
+            &lsquo;광고 영향 의심&rsquo;을 붙인다. 이는 공개 영상 지표로 낸 자체 추정이며,
+            자사를 포함한 전 팀에 같은 기준을 적용한다.
           </p>
-          {/* 저베이스 왜곡 해명 — 배수 순위가 곧 실력 순위로 읽히는 걸 막는다. */}
-          <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
-            <strong class="text-zinc-300">출발선을 같이 볼 것</strong> — 출발선이 클수록
-            배수는 구조적으로 작게 나온다. 1천에서 2천이 되면 2.0×지만, 30만에서
-            32만이 되면 1.1×다. 늘어난 사람 수는 뒤가 훨씬 많은데도 배수는 앞이 크다.
-          </p>
-          {/* 수치만 놓고 읽는 법을 준다 — 특정 팀을 지목하거나 판정하지 않는다. */}
+          {/* S — 데뷔 전/후 대역이 다르다는 사실을 분리해 쓴다. 하나로 뭉치면
+              "0.3~3 이 정상"과 실제 데뷔 전 수치(수십~수백)가 정면 충돌한다. */}
           {showEfficiency && (
             <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
               <strong class="text-zinc-300">구독 효율</strong> = 조회수 1,000회당 늘어난
-              구독자. 정상 구간은 어느 팀이든 0.3~3 수준이고, 이보다 크게 높으면 영상
-              노출 없이 구독자가 늘었다는 뜻이라 유료 캠페인 가능성을 시사한다.
-              구독자·조회수가 같은 날 함께 측정된 실측값끼리만 비교했고, 한쪽이
-              비면 &mdash; 로 둔다.
+              구독자. <strong class="text-zinc-300">데뷔 후</strong> 정상 구간은 0.3~3이고
+              현재 전 팀이 이 범위 안에 있다. <strong class="text-zinc-300">데뷔 전</strong>은
+              조회수 자체가 적어 비율이 수십~수백으로 뜨는 게 보통이므로, 절대값이
+              아니라 <strong class="text-zinc-300">팀 간 상대 비교</strong>로 읽는다 — 유독
+              높은 팀은 영상 노출 없이 구독자가 늘었다는 뜻이다. 구독자·조회수가 같은
+              날 함께 측정된 실측값끼리만 비교했고, 한쪽이 비면 &mdash; 로 둔다.
             </p>
           )}
-        </div>
-      )}
-
-      {/* ④ 성장의 질 — 속도(x)와 자연 유입(y)을 분리한 2축. 곡선·표가 배수
-          하나로 만드는 서열을 여기서 풀어준다. 지표 탭과 무관하게 항상
-          구독자 기준(QUALITY_METRIC)이라 축 라벨에 그걸 밝힌다. */}
-      {quality.points.length > 0 && (
-        <div class="card">
-          <p class="mb-1 text-sm font-medium text-zinc-200">성장의 질</p>
-          <p class="mb-2 text-hint text-zinc-400">
-            <strong class="text-zinc-300">이 그림으로 알 수 있는 것</strong> —
-            오른쪽일수록 빠르게 컸고, 위쪽일수록 광고 없이 컸다. 원이 클수록 현재
-            팬 규모가 크다. ({METRIC_LABELS[QUALITY_METRIC] ?? QUALITY_METRIC} 기준)
-          </p>
-          <div style={{ height: "320px" }}>
-            <canvas ref={qCanvasRef} />
           </div>
-          <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
-            가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
-            팀들의 성장배수 중앙값
-            {quality.medianGrowth != null && <> ({fmtMultiple(quality.medianGrowth)})</>}.
-            {" "}오른쪽 아래에 있는 팀은 빠르게 컸지만 자연 유입 점수가 낮아 광고
-            효과가 섞여 있을 수 있고, 위쪽에 있는 팀은 속도가 느려도 광고 없이 팬이
-            모인 쪽이다. 속이 빈 원은 참고용(PLAVE)이라 순위·중앙값에서 뺐다.
-          </p>
-          {/* 값이 없는 팀을 조용히 지우면 "코호트가 원래 이만큼"으로 읽힌다 —
-              누가 왜 빠졌는지 함께 밝힌다(가짜 없음 · 열세 숨김 금지). */}
-          {quality.excluded.length > 0 && (
-            <p class="mt-1 text-hint text-zinc-500">
-              표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}
-            </p>
-          )}
         </div>
       )}
 
-      {/* ⑤ 자연 유입 점수(유기성) — 데뷔 직후 구간 한정(미완이 경과일이 도달한
-          버킷까지만). 아래 '코호트 유기성 비교'(롤링 창)와 기준이 다름을 명시. */}
+      {/* ⑤ 자연 유입 점수 — 산점도 세로축의 상세 해부(가장 깊은 드릴다운). */}
       {data.organicity_unavailable && (
         <div class="card">
           <p class="text-hint text-zinc-500">
@@ -653,83 +797,114 @@ export function MiiWANCohortReport() {
       )}
       {orgRows.length > 0 && (
         <div class="card">
-          <p class="mb-1 text-sm font-medium text-zinc-200">
-            자연 유입 점수 ({orgWindowLabel} 기준)
-            {miiwanOrg && (
-              <span class="ml-2 text-hint text-zinc-500">MiiWAN {miiwanOrg.score}점</span>
-            )}
-          </p>
-          <p class="mb-2 text-hint text-zinc-400">
-            <strong class="text-zinc-300">이 점수로 알 수 있는 것</strong> — 이 성장에
-            광고가 얼마나 섞여 있는지. 데뷔 전후 영상들이 유료 광고로 밀린 것처럼
-            보이는지 하나씩 판정해 100점 만점으로 평균 낸 값이고, 높을수록 광고
-            없이 사람들이 스스로 찾아왔다는 뜻이다. 창이 데뷔 전까지 걸쳐 있는
-            이유는 유료 캠페인이 주로 데뷔 직전에 집행되기 때문이다.
-          </p>
-          <div class="space-y-1.5">
-            {orgRows.map((o) => (
-              <div key={o.group_key} class="flex items-center gap-2 text-sm">
-                <span class="w-20 shrink-0" style={{ color: colorOf(o.group_key) }}>
-                  {data.groups[o.group_key]?.name ?? o.group_key}
-                </span>
-                <div class="h-2 flex-1 rounded bg-zinc-800">
-                  <div class="h-2 rounded"
-                       style={{ width: `${Math.max(0, Math.min(100, o.score))}%`,
-                                background: colorOf(o.group_key),
-                                opacity: o.group_key === "miiwan" ? 1 : 0.5 }} />
-                </div>
-                <span class="w-12 text-right tabular-nums text-zinc-400">{o.score}</span>
-                {/* 편수 기준(막대)과 조회수 기준을 나란히 — 둘이 벌어지는
-                    정도 자체가 신호라 한쪽만 보여주면 안 된다. */}
-                <span class="w-24 text-right text-hint text-zinc-600"
-                      title="같은 기간을 조회수로 가중해 낸 점수 (막대는 영상 편수 기준)">
-                  {o.score_view_weighted == null
-                    ? "조회수 기준 —"
-                    : `조회수 기준 ${o.score_view_weighted}점`}
-                </span>
-                {o.reference && <span class="text-hint text-zinc-600">참고용</span>}
-              </div>
-            ))}
+          <div class="mb-1 flex flex-wrap items-center gap-2">
+            <h3 class={SECTION_TITLE}>자연 유입 점수</h3>
+            <span class={CHIP}>{orgWindowLabel} · 데뷔 창 기준</span>
           </div>
-          <p class="mt-2 text-hint text-zinc-500">
-            막대는 영상 <strong class="text-zinc-300">편수</strong> 기준, 옆의 값은
-            같은 기간을 <strong class="text-zinc-300">조회수</strong>로 가중한 점수다.
-            두 값의 차이가 크면 조회수가 소수의 광고성 영상에 쏠려 있다는 뜻이다.
-            {" "}{ORG_AD_SUSPECT_THRESHOLD}점 미만이면 위 표의 성장배수 옆에 &lsquo;광고 영향
-            의심&rsquo;을 붙인다. MiiWAN이 지금까지 지나온 기간({orgWindowLabel})까지만
-            세서 비교한다 — 먼저 데뷔한 팀만 더 긴 기간을 쓰면 공정하지 않기
-            때문이다. 아래 &lsquo;코호트 유기성 비교&rsquo;는 이 창이 아니라 최근
-            기간을 보는 것이라 숫자가 다를 수 있다.
+          <p class={SECTION_LEAD}>
+            <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> — 위 산점도
+            세로축의 상세. 데뷔 전후 영상들이 유료 광고로 밀린 것처럼 보이는지 하나씩
+            자동 판정해 100점 만점으로 평균 낸 값이고, 높을수록 광고 없이 사람들이
+            스스로 찾아왔다는 뜻이다. 창이 데뷔 전까지 걸쳐 있는 이유는 유료 캠페인이
+            주로 데뷔 직전에 집행되기 때문이다.
+          </p>
+          {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
+              폭 자체가 신호라 한 점으로 뭉개지 않는다. R10 — 진한 막대가 우리 팀. */}
+          <div class="space-y-1.5">
+            {orgRows.map((o) => {
+              // orgRows 는 score != null 로 걸러진 행이라 여기서 non-null 이다.
+              const byCount = o.score!;
+              const byViews = o.score_view_weighted ?? byCount;
+              const lo = Math.min(byCount, byViews);
+              const hi = Math.max(byCount, byViews);
+              const isMine = o.group_key === "miiwan";
+              const wide = hi - lo >= ORG_SCORE_GAP_CHIP;
+              return (
+                <div key={o.group_key} class="flex items-center gap-2 text-sm">
+                  <span class="w-20 shrink-0" style={{ color: colorOf(o.group_key) }}>
+                    {data.groups[o.group_key]?.name ?? o.group_key}
+                  </span>
+                  <div class="relative h-2 flex-1 rounded bg-zinc-800">
+                    <div class="absolute h-2 rounded"
+                         style={{ left: `${clampPct(lo)}%`,
+                                  width: `${Math.max(1.5, clampPct(hi) - clampPct(lo))}%`,
+                                  background: colorOf(o.group_key),
+                                  opacity: isMine ? 1 : 0.5 }} />
+                  </div>
+                  <span class="w-28 shrink-0 text-right tabular-nums text-zinc-400">
+                    {byCount}
+                    <span class="text-zinc-600"> / </span>
+                    {o.score_view_weighted == null ? "—" : o.score_view_weighted}
+                  </span>
+                  {/* B4 — 점수만 있으면 "34편 평균"과 "2편 평균"이 같아 보인다. */}
+                  <span class="w-24 shrink-0 text-right text-hint text-zinc-600">
+                    영상 {o.video_count}편
+                  </span>
+                  {wide && (
+                    <span class={CHIP} title="영상 편수로 본 점수와 조회수로 본 점수가 크게 갈린다">
+                      편수·조회수 차이 큼
+                    </span>
+                  )}
+                  {o.reference && <span class="text-hint text-zinc-600">참고용</span>}
+                </div>
+              );
+            })}
+          </div>
+          <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
+            숫자는 <strong class="text-zinc-300">편수 기준 / 조회수 기준</strong> 순이고,
+            막대는 그 두 값을 잇는 구간이다 — 막대가 길수록 두 기준이 갈린다는 뜻으로,
+            조회수가 소수의 광고성 영상에 쏠려 있을 때 그렇게 된다.
+            {" "}<strong class="text-zinc-300">진한 막대가 MiiWAN</strong>이다.
+            판정은 두 기준 중 낮은 점수로 하고, {ORG_AD_SUSPECT_THRESHOLD}점 미만이면
+            위 표의 배수 옆에 &lsquo;광고 영향 의심&rsquo;을 붙인다. MiiWAN이 지금까지
+            지나온 기간({orgWindowLabel})까지만 세서 비교한다 — 먼저 데뷔한 팀만 더 긴
+            기간을 쓰면 공정하지 않기 때문이다.
           </p>
         </div>
       )}
 
-      {/* ⑥ 방법론 각주 — "이 비교 어떻게 만든 거냐"에 화면만으로 답하기 */}
-      <div class="space-y-1.5">
-        <p class="text-hint text-zinc-500 leading-relaxed">
-          어떻게 계산했나: 팀마다 데뷔한 날이 다르므로 각 팀의 데뷔일을 똑같이 0일로
-          맞춘 뒤, 데뷔 후 같은 날짜끼리 비교한다. 그래프는 데뷔일 값을 100으로 놓고
-          그린 성장 폭이고 {preDebutLabel} 그린다(데뷔 전 값은 100 아래에 깔린다 —
-          수집이 없던 팀은 그냥 늦게 시작하며, 없는 날을 만들어 채우지 않는다).
-          곡선에는 실측값만 쓰고 표의 배수는 추정값(est)까지 쓰므로, 실측 데뷔일
-          값이 없는 팀은 곡선에서만 빠지고 표에는 배수가 남을 수 있다.
-          성장배수는 D+{data.as_of_day} 값 ÷ 데뷔일 값이다
-          (데뷔일 값은 데뷔일({baseTol}), 지금 값은 D+{data.as_of_day}({atTol}) 안에서
-          가장 가까운 날의 측정값). 비교 대상은 비슷한 시기에 데뷔한 K-POP 버추얼
-          {" "}{cohortCandidates}팀(MiiWAN 포함) 중 {METRIC_LABELS[metric] ?? metric} 지표에서
-          데뷔일 값이 확보된 {sc?.cohort_size ?? 0}팀이다. PLAVE는 체급이 달라 순위에서
-          빼고 참고용으로만 그래프에 점선으로 넣었다.
-          {" "}<span class="text-zinc-400">est</span> 배지 = 나중에 되짚어 채운 추정치라
-          모양은 믿되 절대값은 참고만 한다. 데이터가 없는 팀은 숫자를 만들어 채우지 않고
-          비교에서 뺀다
-          {data.excluded.length > 0 && <> (현재 {data.excluded.length}건 제외)</>}.
-        </p>
-        {/* 제외 상세는 hover title 이 아니라 접이식 — 모바일·키보드에서도
-            "무엇이 왜 빠졌는지" 확인할 수 있어야 한다. */}
+      {/* ⑥ 방법론 각주·제외 목록 — 파인 프린트. 내용은 유지하고 리드인 불릿으로
+          쪼갠다(한 덩어리 문단은 아무도 끝까지 읽지 않는다). */}
+      <div class="space-y-1.5 text-hint text-zinc-500">
+        <ul class="space-y-1 leading-relaxed">
+          <li>
+            <strong class="text-zinc-400">정렬 방식</strong> — 팀마다 데뷔한 날이
+            다르므로 각 팀의 데뷔일을 똑같이 0일로 맞춘 뒤 같은 경과일끼리 비교한다.
+            그래프는 데뷔일 값을 100으로 놓은 성장 폭이고 {preDebutLabel} 그린다.
+          </li>
+          <li>
+            <strong class="text-zinc-400">배수 계산</strong> — 데뷔 후 성장 배수 =
+            D+{data.as_of_day} 값 ÷ 데뷔일 값 (데뷔일 값은 데뷔일({baseTol}), 지금 값은
+            D+{data.as_of_day}({atTol}) 안에서 가장 가까운 날의 측정값). 데뷔 전 성장
+            배수는 그 앞 구간을 같은 방식으로 잰 값이다.
+          </li>
+          <li>
+            <strong class="text-zinc-400">비교 대상 선정</strong> — {debutRange
+              ? <>데뷔일 {debutRange.from}~{debutRange.to} 사이 국내 K-POP 버추얼
+                {" "}{composition.candidates}팀(MiiWAN 포함)</>
+              : <>비슷한 시기에 데뷔한 국내 K-POP 버추얼 {composition.candidates}팀(MiiWAN 포함)</>}
+            {" "}중 {METRIC_LABELS[metric] ?? metric} 지표에서 데뷔일 값이 확보된
+            {" "}{sc?.cohort_size ?? 0}팀. PLAVE는 데뷔 시기·체급이 달라 순위에서 빼고
+            참고 사례로만 넣었다.
+          </li>
+          <li>
+            <strong class="text-zinc-400">추정치 취급</strong> — est 배지는 나중에
+            되짚어 채운 추정치라 모양은 믿되 절대값은 참고만 한다. 곡선에는 실측값만
+            쓰고 표의 배수는 추정값까지 쓰므로, 실측 데뷔일 값이 없는 팀은 곡선에서만
+            빠지고 표에는 배수가 남을 수 있다.
+          </li>
+          <li>
+            <strong class="text-zinc-400">제외 원칙</strong> — 데이터가 없는 팀은 숫자를
+            만들어 채우지 않고 비교에서 뺀다
+            {data.excluded.length > 0 && <> (현재 {data.excluded.length}건)</>}. 제외는
+            순위를 유리하게도 불리하게도 조정하지 않는다 — 모수에서 빠질 뿐이다.
+          </li>
+        </ul>
+        {/* R4 — 제외 목록은 기본 펼침. 접어두면 "숨겼다"와 구분되지 않는다. */}
         {data.excluded.length > 0 && (
-          <details class="text-hint text-zinc-500">
+          <details open class="text-hint text-zinc-500">
             <summary class="cursor-pointer text-zinc-400 hover:text-zinc-200">
-              비교에서 뺀 항목 {data.excluded.length}건 보기
+              비교에서 뺀 항목 {data.excluded.length}건
             </summary>
             <ul class="mt-1 list-disc space-y-0.5 pl-5">
               {data.excluded.map((e) => (
@@ -737,6 +912,12 @@ export function MiiWANCohortReport() {
                   {data.groups[e.group_key]?.name ?? e.group_key}
                   {" / "}{METRIC_LABELS[e.metric] ?? e.metric}
                   {" — "}{EXCLUDED_REASONS[e.reason] ?? e.reason}
+                  {" · "}
+                  <span class="text-zinc-600">
+                    {e.reason === "no_at_day_value"
+                      ? "비교 시점에 도달하면 자동으로 편입된다"
+                      : "순위에 유리·불리 어느 쪽으로도 조정하지 않는다"}
+                  </span>
                 </li>
               ))}
             </ul>

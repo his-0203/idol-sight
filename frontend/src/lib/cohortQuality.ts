@@ -9,7 +9,9 @@
 // 규칙: 값이 없는 팀은 점을 만들지 않되 화면에서 지우지도 않는다 —
 // excluded 로 사유와 함께 내보내 캡션이 밝힌다(가짜 수치 없음 · 열세 숨김
 // 금지와 같은 원칙). 테스트: tests/lib/cohortQuality.test.ts
-import { ORG_AD_SUSPECT_THRESHOLD, type CohortData } from "./cohortHeadline";
+import {
+  ORG_AD_SUSPECT_THRESHOLD, adScoreMap, fmtMultiple, type CohortData,
+} from "./cohortHeadline";
 
 /** 산점도 x축이 쓰는 지표. 규모 축(원 크기)도 같은 지표의 절대값을 쓴다. */
 export const QUALITY_METRIC = "yt_subscribers";
@@ -50,6 +52,24 @@ export interface QualityScatter {
   medianGrowth: number | null;
   /** y 가이드라인 — 광고 의심 임계(공유 상수). */
   threshold: number;
+  /** y축 표시 범위. 0~100 고정이면 점이 한 덩어리로 뭉쳐 변별이 안 된다. */
+  yRange: { min: number; max: number };
+}
+
+/** y축 데이터 범위 양쪽에 두는 여유(점수). 점이 축선에 붙지 않게 한다. */
+export const Y_AXIS_PADDING = 8;
+
+/**
+ * y축 범위를 데이터에 맞춘다. 0~100 고정이면 전 팀이 60~80에 몰렸을 때
+ * 세로 차이가 눈에 안 보여 "다 비슷하다"로 읽힌다.
+ * 단 **임계선은 항상 화면 안에 있어야 한다** — 기준선이 잘린 산점도는
+ * 위/아래 판정을 그림만으로 확인할 수 없다. 0~100 밖으로도 나가지 않는다.
+ */
+export function yRangeFor(scores: number[], threshold: number): { min: number; max: number } {
+  if (!scores.length) return { min: 0, max: 100 };
+  const lo = Math.min(...scores, threshold) - Y_AXIS_PADDING;
+  const hi = Math.max(...scores, threshold) + Y_AXIS_PADDING;
+  return { min: Math.max(0, lo), max: Math.min(100, hi) };
 }
 
 /** 짝수 개면 가운데 두 값의 평균. 빈 배열은 null. */
@@ -77,9 +97,9 @@ export function radiusFor(scale: number, maxScale: number): number {
  */
 export function buildQualityScatter(d: CohortData): QualityScatter {
   const sc = d.scorecard[QUALITY_METRIC];
-  const orgScore = new Map(
-    d.organicity.filter((o) => o.score != null).map((o) => [o.group_key, o.score!]),
-  );
+  // y축·판정 모두 편수·조회수 중 낮은 쪽(B1) — 표의 배지·곡선의 흐린 선과
+  // 같은 숫자를 써야 세 화면이 같은 팀을 같은 이유로 가리킨다.
+  const orgScore = adScoreMap(d);
   const excluded: QualityExclusion[] = [];
   const draft: Array<Omit<QualityPoint, "radius">> = [];
 
@@ -118,5 +138,48 @@ export function buildQualityScatter(d: CohortData): QualityScatter {
     // 중앙값은 참조선(체급이 다른 PLAVE)을 빼고 낸다 — 표·순위와 같은 규칙.
     medianGrowth: median(points.filter((p) => !p.reference).map((p) => p.growth)),
     threshold: ORG_AD_SUSPECT_THRESHOLD,
+    // 참조(PLAVE) 점도 화면에 그려지므로 범위 계산에 포함한다 — 빼면 그 점만
+    // 축 밖으로 잘려 "참조는 표시한다"는 약속이 깨진다.
+    yRange: yRangeFor(points.map((p) => p.organic), ORG_AD_SUSPECT_THRESHOLD),
   };
+}
+
+/** 임계선에서 이 점수 안쪽이면 "판정이 갈릴 수 있는 자리"로 본다. */
+export const THRESHOLD_NEAR_BAND = 10;
+
+/**
+ * R5 — 산점도에서 자사 위치를 문장으로 자동 서술한다. 사분면 그림만 두면
+ * 읽는 사람마다 다른 결론을 가져가고, 가장 흔한 오독이 "왼쪽 = 뒤처짐"이다.
+ * 왼쪽인 이유(출발선)와 임계선 부근의 불확실성을 같이 말해 둔다.
+ * 좌표·임계 근접 판단은 전부 데이터에서 — 결론을 손으로 적지 않는다.
+ */
+export function scatterNote(s: QualityScatter): string | null {
+  const mine = s.points.find((p) => p.group_key === "miiwan");
+  if (!mine) return null;
+  const parts: string[] = [];
+
+  if (s.medianGrowth != null) {
+    parts.push(mine.growth < s.medianGrowth
+      ? `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 왼쪽 — 성장 속도는 가운데보다 느리다.`
+        + " 출발선이 큰 팀은 배수가 작아 구조적으로 왼쪽에 놓인다."
+      : `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 오른쪽 — 성장 속도는 가운데보다 빠르다.`);
+  }
+
+  const gap = mine.organic - s.threshold;
+  if (Math.abs(gap) <= THRESHOLD_NEAR_BAND) {
+    parts.push(`자연 유입 점수 ${mine.organic}점은 기준선(${s.threshold}점) 부근이라`
+      + " 조금만 움직여도 판정이 갈릴 수 있다.");
+  } else {
+    parts.push(gap > 0
+      ? `자연 유입 점수 ${mine.organic}점으로 기준선(${s.threshold}점) 위쪽에 있다.`
+      : `자연 유입 점수 ${mine.organic}점으로 기준선(${s.threshold}점) 아래에 있다.`);
+  }
+
+  // 원 크기(현재 팬 규모)는 속도와 다른 이야기다 — 느려도 규모는 클 수 있다.
+  const peers = s.points.filter((p) => !p.reference);
+  if (peers.length >= 2) {
+    const scaleRank = peers.filter((p) => p.scale > mine.scale).length + 1;
+    parts.push(`원 크기(현재 팬 규모)로는 ${peers.length}팀 중 ${scaleRank}위다.`);
+  }
+  return parts.join(" ");
 }

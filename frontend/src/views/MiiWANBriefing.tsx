@@ -475,7 +475,12 @@ export function MiiWANBriefing() {
           섹션 (투자사 보고 근거). 헤더 문구는 컴포넌트 내부 카피와 같은
           눈높이 — 내부 용어(코호트·벤치마크) 대신 평이한 말로 쓴다. */}
       <section>
-        <h2 class="section-title mb-1">동시기 성과 — 같은 시기에 데뷔한 팀들과 비교</h2>
+        <div class="mb-1 flex flex-wrap items-center gap-2">
+          <h2 class="section-title">동시기 성과 — 같은 시기에 데뷔한 팀들과 비교</h2>
+          <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400">
+            데뷔 창 기준
+          </span>
+        </div>
         <p class="mb-3 text-hint text-zinc-500 leading-relaxed">
           팀마다 데뷔한 날이 다르니 규모를 그냥 비교하면 먼저 시작한 팀이 이긴다.
           그래서 각 팀의 데뷔일을 똑같이 출발선에 놓고, 데뷔 후 같은 날짜에 얼마나
@@ -484,23 +489,29 @@ export function MiiWANBriefing() {
         <MiiWANCohortReport />
       </section>
 
-      {/* 5b) COMPETITIVE DEBUT WINDOW POSTURE — Organic-score 가로 막대
-          비교. 코호트 표 바로 옆에서 "어떤 그룹이 데뷔 윈도에서 가장
-          유기적 시그널이 강한가" 한 눈에 비교. bucket picker 로 D-60 ~
-          D+60 윈도 전환 가능. */}
+      {/* 5b) 자연 유입 비교(최근 롤링 창) — 위 동시기 섹션은 '데뷔 창' 기준이라
+          같은 팀이라도 숫자가 다르다. 두 카드에 기간 칩을 달아 그 차이를
+          제목에서 바로 드러낸다. 용어도 위 섹션과 통일("유기성" → "자연 유입"). */}
       <section class="card">
-        <h2 class="section-title mb-2">코호트 유기성 비교</h2>
+        <div class="mb-2 flex flex-wrap items-center gap-2">
+          <h2 class="section-title">자연 유입 비교 — 경쟁 팀</h2>
+          <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400">
+            최근 기간 기준
+          </span>
+        </div>
         <p class="mb-2 text-hint text-zinc-500 leading-relaxed">
-          이 막대 = <strong class="text-zinc-300">'진짜인가'</strong>(진정성, 규모 무관) ·
-          동시기 스코어카드의 조회·구독 = <strong class="text-zinc-300">'충분한가'</strong>(규모) ·
-          두 축은 별개 — 진정성이 높아도 규모가 충분하다는 뜻은 아님.
+          이 막대는 <strong class="text-zinc-300">'진짜인가'</strong>(광고 없이 모인
+          팬인지, 규모와 무관) · 위 동시기 표의 조회·구독은
+          {" "}<strong class="text-zinc-300">'충분한가'</strong>(규모) — 두 축은 별개라
+          자연 유입이 높아도 규모가 충분하다는 뜻은 아니다. 위 섹션은 데뷔 직후
+          기간을, 이 카드는 최근 기간을 보므로 같은 팀이라도 숫자가 다를 수 있다.
         </p>
         <CompetitorOrganicityBar />
         <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
-          데뷔 후 유료 축소로 조회수가 피크 대비 떨어지는 건 정상일 수 있음.
-          건강은 '피크 대비 하락'이 아니라 <strong class="text-zinc-300">organic 도달의 floor</strong>가
-          데뷔 전 baseline 위에서 유지/상승하는가로 판단 —
-          organicity 정상 = '진짜'지만 '충분·지속'의 증거는 아님.
+          데뷔 후 유료 광고를 줄여 조회수가 정점 대비 떨어지는 건 정상일 수 있다.
+          건강은 '정점 대비 하락'이 아니라 <strong class="text-zinc-300">광고 없이 도달하는
+          바닥선</strong>이 데뷔 전 수준 위에서 유지·상승하는가로 판단한다 —
+          자연 유입이 정상이라는 건 '진짜'라는 뜻이지 '충분·지속'의 증거는 아니다.
         </p>
       </section>
 

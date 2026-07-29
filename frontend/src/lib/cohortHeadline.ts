@@ -56,6 +56,19 @@ export const METRIC_LABELS: Record<string, string> = {
   yt_total_views: "누적 조회수",
 };
 
+/** 순증 표기 단위. 배수만 쓰면 "몇 명 늘었나"가 사라진다. */
+export const METRIC_UNITS: Record<string, string> = {
+  yt_subscribers: "명",
+  yt_total_views: "회",
+};
+
+/**
+ * 헤드라인 한 줄 결론이 쓰는 지표. 헤드라인 카드는 지표 탭보다 위에 있어
+ * 탭 선택에 따라 결론이 바뀌면 안 되므로 고정한다 — 구독자가 이 화면의
+ * 대표 지표(팬덤 규모)이고 산점도 축(QUALITY_METRIC)과도 같은 기준이다.
+ */
+export const PRIMARY_METRIC = "yt_subscribers";
+
 /**
  * 자연 유입 점수가 이 값 미만이면 그 그룹의 유튜브 성장에 "광고 영향 의심"
  * 배지를 단다. 숫자를 새로 정하지 않고 organicity.ts 의 `organic` 등급 컷을
@@ -77,14 +90,145 @@ export const ORG_AD_SUSPECT_THRESHOLD = VERDICT_THRESHOLDS.organic;
  */
 export const AD_SUSPECT_METRICS = new Set(["yt_subscribers", "yt_total_views"]);
 
-/** 열세 지표별 보완 방향 — 순위만 던지지 않고 "그래서 뭘 하나"까지 말한다. */
+/**
+ * 열세 지표별 보완 방향. 순위만 던지지 않고 "그래서 무엇을 정할 것인가"까지
+ * 말한다 — 이 카드는 사내 회의에서도 그대로 읽히므로 실행 담당자가 다음
+ * 안건을 잡을 수 있어야 한다. 업계 은어("후킹")는 쓰지 않는다: 투자 심사역이
+ * 같은 화면을 보고, 뜻을 모르면 문장이 통째로 건너뛰어진다.
+ */
 export const WEAK_REMEDY: Record<string, string> = {
-  yt_subscribers: "멤버 개인 콘텐츠·쇼츠 후킹 등 구독으로 넘어가게 만드는 콘텐츠를 늘릴 것",
-  yt_total_views: "쇼츠 업로드 주기를 올려 알고리즘 노출을 키울 것",
+  yt_subscribers:
+    "구독으로 이어지는 지점(멤버 개별 콘텐츠·영상 도입부)을 콘텐츠 회의 안건으로 올릴 것",
+  yt_total_views:
+    "짧은 영상 업로드 주기를 올릴지 제작 회의에서 결정할 것",
 };
+
+/**
+ * 인접 순위의 배수 상대차가 이 값 이하이면 순서를 확정하지 않는다(≈ 표기).
+ * **표기용 휴리스틱**이지 오차 모형이 아니다 — 추정치(est)의 실제 오차
+ * 분포를 우리는 모른다. 그래서 "±n%" 같은 범위를 지어내지 않고, "이 차이는
+ * 추정 오차 안일 수 있다"는 사실만 표시한다. est 가 낀 쌍에만 적용한다.
+ */
+export const NEAR_TIE_RATIO = 0.1;
+
+/**
+ * 편수 기준 점수와 조회수 기준 점수의 차이가 이 값을 넘으면 "두 기준이
+ * 갈린다"는 칩을 붙인다. 괴리 자체가 신호이므로(조회수가 소수 영상에 쏠림)
+ * 어느 한쪽만 보여주면 그 신호가 사라진다.
+ */
+export const ORG_SCORE_GAP_CHIP = 15;
+
+/**
+ * 데뷔 전 구독 효율이 자사 대비 이 배수 이상인 팀이 있으면 유가 정황으로
+ * 본다. 절대 임계가 아니라 **코호트 내 상대 비율**이다 — 데뷔 전 구간은
+ * 조회수 자체가 적어 비율이 수십~수백으로 뜨는 게 정상이라, 절대선을
+ * 그으면 전 팀이 걸리거나 아무도 안 걸린다.
+ */
+export const PRE_EFFICIENCY_OUTLIER_RATIO = 3;
 
 export function fmtMultiple(m: number | null): string {
   return m == null ? "—" : `${(Math.round(m * 10) / 10).toFixed(1)}×`;
+}
+
+/** 순증 표기. 0 이하도 그대로 보여준다(감소를 숨기지 않는다). */
+export function fmtDelta(n: number | null, unit: string): string | null {
+  if (n == null) return null;
+  const sign = n >= 0 ? "+" : "−";
+  return `${sign}${Math.abs(Math.round(n)).toLocaleString("ko-KR")}${unit}`;
+}
+
+/**
+ * B1 — 광고 의심 판정에 쓰는 점수 = 편수 기준과 조회수 기준 중 **낮은 쪽**.
+ * 두 기준이 갈릴 때 높은 쪽을 택하면 "조회수는 광고성 영상 몇 편에 쏠렸는데
+ * 편수로는 깨끗해 보이는" 팀이 통과한다. 조회수 점수가 없으면 편수만 쓴다
+ * (없는 값을 0 으로 취급해 감점하지 않는다 — 기존 null 원칙).
+ */
+export function adJudgeScore(o: OrgRow | undefined | null): number | null {
+  if (!o || o.score == null) return null;
+  const v = o.score_view_weighted;
+  return v == null ? o.score : Math.min(o.score, v);
+}
+
+/** 그룹 → 판정 점수(min). 점수가 없는 팀은 맵에 넣지 않는다. */
+export function adScoreMap(d: CohortData): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const o of d.organicity) {
+    const s = adJudgeScore(o);
+    if (s != null) m.set(o.group_key, s);
+  }
+  return m;
+}
+
+/** 내림차순 1-based 순위 (동률은 같은 순위 — 경쟁 순위). */
+function rankDesc(mine: number, all: number[]): number {
+  return all.filter((v) => v > mine).length + 1;
+}
+
+/** 이 화면의 순위·중앙값 모수 = 참조선(PLAVE)을 뺀 그룹. */
+function peersOf(rows: ScRow[]): ScRow[] {
+  return rows.filter((r) => !r.reference);
+}
+
+/**
+ * E2 — 추정치가 낀 인접 순위 쌍 중 배수 차이가 NEAR_TIE_RATIO 이하인 쌍의
+ * 그룹 키. 화면은 여기 든 행의 순위에 "≈" 를 붙여 순서를 확정하지 않는다.
+ * est 가 안 낀 쌍은 실측끼리의 차이라 작아도 그대로 둔다.
+ */
+export function nearTieKeys(rows: ScRow[]): Set<string> {
+  const out = new Set<string>();
+  const ranked = peersOf(rows)
+    .filter((r) => r.growth_multiple != null)
+    .sort((a, b) => b.growth_multiple! - a.growth_multiple!);
+  const tainted = (r: ScRow) =>
+    r.source === "backfill_estimate" || r.base_source === "backfill_estimate";
+  for (let i = 0; i + 1 < ranked.length; i++) {
+    const a = ranked[i]!;
+    const b = ranked[i + 1]!;
+    if (!tainted(a) && !tainted(b)) continue;
+    const hi = Math.max(a.growth_multiple!, b.growth_multiple!);
+    if (hi <= 0) continue;
+    if (Math.abs(a.growth_multiple! - b.growth_multiple!) / hi <= NEAR_TIE_RATIO) {
+      out.add(a.group_key);
+      out.add(b.group_key);
+    }
+  }
+  return out;
+}
+
+/** C1 — 비교 대상 구성. 화면 상단 한 줄이 이 값에서 파생된다. */
+export interface CohortComposition {
+  /** 참조선을 뺀 후보 팀 수(MiiWAN 포함). */
+  candidates: number;
+  /** 그중 이 지표의 데뷔일 값이 확보돼 순위에 들어간 팀 수. */
+  withData: number;
+  /** 이 지표에서 제외된 (그룹,지표) 건수. */
+  excluded: number;
+  /** 참조 팀 이름 (순위 제외). */
+  referenceNames: string[];
+}
+
+export function cohortComposition(d: CohortData, metric: string): CohortComposition {
+  const sc = d.scorecard[metric];
+  return {
+    candidates: Object.values(d.groups).filter((g) => !g.reference).length,
+    withData: sc?.cohort_size ?? 0,
+    excluded: d.excluded.filter((e) => e.metric === metric).length,
+    referenceNames: Object.values(d.groups).filter((g) => g.reference).map((g) => g.name),
+  };
+}
+
+/**
+ * C2 — 코호트의 실제 데뷔일 범위(참조 제외). 방법론 각주가 "데뷔일 X~Y 사이"
+ * 로 대상을 정의한다. "전수"라는 말은 쓰지 않는다 — 이 볼트가 그걸 검증할
+ * 방법이 없고, 검증 못 하는 주장은 투자 자료에서 가장 먼저 무너진다.
+ */
+export function debutDateRange(d: CohortData): { from: string; to: string } | null {
+  const dates = Object.values(d.groups)
+    .filter((g) => !g.reference && g.debut_date)
+    .map((g) => g.debut_date!)
+    .sort();
+  if (!dates.length) return null;
+  return { from: dates[0]!, to: dates[dates.length - 1]! };
 }
 
 /**
@@ -92,29 +236,46 @@ export function fmtMultiple(m: number | null): string {
  * 비참조 그룹만 — 점수가 없는 팀을 분모에 넣으면 "몇 팀 중 몇 위"가
  * 부풀고, PLAVE(참조선)는 체급이 달라 순위에서 빠진다(표·곡선과 동일 규칙).
  */
-export function organicStanding(
-  d: CohortData,
-): { score: number; rank: number; size: number } | null {
+export function organicStanding(d: CohortData): {
+  /** 편수 기준 점수 (막대가 보여주는 값). */
+  score: number;
+  /** 판정에 쓰는 점수 = 편수·조회수 중 낮은 쪽 (B1). 순위도 이 값 기준. */
+  judgeScore: number;
+  rank: number;
+  size: number;
+} | null {
   const scored = d.organicity.filter(
     (o): o is OrgRowScored => o.score != null && !o.reference,
   );
   const mine = scored.find((o) => o.group_key === "miiwan");
   if (!mine) return null;
+  const judged = scored.map((o) => adJudgeScore(o)!);
+  const myJudge = adJudgeScore(mine)!;
   return {
     score: mine.score,
-    rank: scored.filter((o) => o.score > mine.score).length + 1,
+    judgeScore: myJudge,
+    // 순위도 판정 점수 기준 — 배지·흐린 선과 다른 숫자로 줄을 세우면
+    // "우리는 2위인데 왜 의심 표시가 붙었나"가 화면 안에서 안 풀린다.
+    rank: rankDesc(myJudge, judged),
     size: scored.length,
   };
 }
 
 export interface Headline {
+  /** "데뷔 D+43일 차 (2026-06-16 데뷔), …" — 달력 날짜 병기. */
   lead: string;
-  /** 상위 절반 지표 — "무엇이 몇 위인지"까지. */
+  /** H1 — 대표 지표 한 줄 결론 (배수 · 순증 · 순위 · 출발선 해명). */
+  conclusion: string | null;
+  /** 상위 절반 항목 — 데뷔 후 성장 + 데뷔 전 성장. */
   strengths: string[];
-  /** 강점의 의미 부여 한 줄 (자연 유입 점수 근거). 근거 없으면 null. */
-  strengthWhy: string | null;
-  /** 하위 절반 지표 — "순위 + 보완 방향". */
+  /** H3 — 강점이 없을 때 블록을 비우는 대신 쓸 문구 (숨김으로 읽히지 않게). */
+  strengthsEmpty: string | null;
+  /** H4 — 자연 유입 위치. 강·약점과 독립. */
+  organicNote: string | null;
+  /** 하위 절반 항목 — 순위 · 1위 수치 · 보완 방향. */
   weaknesses: string[];
+  /** H8 — 경쟁 팀 유가 정황 종합(팀명 미표기). */
+  paidSignalNote: string | null;
   /** 강점·약점 둘 다 못 뽑았을 때의 중립 문구. */
   neutral: string | null;
 }
@@ -127,9 +288,8 @@ export interface Headline {
 export function headline(d: CohortData): Headline {
   const strengths: string[] = [];
   const weaknesses: string[] = [];
-  // 자연 유입 점수로 변호할 수 있는 강점이 실제로 있었는지 — 점수는 영상이
-  // 유료로 밀렸는지를 재는 값이라 유튜브 강점에만 근거가 된다.
-  let hasAdRelevantStrength = false;
+
+  // ── 지표별 데뷔 후 성장 순위 ────────────────────────────────────────
   for (const m of d.metrics) {
     const sc = d.scorecard[m];
     if (!sc || sc.miiwan_rank == null || sc.cohort_size < 2) continue;
@@ -139,41 +299,145 @@ export function headline(d: CohortData): Headline {
       + ` — 같은 시기 데뷔 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위`;
     if (sc.miiwan_rank <= Math.ceil(sc.cohort_size / 2)) {
       strengths.push(head);
-      if (AD_SUSPECT_METRICS.has(m)) hasAdRelevantStrength = true;
     } else {
-      weaknesses.push(WEAK_REMEDY[m] ? `${head}. ${WEAK_REMEDY[m]}` : head);
+      // H5 — 순위만 있으면 "3위가 얼마나 뒤진 3위인가"를 알 수 없다.
+      // 1위 수치를 같이 놓아야 격차가 회의에서 바로 논의된다.
+      const top = peersOf(sc.rows)
+        .filter((r) => r.growth_multiple != null)
+        .sort((a, b) => b.growth_multiple! - a.growth_multiple!)[0];
+      const gap = top && top.group_key !== "miiwan"
+        ? ` (1위 ${d.groups[top.group_key]?.name ?? top.group_key}`
+          + ` ${fmtMultiple(top.growth_multiple)})`
+        : "";
+      const remedy = WEAK_REMEDY[m];
+      weaknesses.push(`${head}${gap}${remedy ? `. ${remedy}` : ""}`);
     }
   }
 
-  // 자연 유입 점수는 강점을 뒷받침하는 보조 근거로만 쓴다.
+  // ── H2 데뷔 전 성장 ─────────────────────────────────────────────────
+  // 데뷔 후 배수만 보면 "데뷔 시점에 이미 팬덤이 있었다"는 사실이 통째로
+  // 사라진다 — 그건 출발선이 큰 이유이자 이 팀의 실제 강점이다.
+  // H6: 모수가 데뷔 후 순위와 다를 수 있어(데뷔 전 값이 없는 팀 존재)
+  // 분모를 그 자리에서 스스로 설명하게 쓴다.
+  const preRows = peersOf(d.scorecard[PRIMARY_METRIC]?.rows ?? [])
+    .filter((r) => r.pre_multiple != null);
+  const minePre = preRows.find((r) => r.group_key === "miiwan");
+  if (minePre && preRows.length >= 2) {
+    const preRank = rankDesc(minePre.pre_multiple!, preRows.map((r) => r.pre_multiple!));
+    const line = `데뷔 전 성장 ${fmtMultiple(minePre.pre_multiple)}`
+      + ` — 데뷔 전 값이 있는 ${preRows.length}팀 중 ${preRank}위`;
+    if (preRank <= Math.ceil(preRows.length / 2)) {
+      strengths.push(`${line} (데뷔 시점에 이미 팬덤을 만들었다는 뜻)`);
+    } else {
+      weaknesses.push(line);
+    }
+  }
+
+  // ── H4 자연 유입 위치 (강·약점과 독립) ──────────────────────────────
+  // 톤: "광고가 아니라 팬이 만든 것"이라는 단정은 쓰지 않는다. 점수는 영상
+  // 단위 판정의 평균이라 "광고가 하나도 없었다"를 증명하지 못하고, 실제로
+  // 우리도 데뷔 전 구간이 완전히 깨끗하지는 않다.
   //
-  // 톤: "광고가 아니라 팬이 만든 것"이라는 단정은 쓰지 않는다. 점수는
-  // 영상 단위 판정의 평균이라 "광고가 하나도 없었다"를 증명하지 못하고,
-  // 실제로 미완이도 데뷔 전 구간이 완전히 깨끗하지는 않다. 대신 코호트
-  // 안에서의 상대 위치("의존이 낮은 편")로만 말한다.
-  //
-  // 조건: 절대 임계 단독으로는 붙이지 않고 **코호트 상위 절반일 때만**.
-  // 점수 창(데뷔 전 포함)을 넓히면 절대값이 통째로 내려갈 수 있는데,
-  // 그때 임계만 보고 문구가 사라지거나 남으면 과장·누락이 생긴다.
-  // 순위는 창이 바뀌어도 모든 팀에 같은 방향으로 작용해 흔들림이 적다.
-  //
-  // 강점이 유튜브 지표일 때만 — 점수는 영상 판정에서 나온 값이라 영상과
-  // 무관한 지표의 순위를 변호하지 못한다.
+  // 자기 점수가 임계 아래면 순위와 무관하게 **먼저 그 사실을 말한다** —
+  // 상위권이라는 이유로 자기 약점을 생략하면 그게 곧 숨김이다. 상대적으로
+  // 낫다는 말은 그 뒤에 단서로만 붙인다.
   const org = organicStanding(d);
   const orgTop = org != null && org.size >= 2
     && org.rank <= Math.ceil(org.size / 2);
-  const strengthWhy = hasAdRelevantStrength && org && orgTop
-    ? `자연 유입 점수 ${org.score}점 — 같은 시기 데뷔 ${org.size}팀 중 ${org.rank}위로,`
-      + " 유료 광고에 기댄 정도가 낮은 편이다."
-    : null;
+  // "상대적으로 낮은 편"의 주어를 반드시 적는다 — 주어가 없으면 바로 앞
+  // 절이 순위 이야기라서 "순위가 낮다"로 읽히고, 뜻이 정반대가 된다.
+  const relClause = org
+    ? ` 다만 판정 가능한 ${org.size}팀 중 ${org.rank}위로, 유료 광고에 기댄 정도는`
+      + ` 상대적으로 낮은 편이다.`
+    : "";
+  let organicNote: string | null = null;
+  if (org && org.judgeScore < ORG_AD_SUSPECT_THRESHOLD) {
+    organicNote = `자연 유입 점수 ${org.judgeScore}점으로 자체 기준`
+      + `(${ORG_AD_SUSPECT_THRESHOLD}점) 아래라 우리 성장에도 광고 몫이 섞여 있을 수 있다.`
+      + (orgTop ? relClause : "");
+  } else if (org && orgTop) {
+    organicNote = `자연 유입 점수 ${org.judgeScore}점 — 판정 가능한 ${org.size}팀 중`
+      + ` ${org.rank}위로, 유료 광고에 기댄 정도가 낮은 편이다.`;
+  }
 
   return {
-    lead: `데뷔 D+${d.as_of_day}일 차, 같은 시기에 데뷔한 팀들과 비교한 성적표`,
+    lead: leadLine(d),
+    conclusion: conclusionLine(d),
     strengths,
-    strengthWhy,
+    // H3 — 빈 블록은 "숨겼다"로 읽힌다. 없으면 없다고 쓴다.
+    strengthsEmpty: strengths.length
+      ? null
+      : "이번 비교에서 상위 절반에 든 항목이 없다.",
+    organicNote,
     weaknesses,
+    paidSignalNote: paidSignalLine(d),
     neutral: strengths.length || weaknesses.length
       ? null
       : "아직 같은 시기 데뷔 팀과 순위를 낼 만큼 데뷔일 시점 데이터가 모이지 않았다.",
   };
+}
+
+/** 리드 — 경과일만 쓰면 "언제 데뷔했나"를 화면 밖에서 찾아야 한다. */
+function leadLine(d: CohortData): string {
+  const debut = d.groups["miiwan"]?.debut_date;
+  const when = debut ? ` (${debut} 데뷔)` : "";
+  return `데뷔 D+${d.as_of_day}일 차${when}, 같은 시기에 데뷔한 팀들과 비교한 성적표`;
+}
+
+/**
+ * H1 — 대표 지표 한 줄 결론. 배수·순증·순위에 더해 **출발선 순위**까지
+ * 한 문장에 넣는다. 배수만 보면 "3위 = 못했다"로 끝나지만, 출발선이
+ * 코호트 상위권이면 배수가 낮게 나오는 건 구조이지 성과가 아니다.
+ * 그 인과 문장은 출발선이 실제로 큰 편일 때만 쓴다 — 작은 출발선에
+ * 붙이면 그냥 거짓말이 된다.
+ */
+function conclusionLine(d: CohortData): string | null {
+  const sc = d.scorecard[PRIMARY_METRIC];
+  const mine = sc?.rows.find((r) => r.group_key === "miiwan");
+  if (!sc || !mine || mine.growth_multiple == null) return null;
+  const label = METRIC_LABELS[PRIMARY_METRIC] ?? PRIMARY_METRIC;
+  const unit = METRIC_UNITS[PRIMARY_METRIC] ?? "";
+  const delta = mine.value_at_day != null && mine.base_value != null
+    ? fmtDelta(mine.value_at_day - mine.base_value, unit)
+    : null;
+  // 순위 절은 비교 대상이 2팀 이상일 때만. 미완이 1팀뿐이면 "1팀 중 1위"는
+  // 자기 자신을 이긴 것이라 뜻이 없고, 표 각주("비교 대상 부족")와 화면
+  // 안에서 정면 충돌한다 — 헤드라인 루프·표 각주·orgTop 과 같은 가드다.
+  // 배수·순증 자체는 사실이므로 문장을 통째로 없애지는 않는다.
+  const ranked = sc.miiwan_rank != null && sc.cohort_size >= 2;
+  let out = `${label} ${fmtMultiple(mine.growth_multiple)}`
+    + (delta ? ` (${delta})` : "")
+    + (ranked ? ` — 같은 시기 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위.` : ".");
+
+  const based = peersOf(sc.rows).filter((r) => r.base_value != null);
+  if (mine.base_value != null && based.length >= 2) {
+    const baseRank = rankDesc(mine.base_value, based.map((r) => r.base_value!));
+    const size = based.length;
+    const v = Math.round(mine.base_value).toLocaleString("ko-KR");
+    out += baseRank <= Math.ceil(size / 2)
+      ? ` 출발선 ${v}${unit}은 ${size}팀 중 ${baseRank}위 규모라 배수가 구조적으로 낮게 나온다.`
+      : ` 출발선은 ${v}${unit}으로 ${size}팀 중 ${baseRank}위 규모다.`;
+  }
+  return out;
+}
+
+/**
+ * H8 — 경쟁 팀 유가 정황 종합. **팀명은 쓰지 않는다**: 이 화면은 공개
+ * 지표로 낸 자체 추정이고, 특정 사에 대한 단정은 우리가 질 수 없는
+ * 주장이다. 팀별 수치는 표에 그대로 있으니 판단은 읽는 사람 몫으로 둔다.
+ */
+function paidSignalLine(d: CohortData): string | null {
+  const scores = adScoreMap(d);
+  const rows = peersOf(d.scorecard[PRIMARY_METRIC]?.rows ?? []);
+  const mineEff = rows.find((r) => r.group_key === "miiwan")?.subs_per_1k_pre ?? null;
+  const suspect = rows.some((r) => {
+    if (r.group_key === "miiwan") return false;
+    const s = scores.get(r.group_key);
+    if (s != null && s < ORG_AD_SUSPECT_THRESHOLD) return true;
+    return mineEff != null && mineEff > 0 && r.subs_per_1k_pre != null
+      && r.subs_per_1k_pre >= mineEff * PRE_EFFICIENCY_OUTLIER_RATIO;
+  });
+  return suspect
+    ? "일부 경쟁 팀은 구독 효율·자연 유입 점수에서 유료 캠페인 정황이 관측된다 (팀별 수치는 아래 표)."
+    : null;
 }

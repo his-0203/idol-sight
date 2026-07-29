@@ -2,8 +2,8 @@
 // 참조 그룹이 중앙값을 오염시키지 않는지, 규모가 작은 점이 사라지지 않는지.
 import { describe, expect, test } from "vitest";
 import {
-  MAX_RADIUS, MIN_RADIUS, QUALITY_METRIC,
-  buildQualityScatter, median, radiusFor,
+  MAX_RADIUS, MIN_RADIUS, QUALITY_METRIC, Y_AXIS_PADDING,
+  buildQualityScatter, median, radiusFor, scatterNote, yRangeFor,
 } from "../../src/lib/cohortQuality";
 import {
   ORG_AD_SUSPECT_THRESHOLD, type CohortData, type OrgRow, type ScRow,
@@ -21,8 +21,10 @@ const row = (
   pre_multiple: null, subs_per_1k_pre: null, subs_per_1k_post: null,
 });
 
-const org = (group_key: string, score: number | null, reference = false): OrgRow =>
-  ({ group_key, score, video_count: 5, reference });
+const org = (
+  group_key: string, score: number | null, reference = false,
+  score_view_weighted?: number | null,
+): OrgRow => ({ group_key, score, video_count: 5, reference, score_view_weighted });
 
 function cohort(rows: ScRow[], organicity: OrgRow[]): CohortData {
   const groups: CohortData["groups"] = {};
@@ -143,5 +145,73 @@ describe("buildQualityScatter", () => {
     const s = buildQualityScatter(d);
     expect(s.points).toEqual([]);
     expect(s.excluded).toEqual([]);
+  });
+
+  // Q1/B1 — y축도 배지·흐린 선과 같은 min 기준. 세 화면이 다른 숫자를 쓰면
+  // "산점도에선 위인데 표에선 의심 표시" 같은 자기모순이 난다.
+  test("y축 점수 = 편수·조회수 중 낮은 쪽", () => {
+    const s = buildQualityScatter(cohort(
+      [row("miiwan", 2, 100), row("owis", 3, 100)],
+      [
+        org("miiwan", 90, false, 40), // 조회수로는 40 → 판정 40
+        org("owis", 55),              // 조회수 점수 없음 → 편수 55
+      ],
+    ));
+    const mi = s.points.find((p) => p.group_key === "miiwan")!;
+    expect(mi.organic).toBe(40);
+    expect(mi.adSuspect).toBe(true);
+    expect(s.points.find((p) => p.group_key === "owis")!.organic).toBe(55);
+  });
+});
+
+describe("yRangeFor", () => {
+  test("데이터에 맞춰 좁히되 임계선은 항상 화면 안", () => {
+    // 전 팀이 72~78 이어도 임계 70 이 잘리지 않는다.
+    const r = yRangeFor([72, 78], 70);
+    expect(r.min).toBeLessThanOrEqual(70);
+    expect(r.max).toBeGreaterThanOrEqual(78);
+    expect(r.min).toBe(70 - Y_AXIS_PADDING);
+    expect(r.max).toBe(78 + Y_AXIS_PADDING);
+  });
+  test("0~100 밖으로는 나가지 않는다", () => {
+    const r = yRangeFor([2, 99], 70);
+    expect(r.min).toBe(0);
+    expect(r.max).toBe(100);
+  });
+  test("점이 없으면 0~100 (빈 축을 지어내지 않는다)", () => {
+    expect(yRangeFor([], 70)).toEqual({ min: 0, max: 100 });
+  });
+});
+
+// R5 — 그림만 두면 "왼쪽 = 뒤처짐"이 가장 흔한 오독이고, 왼쪽인 이유가
+// 화면에서 사라진다. 좌표·임계 근접은 전부 데이터에서 — 손으로 안 적는다.
+describe("scatterNote", () => {
+  test("중앙값 왼쪽이면 이유(출발선)까지 함께 쓴다", () => {
+    const s = buildQualityScatter(cohort(
+      [row("miiwan", 1.1, 26_400), row("owis", 2.2, 5_000), row("bthd", 3.0, 3_000)],
+      [org("miiwan", 68), org("owis", 40), org("bthd", 90)],
+    ));
+    const note = scatterNote(s)!;
+    expect(note).toContain("왼쪽");
+    expect(note).toContain("출발선이 큰 팀은 배수가 작아");
+    // 임계 부근이면 판정이 갈릴 수 있음을 밝힌다.
+    expect(note).toContain("판정이 갈릴 수 있다");
+    // 규모는 속도와 다른 이야기 — 느려도 규모는 1위일 수 있다.
+    expect(note).toContain("3팀 중 1위");
+  });
+
+  test("임계에서 충분히 떨어져 있으면 '갈릴 수 있다'고 하지 않는다", () => {
+    const s = buildQualityScatter(cohort(
+      [row("miiwan", 3, 100), row("owis", 1, 100)],
+      [org("miiwan", 95), org("owis", 90)],
+    ));
+    const note = scatterNote(s)!;
+    expect(note).toContain("오른쪽");
+    expect(note).not.toContain("판정이 갈릴 수 있다");
+  });
+
+  test("자사 점이 없으면 null (없는 위치를 서술하지 않는다)", () => {
+    const s = buildQualityScatter(cohort([row("owis", 2, 100)], [org("owis", 80)]));
+    expect(scatterNote(s)).toBeNull();
   });
 });
