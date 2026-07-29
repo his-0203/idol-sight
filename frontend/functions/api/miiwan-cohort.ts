@@ -56,7 +56,6 @@ interface OrgRow {
   organic_score_mean_shrunk: number | null;
   organic_score_mean_simple: number | null;
   scored_video_count: number;
-  video_count: number;
 }
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
@@ -162,10 +161,14 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     curves[metric] = metricCurves;
   }
 
-  // 동시기 유기성 — canonical 집계(debut-window/summary.ts)와 동일한 가중치:
-  // shrunk 는 scored_video_count(실제 표본 수), simple 폴백은 video_count.
-  // 폴백 행에까지 scored_video_count 를 쓰면 pre-0092(scored=0) 행이 통째로
-  // 버려지거나 두 집계가 서로 다른 숫자를 내놓는다.
+  // 동시기 유기성 — 그룹 수준 규칙은 organicity.ts 의 headlineOrganicScore
+  // (버킷당 shrunk ?? simple 택일)와 동일하게, 행별 COALESCE(shrunk, simple)를
+  // scored_video_count 가중 평균한다. summary.ts 의 SUM 들은 canonical 이 아니다
+  // — 거긴 PK(group_key, window_bucket) 단일 행 위에서 도는 no-op 이라
+  // "가중치 규칙"을 정의하지 않는다. 워커(debut_window.py)는 shrunk 가 null이면
+  // simple 도 null로 쓰기 때문에 "shrunk null · simple 존재" 행은 실무에서
+  // 나오지 않는다 — 아래 COALESCE 는 pre-0092 잔재를 향한 방어일 뿐, 별도의
+  // 폴백 가중치 분기는 두지 않는다.
   // 핵심 쿼리(groups·agg_summary)는 실패 시 그대로 던져 fail-fast 500 —
   // 그게 없으면 곡선·순위 자체가 조작된 값이 된다. 유기성은 보조 데이터라
   // 이 쿼리만 실패해도 나머지 응답(곡선·스코어카드)까지 죽이지 않고
@@ -177,7 +180,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const orgRows = await d1Query<OrgRow>(
     env.DB,
     `SELECT group_key, organic_score_mean_shrunk, organic_score_mean_simple,
-            scored_video_count, video_count
+            scored_video_count
        FROM debut_window_organicity_summary
       WHERE group_key IN (${ph}) AND window_bucket IN (${orgPh})`,
     [...ALL_KEYS, ...orgWindow.buckets],
@@ -187,9 +190,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   });
   const orgAgg = new Map<string, { wsum: number; n: number }>();
   for (const r of orgRows) {
-    const useShrunk = r.organic_score_mean_shrunk != null;
-    const score = useShrunk ? r.organic_score_mean_shrunk : r.organic_score_mean_simple;
-    const weight = Number(useShrunk ? r.scored_video_count : r.video_count);
+    const score = r.organic_score_mean_shrunk ?? r.organic_score_mean_simple;
+    const weight = Number(r.scored_video_count);
     if (score == null || !Number.isFinite(weight) || weight <= 0) continue;
     const a = orgAgg.get(r.group_key) ?? { wsum: 0, n: 0 };
     a.wsum += score * weight;
@@ -207,8 +209,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         return {
           group_key: gk,
           score: a && a.n > 0 ? Math.round((a.wsum / a.n) * 10) / 10 : null,
-          // 실효 표본 수 = 점수에 실제로 실린 가중치 합 (shrunk 행은
-          // scored_video_count, simple 폴백 행은 video_count).
+          // 실효 표본 수 = 점수에 실제로 실린 scored_video_count 합.
           video_count: a?.n ?? 0,
           reference: isRef(gk),
         };
