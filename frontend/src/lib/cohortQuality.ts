@@ -224,6 +224,8 @@ export const MULTIPLE_CAVEAT =
  * R5 — 산점도의 MiiWAN 읽기 — 그림만으로는 "왼쪽=뒤처짐" 오독이 흔해(기존
  * scatterNote의 문제의식) 잘함/보완 두 줄로 나눠 자동 서술한다.
  * 결론을 손으로 적지 않는다 — 좌표·순위·임계 근접은 전부 데이터에서.
+ * G4(R3b) — 여기에 sub(보조 한 줄)가 더해진다: 순위 **사실**은 good/weak 이,
+ * 그 사실을 어떻게 읽을지(구간 분해·배수 캐비앗)는 sub 가 맡는다.
  */
 export function qualityVerdict(s: QualityScatter): SectionVerdict {
   const mine = s.points.find((p) => p.group_key === "miiwan");
@@ -247,18 +249,23 @@ export function qualityVerdict(s: QualityScatter): SectionVerdict {
   // 보여주는 꼴이 된다. ⓑ 배수의 `×`와 곱셈의 `×`가 붙어(`× ×`) 글리프가
   // 겹쳐 읽혔다. 등식을 주장하지 않는 서술문으로 바꾼다 — 분해 사실은 남고,
   // 반올림 오차를 검증하라는 요구는 사라진다.
+  //
+  // G4(07-30 R3b 타이포 리뷰) — 분해와 캐비앗을 good 에 이어 붙이니 결론 줄이
+  // 네 문장이 됐다. 둘은 순위 사실(good)이 아니라 **그 사실을 어떻게 읽을지**를
+  // 말하는 같은 성격의 절이라, 상세표가 쓰는 sub(보조 위계)로 함께 내린다.
+  // 문장은 하나도 지우지 않는다 — 캐비앗 상시 부착(C2)도 그대로다.
   const split = mine.preMultiple != null && mine.postMultiple != null
-    ? ` 데뷔 전 ${fmtMultiple(mine.preMultiple)}를 쌓은 위에`
-      + ` 데뷔 후 ${fmtMultiple(mine.postMultiple)}가 얹힌 값이다.`
+    ? `데뷔 전 ${fmtMultiple(mine.preMultiple)}를 쌓은 위에`
+      + ` 데뷔 후 ${fmtMultiple(mine.postMultiple)}가 얹힌 값이다. `
     : "";
   const good = `총 성장 배수 ${fmtMultiple(mine.growth)}`
     + (ranked ? `로 ${peers.length}팀 중 ${growthRank}위` : "")
     + (ranked && growthRank === 1 ? " — 데뷔 전 준비 기간부터 지금까지 가장 빠르게 팬덤을 키웠다" : "")
     + "."
-    + split
-    + (ranked ? ` 원 크기(현재 팬 규모)로는 ${scaleRank}위다.` : "")
-    // 배수 캐비앗은 순위 방향과 무관하게 항상 — 위 C2 주석 참조.
-    + ` ${MULTIPLE_CAVEAT}`;
+    + (ranked ? ` 원 크기(현재 팬 규모)로는 ${scaleRank}위다.` : "");
+  // 배수 캐비앗은 순위 방향과 무관하게 항상 — 위 C2 주석 참조. good 이 있으면
+  // sub 도 반드시 있다(캐비앗이 상수라) — 고아 sub 경로가 생기지 않는다.
+  const sub = `${split}${MULTIPLE_CAVEAT}`;
   const gap = mine.organic - s.threshold;
   let weak: string | null;
   if (gap < 0) {
@@ -269,5 +276,5 @@ export function qualityVerdict(s: QualityScatter): SectionVerdict {
   } else {
     weak = null;
   }
-  return { good, weak };
+  return { good, weak, sub };
 }

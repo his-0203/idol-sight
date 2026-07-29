@@ -626,6 +626,27 @@ describe("scorecardVerdict", () => {
     expect(scorecardVerdict(d, "yt_subscribers").weak).toBeNull();
   });
 
+  // G2(R3b 리뷰) — sub 는 weak 을 보강하는 줄이라 홀로 나가면 안 된다.
+  // 순증은 낼 수 있는데(값이 있는 팀 2팀 이상) 순위 모수가 없어 weak 이 null 인
+  // 창에서, 보강할 대상 없이 "순증은 N팀 중 M위다"만 뜨면 고아 문장이 된다.
+  test("sub — weak 이 null 이면 순증 순위도 내지 않는다 (고아 보조 줄 금지)", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 9000, value_at_day: 11_200 }),
+            row({ group_key: "owis", base_value: 200, value_at_day: 3_200 }),
+          ],
+          // 순위 모수가 없다 → weak null. 순증 자체는 두 팀 다 낼 수 있다.
+          miiwan_rank: null, cohort_size: 2,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    expect(v.weak).toBeNull();
+    expect(v.sub).toBeNull();
+  });
+
   test("null-안전 — 출발선·데뷔 전 배수 중 하나라도 없으면 good은 null", () => {
     const d = cohort({
       scorecard: {
@@ -695,6 +716,19 @@ describe("organicityVerdict", () => {
     const v = organicityVerdict(cohort({ organicity: [org("miiwan", 75), org("owis", 60)] }));
     expect(v.good).toContain("영상 편수 기준 75점");
     expect(v.good).not.toContain("대부분");
+  });
+
+  // G3(R3b 리뷰) — 게이트는 비율과 평균의 AND 다. 비율만 보면 "광고 판정은
+  // 10%뿐인데 나머지 영상 점수가 바닥"인 창에서도 절이 나가, 낮은 점수에
+  // '대부분' 결론이 붙는 원래 실패가 되돌아온다(원 가드의 의도 복원).
+  test("good — 자연 편수가 과반이어도 편수 점수가 경계 미만이면 '대부분 ~'을 붙이지 않는다", () => {
+    const v = organicityVerdict(cohort({
+      // 100편 중 광고 10편(자연 90%)이지만 편수 점수 30 < borderline.
+      organicity: [org("miiwan", 30, false, null, { window: 100, paid: 10 }), org("owis", 60)],
+    }));
+    expect(v.good).toContain("영상 편수 기준 30점");
+    expect(v.good).not.toContain("대부분");
+    expect(30).toBeLessThan(VERDICT_THRESHOLDS.borderline);
   });
 
   // A1 — 이 절의 근거는 **편수**다. 예전 문구("대부분은 자연 소비되고 있다")는

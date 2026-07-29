@@ -476,19 +476,24 @@ export function scorecardVerdict(d: CohortData, metric: string): SectionVerdict 
   // 한 줄로 스캔하는 위계에서 뒤 문장이 앞 문장과 같은 무게로 읽혔다(배수와
   // 순증은 같은 층위가 아니라 "배수로는 이렇지만 사람 수로는" 보강 관계다).
   // N5 — 모수도 그 자리에서 스스로 설명한다(pre/base 절과 같은 패턴).
-  const sub = myDelta != null && deltaN >= 2
-    ? `순증(${fmtDelta(myDelta, unit)})은 순증 값이 있는 ${deltaN}팀 중`
-      + ` ${rankDesc(myDelta, deltaPeers)}위다.`
-    : null;
+  const hasDelta = myDelta != null && deltaN >= 2;
   const weak = mine.growth_multiple != null && sc?.miiwan_rank != null && sc.cohort_size >= 2
     ? `데뷔 후 성장 배수 ${fmtMultiple(mine.growth_multiple)}는 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위다`
       + (baseTopHalf
         // 순증 순위(sub)가 있으면 "같이 읽는다"는 안내는 중복이라 뺀다 —
         // 읽는 법 대신 실제 순위가 바로 아래 줄에 있다.
-        ? (sub
+        ? (hasDelta
           ? " — 출발선이 큰 만큼 배수는 구조적으로 작게 나온다."
           : " — 출발선이 큰 만큼 배수는 구조적으로 작게 나오니, 늘어난 사람 수와 같이 읽는다.")
         : ".")
+    : null;
+  // G2(07-30 R3b 리뷰) — sub 는 **weak 을 보강하는** 줄이라 weak 없이 홀로
+  // 나가면 안 된다. 순위 모수가 없어 weak 이 null 인 창(배수·순위를 못 내는
+  // 상태)에서 "순증은 N팀 중 M위다"만 남으면, 보강할 대상이 화면에 없는데
+  // 보조 줄만 뜬다 — 무엇에 대한 보강인지 모르는 고아 문장이 된다.
+  const sub = weak != null && hasDelta
+    ? `순증(${fmtDelta(myDelta, unit)})은 순증 값이 있는 ${deltaN}팀 중`
+      + ` ${rankDesc(myDelta!, deltaPeers)}위다.`
     : null;
   return { good, weak, sub };
 }
@@ -519,17 +524,22 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
   // 71%가 광고 투입 영상에 쏠렸다"와 같은 화면에서 정면 충돌했다. 편수
   // 근거에 맞는 카탈로그 표현(무엇이 올라갔나)으로 바꾼다.
   //
-  // N8(07-30 R3 투자 리뷰) — 게이트를 편수 **점수 평균**(≥borderline)에서
-  // 실제 **편수 비율**로 바꾼다. 평균 점수는 과반을 보장하지 않는다: 절반이
-  // 넘는 영상이 광고 판정을 받아도 나머지가 고득점이면 평균은 55를 넘길 수
-  // 있고, 그러면 "대부분은 광고 없이 올라갔다"가 편수 사실과 정면으로 어긋난다.
-  // 세는 값이 있을 때만 말하고, 없으면 절을 생략한다(없는 값을 추정하지 않는다).
+  // 게이트는 두 조건의 **AND** 다 — 둘은 서로 다른 실패를 막는다.
+  //  ① 편수 비율(N8, 07-30 R3 투자 리뷰): 평균 점수는 과반을 보장하지 않는다.
+  //     절반 넘는 영상이 광고 판정을 받아도 나머지가 고득점이면 평균은
+  //     borderline 을 넘길 수 있고, 그러면 "대부분은 광고 없이 올라갔다"가
+  //     편수 사실과 정면으로 어긋난다. 세는 값이 없으면 절을 생략한다
+  //     (없는 값을 추정하지 않는다).
+  //  ② 편수 점수 평균(원래 가드, G3 복원): 비율만 보면 "광고 판정은 10%뿐인데
+  //     나머지 영상의 점수가 바닥"인 창에서도 절이 나간다 — 낮은 점수에 붙는
+  //     '대부분' 결론은 바로 옆 점수와 정반대되는 말을 같은 문장이 하는 꼴이다.
   const vids = d.organicity.find((o) => o.group_key === "miiwan");
   const vTotal = vids?.window_video_count;
   const vPaid = vids?.paid_video_count;
   const organicShare = vTotal != null && vTotal > 0 && vPaid != null
     ? (vTotal - vPaid) / vTotal : null;
   const bulk = organicShare != null && organicShare > 0.5
+    && standing.score >= VERDICT_THRESHOLDS.borderline
     ? "만든 영상의 대부분은 광고 없이 올라간 것으로 판정됐다." : null;
   // 등급 선언의 기준은 반드시 판정 점수(min) — 막대·배지가 그리는 값이다.
   const grade = standing.judgeScore >= VERDICT_THRESHOLDS.organic
