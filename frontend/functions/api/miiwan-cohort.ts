@@ -128,14 +128,23 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   }
 
   // 동시기 유기성 — scored_video_count 가중 평균.
+  // 핵심 쿼리(groups·agg_summary)는 실패 시 그대로 던져 fail-fast 500 —
+  // 그게 없으면 곡선·순위 자체가 조작된 값이 된다. 유기성은 보조 데이터라
+  // 이 쿼리만 실패해도 나머지 응답(곡선·스코어카드)까지 죽이지 않고
+  // degrade한다 — 단, "값 없음"과 "쿼리 실패"를 조용히 같은 빈 배열로
+  // 위장하지 않도록 organicity_unavailable 플래그로 실패를 명시한다.
   const orgPh = ORGANICITY_BUCKETS.map(() => "?").join(",");
+  let organicityUnavailable = false;
   const orgRows = await d1Query<OrgRow>(
     env.DB,
     `SELECT group_key, organic_score_mean, scored_video_count
        FROM debut_window_organicity_summary
       WHERE group_key IN (${ph}) AND window_bucket IN (${orgPh})`,
     [...ALL_KEYS, ...ORGANICITY_BUCKETS],
-  ).catch(() => [] as OrgRow[]);
+  ).catch(() => {
+    organicityUnavailable = true;
+    return [] as OrgRow[];
+  });
   const orgAgg = new Map<string, { wsum: number; n: number }>();
   for (const r of orgRows) {
     if (r.organic_score_mean == null || !r.scored_video_count) continue;
@@ -144,15 +153,21 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     a.n += r.scored_video_count;
     orgAgg.set(r.group_key, a);
   }
-  const organicity = ALL_KEYS.filter((gk) => byKey.has(gk)).map((gk) => {
-    const a = orgAgg.get(gk);
-    return {
-      group_key: gk,
-      score: a && a.n > 0 ? Math.round((a.wsum / a.n) * 10) / 10 : null,
-      video_count: a?.n ?? 0,
-      reference: isRef(gk),
-    };
-  });
+  // 쿼리 자체가 실패했을 땐 그룹별 null-placeholder 행도 만들지 않는다 —
+  // "데이터 없음(score:null)"과 "쿼리 실패"를 organicity 배열 모양만으로는
+  // 구분할 수 없으므로, 실패는 오직 organicity_unavailable 로만 표현하고
+  // organicity 자체는 빈 배열로 명확히 비운다.
+  const organicity = organicityUnavailable
+    ? []
+    : ALL_KEYS.filter((gk) => byKey.has(gk)).map((gk) => {
+        const a = orgAgg.get(gk);
+        return {
+          group_key: gk,
+          score: a && a.n > 0 ? Math.round((a.wsum / a.n) * 10) / 10 : null,
+          video_count: a?.n ?? 0,
+          reference: isRef(gk),
+        };
+      });
 
   const groupsOut: Record<string, { name: string; debut_date: string | null; reference: boolean }> = {};
   for (const g of groups) {
@@ -166,6 +181,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     curves,
     scorecard,
     organicity,
+    organicity_unavailable: organicityUnavailable,
     excluded,
   });
 };

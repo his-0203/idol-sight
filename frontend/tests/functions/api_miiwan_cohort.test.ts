@@ -95,6 +95,19 @@ describe("/api/miiwan-cohort", () => {
       e.group_key === "myrakl" && e.metric === "yt_subscribers")).toBe(true);
   });
 
+  it("유기성 쿼리 실패는 organicity_unavailable=true로 명시 (200 + 빈 배열 위장 금지)", async () => {
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) {
+        throw new Error("D1 error: table locked");
+      }
+      return [];
+    });
+    expect(body.organicity_unavailable).toBe(true);
+    expect(body.organicity).toEqual([]);
+  });
+
   it("miiwan debut_date 없으면 503-급 에러 대신 명시적 4xx", async () => {
     const res = await onRequestGet({
       env: envWith((sql) =>
