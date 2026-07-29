@@ -22,6 +22,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
+import { EstBadge } from "../components/EstBadge";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
 import { colorOf } from "../design/groups";
 import { formatKST, formatKSTDate, todayKST } from "../lib/datetime";
@@ -268,20 +269,6 @@ const DIAGNOSIS_TONE: Record<"ok" | "warn" | "critical", string> = {
   warn:     "border-amber-500/40 bg-amber-500/5 text-amber-200",
   critical: "border-red-500/60 bg-red-500/10 text-red-200",
 };
-
-export function EstBadge({ source }: { source: string | null | undefined }) {
-  if (!source || source === 'live') return null;
-  const tip = source === 'backfill_estimate'
-    ? 'Social Blade 추정 (±5%) — 곡선 모양 신뢰, 절대값은 참고만'
-    : '네이버 뉴스 검색 키워드 카운트 — 검증값';
-  const label = source === 'backfill_estimate' ? 'est' : 'bf';
-  return (
-    <span
-      title={tip}
-      class="ml-1 rounded bg-zinc-800/60 px-1 py-[1px] text-[10px] text-zinc-500"
-    >{label}</span>
-  );
-}
 
 export function MiiWANBriefing() {
   const [data, setData] = useState<MiiwanData | null>(null);

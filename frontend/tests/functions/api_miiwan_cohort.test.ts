@@ -57,10 +57,10 @@ describe("/api/miiwan-cohort", () => {
     if (sql.includes("FROM agg_summary")) return summaryRows();
     if (sql.includes("debut_window_organicity_summary")) return [
       { group_key: "miiwan", organic_score_mean_shrunk: 80,
-        organic_score_mean_simple: 55, scored_video_count: 10 },
-      // shrunk NULL (pre-0092 행) → simple 로 fallback
+        organic_score_mean_simple: 55, scored_video_count: 10, video_count: 12 },
+      // shrunk NULL (pre-0092 행) → simple 로 fallback, 가중치도 video_count 로
       { group_key: "myrakl", organic_score_mean_shrunk: null,
-        organic_score_mean_simple: 60, scored_video_count: 20 },
+        organic_score_mean_simple: 60, scored_video_count: 0, video_count: 20 },
     ];
     return [];
   };
@@ -135,6 +135,62 @@ describe("/api/miiwan-cohort", () => {
     expect(byKey.miiwan.score).toBe(80);  // shrunk 80 (simple 55 아님)
     expect(byKey.myrakl.score).toBe(60);  // shrunk NULL → simple 60
     expect(byKey.miiwan.video_count).toBe(10);
+  });
+
+  // canonical 집계(debut-window/summary.ts): shrunk 는 scored_video_count,
+  // simple 은 video_count 가중. 폴백 행에 scored_video_count 를 쓰면
+  // scored=0 인 pre-0092 행이 통째로 사라져 두 화면 숫자가 어긋난다.
+  it("simple 폴백 행의 가중치는 video_count (canonical 집계와 동일)", async () => {
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) return [
+        // shrunk 행: scored_video_count=10 가중
+        { group_key: "miiwan", organic_score_mean_shrunk: 90,
+          organic_score_mean_simple: 10, scored_video_count: 10, video_count: 999 },
+        // simple 폴백 행: scored_video_count=0 여도 video_count=30 으로 살아남는다
+        { group_key: "miiwan", organic_score_mean_shrunk: null,
+          organic_score_mean_simple: 50, scored_video_count: 0, video_count: 30 },
+      ];
+      return [];
+    });
+    const mi = body.organicity.find((o: any) => o.group_key === "miiwan");
+    // (90×10 + 50×30) / 40 = 60
+    expect(mi.score).toBe(60);
+    expect(mi.video_count).toBe(40);
+  });
+
+  it("측정 허용폭 상수를 응답에 노출 (화면 각주 하드코딩 desync 방지)", async () => {
+    const body = await call(baseHandler);
+    expect(body.windows).toEqual({ base: 3, at: 7 });
+  });
+
+  // 두 사유가 같은 라벨로 뭉치면 "데뷔 수집이 통째로 빈 그룹"과 "기준값은
+  // 있는데 관측 창이 빈 그룹"을 화면에서 구분할 수 없다.
+  it("excluded 사유를 no_d0_baseline / empty_window 로 구분", async () => {
+    const dayRow = (gk: string, debutDaysAgo: number, dayOffset: number, v: number) => ({
+      group_key: gk, debut_date: iso(debutDaysAgo),
+      snapshot_at: iso(debutDaysAgo - dayOffset) + "T09:00:00Z",
+      yt_subscribers: v, yt_total_views: v, naver_total_news: v,
+      dc_total_posts: v, data_source: "live",
+    });
+    // 미완이 데뷔 당일(as_of_day = 0) 기준 — 곡선 창은 [D0, D+0].
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS(0);
+      if (sql.includes("FROM agg_summary")) return [
+        dayRow("miiwan", 0, 0, 1000),
+        // D+5 뿐 → D0±3 안에 기준값이 없다.
+        dayRow("myrakl", 200, 5, 500),
+        // D+2 는 기준값(D0±3)으로 잡히지만 곡선 창(≤ D+0)에는 점이 없다.
+        dayRow("plave", 1200, 2, 700),
+      ];
+      return [];
+    });
+    const reasons = Object.fromEntries(body.excluded
+      .filter((e: any) => e.metric === "yt_subscribers")
+      .map((e: any) => [e.group_key, e.reason]));
+    expect(reasons.myrakl).toBe("no_d0_baseline");
+    expect(reasons.plave).toBe("empty_window");
   });
 
   it("유기성 창은 미완이가 도달한 버킷까지만 (고정 D+60 창 금지)", async () => {

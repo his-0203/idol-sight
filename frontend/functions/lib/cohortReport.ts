@@ -31,12 +31,23 @@ export function baseValueAt(
   return best;
 }
 
+/**
+ * 곡선을 못 그린 이유. 두 원인은 화면에서 서로 다른 이야기다 —
+ * `no_d0_baseline` 은 "데뷔 시점 수집이 비었다"(영구적, 백필로만 해소),
+ * `empty_window` 는 "기준값은 있는데 D0~D+N 사이 스냅샷이 없다"(수집 공백).
+ * 엔드포인트가 이걸 재계산하다 규칙이 어긋나지 않도록 여기서 함께 낸다.
+ */
+export type CurveFailure = "no_d0_baseline" | "empty_window";
+export type CurveResult =
+  | { curve: CurvePoint[]; reason: null }
+  | { curve: null; reason: CurveFailure };
+
 export function indexCurve(
   points: Map<number, AlignedValue>,
   asOfDay: number,
-): CurvePoint[] | null {
+): CurveResult {
   const base = baseValueAt(points, 0, BASE_WINDOW);
-  if (!base || base.value <= 0) return null;
+  if (!base || base.value <= 0) return { curve: null, reason: "no_d0_baseline" };
   // 곡선 시작점 = 기준점이 실제로 있는 날. 기준점이 D-2 스냅샷이면 곡선도
   // D-2(=100)에서 시작한다 — 존재하지 않는 D0 값을 합성해 끼워넣지 않는다
   // (가짜 수치 금지). 기준점이 D0 이후면 종전대로 day 0 부터.
@@ -52,9 +63,9 @@ export function indexCurve(
   }
   // 창 안에 남는 점이 하나도 없으면 곡선이 아니라 "없음" — 빈 데이터셋을
   // 내보내 차트에 유령 계열을 만들지 않는다.
-  if (!out.length) return null;
+  if (!out.length) return { curve: null, reason: "empty_window" };
   out.sort((a, b) => a.day - b.day);
-  return out;
+  return { curve: out, reason: null };
 }
 
 export function growthMultiple(

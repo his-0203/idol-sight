@@ -10,7 +10,7 @@ import { api } from "../api";
 import { fmt } from "../format";
 import { colorOf } from "../design/groups";
 import { EmptyState } from "./EmptyState";
-import { EstBadge } from "../views/MiiWANBriefing";
+import { EstBadge } from "./EstBadge";
 
 type CurvePoint = { day: number; index: number; source: string };
 type ScRow = {
@@ -26,6 +26,8 @@ type OrgRow = {
 type OrgRowScored = Omit<OrgRow, "score"> & { score: number };
 type CohortData = {
   as_of_day: number;
+  /** 백엔드의 측정 허용폭 상수 (D-Day±base / D+N±at). 각주가 이 값에서 파생된다. */
+  windows?: { base: number; at: number };
   metrics: string[];
   groups: Record<string, { name: string; debut_date: string | null; reference: boolean }>;
   curves: Record<string, Record<string, CurvePoint[]>>;
@@ -45,10 +47,30 @@ const METRIC_LABELS: Record<string, string> = {
   dc_total_posts: "커뮤니티 활동",
 };
 
+/** excluded.reason → 화면 문구. 사유별로 운영 대응이 달라 뭉뚱그리지 않는다. */
+const EXCLUDED_REASONS: Record<string, string> = {
+  no_data_in_window: "비교 구간에 스냅샷 자체가 없음",
+  no_d0_baseline: "D-Day 기준값 없음 (백필 전)",
+  empty_window: "기준값은 있으나 비교 구간에 스냅샷 없음",
+};
+
 const accent = colorOf("miiwan");
+
+// 지표 탭 ↔ 패널 연결용 고정 id. 패널은 하나이고 내용만 바뀌므로
+// 모든 탭이 같은 패널을 가리키고, 패널은 활성 탭을 labelledby 로 가리킨다.
+const PANEL_ID = "cohort-metric-panel";
+const tabId = (m: string) => `cohort-metric-tab-${m}`;
 
 function fmtMultiple(m: number | null): string {
   return m == null ? "—" : `${(Math.round(m * 10) / 10).toFixed(1)}×`;
+}
+
+/**
+ * 측정 허용폭 표기(`±3`). 응답에 상수가 없으면 숫자를 지어내지 않고 생략한다 —
+ * 틀린 허용폭을 보여주느니 안 보여주는 쪽이 낫다 (투자사 보고).
+ */
+function tol(n: number | undefined): string {
+  return n == null ? "" : `±${n}`;
 }
 
 /** 데뷔 경과일 라벨 — 음수(데뷔 전 기준 스냅샷)면 "D-2" 로 쓴다. */
@@ -183,9 +205,10 @@ export function MiiWANCohortReport() {
   const miiwanBaselineMissing =
     sc != null && sc.rows.find((r) => r.group_key === "miiwan")?.growth_multiple == null;
   const orgWindowLabel = data.organicity_window ?? "데뷔 창";
-  const excludedTip = data.excluded
-    .map((e) => `${data.groups[e.group_key]?.name ?? e.group_key} / ${METRIC_LABELS[e.metric] ?? e.metric}: ${e.reason}`)
-    .join("\n");
+  // 측정 허용폭은 백엔드 상수에서 파생 — 화면에 ±3 / ±7 을 따로 적어두면
+  // 상수를 바꿨을 때 표기와 실제 계산이 조용히 어긋난다.
+  const baseTol = tol(data.windows?.base);
+  const atTol = tol(data.windows?.at);
 
   return (
     <div class="space-y-4">
@@ -201,12 +224,13 @@ export function MiiWANCohortReport() {
 
       {/* ② 인덱스 성장곡선 + 지표 pill 탭 */}
       <div>
-        <div role="tablist" aria-label="cohort metric"
+        <div role="tablist" aria-label="지표 선택"
              class="mb-3 flex overflow-x-auto gap-1 card p-1">
           {data.metrics.map((m) => {
             const active = m === metric;
             return (
-              <button key={m} role="tab" aria-selected={active}
+              <button key={m} id={tabId(m)} role="tab" aria-selected={active}
+                      aria-controls={PANEL_ID}
                       class={"flex-1 min-w-[80px] rounded-md px-3 py-1.5 text-sm font-medium transition "
                         + (active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:text-zinc-200")}
                       style={active ? { color: accent } : undefined}
@@ -216,14 +240,18 @@ export function MiiWANCohortReport() {
             );
           })}
         </div>
-        {!hasCurves ? (
-          <EmptyState title="이 지표의 곡선 데이터 부족"
-                      hint="D-Day 기준값이 축적되면 자동으로 채워집니다." icon="📈" />
-        ) : (
-          <div class="card" style={{ height: "320px" }}>
-            <canvas ref={canvasRef} />
-          </div>
-        )}
+        {/* 패널은 하나(내용만 교체) — tabIndex 0 이라 캔버스밖에 없어도
+            키보드로 도달·스크롤할 수 있다. */}
+        <div id={PANEL_ID} role="tabpanel" tabIndex={0} aria-labelledby={tabId(metric)}>
+          {!hasCurves ? (
+            <EmptyState title="이 지표의 곡선 데이터 부족"
+                        hint="D-Day 기준값이 축적되면 자동으로 채워집니다." icon="📈" />
+          ) : (
+            <div class="card" style={{ height: "320px" }}>
+              <canvas ref={canvasRef} />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ③ 동시기 스코어카드 */}
@@ -283,13 +311,13 @@ export function MiiWANCohortReport() {
               </>
             ) : miiwanBaselineMissing ? (
               <>
-                MiiWAN의 이 지표 D-Day 기준값(±3)이 없어 동시기 순위를 내지 않는다
-                (기준값 확보 피어 {sc.cohort_size}팀).
+                MiiWAN의 이 지표 D-Day 기준값({baseTol || "허용폭 내"})이 없어 동시기 순위를
+                내지 않는다 (기준값 확보 피어 {sc.cohort_size}팀).
               </>
             ) : (
               <>동시기 비교 가능한 코호트 부족 (이 지표 기준값 확보 그룹 {sc.cohort_size}팀, MiiWAN 포함).</>
             )}
-            {" "}값은 D-Day±3 / D+{data.as_of_day}±7 안의 최근접 스냅샷에서 집었고,
+            {" "}값은 D-Day{baseTol} / D+{data.as_of_day}{atTol} 안의 최근접 스냅샷에서 집었고,
             행마다 실제 측정일을 병기했다.
           </p>
         </div>
@@ -338,20 +366,38 @@ export function MiiWANCohortReport() {
       )}
 
       {/* ⑤ 방법론 각주 — "이 비교 어떻게 만든 거냐"에 화면만으로 답하기 */}
-      <p class="text-hint text-zinc-500 leading-relaxed">
-        방법론: 각 그룹의 데뷔일을 D-Day(=0일)로 정렬하고 같은 경과일의 스냅샷을
-        비교. 성장곡선은 D-Day 값=100 인덱스, 성장배수는 D+{data.as_of_day} 값 ÷ D-Day 값
-        (기준값은 D-Day±3, 도달값은 D+{data.as_of_day}±7 안의 최근접 스냅샷).
-        순위 코호트는 데뷔 초기 구간을 정렬해 비교한 K-POP 버추얼 후보 {cohortCandidates}팀
-        (MiiWAN 포함) 중 {METRIC_LABELS[metric] ?? metric} 지표에서 기준값이 확보된
-        {" "}{sc?.cohort_size ?? 0}팀,
-        PLAVE는 성공 사례 참조선(그래프 점선 · 순위 제외). <span class="text-zinc-400">est</span> 배지 =
-        백필 추정치(곡선 모양 신뢰, 절대값 참고). 해당 구간 데이터가 없는 그룹은
-        수치를 만들어 채우지 않고 비교에서 제외
+      <div class="space-y-1.5">
+        <p class="text-hint text-zinc-500 leading-relaxed">
+          방법론: 각 그룹의 데뷔일을 D-Day(=0일)로 정렬하고 같은 경과일의 스냅샷을
+          비교. 성장곡선은 D-Day 값=100 인덱스, 성장배수는 D+{data.as_of_day} 값 ÷ D-Day 값
+          (기준값은 D-Day{baseTol}, 도달값은 D+{data.as_of_day}{atTol} 안의 최근접 스냅샷).
+          순위 코호트는 데뷔 초기 구간을 정렬해 비교한 K-POP 버추얼 후보 {cohortCandidates}팀
+          (MiiWAN 포함) 중 {METRIC_LABELS[metric] ?? metric} 지표에서 기준값이 확보된
+          {" "}{sc?.cohort_size ?? 0}팀,
+          PLAVE는 성공 사례 참조선(그래프 점선 · 순위 제외). <span class="text-zinc-400">est</span> 배지 =
+          백필 추정치(곡선 모양 신뢰, 절대값 참고). 해당 구간 데이터가 없는 그룹은
+          수치를 만들어 채우지 않고 비교에서 제외
+          {data.excluded.length > 0 && <> (현재 {data.excluded.length}건 제외)</>}.
+        </p>
+        {/* 제외 상세는 hover title 이 아니라 접이식 — 모바일·키보드에서도
+            "무엇이 왜 빠졌는지" 확인할 수 있어야 한다. */}
         {data.excluded.length > 0 && (
-          <span title={excludedTip}> (현재 {data.excluded.length}건 제외)</span>
-        )}.
-      </p>
+          <details class="text-hint text-zinc-500">
+            <summary class="cursor-pointer text-zinc-400 hover:text-zinc-200">
+              제외 상세 {data.excluded.length}건 보기
+            </summary>
+            <ul class="mt-1 list-disc space-y-0.5 pl-5">
+              {data.excluded.map((e) => (
+                <li key={`${e.group_key}:${e.metric}:${e.reason}`}>
+                  {data.groups[e.group_key]?.name ?? e.group_key}
+                  {" / "}{METRIC_LABELS[e.metric] ?? e.metric}
+                  {" — "}{EXCLUDED_REASONS[e.reason] ?? e.reason}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
     </div>
   );
 }
