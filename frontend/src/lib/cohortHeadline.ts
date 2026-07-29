@@ -59,6 +59,14 @@ export type CohortData = {
   excluded: Array<{ group_key: string; metric: string; reason: string }>;
 };
 
+/**
+ * 섹션별(산점도·성장곡선·상세표·자연 유입) MiiWAN 잘함/보완 두 줄의 공통 타입.
+ * 값이 없으면 null — 문장을 지어내지 않는다. cohortQuality.ts가 이 파일을
+ * import하는 기존 방향(cohortQuality → cohortHeadline)을 유지하려고 타입을
+ * 여기 둔다 — 반대 방향으로 두면 순환 참조가 생긴다.
+ */
+export interface SectionVerdict { good: string | null; weak: string | null }
+
 // 커뮤니티 활동(dc_total_posts)·뉴스 노출(naver_total_news)은 동시기 성과에서
 // 제외 — API 의 METRICS 와 짝을 맞춘다. 사유는 그쪽 주석 참조(뉴스는 live 가
 // 누적, 백필이 기간 건수라 단위가 섞여 배수 비교가 성립하지 않는다).
@@ -95,6 +103,15 @@ export const PRIMARY_METRIC = "yt_subscribers";
  * (재보정 시 hand-copy desync 방지).
  */
 export const ORG_AD_SUSPECT_THRESHOLD = VERDICT_THRESHOLDS.suspect;
+
+/**
+ * 임계선에서 이 점수 안쪽이면 "판정이 갈릴 수 있는 자리"로 본다.
+ * 원래 cohortQuality.ts(산점도)가 정의해 scatterNote 에서 썼던 상수 —
+ * 이제 organicityVerdict(자연 유입 섹션)도 같은 판단을 문장으로 내야 해서
+ * 여기로 옮겼다. cohortQuality.ts 는 이 파일을 import하는 기존 방향이라
+ * (반대로 두면 순환 참조), qualityVerdict도 여기서 가져다 쓴다.
+ */
+export const THRESHOLD_NEAR_BAND = 10;
 
 /**
  * 광고 의심 배지를 다는 지표. 자연 유입 점수는 "영상"이 유료로 밀린
@@ -294,6 +311,97 @@ export function organicStanding(d: CohortData): {
     rank: rankDesc(myJudge, judged),
     size: scored.length,
   };
+}
+
+/**
+ * 성장곡선(③ 지표 탭)의 MiiWAN 읽기. 곡선은 기울기만 보이고 "그래서
+ * 우리는 잘하는 건가"가 화면에 없다 — 순증(늘어난 사람 수)이 늘고
+ * 있는지와, 배수로 보면 왜 하위권으로 보이는지를 한 쌍으로 낸다.
+ * PRIMARY_METRIC 고정(헤드라인 대표 지표와 같은 기준 — 탭을 바꿔도
+ * 이 카드의 결론이 바뀌면 안 된다).
+ */
+export function curveVerdict(d: CohortData): SectionVerdict {
+  const rows = d.scorecard[PRIMARY_METRIC]?.rows ?? [];
+  const mine = rows.find((r) => r.group_key === "miiwan");
+  if (!mine || mine.growth_multiple == null) return { good: null, weak: null };
+  const delta = mine.value_at_day != null && mine.base_value != null
+    ? mine.value_at_day - mine.base_value : null;
+  const stalled = rows.filter((r) =>
+    !r.reference && r.group_key !== "miiwan" && r.growth_multiple != null && r.growth_multiple <= 1).length;
+  const unit = METRIC_UNITS[PRIMARY_METRIC] ?? "";
+  let good: string | null = null;
+  let weak: string | null;
+  if (delta != null && delta > 0) {
+    good = `데뷔 후에도 ${METRIC_LABELS[PRIMARY_METRIC]}가 ${fmtDelta(delta, unit)} 늘며 증가를 유지하고 있다`
+      + (stalled > 0 ? ` — 데뷔 후 늘지 않은 ${stalled}팀과 대비된다.` : ".");
+    weak = `다만 증가 폭은 ${fmtMultiple(mine.growth_multiple)}로 완만하다 — 곡선의 기울기만 보면 하위권이다.`;
+  } else {
+    weak = delta != null
+      ? `데뷔 후 ${METRIC_LABELS[PRIMARY_METRIC]}가 ${fmtDelta(delta, unit)} — 증가가 멈춰 있다.`
+      : `데뷔 후 증가 폭 ${fmtMultiple(mine.growth_multiple)} — 곡선의 기울기만 보면 하위권이다.`;
+  }
+  return { good, weak };
+}
+
+/**
+ * 팀별 상세표(④)의 MiiWAN 읽기. 표에는 출발선·데뷔 전/후 배수 5개 숫자가
+ * 나열만 돼 있어 "무엇이 강점이고 무엇이 약점인지"가 스스로 안 읽힌다.
+ * good=출발선·데뷔 전 배수(둘 다 있어야), weak=데뷔 후 배수(순위까지
+ * 응답에 있어야) — null-안전.
+ */
+export function scorecardVerdict(d: CohortData, metric: string): SectionVerdict {
+  const sc = d.scorecard[metric];
+  const rows = sc?.rows ?? [];
+  const mine = rows.find((r) => r.group_key === "miiwan");
+  if (!mine) return { good: null, weak: null };
+  const peers = rows.filter((r) => !r.reference && r.group_key !== "miiwan");
+  const baseRank = mine.base_value != null
+    ? peers.filter((r) => (r.base_value ?? -1) > mine.base_value!).length + 1 : null;
+  const baseN = rows.filter((r) => !r.reference && r.base_value != null).length;
+  const preRank = mine.pre_multiple != null
+    ? peers.filter((r) => (r.pre_multiple ?? -1) > mine.pre_multiple!).length + 1 : null;
+  const good = baseRank != null && preRank != null
+    ? `출발선(데뷔일 값)은 ${baseN}팀 중 ${baseRank}위, 데뷔 전 성장 배수 ${fmtMultiple(mine.pre_multiple)}는 ${preRank}위`
+      + (preRank === 1 ? " — 데뷔 전에 이미 팬덤을 쌓아둔 팀이다." : ".")
+    : null;
+  const weak = mine.growth_multiple != null && sc?.miiwan_rank != null && sc.cohort_size >= 2
+    ? `데뷔 후 성장 배수 ${fmtMultiple(mine.growth_multiple)}는 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위다`
+      + " — 출발선이 큰 만큼 배수는 구조적으로 작게 나오니, 늘어난 사람 수와 같이 읽는다."
+    : null;
+  return { good, weak };
+}
+
+/**
+ * 자연 유입 섹션(⑤)의 MiiWAN 읽기 — 헤드라인에서 뺀 자기공시(판정 점수 ↔
+ * 기준선 관계, 광고 영향을 배제하기 어렵다는 사실)가 여기로 옮겨온다.
+ * good/weak 모두 organicStanding() 을 재사용해 배지·표와 같은 숫자를
+ * 쓴다(같은 팀을 다른 숫자로 두 번 줄 세우지 않는다) — good의 순위만은
+ * 판정 점수(min)가 아니라 편수 기준 원점수로 다시 센다(이 문장이 말하는
+ * 값 자체가 편수 기준이라서 그렇다).
+ */
+export function organicityVerdict(d: CohortData): SectionVerdict {
+  const standing = organicStanding(d);
+  if (!standing) return { good: null, weak: null };
+  const scoredPeers = d.organicity.filter(
+    (o): o is OrgRowScored => o.score != null && !o.reference && o.group_key !== "miiwan",
+  );
+  const rank = rankDesc(standing.score, scoredPeers.map((o) => o.score));
+  const good = `영상 편수 기준 ${standing.score}점으로 판정 가능한 ${standing.size}팀 중 ${rank}위`
+    + (standing.score >= VERDICT_THRESHOLDS.organic
+      ? " — 자연 유입 우세 등급이다."
+      : " — 콘텐츠 대부분은 자연 소비되고 있다.");
+  let weak: string | null = null;
+  if (standing.judgeScore < VERDICT_THRESHOLDS.organic) {
+    const nearLine = standing.judgeScore - ORG_AD_SUSPECT_THRESHOLD;
+    weak = `판정 점수(편수·조회수 중 낮은 쪽) ${standing.judgeScore}점은 광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) `
+      + (nearLine < 0
+        ? "아래라"
+        : nearLine <= THRESHOLD_NEAR_BAND
+          ? "부근이라"
+          : `위지만 자연 유입 우세(${VERDICT_THRESHOLDS.organic}점)에는 못 미쳐`)
+      + " 우리 성장에도 광고 영향을 배제하기 어렵다 — 조회수가 소수 광고성 영상에 쏠린 것이 원인이다.";
+  }
+  return { good, weak };
 }
 
 export interface Headline {

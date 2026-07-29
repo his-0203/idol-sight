@@ -2,9 +2,9 @@
 // "언제 강점으로 세우고 언제 광고 근거를 붙이는가"를 테스트로 고정한다.
 import { describe, expect, it, test } from "vitest";
 import {
-  AD_SUSPECT_METRICS, NEAR_TIE_RATIO, ORG_AD_SUSPECT_THRESHOLD,
-  adJudgeScore, cohortComposition, debutDateRange, exPaidNote, fmtDelta,
-  headline, nearTieKeys, organicStanding,
+  AD_SUSPECT_METRICS, NEAR_TIE_RATIO, ORG_AD_SUSPECT_THRESHOLD, THRESHOLD_NEAR_BAND,
+  adJudgeScore, cohortComposition, curveVerdict, debutDateRange, exPaidNote, fmtDelta,
+  fmtMultiple, headline, nearTieKeys, organicStanding, organicityVerdict, scorecardVerdict,
   type CohortData, type OrgRow, type ScRow,
 } from "../../src/lib/cohortHeadline";
 import { VERDICT_THRESHOLDS } from "../../src/lib/organicity";
@@ -242,6 +242,250 @@ describe("organicStanding", () => {
     expect(organicStanding(cohort({
       organicity: [org("miiwan", 80), org("myrakl", 80), org("owis", 50)],
     }))).toEqual({ score: 80, judgeScore: 80, rank: 1, size: 3 });
+  });
+});
+
+// 성장곡선(③)의 MiiWAN 읽기 — 곡선은 기울기만 보이고 "그래서 우리는?"이
+// 없다. PRIMARY_METRIC 고정 — 탭을 바꿔도 이 카드의 결론은 안 바뀐다.
+describe("curveVerdict", () => {
+  test("순증>0 — good에 순증·정체 팀 수, weak에 배수·하위권", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", value_at_day: 1000, base_value: 400, growth_multiple: 2.5 }),
+            row({ group_key: "owis", growth_multiple: 1.0 }),   // 정체(<=1)
+            row({ group_key: "bthd", growth_multiple: 3.0 }),   // 정체 아님
+          ],
+          miiwan_rank: 3, cohort_size: 3,
+        },
+      },
+    });
+    const v = curveVerdict(d);
+    expect(v.good).toContain(fmtDelta(600, "명")!);
+    expect(v.good).toContain("1팀과 대비된다");
+    expect(v.weak).toContain(fmtMultiple(2.5));
+    expect(v.weak).toContain("하위권");
+  });
+
+  test("순증>0인데 정체 팀이 0이면 대비 문구를 붙이지 않는다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [row({ group_key: "miiwan", value_at_day: 1000, base_value: 400, growth_multiple: 2.5 })],
+          miiwan_rank: 1, cohort_size: 1,
+        },
+      },
+    });
+    const v = curveVerdict(d);
+    expect(v.good).toContain("증가를 유지하고 있다.");
+    expect(v.good).not.toContain("대비된다");
+  });
+
+  test("순증<=0 — good은 null, weak엔 감소를 명시", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [row({ group_key: "miiwan", value_at_day: 400, base_value: 500, growth_multiple: 0.8 })],
+          miiwan_rank: 1, cohort_size: 1,
+        },
+      },
+    });
+    const v = curveVerdict(d);
+    expect(v.good).toBeNull();
+    expect(v.weak).toContain(fmtDelta(-100, "명")!);
+    expect(v.weak).toContain("증가가 멈춰 있다");
+  });
+
+  test("순증을 낼 값(출발선·D+N 값)이 없으면 배수만으로 하위권을 말한다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [row({ group_key: "miiwan", value_at_day: null, base_value: null, growth_multiple: 0.9 })],
+          miiwan_rank: 1, cohort_size: 1,
+        },
+      },
+    });
+    const v = curveVerdict(d);
+    expect(v.good).toBeNull();
+    expect(v.weak).toContain(fmtMultiple(0.9));
+    expect(v.weak).toContain("하위권");
+  });
+
+  test("데이터 없음(미완 행·배수 모두) — good·weak 모두 null", () => {
+    expect(curveVerdict(cohort())).toEqual({ good: null, weak: null });
+    const d = cohort({
+      scorecard: { yt_subscribers: { rows: [row({ group_key: "miiwan", growth_multiple: null })], miiwan_rank: null, cohort_size: 1 } },
+    });
+    expect(curveVerdict(d)).toEqual({ good: null, weak: null });
+  });
+
+  test("숫자는 픽스처에서 파생 — D+N 값을 바꾸면 순증 문구도 바뀐다", () => {
+    const build = (valueAtDay: number) => cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [row({ group_key: "miiwan", value_at_day: valueAtDay, base_value: 400, growth_multiple: 2.0 })],
+          miiwan_rank: 1, cohort_size: 1,
+        },
+      },
+    });
+    expect(curveVerdict(build(1000)).good).toContain(fmtDelta(600, "명")!);
+    expect(curveVerdict(build(2000)).good).toContain(fmtDelta(1600, "명")!);
+  });
+});
+
+// 팀별 상세표(④)의 MiiWAN 읽기 — 표의 5개 숫자 중 무엇이 강점/약점인지
+// 표만 봐서는 안 읽힌다. null-안전(값·순위 모수가 없으면 그 절만 null).
+describe("scorecardVerdict", () => {
+  test("good — 출발선·데뷔 전 배수 순위, 1위면 부연 문장을 붙인다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 900, pre_multiple: 3.0 }),
+            row({ group_key: "owis", base_value: 400, pre_multiple: 1.5 }),
+            row({ group_key: "bthd", base_value: 200, pre_multiple: 1.2 }),
+          ],
+          miiwan_rank: 1, cohort_size: 3,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    expect(v.good).toContain("3팀 중 1위");
+    expect(v.good).toContain(fmtMultiple(3.0));
+    expect(v.good).toContain("이미 팬덤을 쌓아둔 팀이다");
+  });
+
+  test("good — 데뷔 전 배수 1위가 아니면 부연 문장이 없다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 900, pre_multiple: 1.2 }),
+            row({ group_key: "owis", base_value: 400, pre_multiple: 3.0 }),
+          ],
+          miiwan_rank: 1, cohort_size: 2,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    // 출발선(base_value)은 900 > 400 이라 1위지만, 데뷔 전 배수(pre_multiple)는
+    // 1.2 < 3.0 이라 2위 — 두 순위가 갈리는 걸 그대로 보여준다.
+    expect(v.good).toContain("2팀 중 1위");
+    expect(v.good).toContain(`${fmtMultiple(1.2)}는 2위`);
+    expect(v.good).not.toContain("이미 팬덤을 쌓아둔 팀이다");
+  });
+
+  test("weak — 데뷔 후 배수 순위 + 저베이스 각주 취지", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", growth_multiple: 1.1 }),
+            row({ group_key: "owis", growth_multiple: 3.0 }),
+          ],
+          miiwan_rank: 2, cohort_size: 2,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    expect(v.weak).toContain(fmtMultiple(1.1));
+    expect(v.weak).toContain("2팀 중 2위다");
+    expect(v.weak).toContain("출발선이 큰 만큼");
+  });
+
+  test("null-안전 — 순위 모수(miiwan_rank·cohort_size)가 없으면 weak는 null", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: { rows: [row({ group_key: "miiwan" })], miiwan_rank: null, cohort_size: 1 },
+      },
+    });
+    expect(scorecardVerdict(d, "yt_subscribers").weak).toBeNull();
+  });
+
+  test("null-안전 — 출발선·데뷔 전 배수 중 하나라도 없으면 good은 null", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: { rows: [row({ group_key: "miiwan", base_value: null })], miiwan_rank: 1, cohort_size: 1 },
+      },
+    });
+    expect(scorecardVerdict(d, "yt_subscribers").good).toBeNull();
+  });
+
+  test("미완 행이 없으면 good·weak 모두 null", () => {
+    const d = cohort({ scorecard: { yt_subscribers: { rows: [], miiwan_rank: null, cohort_size: 0 } } });
+    expect(scorecardVerdict(d, "yt_subscribers")).toEqual({ good: null, weak: null });
+  });
+});
+
+// 자연 유입 섹션(⑤)의 MiiWAN 읽기 — 헤드라인에서 뺀 자기공시(판정 점수 ↔
+// 기준선 관계, 광고 영향을 배제하기 어렵다는 사실)가 여기로 옮겨온다.
+// 이 이동을 보존하는 가드 테스트: weak에 그 문구가 반드시 들어가야 한다.
+describe("organicityVerdict", () => {
+  test("good — 편수 점수·순위, organic 이상이면 우세 등급 문구", () => {
+    const d = cohort({ organicity: [org("miiwan", 75), org("owis", 60), org("bthd", 50)] });
+    const v = organicityVerdict(d);
+    expect(v.good).toContain("75점");
+    expect(v.good).toContain("3팀 중 1위");
+    expect(v.good).toContain("자연 유입 우세 등급이다");
+  });
+
+  test("good — organic 미만이면 우세 등급 문구를 붙이지 않는다", () => {
+    const d = cohort({ organicity: [org("miiwan", 55), org("owis", 60)] });
+    const v = organicityVerdict(d);
+    expect(v.good).not.toContain("우세 등급");
+    expect(v.good).toContain("콘텐츠 대부분은 자연 소비되고 있다");
+  });
+
+  // 자기공시 이동 보존 가드 — 헤드라인에서 지운 organicNote 의 핵심
+  // 내용(기준선 관계 + 광고 영향 배제 어려움)이 이 함수의 weak로 옮겨왔다.
+  test("weak — 판정 점수가 기준선 아래면 기준선 관계 + 배제 어려움을 반드시 포함한다", () => {
+    // score=55, score_view_weighted=35 → judge=min(55,35)=35 < suspect(40).
+    const d = cohort({ organicity: [org("miiwan", 55, false, 35), org("owis", 90)] });
+    const v = organicityVerdict(d);
+    expect(v.weak).toContain(`${ORG_AD_SUSPECT_THRESHOLD}점`);
+    expect(v.weak).toContain("35점");
+    expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
+    expect(v.weak).toContain("조회수가 소수 광고성 영상에 쏠린");
+  });
+
+  test("weak — 판정 점수가 기준선 부근(±THRESHOLD_NEAR_BAND)이면 '부근이라'", () => {
+    // judge=45 (score_view_weighted 없음) → 45 - suspect(40) = 5 <= THRESHOLD_NEAR_BAND(10).
+    const d = cohort({ organicity: [org("miiwan", 45), org("owis", 90)] });
+    const v = organicityVerdict(d);
+    expect(v.weak).toContain("부근이라");
+    expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
+  });
+
+  test("weak — 기준선 위지만 organic 미만이면 '자연 유입 우세에는 못 미쳐'", () => {
+    // judge=55, 55 - suspect(40) = 15 > THRESHOLD_NEAR_BAND(10), 55 < organic(70).
+    const d = cohort({ organicity: [org("miiwan", 55), org("owis", 90)] });
+    const v = organicityVerdict(d);
+    expect(v.weak).toContain("위지만");
+    expect(v.weak).toContain("못 미쳐");
+  });
+
+  test("weak — 판정 점수가 organic 이상이면 null", () => {
+    const d = cohort({ organicity: [org("miiwan", 90), org("owis", 80)] });
+    expect(organicityVerdict(d).weak).toBeNull();
+  });
+
+  test("점수가 없으면 good·weak 모두 null", () => {
+    expect(organicityVerdict(cohort({ organicity: [org("miiwan", null)] }))).toEqual({ good: null, weak: null });
+    expect(organicityVerdict(cohort())).toEqual({ good: null, weak: null });
+  });
+
+  test("숫자는 픽스처에서 파생 — 점수를 바꾸면 good 문구의 숫자도 바뀐다", () => {
+    const v1 = organicityVerdict(cohort({ organicity: [org("miiwan", 65), org("owis", 50)] }));
+    const v2 = organicityVerdict(cohort({ organicity: [org("miiwan", 72), org("owis", 50)] }));
+    expect(v1.good).toContain("65점");
+    expect(v2.good).toContain("72점");
+  });
+
+  test("THRESHOLD_NEAR_BAND는 cohortQuality.ts의 산점도 판단과 값이 같다", () => {
+    // 브리프 지시: THRESHOLD_NEAR_BAND는 삭제하지 않고 재사용 — cohortHeadline.ts로
+    // 옮긴 뒤에도 값 자체(10)는 그대로다.
+    expect(THRESHOLD_NEAR_BAND).toBe(10);
   });
 });
 

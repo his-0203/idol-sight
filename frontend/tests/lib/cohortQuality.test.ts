@@ -3,12 +3,12 @@
 import { describe, expect, test } from "vitest";
 import {
   MAX_RADIUS, MIN_RADIUS, PRE_BASE_WINDOW, QUALITY_METRIC, Y_AXIS_PADDING,
-  buildQualityScatter, isLooseAnchor, median, radiusFor, scatterNote, yRangeFor,
+  buildQualityScatter, isLooseAnchor, median, qualityVerdict, radiusFor, yRangeFor,
 } from "../../src/lib/cohortQuality";
 import {
-  ORG_AD_SUSPECT_THRESHOLD, type CohortData, type OrgRow, type ScRow,
+  ORG_AD_SUSPECT_THRESHOLD, THRESHOLD_NEAR_BAND, fmtMultiple,
+  type CohortData, type OrgRow, type ScRow,
 } from "../../src/lib/cohortHeadline";
-import { VERDICT_THRESHOLDS } from "../../src/lib/organicity";
 // M1 — 프런트가 미러링한 PRE_BASE_WINDOW 가 서버 원본과 갈리지 않는지
 // 직접 비교한다(organicity.ts 헤더가 경고하는 hand-copy desync 방지와 동일 패턴,
 // 다른 테스트도 이미 functions/lib 순수 로직을 이렇게 크로스 임포트한다).
@@ -246,103 +246,87 @@ describe("yRangeFor", () => {
   });
 });
 
-// R5 — 그림만 두면 "왼쪽 = 뒤처짐"이 가장 흔한 오독이고, 왼쪽인 이유가
-// 화면에서 사라진다. 좌표·임계 근접은 전부 데이터에서 — 손으로 안 적는다.
-describe("scatterNote", () => {
-  test("중앙값 왼쪽이면 이유(출발선)까지 함께 쓴다", () => {
+// R5 — scatterNote(舊)를 흡수 — 그림만 두면 "왼쪽 = 뒤처짐"이 가장 흔한
+// 오독이다. 결론(순위·임계 근접)은 손으로 적지 않고 전부 데이터에서 낸다.
+// good = 총 성장 배수·원 크기 순위, weak = 자연 유입 기준선 관계(우선) 또는
+// 배수 과대해석 주의.
+describe("qualityVerdict", () => {
+  test("good — 총 성장 배수와 순위, 1위면 강조 문장을 덧붙인다", () => {
     const s = buildQualityScatter(cohort(
-      [row("miiwan", 1.1, 26_400), row("owis", 2.2, 5_000), row("bthd", 3.0, 3_000)],
-      [org("miiwan", 45), org("owis", 40), org("bthd", 90)],
+      [row("miiwan", 5.0, 10_000), row("owis", 2.0, 40_000), row("bthd", 1.5, 3_000)],
+      [org("miiwan", 80), org("owis", 60), org("bthd", 50)],
     ));
-    const note = scatterNote(s)!;
-    expect(note).toContain("왼쪽");
-    // F5 — 분모는 표의 '출발선(데뷔일 값)' 컬럼이 아니라 데뷔 전 앵커다.
-    expect(note).toContain("데뷔 전 출발선(약 30일 전 값)이 큰 팀은 배수가 작아");
-    // 임계 부근이면 판정이 갈릴 수 있음을 밝힌다.
-    expect(note).toContain("판정이 갈릴 수 있다");
-    // 규모는 속도와 다른 이야기 — 느려도 규모는 1위일 수 있다.
-    expect(note).toContain("3팀 중 1위");
-    // 총 성장배수의 분모(앵커) 시점을 문장에 명시한다 — row() 기본값은 D-30.
-    expect(note).toContain("데뷔 30일 전 값 대비");
+    const v = qualityVerdict(s);
+    expect(v.good).toContain(`총 성장 배수 ${fmtMultiple(5.0)}`);
+    expect(v.good).toContain("3팀 중 1위");
+    expect(v.good).toContain("가장 빠르게 팬덤을 키웠다");
+    // 원 크기(현재 팬 규모)는 miiwan 10,000 < owis 40,000 → 2위.
+    expect(v.good).toContain("2위다");
   });
 
-  // F6 — 왼쪽 분기에만 캐비앗이 있으면 오른쪽(작은 앵커 효과로 배수가 부풀
-  // 수 있음)일 때는 유리하게만 읽힌다. 반대쪽에도 같은 구조적 캐비앗을 단다.
-  test("중앙값 오른쪽이어도 반대 방향 캐비앗(작은 출발선 효과)을 함께 쓴다", () => {
+  test("good — 1위가 아니면 강조 문장을 붙이지 않는다", () => {
     const s = buildQualityScatter(cohort(
-      [row("miiwan", 3, 100), row("owis", 1, 100)],
-      [org("miiwan", 95), org("owis", 90)],
+      [row("miiwan", 2.0, 10_000), row("owis", 5.0, 40_000)],
+      [org("miiwan", 80), org("owis", 60)],
     ));
-    const note = scatterNote(s)!;
-    expect(note).toContain("오른쪽");
-    expect(note).toContain("반대로 데뷔 전 출발선이 작은 팀은 같은 성장이라도 배수가 크게 나온다");
+    const v = qualityVerdict(s);
+    expect(v.good).toContain("2팀 중 2위");
+    expect(v.good).not.toContain("가장 빠르게");
   });
 
-  test("임계에서 충분히 떨어져 있으면 '갈릴 수 있다'고 하지 않는다", () => {
+  test("weak — 자연 유입 점수가 기준선 아래면 명시한다", () => {
     const s = buildQualityScatter(cohort(
-      [row("miiwan", 3, 100), row("owis", 1, 100)],
-      [org("miiwan", 95), org("owis", 90)],
+      [row("miiwan", 2.0, 10_000), row("owis", 5.0, 40_000)],
+      [org("miiwan", ORG_AD_SUSPECT_THRESHOLD - 1), org("owis", 90)],
     ));
-    const note = scatterNote(s)!;
-    expect(note).toContain("오른쪽");
-    expect(note).not.toContain("판정이 갈릴 수 있다");
+    const v = qualityVerdict(s);
+    expect(v.weak).toContain(`${ORG_AD_SUSPECT_THRESHOLD}점) 아래다`);
   });
 
-  // F4 — 기준선은 organic(70) 이 아니라 광고 과다 컷 suspect(40) 이다.
-  // "위 = 광고 없이 컸다"라고 하면 40~69점(광고 과다는 아니지만 자연 유입
-  // 우세도 아닌 회색 지대)까지 결백으로 읽혀, 막대 캡션("70점부터 우세")과
-  // 정면으로 모순된다.
-  describe("F4 — 기준선 위/아래 서술이 organic 등급과 일관된다", () => {
-    test("기준선 위지만 organic 미만이면 '과다 없음'까지만 말하고 우세는 아니라고 덧붙인다", () => {
-      const s = buildQualityScatter(cohort(
-        [row("miiwan", 3, 100), row("owis", 1, 100)],
-        [org("miiwan", 55), org("owis", 20)], // 40 < 55 < 70, THRESHOLD_NEAR_BAND(10) 밖
-      ));
-      const note = scatterNote(s)!;
-      expect(note).toContain("광고 과다 기준선(40점) 위");
-      expect(note).toContain("광고 과다 사용 정황은 없는 쪽이다");
-      expect(note).not.toContain("광고 없이");
-      expect(note).toContain(`자연 유입 우세 기준 ${VERDICT_THRESHOLDS.organic}점에는 못 미친다`);
-    });
-
-    test("organic 이상이면 '못 미친다' 단서 없이 결백 문구만 낸다", () => {
-      const s = buildQualityScatter(cohort(
-        [row("miiwan", 3, 100), row("owis", 1, 100)],
-        [org("miiwan", 95), org("owis", 90)],
-      ));
-      const note = scatterNote(s)!;
-      expect(note).toContain("광고 과다 사용 정황은 없는 쪽이다");
-      expect(note).not.toContain("못 미친다");
-    });
-
-    test("기준선 아래면 '과다 사용 정황이 있는 쪽'이라고 말한다", () => {
-      const s = buildQualityScatter(cohort(
-        [row("miiwan", 3, 100), row("owis", 1, 100)],
-        [org("miiwan", 15), org("owis", 90)], // 15 < 40 - THRESHOLD_NEAR_BAND(10)
-      ));
-      const note = scatterNote(s)!;
-      expect(note).toContain("광고 과다 기준선(40점) 아래");
-      expect(note).toContain("광고 과다 사용 정황이 있는 쪽이다");
-    });
-  });
-
-  test("MiiWAN 앵커가 데뷔 전이 아니면(D0 폴백) 그 사실을 문장에 붙인다", () => {
+  test("weak — 기준선 부근(±THRESHOLD_NEAR_BAND)이면 확정 어려움을 말한다", () => {
     const s = buildQualityScatter(cohort(
-      [
-        row("miiwan", 1.1, 26_400, false, 0), // 데뷔 전 측정 없음 → 데뷔일 폴백
-        row("owis", 2.2, 5_000),
-        row("bthd", 3.0, 3_000),
-      ],
-      [org("miiwan", 45), org("owis", 40), org("bthd", 90)],
+      [row("miiwan", 2.0, 10_000), row("owis", 5.0, 40_000)],
+      // gap = THRESHOLD_NEAR_BAND(경계값, <= 이므로 여전히 부근으로 판정된다).
+      [org("miiwan", ORG_AD_SUSPECT_THRESHOLD + THRESHOLD_NEAR_BAND), org("owis", 90)],
     ));
-    const note = scatterNote(s)!;
-    expect(note).toContain("데뷔일 값 대비");
-    expect(note).not.toContain("데뷔 0일 전");
+    const v = qualityVerdict(s);
+    expect(v.weak).toContain("부근이라");
+    expect(v.weak).toContain("광고 영향이 없다고 확정하기 어렵다");
   });
 
-  test("자사 점이 없으면 null (없는 위치를 서술하지 않는다)", () => {
+  test("weak — 기준선에서 충분히 위인데 성장 배수가 1~2위면 과대해석 주의를 말한다", () => {
+    const s = buildQualityScatter(cohort(
+      [row("miiwan", 5.0, 10_000), row("owis", 2.0, 40_000), row("bthd", 1.5, 3_000)],
+      // gap = 90 - 40 = 50 > THRESHOLD_NEAR_BAND, growthRank = 1위(<=2).
+      [org("miiwan", 90), org("owis", 60), org("bthd", 50)],
+    ));
+    const v = qualityVerdict(s);
+    expect(v.weak).toContain("배수 순위를 그대로 실력 순위로 읽지 않는다");
+  });
+
+  test("weak — 기준선도 멀고 배수 순위도 낮으면 null", () => {
+    const s = buildQualityScatter(cohort(
+      [row("miiwan", 1.2, 10_000), row("owis", 5.0, 40_000), row("bthd", 4.0, 30_000)],
+      [org("miiwan", 90), org("owis", 60), org("bthd", 50)],
+    ));
+    const v = qualityVerdict(s);
+    expect(v.weak).toBeNull();
+  });
+
+  test("자사 점이 없으면 good·weak 모두 null", () => {
     const s = buildQualityScatter(cohort([row("owis", 2, 100)], [org("owis", 80)]));
-    expect(scatterNote(s)).toBeNull();
+    expect(qualityVerdict(s)).toEqual({ good: null, weak: null });
+  });
+
+  // 공통 가드 — 결론은 하드코딩이 아니라 픽스처에서 파생된다. 배수를
+  // 바꾸면 good 문장의 숫자도 함께 바뀌어야 한다.
+  test("숫자는 픽스처에서 파생 — 성장 배수를 바꾸면 문장 숫자도 바뀐다", () => {
+    const build = (growth: number) => buildQualityScatter(cohort(
+      [row("miiwan", growth, 10_000), row("owis", 2.0, 40_000)],
+      [org("miiwan", 80), org("owis", 60)],
+    ));
+    expect(qualityVerdict(build(3.0)).good).toContain(fmtMultiple(3.0));
+    expect(qualityVerdict(build(7.0)).good).toContain(fmtMultiple(7.0));
   });
 });
 

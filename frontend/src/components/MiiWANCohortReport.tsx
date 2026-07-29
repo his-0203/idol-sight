@@ -44,7 +44,7 @@ import {
 } from "../lib/cohortHeadline";
 // 산점도 데이터 준비도 순수 로직 (테스트: tests/lib/cohortQuality.test.ts).
 import {
-  QUALITY_METRIC, buildQualityScatter, isLooseAnchor, scatterNote,
+  QUALITY_METRIC, buildQualityScatter, isLooseAnchor,
 } from "../lib/cohortQuality";
 
 // 광고 의심 라인의 투명도 — 참조선(PLAVE)이 이미 점선을 쓰고 있어
@@ -420,7 +420,6 @@ export function MiiWANCohortReport() {
   // 산점도는 캔버스(useEffect)와 캡션(아래 JSX)이 같은 결과를 봐야 한다 —
   // 제외 목록·중앙값을 두 곳에서 따로 계산하면 화면이 자기모순에 빠진다.
   const quality = buildQualityScatter(data);
-  const qNote = scatterNote(quality);
   const composition = cohortComposition(data, metric);
   const debutRange = debutDateRange(data);
   const nearTie = nearTieKeys(sc?.rows ?? []);
@@ -508,9 +507,8 @@ export function MiiWANCohortReport() {
           <div style={{ height: "320px" }}>
             <canvas ref={qCanvasRef} />
           </div>
-          {/* R5 — 자사 위치를 문장으로 못 박는다. 그림만 두면 가장 흔한 오독이
-              "왼쪽 = 뒤처짐"이고, 왼쪽인 이유(출발선)가 화면에서 사라진다. */}
-          {qNote && <p class="mt-2 text-sm text-zinc-300">{qNote}</p>}
+          {/* R5 — 자사 위치 서술(舊 scatterNote)은 Task 2에서 qualityVerdict로
+              흡수됐다. 잘함/보완 두 줄 렌더는 Task 3(VerdictLines 배치)에서 붙인다. */}
           <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
             가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
             팀들의 총 성장 배수(데뷔 전 값 대비) 중앙값

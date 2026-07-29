@@ -10,11 +10,9 @@
 // excluded 로 사유와 함께 내보내 캡션이 밝힌다(가짜 수치 없음 · 열세 숨김
 // 금지와 같은 원칙). 테스트: tests/lib/cohortQuality.test.ts
 import {
-  ORG_AD_SUSPECT_THRESHOLD, adScoreMap, fmtMultiple, type CohortData,
+  ORG_AD_SUSPECT_THRESHOLD, THRESHOLD_NEAR_BAND, adScoreMap, fmtMultiple,
+  type CohortData, type SectionVerdict,
 } from "./cohortHeadline";
-// F4 — "기준선 위 = 광고 과다 없음" 서술이 organic(70) 등급과도 일관되게
-// 갈리는지 판단하려면 suspect(40) 뿐 아니라 organic(70) 컷도 필요하다.
-import { VERDICT_THRESHOLDS } from "./organicity";
 
 /** 산점도 x축이 쓰는 지표. 규모 축(원 크기)도 같은 지표의 절대값을 쓴다. */
 export const QUALITY_METRIC = "yt_subscribers";
@@ -162,9 +160,6 @@ export function buildQualityScatter(d: CohortData): QualityScatter {
   };
 }
 
-/** 임계선에서 이 점수 안쪽이면 "판정이 갈릴 수 있는 자리"로 본다. */
-export const THRESHOLD_NEAR_BAND = 10;
-
 /**
  * M1 — 데뷔 전 앵커 탐색 폭(±7일). functions/lib/cohortReport.ts 의
  * PRE_BASE_WINDOW 미러 — 프런트 번들에 서버 코드(functions/lib)를 끌어오지
@@ -186,63 +181,36 @@ export function isLooseAnchor(anchorDay: number, preDebutDays: number): boolean 
   return anchorDay > -(preDebutDays - PRE_BASE_WINDOW);
 }
 
+/** 내림차순 1-based 순위. */
+function rankDescOf(mine: number, others: number[]): number {
+  return others.filter((v) => v > mine).length + 1;
+}
+
 /**
- * R5 — 산점도에서 자사 위치를 문장으로 자동 서술한다. 사분면 그림만 두면
- * 읽는 사람마다 다른 결론을 가져가고, 가장 흔한 오독이 "왼쪽 = 뒤처짐"이다.
- * 왼쪽인 이유(출발선)와 임계선 부근의 불확실성을 같이 말해 둔다.
- * 좌표·임계 근접 판단은 전부 데이터에서 — 결론을 손으로 적지 않는다.
+ * R5 — 산점도의 MiiWAN 읽기 — 그림만으로는 "왼쪽=뒤처짐" 오독이 흔해(기존
+ * scatterNote의 문제의식) 잘함/보완 두 줄로 나눠 자동 서술한다.
+ * 결론을 손으로 적지 않는다 — 좌표·순위·임계 근접은 전부 데이터에서.
  */
-export function scatterNote(s: QualityScatter): string | null {
+export function qualityVerdict(s: QualityScatter): SectionVerdict {
   const mine = s.points.find((p) => p.group_key === "miiwan");
-  if (!mine) return null;
-  const parts: string[] = [];
-
-  // 성장 배수의 분모(앵커) 시점을 항상 밝힌다 — "데뷔 30일 전 값 대비"가
-  // 기본 전제지만, 데뷔 전 측정이 없는 팀(myrakl류)은 데뷔일로 폴백해
-  // 전제 자체가 달라지므로 그 사실도 문장에 그대로 싣는다.
-  const anchorLabel = mine.anchorDay < 0
-    ? `데뷔 ${-mine.anchorDay}일 전 값 대비` : "데뷔일 값 대비(데뷔 전 측정 없음)";
-
-  if (s.medianGrowth != null) {
-    // F5 — 이 축의 분모는 표의 '출발선(데뷔일 값)' 컬럼이 아니라 데뷔 전
-    // 앵커(기본 데뷔 30일 전 값, 없으면 데뷔일로 폴백)다. "출발선"이라고만
-    // 쓰면 표의 다른 컬럼을 가리키는 것으로 오독된다.
-    parts.push(mine.growth < s.medianGrowth
-      ? `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 왼쪽 — 성장 속도(${anchorLabel})는`
-        + " 가운데보다 느리다. 데뷔 전 출발선(약 30일 전 값)이 큰 팀은 배수가 작아"
-        + " 구조적으로 왼쪽에 놓인다."
-      // F6 — 캐비앗을 왼쪽 분기에만 달면 미완이 오른쪽일 때(작은 앵커 효과로
-      // 배수가 부풀 수 있음)는 그 구조적 이유가 사라져 유리하게만 읽힌다.
-      : `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 오른쪽 — 성장 속도(${anchorLabel})는`
-        + " 가운데보다 빠르다. 반대로 데뷔 전 출발선이 작은 팀은 같은 성장이라도"
-        + " 배수가 크게 나온다.");
-  }
-
-  // F4 — 기준선은 이제 광고 '과다' 컷(suspect)이지 organic 컷이 아니다.
-  // 위쪽이라고 "광고 없이 컸다"고 말하면 organic(70) 미만인 위쪽 점(예:
-  // 40~69점)까지 자연 유입 우세처럼 읽혀 막대 캡션("70점부터 우세")과
-  // 모순된다. 위쪽은 "과다 사용 정황이 없다"까지만 말하고, organic 에는
-  // 못 미치면 그 뉘앙스를 덧붙인다(H4 회색 지대와 같은 경계).
-  const gap = mine.organic - s.threshold;
-  if (Math.abs(gap) <= THRESHOLD_NEAR_BAND) {
-    parts.push(`자연 유입 점수 ${mine.organic}점은 광고 과다 기준선(${s.threshold}점)`
-      + " 부근이라 조금만 움직여도 판정이 갈릴 수 있다.");
-  } else if (gap > 0) {
-    const shortOfOrganic = mine.organic < VERDICT_THRESHOLDS.organic
-      ? ` (다만 자연 유입 우세 기준 ${VERDICT_THRESHOLDS.organic}점에는 못 미친다)`
-      : "";
-    parts.push(`자연 유입 점수 ${mine.organic}점으로 광고 과다 기준선(${s.threshold}점) 위`
-      + ` — 광고 과다 사용 정황은 없는 쪽이다${shortOfOrganic}.`);
-  } else {
-    parts.push(`자연 유입 점수 ${mine.organic}점으로 광고 과다 기준선(${s.threshold}점) 아래`
-      + " — 광고 과다 사용 정황이 있는 쪽이다.");
-  }
-
-  // 원 크기(현재 팬 규모)는 속도와 다른 이야기다 — 느려도 규모는 클 수 있다.
+  if (!mine) return { good: null, weak: null };
   const peers = s.points.filter((p) => !p.reference);
-  if (peers.length >= 2) {
-    const scaleRank = peers.filter((p) => p.scale > mine.scale).length + 1;
-    parts.push(`원 크기(현재 팬 규모)로는 ${peers.length}팀 중 ${scaleRank}위다.`);
+  const growthRank = rankDescOf(mine.growth, peers.filter((p) => p !== mine).map((p) => p.growth));
+  const scaleRank = rankDescOf(mine.scale, peers.filter((p) => p !== mine).map((p) => p.scale));
+  const good = `총 성장 배수 ${fmtMultiple(mine.growth)}로 ${peers.length}팀 중 ${growthRank}위`
+    + (growthRank === 1 ? " — 데뷔 전 준비 기간부터 지금까지 가장 빠르게 팬덤을 키웠다" : "")
+    + `. 원 크기(현재 팬 규모)로는 ${scaleRank}위다.`;
+  const gap = mine.organic - s.threshold;
+  let weak: string | null;
+  if (gap < 0) {
+    weak = `자연 유입 점수 ${mine.organic}점은 광고 과다 기준선(${s.threshold}점) 아래다.`;
+  } else if (gap <= THRESHOLD_NEAR_BAND) {
+    weak = `자연 유입 점수 ${mine.organic}점은 광고 과다 기준선(${s.threshold}점) 부근이라`
+      + " 광고 영향이 없다고 확정하기 어렵다.";
+  } else if (growthRank <= 2) {
+    weak = "총 성장 배수는 데뷔 전 출발점이 작을수록 크게 나온다 — 배수 순위를 그대로 실력 순위로 읽지 않는다.";
+  } else {
+    weak = null;
   }
-  return parts.join(" ");
+  return { good, weak };
 }
