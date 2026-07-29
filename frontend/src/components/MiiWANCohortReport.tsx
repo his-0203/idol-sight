@@ -612,6 +612,7 @@ export function MiiWANCohortReport() {
             <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
               <tr>
                 <th scope="col" class="px-3 py-2 text-left">그룹</th>
+                <th scope="col" class="px-3 py-2 text-right">데뷔 전 값 (30일 전 기준)</th>
                 <th scope="col" class="px-3 py-2 text-right">출발선 (데뷔일 값)</th>
                 <th scope="col" class="px-3 py-2 text-right">D+{data.as_of_day} 시점 값</th>
                 <th scope="col" class="px-3 py-2 text-right">데뷔 전 성장 배수</th>
@@ -650,7 +651,7 @@ export function MiiWANCohortReport() {
                   return [
                     firstRef ? (
                       <tr key="ref-divider">
-                        <td colSpan={showEfficiency ? 6 : 5}
+                        <td colSpan={showEfficiency ? 7 : 6}
                             class="border-t-2 border-zinc-700 px-3 py-2 text-hint text-zinc-500">
                           아래는 순위에서 제외한 참고 사례 — 데뷔 시기·규모가 달라
                           같이 세지 않는다.
@@ -666,6 +667,15 @@ export function MiiWANCohortReport() {
                           <div class="text-hint text-zinc-600">
                             {data.groups[r.group_key]!.debut_date} 데뷔
                           </div>
+                        )}
+                      </td>
+                      {/* 데뷔 전 값 = 데뷔 전 배수·총 성장의 출발점. D-30±7이 비면
+                          확보된 가장 이른 데뷔 전 값을 쓰고 측정일을 그대로 밝힌다. */}
+                      <td class="px-3 py-2 text-right text-zinc-400">
+                        {r.pre_value == null ? "—" : fmt(r.pre_value)}
+                        <EstBadge source={r.pre_source} />
+                        {r.pre_day != null && (
+                          <div class="text-hint text-zinc-600">{measuredOn(r.pre_day)}</div>
                         )}
                       </td>
                       {/* 출발선 = 성장배수의 분모. 이 칸이 없으면 "왜 우리 배수가
@@ -876,7 +886,11 @@ export function MiiWANCohortReport() {
             <strong class="text-zinc-400">배수 계산</strong> — 데뷔 후 성장 배수 =
             D+{data.as_of_day} 값 ÷ 데뷔일 값 (데뷔일 값은 데뷔일({baseTol}), 지금 값은
             D+{data.as_of_day}({atTol}) 안에서 가장 가까운 날의 측정값). 데뷔 전 성장
-            배수는 그 앞 구간을 같은 방식으로 잰 값이다.
+            배수는 그 앞 구간을 같은 방식으로 잰 값으로, 데뷔 30일 전(±7일) 측정값이
+            있을 때만 낸다 — 그래서 데뷔 전 값이 있어도(창 밖의 값이라) 데뷔 전 성장
+            배수는 &mdash;로 남는 팀이 있을 수 있다. 표의 &lsquo;데뷔 전 값&rsquo; 칸은
+            그 창에 측정이 없으면 확보된 가장 이른 데뷔 전 값을 측정일과 함께 싣고,
+            데뷔 전 측정이 아예 없는 팀은 &mdash;로 둔다.
           </li>
           <li>
             <strong class="text-zinc-400">비교 대상 선정</strong> — {debutRange
