@@ -37,6 +37,18 @@ export type OrgRow = {
   paid_view_share?: number | null;
   /** 유료 판정 영상 제외 조회수 가중 점수. 남는 조회수가 없으면 null. */
   score_view_weighted_ex_paid?: number | null;
+  /**
+   * 데뷔 창 활동 — "얼마나 올려서 얼마나 반응을 얻었나".
+   * uploads 는 창 내 **업로드 전수**로 위 video_count(판정된 표본)와 모집단이
+   * 다르다 — 화면은 "업로드 N편"과 "영상 N편"을 구분해 부르고 각주로 밝힌다.
+   */
+  uploads?: number;
+  uploads_long?: number | null;
+  uploads_short?: number | null;
+  /** 창 내 총 조회수. 실측 0은 0으로 남고, 값 자체가 없으면 null. */
+  window_views?: number | null;
+  /** 조회 1,000회당 반응 수(좋아요+댓글 등). 분모 0이면 null. */
+  engagement_per_1k_views?: number | null;
 };
 /** score가 실제로 있는 행만 남긴 뒤 쓰는 좁힌 타입 (막대 폭 계산에 non-null 필요). */
 export type OrgRowScored = Omit<OrgRow, "score"> & { score: number };

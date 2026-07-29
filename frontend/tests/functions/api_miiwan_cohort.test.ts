@@ -566,6 +566,92 @@ describe("/api/miiwan-cohort", () => {
     expect(byKey.myrakl.score_view_weighted).toBeNull();
   });
 
+  // 데뷔 창 활동(업로드 전수·롱/숏 구성·창 내 조회수·반응 밀도) — 이미
+  // 수집돼 있으나 응답에 없던 컬럼들. 유기성 요약과 **같은 쿼리·같은 창**이라
+  // 화면에서 두 수치를 나란히 놓아도 기간이 어긋나지 않는다.
+  it("데뷔 창 활동 집계 — 버킷 합산 + 조회 1,000회당 반응", async () => {
+    let orgSql = "";
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) return [
+        { group_key: "miiwan", organic_score_mean_shrunk: 80,
+          organic_score_mean_simple: 80, organic_score_mean: 80,
+          total_views: 60_000, scored_video_count: 10,
+          video_count: 10, long_form_count: 3, short_form_count: 7,
+          total_engagement: 1_200 },
+        { group_key: "miiwan", organic_score_mean_shrunk: 60,
+          organic_score_mean_simple: 60, organic_score_mean: 60,
+          total_views: 40_000, scored_video_count: 10,
+          video_count: 20, long_form_count: 5, short_form_count: 15,
+          total_engagement: 800 },
+      ];
+      return [];
+    }, (sql) => {
+      if (sql.includes("debut_window_organicity_summary")) orgSql = sql;
+    });
+    const mi = body.organicity.find((o: any) => o.group_key === "miiwan");
+    // 업로드는 전수(video_count 합) — 점수 표본(video_count 필드, scored 합)과 다르다.
+    expect(mi.uploads).toBe(30);
+    expect(mi.uploads_long).toBe(8);
+    expect(mi.uploads_short).toBe(22);
+    expect(mi.window_views).toBe(100_000);
+    // (1,200 + 800) ÷ 100,000 × 1,000 = 20.0
+    expect(mi.engagement_per_1k_views).toBeCloseTo(20);
+    // 판정 표본 수(기존 필드)는 그대로 — 두 수를 한 필드로 합치지 않는다.
+    expect(mi.video_count).toBe(20);
+    // 같은 쿼리에서 가져온다(창이 갈리면 화면의 두 수치가 다른 기간이 된다).
+    for (const col of ["video_count", "long_form_count", "short_form_count",
+      "total_engagement"]) expect(orgSql).toContain(col);
+  });
+
+  it("창 내 조회수 0이면 반응 밀도는 null (실측 0은 0으로 남긴다)", async () => {
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) return [
+        { group_key: "miiwan", organic_score_mean_shrunk: 80,
+          organic_score_mean_simple: 80, organic_score_mean: 80,
+          total_views: 0, scored_video_count: 10,
+          video_count: 4, long_form_count: 1, short_form_count: 3,
+          total_engagement: 0 },
+      ];
+      return [];
+    });
+    const mi = body.organicity.find((o: any) => o.group_key === "miiwan");
+    expect(mi.uploads).toBe(4);
+    expect(mi.window_views).toBe(0);
+    expect(mi.engagement_per_1k_views).toBeNull();
+  });
+
+  it("활동 컬럼이 비면 0으로 지어내지 않고 null (uploads 만 0)", async () => {
+    const body = await call(baseHandler); // 활동 컬럼이 아예 없는 픽스처
+    const mi = body.organicity.find((o: any) => o.group_key === "miiwan");
+    expect(mi.uploads).toBe(0);
+    expect(mi.uploads_long).toBeNull();
+    expect(mi.uploads_short).toBeNull();
+    expect(mi.window_views).toBeNull();
+    expect(mi.engagement_per_1k_views).toBeNull();
+    // 유기성 행 자체가 없는 그룹도 같은 모양(가짜 수치 없음).
+    const pl = body.organicity.find((o: any) => o.group_key === "plave");
+    expect(pl.uploads).toBe(0);
+    expect(pl.window_views).toBeNull();
+    expect(pl.engagement_per_1k_views).toBeNull();
+  });
+
+  it("유기성 쿼리 실패 시 활동 필드도 함께 사라진다 (같은 쿼리 · 별도 플래그 없음)", async () => {
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) {
+        throw new Error("D1 error: table locked");
+      }
+      return [];
+    });
+    expect(body.organicity_unavailable).toBe(true);
+    expect(body.organicity).toEqual([]);
+  });
+
   it("miiwan debut_date 없으면 503-급 에러 대신 명시적 4xx", async () => {
     const res = await onRequestGet({
       env: envWith((sql) =>

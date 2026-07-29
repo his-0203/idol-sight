@@ -94,6 +94,15 @@ interface OrgRow {
   organic_score_mean: number | null;
   total_views: number | null;
   scored_video_count: number;
+  /**
+   * 데뷔 창 활동 — 이미 수집돼 있으나 응답에 실리지 않던 컬럼들.
+   * video_count 는 **창 내 업로드 전수**로, 위 scored_video_count(판정된
+   * 표본)와 다른 모집단이다 — 화면에서 두 수를 같은 이름으로 부르면 안 된다.
+   */
+  video_count: number | null;
+  long_form_count: number | null;
+  short_form_count: number | null;
+  total_engagement: number | null;
 }
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
@@ -303,7 +312,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const orgRows = await d1Query<OrgRow>(
     env.DB,
     `SELECT group_key, organic_score_mean_shrunk, organic_score_mean_simple,
-            organic_score_mean, total_views, scored_video_count
+            organic_score_mean, total_views, scored_video_count,
+            video_count, long_form_count, short_form_count, total_engagement
        FROM debut_window_organicity_summary
       WHERE group_key IN (${ph}) AND window_bucket IN (${orgPh})`,
     [...ALL_KEYS, ...orgWindow.buckets],
@@ -348,6 +358,39 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   // 버킷 사이를 합칠 때의 가중치는 편수가 아니라 그 버킷의 조회수여야 한다
   // (같은 테이블의 total_views — 추정이 아니라 실제 컬럼).
   const orgViewAgg = new Map<string, { wsum: number; n: number }>();
+  // 데뷔 창 활동 집계 — "얼마나 올려서(업로드 전수·롱/숏) 얼마나 조회·반응을
+  // 얻었나". 유기성과 **같은 쿼리·같은 창**이라 별도 degrade 플래그가 필요
+  // 없다(요약 쿼리가 죽으면 이 값들도 함께 사라진다).
+  // has* 를 따로 드는 이유: 컬럼이 통째로 비어 있는 것과 실측 0 은 다르다.
+  // 없는 값을 0 으로 채우면 화면에 "롱 0편"·"조회수 0" 이라는 없는 사실이 뜬다.
+  interface ActAgg {
+    uploads: number; long: number; short: number;
+    views: number; eng: number;
+    hasLong: boolean; hasShort: boolean; hasViews: boolean; hasEng: boolean;
+  }
+  const actAgg = new Map<string, ActAgg>();
+  const addNum = (v: number | null | undefined): number | null => {
+    if (v == null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  for (const r of orgRows) {
+    const a = actAgg.get(r.group_key) ?? {
+      uploads: 0, long: 0, short: 0, views: 0, eng: 0,
+      hasLong: false, hasShort: false, hasViews: false, hasEng: false,
+    };
+    const up = addNum(r.video_count);
+    if (up != null) a.uploads += up;
+    const lo = addNum(r.long_form_count);
+    if (lo != null) { a.long += lo; a.hasLong = true; }
+    const sh = addNum(r.short_form_count);
+    if (sh != null) { a.short += sh; a.hasShort = true; }
+    const vw = addNum(r.total_views);
+    if (vw != null) { a.views += vw; a.hasViews = true; }
+    const en = addNum(r.total_engagement);
+    if (en != null) { a.eng += en; a.hasEng = true; }
+    actAgg.set(r.group_key, a);
+  }
   for (const r of orgRows) {
     const score = r.organic_score_mean_shrunk ?? r.organic_score_mean_simple;
     const weight = Number(r.scored_video_count);
@@ -378,6 +421,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         const ep = exPaidBy.get(gk);
         const epViews = ep?.views ?? 0;
         const epExViews = ep?.ex_views ?? 0;
+        const act = actAgg.get(gk);
         return {
           group_key: gk,
           score: a && a.n > 0 ? Math.round((a.wsum / a.n) * 10) / 10 : null,
@@ -396,6 +440,18 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
             ? Math.round((ep.paid_views / epViews) * 1000) / 1000 : null,
           score_view_weighted_ex_paid: ep && epExViews > 0 && ep.ex_wsum != null
             ? Math.round((ep.ex_wsum / epExViews) * 10) / 10 : null,
+          // 데뷔 창 활동 — "투입 대비 산출" 축. uploads 는 전수라 위
+          // video_count(판정 표본)와 라벨이 갈려야 한다(화면 각주가 밝힌다).
+          uploads: act?.uploads ?? 0,
+          uploads_long: act?.hasLong ? act.long : null,
+          uploads_short: act?.hasShort ? act.short : null,
+          window_views: act?.hasViews ? act.views : null,
+          // 반응 밀도 = 조회 1,000회당 반응 수. %(0.x%)보다 경영진 독해가
+          // 직관적이고 표의 "구독 효율(subs/1k뷰)" 어법과 짝이 맞는다.
+          // 분모가 0이면 비율을 만들지 않는다(가짜 수치 금지).
+          engagement_per_1k_views:
+            act?.hasEng && act.hasViews && act.views > 0
+              ? Math.round((act.eng / act.views) * 1000 * 10) / 10 : null,
         };
       });
 
