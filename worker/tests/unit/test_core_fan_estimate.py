@@ -317,6 +317,7 @@ def _vid(i, views=1000, likes=50, comments=10):
 def test_select_organic_videos_filters_suspects():
     window = [_vid(1), _vid(2), _vid(3), _vid(4)]
     out = select_organic_videos(window, [], {"v4"})
+    assert out is not None
     assert [v["video_id"] for v in out] == ["v1", "v2", "v3"]
 
 
@@ -325,6 +326,7 @@ def test_select_organic_videos_falls_back_then_none():
     fallback = [_vid(1), _vid(2), _vid(3), _vid(4), _vid(5)]
     # window 필터 후 1편 → 폴백 필터 적용 3편 → 폴백 채택
     out = select_organic_videos(window, fallback, {"v2", "v3"})
+    assert out is not None
     assert [v["video_id"] for v in out] == ["v1", "v4", "v5"]
     # 폴백도 2편뿐 → None
     assert select_organic_videos(window, fallback[:4], {"v2", "v3", "v4"}) is None

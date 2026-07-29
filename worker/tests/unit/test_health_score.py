@@ -792,7 +792,7 @@ def test_confirmed_default_keeps_existing_behavior():
 
 # ─── V2.56 hanteo_standing_value (초동 standing value + 180d 반감기) ──────
 
-def _h(group_key, week_start, sales, *, week_end=None, album="A1"):
+def _h(group_key, week_start, sales, *, week_end=None, album: str | None = "A1"):
     return {"group_key": group_key, "week_start": week_start,
             "week_end": week_end, "album": album, "sales": sales}
 
