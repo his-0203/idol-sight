@@ -38,7 +38,7 @@ import { EstBadge } from "./EstBadge";
 import { VERDICT_COLOR, VERDICT_THRESHOLDS, scoreColor } from "../lib/organicity";
 // 헤드라인 문구·임계값은 순수 로직이라 lib 로 뺐다 (테스트: tests/lib/cohortHeadline.test.ts).
 import {
-  AD_SUSPECT_METRICS, EX_PAID_LABEL, EX_PAID_LABEL_SHORT, METRIC_LABELS,
+  AD_SUSPECT_METRICS, EX_PAID_LABEL, METRIC_LABELS,
   METRIC_UNITS, ORG_ACTION_HINT, ORG_AD_SUSPECT_THRESHOLD, ORG_SCORE_GAP_CHIP,
   PRIMARY_METRIC,
   adJudgeScore, adScoreMap, cohortComposition, curveVerdict, debutDateRange,
@@ -145,10 +145,14 @@ const SUMMARY = "cursor-pointer text-zinc-400 hover:text-zinc-200";
     좌측 보더 + 들여쓰기로 주변 각주(③)와 시각적으로 떼어 놓는다: 이 두 줄만
     읽어도 섹션 결론이 잡혀야 한다(07-30 피드백 "10초 스캔").
     extra = 같은 해석 위계로 붙는 섹션 고유 결론(자연 유입 섹션의 '광고 투입
-    콘텐츠 제외' 점수). 해석 두 줄이 없어도 extra 만으로 블록을 세운다 —
-    데이터가 있는데 그리지 않는 경로를 만들지 않기 위해서다. */
+    콘텐츠 제외' 점수·다음 액션). 해석 두 줄이 없어도 extra 만으로 블록을
+    세운다 — 데이터가 있는데 그리지 않는 경로를 만들지 않기 위해서다.
+    F1(07-30 R3 타이포 리뷰) — v.sub 는 바로 위 줄을 보강하는 **보조 한 줄**
+    이라 같은 블록 안에 두되 위계를 한 단 내려(text-hint/zinc-500) 그린다.
+    두 사실을 한 문장에 이어 붙이면(舊 상세표 weak) 둘이 같은 무게로 읽혔다.
+    sub 를 안 내는 verdict 는 필드 자체가 없어 이 줄이 그려지지 않는다. */
 function VerdictLines({ v, extra }: { v: SectionVerdict; extra?: ComponentChildren }) {
-  if (!v.good && !v.weak && !extra) return null;
+  if (!v.good && !v.weak && !v.sub && !extra) return null;
   return (
     <div class="my-3 space-y-1 border-l-2 border-zinc-700 pl-3 text-sm leading-relaxed">
       {v.good && (
@@ -163,6 +167,7 @@ function VerdictLines({ v, extra }: { v: SectionVerdict; extra?: ComponentChildr
           <span class="text-zinc-600"> — </span>{v.weak}
         </p>
       )}
+      {v.sub && <p class="text-hint text-zinc-500">{v.sub}</p>}
       {extra}
     </div>
   );
@@ -340,8 +345,9 @@ export function MiiWANCohortReport() {
                 const x = items[0]?.parsed.x;
                 return x == null ? "" : `${dayLabel(x)} 측정`;
               },
-              // 라벨(dataset.label)에 이미 "(광고 의심)" 이 들어 있으므로
-              // 툴팁에서 다시 붙이지 않는다 — 한 줄에 같은 말이 두 번 나온다.
+              // 라벨(dataset.label)에 이미 SUSPECT_MARK("(광고 영향 의심)")가
+              // 들어 있으므로 툴팁에서 다시 붙이지 않는다 — 한 줄에 같은 말이
+              // 두 번 나온다. (C8 이후 화면 표시 명칭은 '광고 영향 의심' 하나다.)
               // 절대값은 CurvePoint 에 없다 — 곡선은 인덱스 전용 계열이라
               // 여기서 표에 있는 값을 다시 끌어오면 두 출처가 어긋날 위험만
               // 커진다. 절대값은 표에서 읽는다.
@@ -915,14 +921,22 @@ export function MiiWANCohortReport() {
               C2(07-30 경영 리뷰) — 배지 임계는 "광고를 과하게 쓴 게 뚜렷한 팀"만
               가리키도록 캘리브레이션한 값이라, 배지가 없는 팀도 기준선 부근일 수
               있다. 그 자리에 아무 말이 없으면 "배지 없음 = 광고 영향 없음"으로
-              읽힌다 — 배지 로직·티어는 그대로 두고 읽는 법만 봉합한다. */}
+              읽힌다 — 배지 로직·티어는 그대로 두고 읽는 법만 봉합한다.
+              F3(07-30 R3 투자 리뷰) — 뒤 절은 "**전 팀**의 판정 점수는 아래에서
+              공개된다"는 정적 주장이었다. 유기성이 비거나(organicity_unavailable)
+              일부 팀 점수가 없으면 그냥 거짓이 되고, 그걸 검증하는 코드도 없었다.
+              실제로 아래 섹션이 그리는 행 수(orgRows)에서 파생하고, 0팀이면 절을
+              통째로 생략한다 — 앞 절("배지가 없다고 …")은 항상 참이라 남긴다. */}
           <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
             성장 배수는 광고비로도 만들 수 있는 숫자라, 판정 점수
             {" "}{ORG_AD_SUSPECT_THRESHOLD}점 미만인 팀에는 배수 옆에
             {" "}&lsquo;{SUSPECT_LABEL}&rsquo;을 붙이고 아래
             {" "}<strong class="text-zinc-300">자연 유입 점수</strong>와 같이 읽게 했다.
-            {" "}배지가 없다고 광고 영향이 없다는 뜻은 아니다 — 전 팀의 판정 점수는
-            아래 자연 유입 점수에서 공개된다.
+            {" "}배지가 없다고 광고 영향이 없다는 뜻은 아니다
+            {orgRows.length > 0 && (
+              <> — 판정 점수가 있는 {orgRows.length}팀의 점수는 아래 자연 유입
+              점수에서 공개된다</>
+            )}.
           </p>
           {/* S — 데뷔 전/후 대역이 다르다는 사실을 분리해 쓴다. 하나로 뭉치면
               "0.3~3 이 정상"과 실제 데뷔 전 수치(수십~수백)가 정면 충돌한다.
@@ -979,19 +993,31 @@ export function MiiWANCohortReport() {
           {/* A4(07-30 타이포 리뷰) — 이 결론의 강조색이 zinc-100 이면 바로 위
               '잘하고 있는 점/보완할 점'(zinc-200)보다 밝아 위계가 뒤집힌다.
               제외 점수는 해석 두 줄 **다음** 가는 값이므로 같은 zinc-200 굵기로. */}
-          <VerdictLines v={oVerdict} extra={miiwanExPaid && (
-            <p class="pt-1">
-              <strong class="text-zinc-200">{miiwanExPaid.headline}</strong>
-              <span class="block text-hint text-zinc-500">{miiwanExPaid.note}</span>
-            </p>
-          )} />
           {/* A5(07-30 경영 리뷰) — 이 섹션은 "배제하기 어렵다"에서 끝나 다음
               행동이 없었다. 결정 지향 안내 한 줄을 보조 위계로 붙인다. 문구는
               lib 상수(WEAK_REMEDY 와 같은 성격) — 판정이 걸린 창에서만 낸다:
-              보완할 점이 없는 창에 액션만 남으면 근거 없는 지시가 된다. */}
-          {oVerdict.weak && (
-            <p class="mb-2 text-hint text-zinc-400">{ORG_ACTION_HINT}</p>
-          )}
+              보완할 점이 없는 창에 액션만 남으면 근거 없는 지시가 된다.
+              R3(07-30 타이포 리뷰) — 예전엔 이 줄이 VerdictLines **밖**에 있어
+              좌측 보더·들여쓰기가 끊겼고, 그 결과 '보완할 점'의 다음 행동이
+              아니라 아래 막대의 캡션처럼 보였다. 같은 블록 안(extra)으로 넣어
+              보완할 점 → 제외 점수 → 다음 액션이 한 묶음으로 읽히게 한다.
+              R3 — exPaidNote 의 앵커 절(ⓒ)도 note(ⓐⓑ)와 줄을 나눈다: 쏠림
+              설명의 꼬리처럼 붙어 있으면 "그래도 결론 점수는 판정 점수"라는
+              가장 중요한 한 마디가 그냥 지나쳐진다. */}
+          <VerdictLines v={oVerdict} extra={(miiwanExPaid || oVerdict.weak) && (
+            <>
+              {miiwanExPaid && (
+                <p class="pt-1">
+                  <strong class="text-zinc-200">{miiwanExPaid.headline}</strong>
+                  <span class="block text-hint text-zinc-500">{miiwanExPaid.note}</span>
+                  <span class="block text-hint text-zinc-400">{miiwanExPaid.anchor}</span>
+                </p>
+              )}
+              {oVerdict.weak && (
+                <p class="pt-1 text-hint text-zinc-400">{ORG_ACTION_HINT}</p>
+              )}
+            </>
+          )} />
           {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
               폭 자체가 신호라 한 점으로 뭉개지 않는다. R10 — 진한 막대가 우리 팀. */}
           {/* 눈금 행 — 등급 경계를 축처럼 보여준다. 좌우 스페이서는 아래 행의
@@ -1093,14 +1119,20 @@ export function MiiWANCohortReport() {
                       제외했는지가 빠져 "광고를 태운 콘텐츠를 빼면 이만큼"이라는
                       뜻이 안 읽혔고, 색도 첫 줄보다 어두워(zinc-600) 덜 중요한
                       값으로 보였다. 라벨을 붙이고 밝기·굵기를 첫 줄 위로
-                      올린다 — 판정 점수(w-9 굵은 숫자) 다음 가는 위계. */}
+                      올린다 — 판정 점수(w-9 굵은 숫자) 다음 가는 위계.
+                      N6(07-30 R3 리뷰) — 축약 라벨(舊 EX_PAID_LABEL_SHORT
+                      "광고 투입 제외")을 없애고 화면 전체를 정식 라벨 하나로
+                      통일한다. 같은 값을 두 이름으로 부르면 좁은 컬럼의 숫자와
+                      각주·툴팁의 숫자가 서로 다른 지표처럼 읽힌다. 폭 때문에
+                      두 줄로 접히는 건 leading-tight 로 받는다(라벨은 접혀도
+                      한 덩어리로 읽히고, 숫자는 우측 정렬이라 끝에 남는다). */}
                   <span class="w-36 shrink-0 text-right tabular-nums">
                     <span class="block text-hint text-zinc-500">
                       편수 {byCount} · 조회수 {o.score_view_weighted == null ? "—" : byViews}
                     </span>
                     {o.score_view_weighted_ex_paid != null && (
-                      <span class="block text-hint font-medium text-zinc-300">
-                        {EX_PAID_LABEL_SHORT} {o.score_view_weighted_ex_paid}점
+                      <span class="block text-hint font-medium leading-tight text-zinc-300">
+                        {EX_PAID_LABEL} {o.score_view_weighted_ex_paid}점
                       </span>
                     )}
                   </span>
@@ -1145,14 +1177,22 @@ export function MiiWANCohortReport() {
                 설명해, 우리가 실제로 서 있는 가운데 대역이 무슨 뜻인지 화면
                 어디에도 없었다. 배경에 그려진 다섯 구간을 전부 정의한다.
                 경계 숫자는 전부 VERDICT_THRESHOLDS 보간 — 손으로 적으면
-                재보정 때 배경색과 설명이 조용히 갈린다. */}
+                재보정 때 배경색과 설명이 조용히 갈린다.
+                F4(07-30 R3 투자 리뷰) — {T.suspect}~{T.borderline} 구간을 예전엔
+                "의심 대역"이라 불렀는데, 두 문장 뒤에서 "‘{SUSPECT_LABEL}’은
+                {T.suspect}점 미만에만 붙인다"고 말하고 있어 같은 각주가 스스로를
+                뒤집었다(배지가 없는 팀이 '의심 대역'에 있는 모순). 밴드 이름을
+                판정 라벨과 겹치지 않는 '주의 대역'으로 바꾼다 — 배지 로직·임계는
+                불변, 이름만 정리한다. 같은 이유로 {T.suspect}점을 문단에서 두 번
+                적지 않는다: 임계는 밴드 정의에서 한 번만 보간하고, 배지 문장은
+                그 밴드를 가리킨다. */}
             <p class="mt-1 leading-relaxed">
               배경 색 구간은 점수대의 뜻이다 — {T.suspect}점 미만(붉은 구간) = 광고
-              과다 · {T.suspect}~{T.borderline}(주황) = 의심 대역 ·
+              과다 · {T.suspect}~{T.borderline}(주황) = 주의 대역(기준선 부근) ·
               {" "}{T.borderline}~{T.organic}(노랑) = 경계 · {T.organic}점 이상(초록) =
-              자연 유입 우세({T.organic_strong}점 이상은 진한 초록). 광고 과다
-              기준선({ORG_AD_SUSPECT_THRESHOLD}점) 미만인 팀에는 위 그래프·표에
-              {" "}&lsquo;{SUSPECT_LABEL}&rsquo;을 붙인다. MiiWAN이 지금까지 지나온
+              자연 유입 우세({T.organic_strong}점 이상은 진한 초록). 위 그래프·표의
+              {" "}&lsquo;{SUSPECT_LABEL}&rsquo;은 붉은 구간(광고 과다 기준선 미만)에
+              선 팀에만 붙는다. MiiWAN이 지금까지 지나온
               기간({orgWindowLabel})까지만 세서 비교한다 — 먼저 데뷔한 팀만 더 긴
               기간을 쓰면 공정하지 않기 때문이다.
             </p>
@@ -1161,7 +1201,7 @@ export function MiiWANCohortReport() {
                 여기서 같은 말을 반복하지 않고, 이 각주는 "틱·숫자가 무엇을 뺀
                 값인가"라는 정의만 담당한다. */}
             <p class="mt-1 leading-relaxed">
-              세로 틱과 &lsquo;{EX_PAID_LABEL_SHORT}&rsquo; 숫자는 광고 투입으로 판정된
+              세로 틱과 &lsquo;{EX_PAID_LABEL}&rsquo; 숫자는 광고 투입으로 판정된
               ({ORG_AD_SUSPECT_THRESHOLD}점 미만) 영상을 빼고 다시 센 조회수 기준
               점수다. 읽을 것은 틱의 위치가 아니라
               {" "}<strong class="text-zinc-300">몇 편이 조회수의 몇 %를 차지했는가</strong>다.
@@ -1187,9 +1227,17 @@ export function MiiWANCohortReport() {
             <strong class="text-zinc-400">배수 계산</strong> — 데뷔 후 성장 배수 =
             D+{data.as_of_day} 값 ÷ 데뷔일 값 (데뷔일 값은 데뷔일({baseTol}), 지금 값은
             D+{data.as_of_day}({atTol}) 안에서 가장 가까운 날의 측정값). 데뷔 전 성장
-            배수는 그 앞 구간을 같은 방식으로 잰 값으로, 데뷔 30일 전(±7일) 측정값이
-            있을 때만 낸다 — 그래서 데뷔 전 값이 있어도(창 밖의 값이라) 데뷔 전 성장
-            배수는 &mdash;로 남는 팀이 있을 수 있다. 표의 &lsquo;데뷔 전 값&rsquo; 칸은
+            배수는 그 앞 구간을 같은 방식으로 잰 값으로,
+            {/* N4(07-30 R3 리뷰) — "데뷔 30일 전(±7일)"은 백엔드 상수를 손으로
+                적은 값이라, 같은 li 아래 총 성장 배수 절(B2)이 이미 응답에서
+                파생하고 있는데도 이 문장만 옛 값으로 남을 수 있었다. 같은
+                소스(preDebutDays·PRE_BASE_WINDOW)에서 파생하고, 응답에 창이
+                없으면 숫자를 지어내지 않고 이름으로만 말한다. */}
+            {preDebutDays != null
+              ? <> 데뷔 {preDebutDays}일 전(±{PRE_BASE_WINDOW}일)</>
+              : <> 데뷔 전 기준 창의</>}
+            {" "}측정값이 있을 때만 낸다 — 그래서 데뷔 전 값이 있어도(창 밖의 값이라)
+            데뷔 전 성장 배수는 &mdash;로 남는 팀이 있을 수 있다. 표의 &lsquo;데뷔 전 값&rsquo; 칸은
             그 창에 측정이 없으면 확보된 가장 이른 데뷔 전 값을 측정일과 함께 싣고,
             데뷔 전 측정이 아예 없는 팀은 &mdash;로 둔다.
             {/* B2(07-30 투자 리뷰) — 산점도 x축이 쓰는 '총 성장 배수'만 정의가

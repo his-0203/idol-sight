@@ -2,7 +2,7 @@
 // "언제 강점으로 세우고 언제 광고 근거를 붙이는가"를 테스트로 고정한다.
 import { describe, expect, it, test } from "vitest";
 import {
-  AD_SUSPECT_METRICS, EX_PAID_LABEL, EX_PAID_LABEL_SHORT, NEAR_TIE_RATIO,
+  AD_SUSPECT_METRICS, EX_PAID_LABEL, NEAR_TIE_RATIO,
   ORG_ACTION_HINT, ORG_AD_SUSPECT_THRESHOLD, THRESHOLD_NEAR_BAND,
   adJudgeScore, cohortComposition, curveVerdict, debutDateRange, exPaidNote, fmtDelta,
   fmtMultiple, headline, nearTieKeys, organicStanding, organicityVerdict, scorecardVerdict,
@@ -32,10 +32,19 @@ const sc = (
   miiwan_rank, cohort_size,
 });
 
+/**
+ * 유기성 한 행. videos 는 영상 단위 집계(창 내 판정 편수 / 그중 유료 편수) —
+ * N8 이후 organicityVerdict 의 "대부분 ~" 절이 편수 점수 평균이 아니라 이
+ * 실제 비율로 게이트되므로, 그 절을 다루는 테스트만 이 값을 넘긴다.
+ */
 const org = (
   group_key: string, score: number | null, reference = false,
   score_view_weighted?: number | null,
-): OrgRow => ({ group_key, score, video_count: 5, reference, score_view_weighted });
+  videos?: { window: number; paid: number },
+): OrgRow => ({
+  group_key, score, video_count: 5, reference, score_view_weighted,
+  ...(videos ? { window_video_count: videos.window, paid_video_count: videos.paid } : {}),
+});
 
 /** 유튜브가 아닌 지표(영상 판정과 무관) 자리표시자. */
 const OTHER_METRIC = "naver_total_news";
@@ -520,7 +529,9 @@ describe("scorecardVerdict", () => {
 
   // C4(R1 투자 리뷰) — "늘어난 사람 수와 같이 읽는다"는 읽는 법만 주고 정작
   // 그 순위를 안 줬다. 순증(D+N 값 − 출발선) 순위를 데이터로 낸다.
-  test("weak — 순증 순위를 병기한다 (모수는 순증을 낼 수 있는 팀만)", () => {
+  // F1(R3 타이포 리뷰) — 그 순위는 weak 문장에 이어 붙이지 않고 보조 줄(sub)로
+  // 내린다. N5 — 모수는 그 자리에서 스스로 설명한다("순증 값이 있는 N팀 중").
+  test("sub — 순증 순위를 보조 줄로 낸다 (모수는 순증을 낼 수 있는 팀만)", () => {
     const d = cohort({
       scorecard: {
         yt_subscribers: {
@@ -537,13 +548,34 @@ describe("scorecardVerdict", () => {
       },
     });
     const v = scorecardVerdict(d, "yt_subscribers");
-    // miiwan +2,200 vs owis +3,000 → 2팀 중 2위.
-    expect(v.weak).toContain(`순증(${fmtDelta(2200, "명")})은 2팀 중 2위다`);
+    // miiwan +2,200 vs owis +3,000 → 순증 값이 있는 2팀 중 2위.
+    expect(v.sub).toBe(`순증(${fmtDelta(2200, "명")})은 순증 값이 있는 2팀 중 2위다.`);
+    // 보조 줄로 내렸으므로 weak 문장에는 남지 않는다.
+    expect(v.weak).not.toContain("순증(");
     // 순위를 실제로 줬으면 "같이 읽는다"는 안내는 중복이라 뺀다.
     expect(v.weak).not.toContain("같이 읽는다");
   });
 
-  test("weak — 순증을 낼 값이 없으면 순위 절 대신 종전 안내로 물러난다", () => {
+  // F1 — weak 이 "배수 순위 — 인과. 순증 순위." 두 문장으로 되돌아가는 회귀를
+  // 잡는다. 순증 절은 sub 로 내려갔으므로 weak 은 항상 한 문장이어야 한다.
+  test("weak — 한 문장으로 끝난다 (순증 절이 다시 붙는 회귀 가드)", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 9000, value_at_day: 11_200, growth_multiple: 1.2 }),
+            row({ group_key: "owis", base_value: 200, value_at_day: 3_200, growth_multiple: 16 }),
+          ],
+          miiwan_rank: 2, cohort_size: 2,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    expect(sentenceCount(v.weak!)).toBe(1);
+    expect(v.sub).not.toBeNull();
+  });
+
+  test("sub — 순증을 낼 값이 없으면 null, weak 은 종전 안내로 물러난다", () => {
     const d = cohort({
       scorecard: {
         yt_subscribers: {
@@ -556,6 +588,7 @@ describe("scorecardVerdict", () => {
       },
     });
     const v = scorecardVerdict(d, "yt_subscribers");
+    expect(v.sub).toBeNull();
     expect(v.weak).not.toContain("순증(");
     expect(v.weak).toContain("늘어난 사람 수와 같이 읽는다");
   });
@@ -645,9 +678,22 @@ describe("organicityVerdict", () => {
     expect(v.good).toContain("72점 기준으로도 자연 유입 우세 등급이다");
   });
 
-  test("good — 편수 점수가 과반에 못 미치면 '대부분 ~' 절을 붙이지 않는다", () => {
-    const v = organicityVerdict(cohort({ organicity: [org("miiwan", 30), org("owis", 80)] }));
-    expect(v.good).toContain("영상 편수 기준 30점");
+  // N8(R3 투자 리뷰) — "대부분 ~"의 게이트는 편수 점수 **평균**이 아니라 실제
+  // 편수 **비율**이다. 평균은 과반을 보장하지 못한다: 절반 넘는 영상이 광고
+  // 판정을 받아도 나머지가 고득점이면 평균은 borderline 을 넘길 수 있고,
+  // 그러면 "대부분은 광고 없이 올라갔다"가 편수 사실과 정면으로 어긋난다.
+  test("good — 편수 점수가 높아도 광고 판정 편수가 과반이면 '대부분 ~'을 붙이지 않는다", () => {
+    const v = organicityVerdict(cohort({
+      // 편수 점수 75(≥ borderline)지만 100편 중 60편이 광고 판정 → 자연 40%.
+      organicity: [org("miiwan", 75, false, null, { window: 100, paid: 60 }), org("owis", 60)],
+    }));
+    expect(v.good).toContain("영상 편수 기준 75점");
+    expect(v.good).not.toContain("대부분");
+  });
+
+  test("good — 편수 집계가 없으면 '대부분 ~' 절을 생략한다 (비율을 지어내지 않는다)", () => {
+    const v = organicityVerdict(cohort({ organicity: [org("miiwan", 75), org("owis", 60)] }));
+    expect(v.good).toContain("영상 편수 기준 75점");
     expect(v.good).not.toContain("대부분");
   });
 
@@ -655,9 +701,18 @@ describe("organicityVerdict", () => {
   // 조회수 개념('소비')을 써서, 같은 섹션의 "조회수 71%가 광고 투입 영상에
   // 쏠렸다"와 정면 충돌했다. 카탈로그(무엇이 올라갔나) 표현이어야 한다.
   test("good — '대부분' 절은 소비(조회수)가 아니라 카탈로그(편수) 표현을 쓴다", () => {
-    const v = organicityVerdict(cohort({ organicity: [org("miiwan", 75), org("owis", 60)] }));
+    const v = organicityVerdict(cohort({
+      organicity: [org("miiwan", 75, false, null, { window: 100, paid: 10 }), org("owis", 60)],
+    }));
     expect(v.good).toContain("만든 영상의 대부분은 광고 없이 올라간 것으로 판정됐다");
     expect(v.good).not.toContain("자연 소비");
+  });
+
+  test("good — 자연 편수가 정확히 절반이면 '대부분'이라 말하지 않는다 (경계)", () => {
+    const v = organicityVerdict(cohort({
+      organicity: [org("miiwan", 75, false, null, { window: 100, paid: 50 }), org("owis", 60)],
+    }));
+    expect(v.good).not.toContain("대부분");
   });
 
   test("good — 점수가 있는 팀이 미완이뿐이면 순위 절을 붙이지 않는다", () => {
@@ -667,7 +722,11 @@ describe("organicityVerdict", () => {
   });
 
   test("good — organic 미만이면 우세 등급 문구를 붙이지 않는다", () => {
-    const d = cohort({ organicity: [org("miiwan", 55), org("owis", 60)] });
+    const d = cohort({
+      // 점수는 우세 등급에 못 미치지만 편수로는 대부분이 광고 없이 올라간 형태 —
+      // 두 절의 게이트가 서로 다른 근거를 쓴다는 것 자체가 이 테스트의 대상이다.
+      organicity: [org("miiwan", 55, false, null, { window: 100, paid: 10 }), org("owis", 60)],
+    });
     const v = organicityVerdict(d);
     expect(v.good).not.toContain("우세 등급");
     expect(v.good).toContain("만든 영상의 대부분은 광고 없이 올라간 것으로 판정됐다");
@@ -879,11 +938,12 @@ describe("상수·표기", () => {
     expect(ORG_ACTION_HINT).not.toMatch(/\d/);
   });
 
-  // 축약 라벨도 상수 — 좁은 컬럼(w-36)과 접은 각주 본문이 같은 말을 써야 한다.
-  test("제외 점수 라벨 — 정식·축약형 모두 '광고 투입'을 유지한다", () => {
+  // N6(R3 리뷰) — 축약 라벨(舊 EX_PAID_LABEL_SHORT "광고 투입 제외")을 없앴다.
+  // 같은 값을 두 이름으로 부르면 좁은 컬럼의 숫자와 각주·툴팁의 숫자가 서로
+  // 다른 지표처럼 읽힌다 — 화면 네 곳이 이 상수 하나만 쓴다.
+  test("제외 점수 라벨 — 무엇을 제외했는지가 라벨에 있고, 이름은 하나뿐이다", () => {
+    expect(EX_PAID_LABEL).toBe("광고 투입 콘텐츠 제외");
     expect(EX_PAID_LABEL).toContain("광고 투입");
-    expect(EX_PAID_LABEL_SHORT).toContain("광고 투입");
-    expect(EX_PAID_LABEL_SHORT.length).toBeLessThan(EX_PAID_LABEL.length);
   });
 });
 
@@ -935,21 +995,27 @@ describe("exPaidNote", () => {
   // (ⓑ의 귀결) 앵커가 없으면 투자사 독자가 제외 점수를 결론 점수로 가져간다.
   // 예전 문구는 "‘광고 의심’ 표시는 그대로"였는데 MiiWAN 행에는 그 표시가
   // 없다 — 화면에 없는 것을 지칭하지 않고 판정 점수 자체를 앵커로 쓴다.
-  test("note ⓒ — 판정 점수를 앵커로 쓰고, 화면에 없는 표시를 지칭하지 않는다", () => {
+  // R3(타이포 리뷰) — 앵커는 note(쏠림 구조)와 성격이 달라 필드를 나눴다.
+  // 한 문단에 이어 붙어 있으면 쏠림 설명의 꼬리처럼 읽혀 그냥 지나쳤다.
+  test("anchor ⓒ — 판정 점수를 앵커로 쓰고, 화면에 없는 표시를 지칭하지 않는다", () => {
     const r = exPaidNote(base as OrgRow)!;
-    expect(r.note).toContain("판정 점수 41.4점은 이 수치와 무관하게 그대로다");
-    expect(r.note).not.toContain("광고 의심");
+    expect(r.anchor).toBe("판정 점수 41.4점은 이 수치와 무관하게 그대로다.");
+    expect(r.anchor).not.toContain("광고 의심");
+    // 줄이 나뉘었으므로 note 는 쏠림 구조(ⓐⓑ)만 담는다.
+    expect(r.note).not.toContain("무관하게 그대로다");
   });
   test("판정 점수가 없으면 숫자 없이 앵커만 (없는 값을 지어내지 않는다)", () => {
     const r = exPaidNote({ ...base, score: null } as OrgRow)!;
-    expect(r.note).toContain("위 판정 점수는");
-    expect(r.note).not.toMatch(/판정 점수 [\d.]+점/);
+    expect(r.anchor).toContain("위 판정 점수는");
+    expect(r.anchor).not.toMatch(/판정 점수 [\d.]+점/);
   });
   // 데이터에서 파생되지 않는 결론("나머지는 자연 소비")은 문장에 없다 —
   // 제외 뒤 남은 조회수에도 의심 대역이 섞여 있어 단정할 수 없다.
   test("고정 해석 문구를 덧붙이지 않는다", () => {
     const r = exPaidNote(base as OrgRow)!;
-    expect(r.note).not.toContain("자연 소비");
-    expect(r.note).not.toContain("자연 유입에 가깝");
+    for (const s of [r.note, r.anchor]) {
+      expect(s).not.toContain("자연 소비");
+      expect(s).not.toContain("자연 유입에 가깝");
+    }
   });
 });

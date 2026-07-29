@@ -150,9 +150,13 @@ export function buildQualityScatter(d: CohortData): QualityScatter {
       reference: r.reference,
       adSuspect: organic < ORG_AD_SUSPECT_THRESHOLD,
       // 총 배수의 분해 — 계산은 백엔드 값을 그대로 싣기만 한다(여기서
-      // pre×post 를 다시 곱해 total 을 만들지 않는다. 세 값은 각자 다른
-      // 앵커·허용폭에서 나와 곱이 정확히 total 이 아닐 수 있고, 그 어긋남을
-      // 화면이 숨기면 안 된다).
+      // pre×post 를 다시 곱해 total 을 만들지 않는다).
+      // F2(07-30 R3 투자 리뷰) 주석 교정 — 예전엔 "세 값이 각자 다른 앵커에서
+      // 나와 곱이 total 과 다를 수 있다"고 적어뒀는데, 실제 원인은 그게 아니라
+      // **표시 반올림**이다: 세 값 모두 같은 앵커 계보에서 나오지만 화면은
+      // 소수 1자리로 반올림해 찍으므로(fmtMultiple) 13.8 × 1.1 = 15.2 ≠ 15.0
+      // 처럼 표시값끼리는 등식이 성립하지 않는다. 그래서 화면 문구도 곱셈
+      // 등식으로 쓰지 않는다(qualityVerdict 참조).
       preMultiple: r.pre_multiple,
       postMultiple: r.growth_multiple,
     });
@@ -232,17 +236,26 @@ export function qualityVerdict(s: QualityScatter): SectionVerdict {
   // "1팀 중 1위 — 가장 빠르게 팬덤을 키웠다"가 되는데, 이건 자기 자신을 이긴
   // 것을 강점으로 파는 문장이다(헤드라인 결론·표 각주와 같은 가드).
   const ranked = peers.length >= 2;
-  // B1 — 총 배수 바로 옆에 구간 분해를 괄호로 병기한다. "15.0×"만 있으면
-  // 데뷔 후에 15배가 된 것으로 읽히는데, 실제 구성은 데뷔 전 13.8× × 데뷔 후
-  // 1.08× 다 — 이 대비가 이 화면의 결론(출발선은 이미 컸고 데뷔 후가 과제)
-  // 자체라 각주가 아니라 같은 줄에 있어야 한다. 한쪽이라도 없으면 생략한다.
+  // B1 — 총 배수 옆에 구간 분해를 병기한다. "15.0×"만 있으면 데뷔 후에 15배가
+  // 된 것으로 읽히는데, 실제 구성은 데뷔 전에 쌓은 몫 위에 데뷔 후 몫이 얹힌
+  // 것이다 — 이 대비가 이 화면의 결론(출발선은 이미 컸고 데뷔 후가 과제)
+  // 자체라 각주가 아니라 같은 블록에 있어야 한다. 한쪽이라도 없으면 생략한다.
+  //
+  // F2(07-30 R3 투자 리뷰) — 예전 표기는 `15.0×(데뷔 전 13.8× × 데뷔 후 1.1×)`
+  // 였다. 두 가지가 깨졌다: ⓐ 화면 값은 소수 1자리 반올림이라 13.8 × 1.1 =
+  // 15.2 ≠ 15.0 — 괄호가 곱셈 등식으로 읽히는 순간 화면이 스스로 틀린 산수를
+  // 보여주는 꼴이 된다. ⓑ 배수의 `×`와 곱셈의 `×`가 붙어(`× ×`) 글리프가
+  // 겹쳐 읽혔다. 등식을 주장하지 않는 서술문으로 바꾼다 — 분해 사실은 남고,
+  // 반올림 오차를 검증하라는 요구는 사라진다.
   const split = mine.preMultiple != null && mine.postMultiple != null
-    ? `(데뷔 전 ${fmtMultiple(mine.preMultiple)} × 데뷔 후 ${fmtMultiple(mine.postMultiple)})`
+    ? ` 데뷔 전 ${fmtMultiple(mine.preMultiple)}를 쌓은 위에`
+      + ` 데뷔 후 ${fmtMultiple(mine.postMultiple)}가 얹힌 값이다.`
     : "";
-  const good = `총 성장 배수 ${fmtMultiple(mine.growth)}${split}`
+  const good = `총 성장 배수 ${fmtMultiple(mine.growth)}`
     + (ranked ? `로 ${peers.length}팀 중 ${growthRank}위` : "")
     + (ranked && growthRank === 1 ? " — 데뷔 전 준비 기간부터 지금까지 가장 빠르게 팬덤을 키웠다" : "")
     + "."
+    + split
     + (ranked ? ` 원 크기(현재 팬 규모)로는 ${scaleRank}위다.` : "")
     // 배수 캐비앗은 순위 방향과 무관하게 항상 — 위 C2 주석 참조.
     + ` ${MULTIPLE_CAVEAT}`;

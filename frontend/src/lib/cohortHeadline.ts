@@ -64,8 +64,18 @@ export type CohortData = {
  * 값이 없으면 null — 문장을 지어내지 않는다. cohortQuality.ts가 이 파일을
  * import하는 기존 방향(cohortQuality → cohortHeadline)을 유지하려고 타입을
  * 여기 둔다 — 반대 방향으로 두면 순환 참조가 생긴다.
+ *
+ * F1(07-30 R3 타이포 리뷰) — sub = 잘함/보완과 **같은 사실을 보강하는 보조
+ * 한 줄**. 예전엔 상세표 weak 이 "배수 순위 — 인과. 순증 순위."로 두 문장이
+ * 돼, 한 줄로 스캔하는 위계 안에서 둘째 문장이 첫째와 같은 무게로 읽혔다.
+ * 절을 지우는 대신 위계를 내린다(exPaidNote 의 headline/note 분리와 같은 패턴).
+ * 쓰지 않는 verdict 는 이 필드를 아예 돌려주지 않고, 화면은 없으면 안 그린다.
  */
-export interface SectionVerdict { good: string | null; weak: string | null }
+export interface SectionVerdict {
+  good: string | null;
+  weak: string | null;
+  sub?: string | null;
+}
 
 // 커뮤니티 활동(dc_total_posts)·뉴스 노출(naver_total_news)은 동시기 성과에서
 // 제외 — API 의 METRICS 와 짝을 맞춘다. 사유는 그쪽 주석 참조(뉴스는 live 가
@@ -176,17 +186,10 @@ export function fmtDelta(n: number | null, unit: string): string | null {
 export const EX_PAID_LABEL = "광고 투입 콘텐츠 제외";
 
 /**
- * 좁은 자리(막대 옆 숫자 컬럼·접은 각주 본문)용 축약 라벨. 정식 라벨을
- * 그대로 쓰면 w-36 컬럼에서 줄이 접혀 숫자와 라벨이 어긋난다. 상수로 두는
- * 이유는 EX_PAID_LABEL 과 같다 — 축약형도 화면 두 곳이 같은 말을 써야 한다.
- */
-export const EX_PAID_LABEL_SHORT = "광고 투입 제외";
-
-/**
- * 유료 판정 제외 요약. headline(승격 표시용 결론 한 줄) / note(보조 각주)로
- * 나눠 돌려준다 — 이 수치는 "보완할 점" 다음으로 중요한데 예전엔 한 문장에
- * 뭉쳐 있어 시각적으로 승격할 지점이 없었다(07-30 피드백). 필드가 하나라도
- * 없으면 null — 문장을 지어내지 않는다.
+ * 유료 판정 제외 요약. headline(승격 표시용 결론 한 줄) / note(보조 각주) /
+ * anchor(판정 점수 앵커)로 나눠 돌려준다 — 이 수치는 "보완할 점" 다음으로
+ * 중요한데 예전엔 한 문장에 뭉쳐 있어 시각적으로 승격할 지점이 없었다
+ * (07-30 피드백). 필드가 하나라도 없으면 null — 문장을 지어내지 않는다.
  *
  * R1(07-30 3방향 리뷰) 역할 분리 — 이 섹션은 판정을 두 곳에서 말하고 있었다.
  * 이제 **weak = 판정과 그 위치(짧게)**, **여기 = 쏠림 구조와 제외 점수(수치
@@ -205,12 +208,19 @@ export const EX_PAID_LABEL_SHORT = "광고 투입 제외";
  *    예전 문구는 "‘광고 의심’ 표시는 그대로"였는데 MiiWAN 행에는 그 표시가
  *    없어 화면에 없는 것을 지칭했다 — 판정 점수 자체를 앵커로 바꾼다.
  * 데이터에서 파생되지 않는 해석(예: "나머지는 자연 소비다")은 붙이지 않는다.
+ *
+ * R3(07-30 타이포 리뷰) — ⓐ·ⓑ(쏠림 구조)와 ⓒ(판정 점수 앵커)는 성격이
+ * 다르다: 앞은 "이 수치를 어떻게 읽나", 뒤는 "그래도 결론 점수는 무엇인가"다.
+ * 한 문단에 이어 붙여 두니 앵커가 쏠림 설명의 꼬리처럼 읽혀 그냥 지나쳤다 —
+ * 필드를 나눠 화면이 줄을 분리해 그린다(문구·게이트는 그대로).
  */
 export interface ExPaidNote {
   /** 승격 표시용 결론 — "광고 투입 콘텐츠 제외 69.5점". */
   headline: string;
-  /** 보조 각주 — 쏠림 대비 + 보장 산술 + 판정 점수 앵커. */
+  /** 보조 각주 ⓐⓑ — 쏠림 대비 + 보장 산술. */
   note: string;
+  /** 보조 각주 ⓒ — 판정 점수 앵커. note 와 줄을 나눠 그린다. */
+  anchor: string;
 }
 
 export function exPaidNote(o: OrgRow | undefined | null): ExPaidNote | null {
@@ -225,10 +235,10 @@ export function exPaidNote(o: OrgRow | undefined | null): ExPaidNote | null {
     note: `전체 ${total}편 중 광고 투입 판정 ${paid}편(편수의 ${Math.round(paid / total * 100)}%)이`
       + ` 조회수의 ${Math.round(share * 100)}%를 가져갔다.`
       + ` 제외 기준이 판정선(${T}점 미만)과 같아 제외 후 점수가 ${T}점 위인 것 자체는`
-      + ` 당연하다 — 볼 것은 쏠림의 규모다.`
-      + (judge == null
-        ? ` 위 판정 점수는 이 수치와 무관하게 그대로다.`
-        : ` 판정 점수 ${judge}점은 이 수치와 무관하게 그대로다.`),
+      + ` 당연하다 — 볼 것은 쏠림의 규모다.`,
+    anchor: judge == null
+      ? "위 판정 점수는 이 수치와 무관하게 그대로다."
+      : `판정 점수 ${judge}점은 이 수치와 무관하게 그대로다.`,
   };
 }
 
@@ -461,20 +471,26 @@ export function scorecardVerdict(d: CohortData, metric: string): SectionVerdict 
   const deltaPeers = peers.map(deltaOf).filter((v): v is number => v != null);
   const deltaN = myDelta != null ? deltaPeers.length + 1 : 0;
   const unit = METRIC_UNITS[metric] ?? "";
-  const deltaClause = myDelta != null && deltaN >= 2
-    ? ` 순증(${fmtDelta(myDelta, unit)})은 ${deltaN}팀 중 ${rankDesc(myDelta, deltaPeers)}위다.`
-    : "";
+  // F1(07-30 R3 타이포 리뷰) — 순증 순위는 weak 문장에 이어 붙이지 않고 보조
+  // 줄(sub)로 내린다. 예전엔 "배수 순위 — 인과. 순증 순위."로 두 문장이 돼,
+  // 한 줄로 스캔하는 위계에서 뒤 문장이 앞 문장과 같은 무게로 읽혔다(배수와
+  // 순증은 같은 층위가 아니라 "배수로는 이렇지만 사람 수로는" 보강 관계다).
+  // N5 — 모수도 그 자리에서 스스로 설명한다(pre/base 절과 같은 패턴).
+  const sub = myDelta != null && deltaN >= 2
+    ? `순증(${fmtDelta(myDelta, unit)})은 순증 값이 있는 ${deltaN}팀 중`
+      + ` ${rankDesc(myDelta, deltaPeers)}위다.`
+    : null;
   const weak = mine.growth_multiple != null && sc?.miiwan_rank != null && sc.cohort_size >= 2
     ? `데뷔 후 성장 배수 ${fmtMultiple(mine.growth_multiple)}는 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위다`
       + (baseTopHalf
-        // 순증 순위가 있으면 "같이 읽는다"는 안내를 실제 순위로 대체한다.
-        ? (deltaClause
+        // 순증 순위(sub)가 있으면 "같이 읽는다"는 안내는 중복이라 뺀다 —
+        // 읽는 법 대신 실제 순위가 바로 아래 줄에 있다.
+        ? (sub
           ? " — 출발선이 큰 만큼 배수는 구조적으로 작게 나온다."
           : " — 출발선이 큰 만큼 배수는 구조적으로 작게 나오니, 늘어난 사람 수와 같이 읽는다.")
         : ".")
-      + deltaClause
     : null;
-  return { good, weak };
+  return { good, weak, sub };
 }
 
 /**
@@ -498,13 +514,22 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
   // 같은 가드다. "1팀 중 1위"는 자기 자신을 이긴 것이라 뜻이 없다.
   const rankClause = standing.size >= 2
     ? ` — 편수 기준으로는 ${standing.size}팀 중 ${standing.scoreRank}위` : "";
-  // "대부분 ~"은 편수 점수가 실제로 과반일 때만 — 낮은 점수에 붙이면 점수와
-  // 정반대되는 결론을 같은 문장이 말하게 된다.
   // A1(07-30 3방향 리뷰) — 예전 문구는 "대부분은 자연 **소비**되고 있다"였다.
   // '소비'는 조회수 개념인데 이 점수의 근거는 편수라, 바로 아래 "조회수의
   // 71%가 광고 투입 영상에 쏠렸다"와 같은 화면에서 정면 충돌했다. 편수
   // 근거에 맞는 카탈로그 표현(무엇이 올라갔나)으로 바꾼다.
-  const bulk = standing.score >= VERDICT_THRESHOLDS.borderline
+  //
+  // N8(07-30 R3 투자 리뷰) — 게이트를 편수 **점수 평균**(≥borderline)에서
+  // 실제 **편수 비율**로 바꾼다. 평균 점수는 과반을 보장하지 않는다: 절반이
+  // 넘는 영상이 광고 판정을 받아도 나머지가 고득점이면 평균은 55를 넘길 수
+  // 있고, 그러면 "대부분은 광고 없이 올라갔다"가 편수 사실과 정면으로 어긋난다.
+  // 세는 값이 있을 때만 말하고, 없으면 절을 생략한다(없는 값을 추정하지 않는다).
+  const vids = d.organicity.find((o) => o.group_key === "miiwan");
+  const vTotal = vids?.window_video_count;
+  const vPaid = vids?.paid_video_count;
+  const organicShare = vTotal != null && vTotal > 0 && vPaid != null
+    ? (vTotal - vPaid) / vTotal : null;
+  const bulk = organicShare != null && organicShare > 0.5
     ? "만든 영상의 대부분은 광고 없이 올라간 것으로 판정됐다." : null;
   // 등급 선언의 기준은 반드시 판정 점수(min) — 막대·배지가 그리는 값이다.
   const grade = standing.judgeScore >= VERDICT_THRESHOLDS.organic

@@ -367,18 +367,36 @@ describe("qualityVerdict", () => {
   });
 
   // B1(R1 투자 리뷰) — 총 배수만 있으면 "15배가 데뷔 후에 일어났다"로 읽힌다.
-  // 실제 구성은 곱(데뷔 전 × 데뷔 후)이라, 분해 없이는 데뷔 전에 쌓은 몫과
-  // 데뷔 후에 만든 몫을 구분할 수 없다 — 이 대비가 이 화면의 결론 자체다.
-  test("good — 총 성장 배수 옆에 데뷔 전 × 데뷔 후 분해를 병기한다", () => {
+  // 실제 구성은 데뷔 전에 쌓인 몫 위에 데뷔 후 몫이 얹힌 것이라, 분해 없이는
+  // 둘을 구분할 수 없다 — 이 대비가 이 화면의 결론 자체다.
+  test("good — 총 성장 배수 뒤에 데뷔 전/데뷔 후 구간 분해를 병기한다", () => {
     const mine: ScRow = {
       ...row("miiwan", 15.0, 10_000), pre_multiple: 13.8, growth_multiple: 1.08,
     };
     const s = buildQualityScatter(cohort([mine, row("owis", 2.0, 40_000)],
       [org("miiwan", 80), org("owis", 60)]));
     const v = qualityVerdict(s);
+    expect(v.good).toContain(`총 성장 배수 ${fmtMultiple(15.0)}`);
     expect(v.good).toContain(
-      `총 성장 배수 ${fmtMultiple(15.0)}(데뷔 전 ${fmtMultiple(13.8)} × 데뷔 후 ${fmtMultiple(1.08)})`,
+      `데뷔 전 ${fmtMultiple(13.8)}를 쌓은 위에 데뷔 후 ${fmtMultiple(1.08)}가 얹힌 값이다.`,
     );
+  });
+
+  // F2(R3 투자 리뷰) — 분해를 곱셈 등식으로 쓰면 화면이 스스로 틀린 산수를
+  // 보여준다: 표시값은 소수 1자리 반올림이라 13.8 × 1.1 = 15.2 ≠ 15.0 이다.
+  // 배수의 '×'와 곱셈의 '×'가 붙어 글리프가 겹치는 문제도 같은 표기에서 왔다.
+  test("good — 분해를 곱셈 등식으로 주장하지 않는다 (반올림 탓에 곱이 총 배수와 다르다)", () => {
+    // 반올림 후 곱이 총 배수와 어긋나는 실측형 조합.
+    const mine: ScRow = {
+      ...row("miiwan", 15.0, 10_000), pre_multiple: 13.8, growth_multiple: 1.08,
+    };
+    const s = buildQualityScatter(cohort([mine, row("owis", 2.0, 40_000)],
+      [org("miiwan", 80), org("owis", 60)]));
+    const good = qualityVerdict(s).good!;
+    // 반올림 표시값끼리는 등식이 성립하지 않는다는 사실 자체를 고정한다.
+    expect(Math.round(13.8 * 1.08 * 10) / 10).not.toBe(15.0);
+    expect(good).not.toContain("× ×");   // 글리프 겹침
+    expect(good).not.toContain("× 데뷔 후"); // 곱셈 등식 표기
   });
 
   test("good — 분해 값이 없으면 그 절을 생략한다 (숫자를 지어내지 않는다)", () => {
@@ -386,7 +404,8 @@ describe("qualityVerdict", () => {
     const s = buildQualityScatter(cohort([mine, row("owis", 2.0, 40_000)],
       [org("miiwan", 80), org("owis", 60)]));
     expect(qualityVerdict(s).good).toContain(`총 성장 배수 ${fmtMultiple(15.0)}로`);
-    expect(qualityVerdict(s).good).not.toContain("× 데뷔 후");
+    expect(qualityVerdict(s).good).not.toContain("얹힌 값이다");
+    expect(qualityVerdict(s).good).not.toContain("데뷔 후 ");
   });
 
   test("분해 값은 계산하지 않고 응답 필드를 그대로 싣는다", () => {
