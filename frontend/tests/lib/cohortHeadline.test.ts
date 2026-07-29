@@ -486,4 +486,24 @@ describe("exPaidNote", () => {
     expect(exPaidNote({ ...base, score_view_weighted_ex_paid: null } as OrgRow)).toBeNull();
     expect(exPaidNote(undefined)).toBeNull();
   });
+  // 제외 점수(69.5)가 판정 점수(41.4)보다 한참 높게 나오는 게 정상이라
+  // (제외 기준 = 판정선) 앵커가 없으면 투자사 독자가 제외 점수를 결론
+  // 점수로 가져간다. 앵커 숫자는 데이터 파생(min 규칙)이지 상수가 아니다.
+  test("판정 점수 앵커를 붙여 판정·배지가 그대로임을 못 박는다", () => {
+    const note = exPaidNote(base as OrgRow)!;
+    expect(note).toContain("판정 점수 41.4점");   // = min(편수 74, 조회수 41.4)
+    expect(note).toContain("광고 의심");
+  });
+  test("판정 점수가 없으면 숫자 없이 앵커만 (없는 값을 지어내지 않는다)", () => {
+    const note = exPaidNote({ ...base, score: null } as OrgRow)!;
+    expect(note).toContain("위 판정 점수와");
+    expect(note).not.toMatch(/판정 점수 [\d.]+점/);
+  });
+  // 데이터에서 파생되지 않는 결론("나머지는 자연 소비")은 문장에 없다 —
+  // 제외 뒤 남은 조회수에도 의심 대역이 섞여 있어 단정할 수 없다.
+  test("고정 해석 문구를 덧붙이지 않는다", () => {
+    const note = exPaidNote(base as OrgRow)!;
+    expect(note).not.toContain("자연 소비");
+    expect(note).not.toContain("자연 유입에 가깝");
+  });
 });

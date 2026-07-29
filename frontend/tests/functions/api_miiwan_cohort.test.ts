@@ -417,6 +417,45 @@ describe("/api/miiwan-cohort", () => {
     expect(mi.score_view_weighted_ex_paid).toBeNull();
   });
 
+  // 두 쿼리의 창·모수가 어긋나면 "전체 N편 중 M편"이 위 점수와 다른 기간
+  // 위에서 계산되는데, 화면에서는 두 숫자가 나란히 놓여 구분이 안 된다.
+  // 바인딩 자체를 요약 쿼리와 동일하게 고정한다([...ALL_KEYS, ...buckets]).
+  it("영상 단위 쿼리 바인딩 = 요약 쿼리와 같은 그룹·같은 창 버킷", async () => {
+    let summaryParams: unknown[] = [];
+    let videoParams: unknown[] = [];
+    let videoSql = "";
+    await call(baseHandler, (sql, params) => {
+      if (sql.includes("debut_window_organicity_summary")) summaryParams = params;
+      if (sql.includes("debut_window_video_organicity")) {
+        videoSql = sql; videoParams = params;
+      }
+    });
+    expect(videoParams).toEqual(summaryParams);
+    // 앞이 ALL_KEYS(첫 키 = 타깃), 뒤가 유기성 창 버킷.
+    expect(videoParams[0]).toBe("miiwan");
+    const cut = videoParams.indexOf(ORG_FIRST_BUCKET);
+    expect(cut).toBeGreaterThan(0);
+    expect(videoParams.length).toBeGreaterThan(cut);
+    // 플레이스홀더 수 = 바인딩 수 (그룹/버킷 자리 하나라도 어긋나면 실패).
+    expect((videoSql.match(/\?/g) ?? []).length).toBe(videoParams.length);
+  });
+
+  // 요약이 실패하면 organicity 는 빈 배열로 나가므로 영상 단위 집계는
+  // 어차피 버려진다 — 결과를 쓸 수 없는 쿼리를 D1 에 보내지 않는다.
+  it("요약 쿼리 실패 시 영상 단위 쿼리는 아예 보내지 않는다", async () => {
+    const seen: string[] = [];
+    const body = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS();
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      if (sql.includes("debut_window_organicity_summary")) {
+        throw new Error("D1 error: table locked");
+      }
+      return [];
+    }, (sql) => { seen.push(sql); });
+    expect(body.organicity_unavailable).toBe(true);
+    expect(seen.some((s) => s.includes("debut_window_video_organicity"))).toBe(false);
+  });
+
   it("측정 허용폭·데뷔 전 구간 상수를 응답에 노출 (화면 각주 desync 방지)", async () => {
     const body = await call(baseHandler);
     expect(body.windows).toEqual({ base: 3, at: 7, pre_debut: PRE_DEBUT_DAYS });

@@ -157,15 +157,27 @@ export function fmtDelta(n: number | null, unit: string): string | null {
  * 쏠림"임을 드릴다운 없이 보여준다. 동어반복 방지를 위해 제외 점수는 반드시
  * 쏠림 규모(편수·점유)와 한 문장에 묶는다. 필드가 하나라도 없으면 null —
  * 문장을 지어내지 않는다.
+ *
+ * 끝에 판정 점수 앵커를 붙이는 이유: 이 문장은 화면에서 판정 점수보다 먼저
+ * 읽히는데, 제외 점수가 판정 점수보다 한참 높게 나온다(제외 기준이 판정선과
+ * 같은 선이라 구조적으로 그렇다). 앵커가 없으면 투자사 독자가 제외 점수를
+ * 이 팀의 결론 점수로 가져가고 배지도 풀린 것으로 읽는다 — 판정·배지는
+ * 이 수치와 무관하게 그대로라는 사실을 같은 문단에서 못 박는다. 데이터에서
+ * 파생되지 않는 해석(예: "나머지는 자연 소비다")은 붙이지 않는다.
  */
 export function exPaidNote(o: OrgRow | undefined | null): string | null {
   if (!o) return null;
   const { window_video_count: total, paid_video_count: paid,
     paid_view_share: share, score_view_weighted_ex_paid: exScore } = o;
   if (!total || !paid || share == null || exScore == null) return null;
+  const judge = adJudgeScore(o);
+  const anchor = ` 이는 쏠림을 걷어낸 참고 분해이고, `
+    + (judge == null ? `위 판정 점수와` : `판정 점수 ${judge}점과`)
+    + ` ‘광고 의심’ 표시는 이 수치와 무관하게 그대로다.`;
   return `유료 광고로 판정된 영상 ${paid}편(전체 ${total}편)이 조회수의 `
     + `${Math.round(share * 100)}%를 차지한다 — 이들을 제외한 나머지 `
-    + `${total - paid}편의 조회수 기준 점수는 ${exScore}점이다.`;
+    + `${total - paid}편의 조회수 기준 점수는 ${exScore}점이다.`
+    + anchor;
 }
 
 /**

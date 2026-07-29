@@ -316,12 +316,17 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   // 이 수치와 무관하게 유지된다(동어반복 방지: 화면은 반드시 쏠림 규모와
   // 함께 표기). 창은 summary 쿼리와 같은 버킷 — 화면마다 창이 다르면
   // 숫자끼리 대조가 안 된다.
+  // organic_score IS NULL(= insufficient_data) 영상은 가중합뿐 아니라
+  // COUNT 에서도 빠진다 — summary 의 scored 집합과 같은 모집단이어야
+  // "전체 N편 중 M편" 이 위 점수와 같은 분모 위에서 읽힌다.
+  // 요약 쿼리가 실패했으면(organicityUnavailable) organicity 자체가 빈
+  // 배열이라 이 결과는 어차피 버려진다 — 죽은 쿼리를 D1 에 보내지 않는다.
   interface ExPaidRow {
     group_key: string; n: number; views: number | null;
     paid_n: number; paid_views: number | null;
     ex_wsum: number | null; ex_views: number | null;
   }
-  const exPaidRows = await d1Query<ExPaidRow>(
+  const exPaidRows = organicityUnavailable ? [] : await d1Query<ExPaidRow>(
     env.DB,
     `SELECT group_key,
             COUNT(*) AS n,

@@ -868,12 +868,14 @@ export function MiiWANCohortReport() {
           </p>
           {/* MiiWAN 조회수 점수 하락의 원인을 드릴다운 없이 상시 노출 —
               동어반복을 피하려 제외 점수를 반드시 쏠림 규모(편수·점유)와
-              한 문장에 묶는다(exPaidNote). */}
+              한 문장에 묶는다(exPaidNote). 문장은 exPaidNote 가 전부 만든다:
+              여기서 고정 문구를 덧붙이면 데이터에서 파생되지 않은 결론이
+              모든 창에 그대로 실린다(제외 뒤 남은 조회수에도 의심 대역이
+              섞여 있어 "나머지는 자연 소비"라고 단정할 수 없다). */}
           {miiwanExPaid && (
             <p class="mb-2 text-hint text-zinc-400">
               <strong class="text-zinc-300">MiiWAN 조회수 점수가 낮은 이유</strong>
-              {" — "}{miiwanExPaid} 광고 노출이 소수 핵심 콘텐츠에 몰려 있고,
-              나머지 카탈로그는 자연 소비에 가깝다는 뜻이다.
+              {" — "}{miiwanExPaid}
             </p>
           )}
           {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
@@ -948,17 +950,40 @@ export function MiiWANCohortReport() {
                                     opacity: isMine ? 1 : 0.75 }} />
                     )}
                     {/* 유료 판정 제외 점수 — 채운 점(편수)·빈 점(조회수)과 형태를
-                        분리한 세로 틱. 전 그룹 대칭 노출(미완 전용 아님). */}
-                    {o.score_view_weighted_ex_paid != null && (
+                        분리한 세로 틱. 전 그룹 대칭 노출(미완 전용 아님).
+                        유료 판정이 0편인 그룹은 뺀다: 제외할 게 없어 틱이 빈 점
+                        위에 그대로 겹치고, 겹친 틱은 "제외해도 안 움직였다"가
+                        아니라 "제외 대상이 없었다"라 읽는 법이 다르다
+                        (요약 문장 exPaidNote 의 게이트와 같은 규칙). */}
+                    {o.score_view_weighted_ex_paid != null
+                      && (o.paid_video_count ?? 0) > 0 && (
                       <div class="absolute top-[-3px] bottom-[-3px] w-[2px] -translate-x-1/2 rounded"
-                           title={`유료 판정 영상 제외 시 조회수 기준 ${o.score_view_weighted_ex_paid}점`}
+                           title={`유료 판정 ${o.paid_video_count}편`
+                             + (o.paid_view_share == null ? ""
+                               : `(조회수의 ${Math.round(o.paid_view_share * 100)}%)`)
+                             + ` 제외 시 조회수 기준 ${o.score_view_weighted_ex_paid}점`
+                             + ` · 판정 점수·배지는 그대로`}
                            style={{ left: `${clampPct(o.score_view_weighted_ex_paid)}%`,
                                     background: colorOf(o.group_key),
-                                    opacity: o.group_key === "miiwan" ? 0.9 : 0.5 }} />
+                                    opacity: isMine ? 1 : 0.75 }} />
                     )}
                   </div>
+                  {/* 숫자 컬럼 — 트랙의 점·틱을 글자로 받아쓴다. 제외 점수를
+                      틱의 title 툴팁에만 두면 인쇄·스크린샷·모바일에서 사라져
+                      MiiWAN 요약 문장의 회복 수치만 남는다(같은 화면에서 자사만
+                      유리하게 읽힌다). 그래서 전 그룹 행에 상시 표기한다.
+                      틱과 달리 유료 0편도 그대로 적는다 — 값 비교라 제외해도
+                      같다는 사실이 그 자체로 답이고, 겹쳐 오독될 위치 표시가
+                      아니기 때문이다. */}
                   <span class="w-32 shrink-0 text-right text-hint tabular-nums text-zinc-500">
-                    편수 {byCount} · 조회수 {o.score_view_weighted == null ? "—" : byViews}
+                    <span class="block">
+                      편수 {byCount} · 조회수 {o.score_view_weighted == null ? "—" : byViews}
+                    </span>
+                    {o.score_view_weighted_ex_paid != null && (
+                      <span class="block text-zinc-600">
+                        제외 시 {o.score_view_weighted_ex_paid}점
+                      </span>
+                    )}
                   </span>
                   <span class="w-20 shrink-0 text-right text-hint text-zinc-600">
                     영상 {o.video_count}편
@@ -988,9 +1013,22 @@ export function MiiWANCohortReport() {
             것으로 보고 위 그래프·표에 &lsquo;광고 의심&rsquo;을 붙이며,
             {" "}{VERDICT_THRESHOLDS.organic}점 이상(초록 구간)이면 자연 유입이 우세하다.
             MiiWAN이 지금까지 지나온 기간({orgWindowLabel})까지만 세서 비교한다 — 먼저
-            데뷔한 팀만 더 긴 기간을 쓰면 공정하지 않기 때문이다. 세로 틱은 유료
-            판정 영상을 빼고 다시 센 조회수 기준 점수다 — 빈 점과 틱이 멀수록
-            조회수 하락이 소수 광고성 영상 때문이라는 뜻이다.
+            데뷔한 팀만 더 긴 기간을 쓰면 공정하지 않기 때문이다.
+          </p>
+          {/* 제외 점수 읽는 법 — 제외 기준이 판정선과 **같은 선**이라
+              (영상별 유료 판정 = 점수 ORG_AD_SUSPECT_THRESHOLD 미만) 남은
+              영상은 정의상 전부 그 위에 있고, 틱은 기준선 왼쪽에 설 수가 없다.
+              이 구조를 적어두지 않으면 "틱이 기준선을 넘었다"가 발견처럼
+              읽힌다 — 보장된 산술을 성과로 파는 문장이 된다. 그래서 방향이
+              아니라 규모(편수·조회수 점유)로 읽으라고 못 박는다. */}
+          <p class="mt-1 text-hint text-zinc-500 leading-relaxed">
+            <strong class="text-zinc-300">세로 틱과 &lsquo;제외 시&rsquo; 숫자</strong>는
+            유료 판정({ORG_AD_SUSPECT_THRESHOLD}점 미만) 영상을 빼고 다시 센 조회수 기준
+            점수다. 제외 기준이 판정선과 같은 선이라, 뺀 영상은 모두 기준선 아래
+            영상이고 남은 점수가 기준선 위로 올라오는 것 자체는 당연하다. 그래서 읽을
+            것은 틱의 위치가 아니라 <strong class="text-zinc-300">몇 편이 조회수의 몇
+            %를 차지했는가</strong>이며(틱에 마우스를 올리면 나온다), 이 값은 위 판정
+            점수와 &lsquo;광고 의심&rsquo; 표시를 바꾸지 않는다.
           </p>
         </div>
       )}
