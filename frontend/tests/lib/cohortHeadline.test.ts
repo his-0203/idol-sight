@@ -2,8 +2,8 @@
 // "언제 강점으로 세우고 언제 광고 근거를 붙이는가"를 테스트로 고정한다.
 import { describe, expect, it, test } from "vitest";
 import {
-  AD_SUSPECT_METRICS, EX_PAID_LABEL, NEAR_TIE_RATIO, ORG_AD_SUSPECT_THRESHOLD,
-  THRESHOLD_NEAR_BAND,
+  AD_SUSPECT_METRICS, EX_PAID_LABEL, EX_PAID_LABEL_SHORT, NEAR_TIE_RATIO,
+  ORG_ACTION_HINT, ORG_AD_SUSPECT_THRESHOLD, THRESHOLD_NEAR_BAND,
   adJudgeScore, cohortComposition, curveVerdict, debutDateRange, exPaidNote, fmtDelta,
   fmtMultiple, headline, nearTieKeys, organicStanding, organicityVerdict, scorecardVerdict,
   type CohortData, type OrgRow, type ScRow,
@@ -39,6 +39,12 @@ const org = (
 
 /** 유튜브가 아닌 지표(영상 판정과 무관) 자리표시자. */
 const OTHER_METRIC = "naver_total_news";
+
+/**
+ * 문장 수 = "마침표 + 공백/끝"의 개수. 소수점(41.4)은 뒤에 숫자가 오므로
+ * 세지 않는다. K5(문장 다이어트) 가드가 절을 이어 붙인 회귀를 잡는 용도.
+ */
+const sentenceCount = (s: string) => (s.match(/\.(\s|$)/g) ?? []).length;
 
 function cohort(over: Partial<CohortData> = {}): CohortData {
   return {
@@ -83,7 +89,9 @@ describe("headline — 리드·한 줄 결론", () => {
         ]),
       },
     }));
-    expect(h.conclusion).toContain("구독자 1.1×");
+    // B4 — 이 배수는 growth_multiple(데뷔 후)이라 라벨이 붙는다. 같은 카드의
+    // "데뷔 전 성장"·산점도의 "총 성장 배수"와 같은 축으로 읽히면 안 된다.
+    expect(h.conclusion).toContain("구독자 데뷔 후 성장 1.1×");
     expect(h.conclusion).toContain("(+600명)"); // 1000 − 400
     expect(h.conclusion).toContain("4팀 중 3위");
     // 출발선 400 은 4팀 중 2위 규모 → 구조적 설명이 붙는다.
@@ -120,7 +128,9 @@ describe("headline — 강·약점 분류", () => {
         ]),
       },
     }));
-    expect(h.strengths.some((s) => s.includes("구독자 2.4×"))).toBe(true);
+    // B4 — 강·약점 항목의 배수에도 "데뷔 후" 수식이 붙는다(같은 목록에
+    // "데뷔 전 성장 …" 항목이 나란히 서므로 수식이 없으면 축이 섞인다).
+    expect(h.strengths.some((s) => s.includes("구독자 데뷔 후 성장 2.4×"))).toBe(true);
     const weak = h.weaknesses.find((w) => w.includes("누적 조회수"))!;
     expect(weak).toContain("4팀 중 4위");
     // H5 — 1위가 누구인지·얼마인지 없이는 격차를 논의할 수 없다.
@@ -185,7 +195,7 @@ describe("headline — 강·약점 분류", () => {
     expect(h.neutral).not.toBeNull();
     // 한 줄 결론도 같은 가드를 쓴다 — "1팀 중 1위"가 렌더되면 표 각주의
     // "비교 대상 부족"과 화면 안에서 정면 충돌한다. 배수·순증은 사실이라 남긴다.
-    expect(h.conclusion).toBe("구독자 2.0× (+600명).");
+    expect(h.conclusion).toBe("구독자 데뷔 후 성장 2.0× (+600명).");
     expect(h.conclusion).not.toContain("위");
   });
 
@@ -472,6 +482,84 @@ describe("scorecardVerdict", () => {
     expect(v.weak).toContain("출발선이 큰 만큼");
   });
 
+  // C3(R1 투자 리뷰) — "출발선이 큰 만큼 배수가 작게 나온다"는 출발선이 실제로
+  // 큰 편일 때만 참이다. 예전엔 무조건 붙어서 출발선이 하위권인 창에서도 같은
+  // 변명이 나갔다. 게이트는 헤드라인 conclusionLine 과 같은 규칙(상위 절반).
+  test("weak — 출발선이 하위 절반이면 '출발선이 큰 만큼' 인과를 붙이지 않는다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 200, growth_multiple: 1.1 }),
+            row({ group_key: "owis", base_value: 9000, growth_multiple: 3.0 }),
+            row({ group_key: "bthd", base_value: 8000, growth_multiple: 2.0 }),
+          ],
+          miiwan_rank: 3, cohort_size: 3,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    expect(v.weak).toContain("3팀 중 3위다");
+    expect(v.weak).not.toContain("출발선이 큰 만큼");
+  });
+
+  test("weak — 출발선이 상위 절반이면 인과를 그대로 붙인다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 9000, growth_multiple: 1.1 }),
+            row({ group_key: "owis", base_value: 200, growth_multiple: 3.0 }),
+          ],
+          miiwan_rank: 2, cohort_size: 2,
+        },
+      },
+    });
+    expect(scorecardVerdict(d, "yt_subscribers").weak).toContain("출발선이 큰 만큼");
+  });
+
+  // C4(R1 투자 리뷰) — "늘어난 사람 수와 같이 읽는다"는 읽는 법만 주고 정작
+  // 그 순위를 안 줬다. 순증(D+N 값 − 출발선) 순위를 데이터로 낸다.
+  test("weak — 순증 순위를 병기한다 (모수는 순증을 낼 수 있는 팀만)", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 9000, value_at_day: 11_200, growth_multiple: 1.2 }),
+            row({ group_key: "owis", base_value: 200, value_at_day: 3_200, growth_multiple: 16 }),
+            // 순증을 낼 수 없는 팀은 분모에서 빠진다(pre/base 와 같은 패턴).
+            row({ group_key: "bthd", base_value: null, value_at_day: 500, growth_multiple: 2 }),
+            // 참조선도 빠진다.
+            row({ group_key: "plave", base_value: 100, value_at_day: 99_999, reference: true }),
+          ],
+          miiwan_rank: 3, cohort_size: 3,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    // miiwan +2,200 vs owis +3,000 → 2팀 중 2위.
+    expect(v.weak).toContain(`순증(${fmtDelta(2200, "명")})은 2팀 중 2위다`);
+    // 순위를 실제로 줬으면 "같이 읽는다"는 안내는 중복이라 뺀다.
+    expect(v.weak).not.toContain("같이 읽는다");
+  });
+
+  test("weak — 순증을 낼 값이 없으면 순위 절 대신 종전 안내로 물러난다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 9000, value_at_day: null, growth_multiple: 1.2 }),
+            row({ group_key: "owis", base_value: 200, value_at_day: 3_200, growth_multiple: 16 }),
+          ],
+          miiwan_rank: 2, cohort_size: 2,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    expect(v.weak).not.toContain("순증(");
+    expect(v.weak).toContain("늘어난 사람 수와 같이 읽는다");
+  });
+
   // 리뷰 지적 — 다른 3개 verdict 함수는 같은 shape 픽스처에서 숫자만 바꿔
   // 문장이 따라가는지 고정하는 전용 테스트가 있는데 scorecardVerdict만
   // 없었다. 같은 shape로 pre_multiple(good)·growth_multiple(weak) 각각을
@@ -557,9 +645,18 @@ describe("organicityVerdict", () => {
     expect(v.good).toContain("72점 기준으로도 자연 유입 우세 등급이다");
   });
 
-  test("good — 편수 점수가 과반에 못 미치면 '대부분 자연 소비' 절을 붙이지 않는다", () => {
+  test("good — 편수 점수가 과반에 못 미치면 '대부분 ~' 절을 붙이지 않는다", () => {
     const v = organicityVerdict(cohort({ organicity: [org("miiwan", 30), org("owis", 80)] }));
     expect(v.good).toContain("영상 편수 기준 30점");
+    expect(v.good).not.toContain("대부분");
+  });
+
+  // A1 — 이 절의 근거는 **편수**다. 예전 문구("대부분은 자연 소비되고 있다")는
+  // 조회수 개념('소비')을 써서, 같은 섹션의 "조회수 71%가 광고 투입 영상에
+  // 쏠렸다"와 정면 충돌했다. 카탈로그(무엇이 올라갔나) 표현이어야 한다.
+  test("good — '대부분' 절은 소비(조회수)가 아니라 카탈로그(편수) 표현을 쓴다", () => {
+    const v = organicityVerdict(cohort({ organicity: [org("miiwan", 75), org("owis", 60)] }));
+    expect(v.good).toContain("만든 영상의 대부분은 광고 없이 올라간 것으로 판정됐다");
     expect(v.good).not.toContain("자연 소비");
   });
 
@@ -573,7 +670,7 @@ describe("organicityVerdict", () => {
     const d = cohort({ organicity: [org("miiwan", 55), org("owis", 60)] });
     const v = organicityVerdict(d);
     expect(v.good).not.toContain("우세 등급");
-    expect(v.good).toContain("만든 콘텐츠의 대부분은 자연 소비되고 있다");
+    expect(v.good).toContain("만든 영상의 대부분은 광고 없이 올라간 것으로 판정됐다");
   });
 
   // 자기공시 이동 보존 가드 — 헤드라인에서 지운 organicNote 의 핵심
@@ -585,16 +682,33 @@ describe("organicityVerdict", () => {
     expect(v.weak).toContain(`${ORG_AD_SUSPECT_THRESHOLD}점`);
     expect(v.weak).toContain("35점");
     expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
-    // I3 — 인과 절은 실제로 조회수 쪽이 낮아 min 이 된 경우에만, 그리고
-    // 두 점수를 다 보여주는 형태로만 붙인다(위 exPaidNote 문단과 중복 금지).
-    expect(v.weak).toContain("편수 기준 55점보다 조회수 기준 35점이 낮아");
   });
 
-  // 07-30 피드백 ① — "보완할 점"이 광고 과다 인상만 주고 끝나던 문제.
-  // 점수가 낮은 원인은 카탈로그 전체가 광고성이어서가 아니라 광고를 태운
-  // 소수 콘텐츠에 조회수가 쏠렸기 때문이고, 그 구조를 같은 줄에서 데이터로
-  // 말해야 오해가 남지 않는다(K2).
-  test("weak — 쏠림 규모(편수·조회수 점유)가 있으면 원인 절을 데이터로 결합한다", () => {
+  // A2(R1 3방향 리뷰) 역할 분리 가드 — weak 은 **판정과 그 위치만** 말한다.
+  // 쏠림 수치(몇 편이 조회수 몇 %)는 exPaidNote 가 전담하므로, 두 문단이
+  // 같은 사실을 반복하면 섹션이 다시 구구절절해진다.
+  test("weak — 판정 순위를 병기한다 (점수만으론 그 자리가 흔한지 알 수 없다)", () => {
+    // judge: miiwan 41.4 · owis 80 · bthd 50 → 3팀 중 3위.
+    const d = cohort({
+      organicity: [org("miiwan", 74, false, 41.4), org("owis", 80), org("bthd", 50)],
+    });
+    expect(organicityVerdict(d).weak).toContain("41.4점은 3팀 중 3위,");
+  });
+
+  test("weak — 순위는 판정 점수(min) 기준 — 편수 순위로 세지 않는다", () => {
+    // 편수로는 miiwan 90 이 1위지만 판정 점수는 30 이라 판정 순위는 2위다.
+    const d = cohort({ organicity: [org("miiwan", 90, false, 30), org("owis", 80)] });
+    expect(organicityVerdict(d).weak).toContain("30점은 2팀 중 2위,");
+  });
+
+  test("weak — 겨룰 상대가 없으면 순위 절을 붙이지 않는다", () => {
+    const d = cohort({ organicity: [org("miiwan", 35), org("owis", null)] });
+    const v = organicityVerdict(d);
+    expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
+    expect(v.weak).not.toContain("팀 중");
+  });
+
+  test("weak — 쏠림 수치·허수아비 부정을 담지 않는다 (exPaidNote 가 전담)", () => {
     const d = cohort({
       organicity: [
         { group_key: "miiwan", score: 74, video_count: 122, reference: false,
@@ -605,47 +719,17 @@ describe("organicityVerdict", () => {
     });
     const v = organicityVerdict(d);
     expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
-    expect(v.weak).toContain("14편");
-    expect(v.weak).toContain("71%");
-    expect(v.weak).toContain("쏠린");
-    // 오해 차단 절이 반드시 같은 문장에 남는다.
-    expect(v.weak).toContain("만든 콘텐츠 전체가 광고성이라는 뜻은 아니다");
-  });
-
-  test("weak — 쏠림 규모 필드가 없으면 종전의 짧은 원인 절로 물러난다", () => {
-    // paid_video_count / paid_view_share 가 없는 창 — 수치를 지어내지 않는다.
-    const d = cohort({ organicity: [org("miiwan", 55, false, 35), org("owis", 90)] });
-    const v = organicityVerdict(d);
-    expect(v.weak).toContain("편수 기준 55점보다 조회수 기준 35점이 낮아");
     expect(v.weak).not.toContain("쏠린");
+    expect(v.weak).not.toContain("14편");
+    expect(v.weak).not.toContain("71%");
+    // 아무도 하지 않은 주장을 반박하면 그 주장이 오히려 화면에 남는다.
+    expect(v.weak).not.toContain("광고성이라는 뜻은 아니다");
   });
 
-  test("weak — 편수 쪽이 더 낮으면 쏠림 규모가 있어도 원인 절을 붙이지 않는다", () => {
-    // judge=35 는 편수 쪽 — 조회수 쏠림이 원인이 아니므로 인과를 지어내지 않는다.
-    const d = cohort({
-      organicity: [
-        { group_key: "miiwan", score: 35, video_count: 122, reference: false,
-          score_view_weighted: 60, window_video_count: 122, paid_video_count: 14,
-          paid_view_share: 0.712, score_view_weighted_ex_paid: 69.5 },
-        org("owis", 90),
-      ],
-    });
-    expect(organicityVerdict(d).weak).not.toContain("쏠린");
-  });
-
-  test("weak — 조회수 기준 점수가 없는 창에서는 인과 절을 붙이지 않는다", () => {
-    const d = cohort({ organicity: [org("miiwan", 35), org("owis", 90)] });
-    const v = organicityVerdict(d);
-    expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
-    expect(v.weak).not.toContain("조회수 기준");
-  });
-
-  test("weak — 편수 쪽이 더 낮아 판정된 경우에도 인과 절을 붙이지 않는다", () => {
-    // score=35, score_view_weighted=60 → judge=35 인데 원인은 조회수가 아니다.
-    const d = cohort({ organicity: [org("miiwan", 35, false, 60), org("owis", 90)] });
-    const v = organicityVerdict(d);
-    expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
-    expect(v.weak).not.toContain("조회수 기준");
+  test("weak — 한 문장으로 끝난다 (문장 다이어트 가드)", () => {
+    const d = cohort({ organicity: [org("miiwan", 55, false, 35), org("owis", 90)] });
+    // 마침표는 문장 끝 하나뿐 — 절을 이어 붙여 두세 문장이 되면 걸린다.
+    expect(sentenceCount(organicityVerdict(d).weak!)).toBe(1);
   });
 
   test("weak — 판정 점수가 기준선 부근(±THRESHOLD_NEAR_BAND)이면 '부근이라'", () => {
@@ -787,6 +871,20 @@ describe("상수·표기", () => {
     expect(fmtDelta(-30, "명")).toBe("−30명");
     expect(fmtDelta(null, "명")).toBeNull();
   });
+
+  // A5 — 액션 안내는 WEAK_REMEDY 와 같은 성격의 **정적 문구**(수치·결론이
+  // 아니라 다음 안건)라 상수로 둔다. 화면에 손으로 적으면 문구가 조용히 갈린다.
+  test("자연 유입 섹션 액션 안내 — 결정 지향 한 줄, 수치를 담지 않는다", () => {
+    expect(ORG_ACTION_HINT).toContain("다음 액션");
+    expect(ORG_ACTION_HINT).not.toMatch(/\d/);
+  });
+
+  // 축약 라벨도 상수 — 좁은 컬럼(w-36)과 접은 각주 본문이 같은 말을 써야 한다.
+  test("제외 점수 라벨 — 정식·축약형 모두 '광고 투입'을 유지한다", () => {
+    expect(EX_PAID_LABEL).toContain("광고 투입");
+    expect(EX_PAID_LABEL_SHORT).toContain("광고 투입");
+    expect(EX_PAID_LABEL_SHORT.length).toBeLessThan(EX_PAID_LABEL.length);
+  });
 });
 
 describe("exPaidNote", () => {
@@ -800,33 +898,51 @@ describe("exPaidNote", () => {
     expect(r.headline).toBe(`${EX_PAID_LABEL} 69.5점`);
     expect(EX_PAID_LABEL).toContain("광고");
   });
-  test("note = 제외 대상 규모(편수)", () => {
+  // A3(R1 3방향 리뷰) ⓐ — 쏠림은 **편수 비중과 조회수 점유를 맞세워야** 보인다.
+  // 둘을 떼어 놓으면 "광고 영상은 11%뿐"과 "조회수의 71%"가 각각 다른 결론으로
+  // 읽힌다. organicityVerdict.weak 에서 내려온 역할이다(weak = 판정과 위치만).
+  test("note ⓐ — 편수 비중과 조회수 점유를 한 문장에서 맞세운다", () => {
     const r = exPaidNote(base as OrgRow)!;
-    expect(r.note).toContain("14편");
     expect(r.note).toContain("전체 122편");
-    expect(r.note).toContain("108편");   // 122 − 14
+    expect(r.note).toContain("14편");
+    expect(r.note).toContain("편수의 11%");   // 14 / 122
+    expect(r.note).toContain("조회수의 71%"); // 0.712
   });
-  // 쏠림 점유(%)는 organicityVerdict.weak 의 원인 절이 말한다 — 두 문단이
-  // 같은 사실을 반복하면 섹션이 다시 구구절절해진다(07-30 피드백 ②).
-  test("조회수 점유 %는 여기서 말하지 않는다 (weak 원인 절과 중복 금지)", () => {
-    expect(exPaidNote(base as OrgRow)!.note).not.toContain("71%");
+  // 숫자는 하드코딩이 아니라 필드 파생 — 같은 shape 에서 값만 바꾸면 따라간다.
+  test("note ⓐ — 비중·점유는 픽스처에서 파생된다", () => {
+    const r = exPaidNote({
+      ...base, window_video_count: 40, paid_video_count: 10, paid_view_share: 0.5,
+    } as OrgRow)!;
+    expect(r.note).toContain("전체 40편");
+    expect(r.note).toContain("편수의 25%");
+    expect(r.note).toContain("조회수의 50%");
+  });
+  // A3 ⓑ — 제외 기준이 판정선과 같은 선이라 "제외 후 점수가 기준선 위"는
+  // 발견이 아니라 정의다. 예전엔 접은 각주에만 있어, 접어둔 채 보면 보장된
+  // 산술이 성과처럼 읽혔다. 상시 공시로 승격했고 임계는 상수 보간이다.
+  test("note ⓑ — 보장 산술을 상시로 공시한다 (임계는 상수 보간)", () => {
+    const r = exPaidNote(base as OrgRow)!;
+    expect(r.note).toContain(`판정선(${ORG_AD_SUSPECT_THRESHOLD}점 미만)`);
+    expect(r.note).toContain(`${ORG_AD_SUSPECT_THRESHOLD}점 위인 것 자체는 당연하다`);
+    expect(r.note).toContain("볼 것은 쏠림의 규모다");
   });
   test("유료 판정이 0편이거나 필드가 없으면 null", () => {
     expect(exPaidNote({ ...base, paid_video_count: 0 } as OrgRow)).toBeNull();
     expect(exPaidNote({ ...base, score_view_weighted_ex_paid: null } as OrgRow)).toBeNull();
     expect(exPaidNote(undefined)).toBeNull();
   });
-  // 제외 점수(69.5)가 판정 점수(41.4)보다 한참 높게 나오는 게 정상이라
-  // (제외 기준 = 판정선) 앵커가 없으면 투자사 독자가 제외 점수를 결론
-  // 점수로 가져간다. 앵커 숫자는 데이터 파생(min 규칙)이지 상수가 아니다.
-  test("판정 점수 앵커를 붙여 판정·배지가 그대로임을 못 박는다", () => {
+  // A3 ⓒ — 제외 점수(69.5)가 판정 점수(41.4)보다 한참 높게 나오는 게 정상이라
+  // (ⓑ의 귀결) 앵커가 없으면 투자사 독자가 제외 점수를 결론 점수로 가져간다.
+  // 예전 문구는 "‘광고 의심’ 표시는 그대로"였는데 MiiWAN 행에는 그 표시가
+  // 없다 — 화면에 없는 것을 지칭하지 않고 판정 점수 자체를 앵커로 쓴다.
+  test("note ⓒ — 판정 점수를 앵커로 쓰고, 화면에 없는 표시를 지칭하지 않는다", () => {
     const r = exPaidNote(base as OrgRow)!;
-    expect(r.note).toContain("판정 점수 41.4점");   // = min(편수 74, 조회수 41.4)
-    expect(r.note).toContain("광고 의심");
+    expect(r.note).toContain("판정 점수 41.4점은 이 수치와 무관하게 그대로다");
+    expect(r.note).not.toContain("광고 의심");
   });
   test("판정 점수가 없으면 숫자 없이 앵커만 (없는 값을 지어내지 않는다)", () => {
     const r = exPaidNote({ ...base, score: null } as OrgRow)!;
-    expect(r.note).toContain("위 판정 점수와");
+    expect(r.note).toContain("위 판정 점수는");
     expect(r.note).not.toMatch(/판정 점수 [\d.]+점/);
   });
   // 데이터에서 파생되지 않는 결론("나머지는 자연 소비")은 문장에 없다 —

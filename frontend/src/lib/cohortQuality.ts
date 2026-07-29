@@ -39,6 +39,14 @@ export interface QualityPoint {
   reference: boolean;
   /** 자연 유입 점수가 광고 의심 임계 미만인지. */
   adSuspect: boolean;
+  /**
+   * B1(07-30 투자 리뷰) — x축 총 성장 배수의 두 구간(데뷔 전 × 데뷔 후).
+   * 총 배수만 보면 "15배 성장"이 전부 데뷔 후에 일어난 것으로 읽힌다.
+   * 실제로는 곱이라, 분해 없이는 데뷔 전에 쌓은 몫과 데뷔 후에 만든 몫을
+   * 구분할 수 없다. 값이 없으면 null — verdict 가 그 절을 통째로 생략한다.
+   */
+  preMultiple: number | null;
+  postMultiple: number | null;
 }
 
 export interface QualityExclusion {
@@ -141,6 +149,12 @@ export function buildQualityScatter(d: CohortData): QualityScatter {
       scale: r.value_at_day ?? 0,
       reference: r.reference,
       adSuspect: organic < ORG_AD_SUSPECT_THRESHOLD,
+      // 총 배수의 분해 — 계산은 백엔드 값을 그대로 싣기만 한다(여기서
+      // pre×post 를 다시 곱해 total 을 만들지 않는다. 세 값은 각자 다른
+      // 앵커·허용폭에서 나와 곱이 정확히 total 이 아닐 수 있고, 그 어긋남을
+      // 화면이 숨기면 안 된다).
+      preMultiple: r.pre_multiple,
+      postMultiple: r.growth_multiple,
     });
   }
 
@@ -171,14 +185,19 @@ export const PRE_BASE_WINDOW = 7;
 
 /**
  * 총 성장배수의 분모(앵커)가 "데뷔 D-preDebutDays±PRE_BASE_WINDOW" 정찰
- * 창 밖에서 잡혔는지. 창 밖이면(느슨한 앵커) 그 날짜가 우리가 광고하는
- * "약 30일 전"과 다르다는 뜻이라 공시해야 한다 — 데뷔일(0) 폴백도 항상
- * 느슨한 앵커로 본다. 백엔드 preAnchor() 는 창이 비면 "확보된 가장 이른
- * 값"으로 물러나는데, 그 값이 창보다 더 이전(대칭 반대쪽)이면 오히려
- * 보수적인 방향(실제 관찰 기간이 광고보다 김)이라 굳이 공시하지 않는다.
+ * 창 밖에서 잡혔는지. 창 밖이면(느슨한 앵커) 그 날짜가 우리가 화면에 적은
+ * "약 {preDebutDays}일 전"과 다르다는 뜻이라 공시해야 한다 — 데뷔일(0)
+ * 폴백도 항상 느슨한 앵커로 본다.
+ *
+ * B3(07-30 투자 리뷰) — 예전엔 데뷔일 쪽(창보다 늦은 앵커)만 공시하고,
+ * 창보다 **더 이전**에서 잡힌 앵커는 "보수적인 방향이라"며 숨겼다. 그건
+ * 우리 쪽에 유리한 방향을 숨긴 것이다: 앵커가 이를수록 분모가 작아져 총
+ * 성장 배수는 **커진다**. 자기에게 유리한 이탈만 조용히 넘어가는 공시는
+ * 투자 자료에서 가장 먼저 신뢰를 잃는다 — 양쪽 다 밝힌다.
  */
 export function isLooseAnchor(anchorDay: number, preDebutDays: number): boolean {
-  return anchorDay > -(preDebutDays - PRE_BASE_WINDOW);
+  return anchorDay > -(preDebutDays - PRE_BASE_WINDOW)
+    || anchorDay < -(preDebutDays + PRE_BASE_WINDOW);
 }
 
 /** 내림차순 1-based 순위. */
@@ -213,7 +232,14 @@ export function qualityVerdict(s: QualityScatter): SectionVerdict {
   // "1팀 중 1위 — 가장 빠르게 팬덤을 키웠다"가 되는데, 이건 자기 자신을 이긴
   // 것을 강점으로 파는 문장이다(헤드라인 결론·표 각주와 같은 가드).
   const ranked = peers.length >= 2;
-  const good = `총 성장 배수 ${fmtMultiple(mine.growth)}`
+  // B1 — 총 배수 바로 옆에 구간 분해를 괄호로 병기한다. "15.0×"만 있으면
+  // 데뷔 후에 15배가 된 것으로 읽히는데, 실제 구성은 데뷔 전 13.8× × 데뷔 후
+  // 1.08× 다 — 이 대비가 이 화면의 결론(출발선은 이미 컸고 데뷔 후가 과제)
+  // 자체라 각주가 아니라 같은 줄에 있어야 한다. 한쪽이라도 없으면 생략한다.
+  const split = mine.preMultiple != null && mine.postMultiple != null
+    ? `(데뷔 전 ${fmtMultiple(mine.preMultiple)} × 데뷔 후 ${fmtMultiple(mine.postMultiple)})`
+    : "";
+  const good = `총 성장 배수 ${fmtMultiple(mine.growth)}${split}`
     + (ranked ? `로 ${peers.length}팀 중 ${growthRank}위` : "")
     + (ranked && growthRank === 1 ? " — 데뷔 전 준비 기간부터 지금까지 가장 빠르게 팬덤을 키웠다" : "")
     + "."

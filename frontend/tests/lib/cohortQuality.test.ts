@@ -366,6 +366,41 @@ describe("qualityVerdict", () => {
     expect(qualityVerdict(s)).toEqual({ good: null, weak: null });
   });
 
+  // B1(R1 투자 리뷰) — 총 배수만 있으면 "15배가 데뷔 후에 일어났다"로 읽힌다.
+  // 실제 구성은 곱(데뷔 전 × 데뷔 후)이라, 분해 없이는 데뷔 전에 쌓은 몫과
+  // 데뷔 후에 만든 몫을 구분할 수 없다 — 이 대비가 이 화면의 결론 자체다.
+  test("good — 총 성장 배수 옆에 데뷔 전 × 데뷔 후 분해를 병기한다", () => {
+    const mine: ScRow = {
+      ...row("miiwan", 15.0, 10_000), pre_multiple: 13.8, growth_multiple: 1.08,
+    };
+    const s = buildQualityScatter(cohort([mine, row("owis", 2.0, 40_000)],
+      [org("miiwan", 80), org("owis", 60)]));
+    const v = qualityVerdict(s);
+    expect(v.good).toContain(
+      `총 성장 배수 ${fmtMultiple(15.0)}(데뷔 전 ${fmtMultiple(13.8)} × 데뷔 후 ${fmtMultiple(1.08)})`,
+    );
+  });
+
+  test("good — 분해 값이 없으면 그 절을 생략한다 (숫자를 지어내지 않는다)", () => {
+    const mine: ScRow = { ...row("miiwan", 15.0, 10_000), pre_multiple: null };
+    const s = buildQualityScatter(cohort([mine, row("owis", 2.0, 40_000)],
+      [org("miiwan", 80), org("owis", 60)]));
+    expect(qualityVerdict(s).good).toContain(`총 성장 배수 ${fmtMultiple(15.0)}로`);
+    expect(qualityVerdict(s).good).not.toContain("× 데뷔 후");
+  });
+
+  test("분해 값은 계산하지 않고 응답 필드를 그대로 싣는다", () => {
+    // pre × post 가 total 과 정확히 맞지 않아도(앵커·허용폭이 달라서) 화면이
+    // 그 어긋남을 숨기지 않는다 — 여기서 곱을 다시 만들지 않는 이유.
+    const mine: ScRow = {
+      ...row("miiwan", 15.0, 10_000), pre_multiple: 13.8, growth_multiple: 1.08,
+    };
+    const s = buildQualityScatter(cohort([mine], [org("miiwan", 80)]));
+    expect(s.points[0]?.preMultiple).toBe(13.8);
+    expect(s.points[0]?.postMultiple).toBe(1.08);
+    expect(s.points[0]?.growth).toBe(15.0);
+  });
+
   // 공통 가드 — 결론은 하드코딩이 아니라 픽스처에서 파생된다. 배수를
   // 바꾸면 good 문장의 숫자도 함께 바뀌어야 한다.
   test("숫자는 픽스처에서 파생 — 성장 배수를 바꾸면 문장 숫자도 바뀐다", () => {
@@ -397,8 +432,12 @@ describe("isLooseAnchor", () => {
     expect(isLooseAnchor(0, 30)).toBe(true);
   });
 
-  test("창보다 더 이전(반대쪽)은 느슨하다고 보지 않는다 — 보수적인 방향", () => {
-    expect(isLooseAnchor(-50, 30)).toBe(false);
+  // B3(R1 투자 리뷰) — 예전엔 창보다 더 이전에서 잡힌 앵커를 "보수적인
+  // 방향"이라며 공시하지 않았다. 그건 우리 쪽에 유리한 이탈을 숨긴 것이다:
+  // 앵커가 이를수록 분모가 작아져 총 성장 배수는 **커진다**.
+  test("창보다 더 이전(반대쪽)도 느슨한 앵커로 공시한다 — 배수를 키우는 방향", () => {
+    expect(isLooseAnchor(-38, 30)).toBe(true);  // 창 바깥쪽 경계(-37) 바로 밖
+    expect(isLooseAnchor(-50, 30)).toBe(true);
   });
 });
 

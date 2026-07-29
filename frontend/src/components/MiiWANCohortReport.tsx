@@ -38,8 +38,9 @@ import { EstBadge } from "./EstBadge";
 import { VERDICT_COLOR, VERDICT_THRESHOLDS, scoreColor } from "../lib/organicity";
 // 헤드라인 문구·임계값은 순수 로직이라 lib 로 뺐다 (테스트: tests/lib/cohortHeadline.test.ts).
 import {
-  AD_SUSPECT_METRICS, EX_PAID_LABEL, METRIC_LABELS, METRIC_UNITS,
-  ORG_AD_SUSPECT_THRESHOLD, ORG_SCORE_GAP_CHIP, PRIMARY_METRIC,
+  AD_SUSPECT_METRICS, EX_PAID_LABEL, EX_PAID_LABEL_SHORT, METRIC_LABELS,
+  METRIC_UNITS, ORG_ACTION_HINT, ORG_AD_SUSPECT_THRESHOLD, ORG_SCORE_GAP_CHIP,
+  PRIMARY_METRIC,
   adJudgeScore, adScoreMap, cohortComposition, curveVerdict, debutDateRange,
   exPaidNote, fmtDelta, fmtMultiple, headline, nearTieKeys, organicityVerdict,
   scorecardVerdict,
@@ -47,7 +48,8 @@ import {
 } from "../lib/cohortHeadline";
 // 산점도 데이터 준비도 순수 로직 (테스트: tests/lib/cohortQuality.test.ts).
 import {
-  QUALITY_METRIC, buildQualityScatter, isLooseAnchor, qualityVerdict,
+  PRE_BASE_WINDOW, QUALITY_METRIC, buildQualityScatter, isLooseAnchor,
+  qualityVerdict,
 } from "../lib/cohortQuality";
 
 // 광고 의심 라인의 투명도 — 참조선(PLAVE)이 이미 점선을 쓰고 있어
@@ -57,7 +59,28 @@ const SUSPECT_LINE_ALPHA = 0.45;
 // ⚠ 는 이 화면에서 이미 헤드라인 '보완할 것'과 로드 실패 상태가 쓰고 있다.
 // 같은 글리프를 세 뜻으로 쓰면 아이콘이 뜻을 잃는다 — 곡선 범례는 글리프
 // 대신 말로 적는다(범례 폭이 조금 늘 뿐, 뜻이 정확해진다).
-const SUSPECT_MARK = " (광고 의심)";
+// C8(07-30 투자 리뷰) 용어 통일 — 화면이 같은 것을 '광고 의심'·'광고 영향
+// 의심'·'광고 과다' 세 이름으로 부르고 있었다. **표시(배지·곡선 라벨)는
+// '광고 영향 의심' 하나**, **임계 지칭은 '광고 과다 기준선' 하나**로 모은다.
+const SUSPECT_MARK = " (광고 영향 의심)";
+/** 표시(배지·곡선 라벨)의 단일 명칭 — 각주가 배지를 지칭할 때도 이 말을 쓴다. */
+const SUSPECT_LABEL = "광고 영향 의심";
+
+/**
+ * C7(07-30 투자 리뷰) — 응답에 windows.pre_debut 가 없을 때의 폴백. 예전엔
+ * `preDebutDays ?? 30` 이 두 군데에 흩어져 있어 한쪽만 고치면 조용히 갈렸다.
+ * 표 헤더처럼 "숫자를 안 쓰고 넘어갈 수 있는" 자리에서는 이 폴백을 쓰지
+ * 않는다 — 없는 값을 지어내는 대신 그 절을 생략한다(측정 허용폭과 같은 처리).
+ */
+const PRE_DEBUT_FALLBACK = 30;
+
+/**
+ * C6(07-30 투자 리뷰) — 구독 효율 미니 바의 색. 그룹색으로 칠하면 "우리 팀
+ * 색이 길다 = 좋다"로 읽히는데, 이 컬럼의 헤더는 "낮을수록 자연스러움"이라
+ * 방향이 정반대였다. 길수록 주의 신호가 되도록 주의색(amber)으로 통일한다 —
+ * 새 의미 토큰이 아니라 이 화면이 이미 '보완할 점'·데뷔선에 쓰는 amber-500.
+ */
+const EFFICIENCY_BAR_COLOR = "#f59e0b";
 
 /**
  * excluded.reason → 화면 문구. 사유별로 운영 대응이 달라 뭉뚱그리지 않는다.
@@ -406,7 +429,9 @@ export function MiiWANCohortReport() {
         maintainAspectRatio: false,
         scales: {
           x: {
-            title: { display: true, text: "총 성장 배수 (데뷔 전 값 대비, 데뷔 전~현재)" },
+            // B4 — 라벨 정합. 이 축만 '총'(데뷔 전 구간 포함)이고 표·헤드라인의
+            // 배수는 데뷔 후라, 축 제목이 그 차이를 스스로 말해야 한다.
+            title: { display: true, text: "총 성장 배수 (데뷔 전 포함, 데뷔 전 값 대비)" },
             ticks: { callback: (v) => fmtMultiple(Number(v)) },
           },
           y: {
@@ -553,15 +578,37 @@ export function MiiWANCohortReport() {
           {/* R5 — 자사 위치 서술(舊 scatterNote)은 Task 2에서 qualityVerdict로
               흡수됐고, 여기서 VerdictLines로 렌더한다. */}
           <VerdictLines v={qVerdict} />
+          {/* 값이 없는 팀을 조용히 지우면 "코호트가 원래 이만큼"으로 읽힌다 —
+              누가 왜 빠졌는지 함께 밝힌다(가짜 없음 · 열세 숨김 금지).
+              M1 — 앵커가 "데뷔 약 N일 전"이라는 x축 전제에서 벗어난 팀(데뷔일
+              폴백·D-21처럼 창 안쪽에서 잡힌 앵커·창보다 더 이른 앵커 전부)도
+              같은 줄에서 실제로 쓴 날짜를 공시한다. isLooseAnchor()가 세 경우를
+              하나의 규칙으로 판정한다(B3 — 배수를 키우는 이른 앵커도 포함).
+              F1(07-30 타이포 리뷰) — 상시 공시가 접은 '읽는 법'보다 **먼저**
+              온다. 접힌 손잡이가 위에 있으면 그 아래 공시문이 details 의 내용
+              처럼 보여, 펼치지 않은 독자에게는 공시 자체가 없는 것처럼 읽혔다. */}
+          {(quality.excluded.length > 0
+            || quality.points.some((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? PRE_DEBUT_FALLBACK))) && (
+            <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
+              {quality.excluded.length > 0 && (
+                <>표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}{" "}</>
+              )}
+              {quality.points
+                .filter((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? PRE_DEBUT_FALLBACK))
+                .map((p) => p.anchorDay === 0
+                  ? `${p.name}은(는) 데뷔 전 측정값이 없어 데뷔일 값 대비로 그렸다.`
+                  : `${p.name}은(는) 데뷔 ${-p.anchorDay}일 전 값 대비로 그렸다`
+                    + `(${preDebutDays ?? PRE_DEBUT_FALLBACK}일 전 측정이 없어).`)
+                .join(" ")}
+            </p>
+          )}
           {/* R11 — 예전엔 여기 text-hint 문단이 셋 연속으로 붙어 있어 해석 두
-              줄이 각주에 파묻혔다. 읽는 법(방법론)은 접고, 공시성 문단(누가
-              빠졌나·어느 날짜로 그렸나)만 한 줄로 합쳐 펼친 채 남긴다 —
-              접어서 안 보이면 "숨겼다"와 구분되지 않기 때문이다. */}
-          <details class="mt-2 text-hint text-zinc-500">
+              줄이 각주에 파묻혔다. 읽는 법(방법론)은 접는다. */}
+          <details class="mt-1 text-hint text-zinc-500">
             <summary class={SUMMARY}>그래프 읽는 법</summary>
             <p class="mt-1 leading-relaxed">
               가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
-              팀들의 총 성장 배수(데뷔 전 값 대비) 중앙값
+              팀들의 총 성장 배수(데뷔 전 포함) 중앙값
               {quality.medianGrowth != null && <> ({fmtMultiple(quality.medianGrowth)})</>}.
               {" "}오른쪽 아래 팀은 빠르게 컸지만 자연 유입 점수가 낮아 광고 효과가
               섞여 있을 수 있다. 속이 빈 원은 참고용(PLAVE)이라 순위·중앙값에서 뺐다.
@@ -569,27 +616,6 @@ export function MiiWANCohortReport() {
               같은 기준을 적용한다.
             </p>
           </details>
-          {/* 값이 없는 팀을 조용히 지우면 "코호트가 원래 이만큼"으로 읽힌다 —
-              누가 왜 빠졌는지 함께 밝힌다(가짜 없음 · 열세 숨김 금지).
-              M1 — 앵커가 "데뷔 약 30일 전"이라는 x축 전제에서 벗어난 팀(데뷔일
-              폴백뿐 아니라 D-21처럼 창 밖에서 잡힌 느슨한 앵커도)도 같은 줄에서
-              실제로 쓴 날짜를 공시한다. isLooseAnchor()가 두 경우를 하나의
-              규칙으로 판정한다. */}
-          {(quality.excluded.length > 0
-            || quality.points.some((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? 30))) && (
-            <p class="mt-1 text-hint text-zinc-500 leading-relaxed">
-              {quality.excluded.length > 0 && (
-                <>표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}{" "}</>
-              )}
-              {quality.points
-                .filter((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? 30))
-                .map((p) => p.anchorDay === 0
-                  ? `${p.name}은(는) 데뷔 전 측정값이 없어 데뷔일 값 대비로 그렸다.`
-                  : `${p.name}은(는) 데뷔 ${-p.anchorDay}일 전 값 대비로 그렸다`
-                    + `(${preDebutDays ?? 30}일 전 측정이 없어).`)
-                .join(" ")}
-            </p>
-          )}
         </div>
       )}
 
@@ -640,14 +666,27 @@ export function MiiWANCohortReport() {
             지표에서는 EmptyState 아래에 결론만 남아 근거 없는 단정이 된다.
             둘 다 아닌 경우에만 낸다. */}
         {metric === PRIMARY_METRIC && hasCurves && <VerdictLines v={cVerdict} />}
-        {/* R7 — 흐린 선의 뜻. ⚠ 글리프는 위 '보완할 것'과 겹치므로 말로 쓴다. */}
-        {hasCurves && adSuspectMetric && (
+        {/* D2(07-30 타이포 리뷰) — 비주력 탭에는 결론 두 줄이 없다. 아무 안내가
+            없으면 "이 지표는 판정을 못 했다"로 읽히므로, 결론이 어디 있는지
+            한 줄로 가리킨다(수치가 아닌 위치 안내라 정적 문구 허용). */}
+        {metric !== PRIMARY_METRIC && hasCurves && (
           <p class="mt-2 text-hint text-zinc-500">
-            흐린 선 &lsquo;(광고 의심)&rsquo; = 자연 유입 점수가 {ORG_AD_SUSPECT_THRESHOLD}점
-            미만이라 광고 효과가 섞여 있을 수 있는 팀. 점선은 참고용(PLAVE)이라는
-            뜻으로 의미가 다르다. 곡선은 실제로 측정된 점만 잇고, 그 사이를 메운
-            추정값은 그리지 않는다.
+            성장 판정 문장은 대표 지표({METRIC_LABELS[PRIMARY_METRIC] ?? PRIMARY_METRIC})
+            {" "}탭에 표시된다.
           </p>
+        )}
+        {/* R7 — 흐린 선의 뜻. ⚠ 글리프는 위 '보완할 것'과 겹치므로 말로 쓴다.
+            D1(07-30 타이포 리뷰) — 방법론성 설명이라 다른 섹션과 같은 details
+            패턴으로 접는다. 접어도 손잡이에 '흐린 선'이 남아 범례로 기능한다. */}
+        {hasCurves && adSuspectMetric && (
+          <details class="mt-2 text-hint text-zinc-500">
+            <summary class={SUMMARY}>흐린 선 &lsquo;{SUSPECT_LABEL}&rsquo;의 뜻</summary>
+            <p class="mt-1 leading-relaxed">
+              자연 유입 점수가 {ORG_AD_SUSPECT_THRESHOLD}점 미만이라 광고 효과가 섞여
+              있을 수 있는 팀. 점선은 참고용(PLAVE)이라는 뜻으로 의미가 다르다.
+              곡선은 실제로 측정된 점만 잇고, 그 사이를 메운 추정값은 그리지 않는다.
+            </p>
+          </details>
         )}
       </div>
 
@@ -696,7 +735,12 @@ export function MiiWANCohortReport() {
             <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
               <tr>
                 <th scope="col" class="px-3 py-2 text-left">그룹</th>
-                <th scope="col" class="px-3 py-2 text-right">데뷔 전 값 (30일 전 기준)</th>
+                {/* C7 — "30일 전"은 백엔드 PRE_DEBUT_DAYS 를 손으로 적은 값이라
+                    상수를 바꾸면 이 헤더만 옛 값으로 남았다. 응답에서 파생하고,
+                    없으면 숫자를 지어내지 않고 절을 생략한다. */}
+                <th scope="col" class="px-3 py-2 text-right">
+                  데뷔 전 값{preDebutDays != null && <> ({preDebutDays}일 전 기준)</>}
+                </th>
                 <th scope="col" class="px-3 py-2 text-right">출발선 (데뷔일 값)</th>
                 <th scope="col" class="px-3 py-2 text-right">D+{data.as_of_day} 시점 값</th>
                 <th scope="col" class="px-3 py-2 text-right">데뷔 전 성장 배수</th>
@@ -804,8 +848,8 @@ export function MiiWANCohortReport() {
                           <div class="text-hint font-normal text-amber-500"
                                title={"데뷔 전후 영상 중 유료 광고로 판정된 비중이 높아, "
                                  + "이 성장에는 광고 효과가 섞여 있을 수 있음 "
-                                 + `(판정 점수 ${orgScore}점 · 기준 ${ORG_AD_SUSPECT_THRESHOLD}점 미만)`}>
-                            광고 영향 의심
+                                 + `(판정 점수 ${orgScore}점 · 광고 과다 기준선 ${ORG_AD_SUSPECT_THRESHOLD}점 미만)`}>
+                            {SUSPECT_LABEL}
                           </div>
                         )}
                       </td>
@@ -816,11 +860,13 @@ export function MiiWANCohortReport() {
                           {fmtEfficiency(r.subs_per_1k_pre)}
                           {" / "}
                           <span class="text-zinc-500">{fmtEfficiency(r.subs_per_1k_post)}</span>
+                          {/* C6 — 그룹색이 아니라 주의색. 길수록 "주의"라는
+                              헤더("낮을수록 자연스러움")와 방향을 맞춘다. */}
                           {effShare != null && (
                             <div class="mt-1 ml-auto h-1 w-16 rounded bg-zinc-800">
                               <div class="h-1 rounded"
                                    style={{ width: `${Math.round(effShare * 100)}%`,
-                                            background: colorOf(r.group_key),
+                                            background: EFFICIENCY_BAR_COLOR,
                                             opacity: r.group_key === "miiwan" ? 1 : 0.55 }} />
                             </div>
                           )}
@@ -831,7 +877,11 @@ export function MiiWANCohortReport() {
                 })}
             </tbody>
           </table>
-          <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
+          {/* C1(07-30 타이포 리뷰) — 표 아래에 같은 크기·같은 색의 소자 문단이
+              셋 연속으로 붙어 있어 눈이 "어느 게 결론인지"를 못 골랐다. 이 줄만
+              해석 위계(text-sm/zinc-300)로 올린다 — 표를 한 줄로 요약하는 문장
+              이고, 나머지 둘(배지 읽는 법·효율 읽는 법)은 참조 정보다. */}
+          <p class="px-3 py-2 text-sm leading-relaxed text-zinc-300 border-t border-zinc-800/60">
             {/* 비교 대상이 미완이 1팀뿐이면 "1위"는 자기 자신을 이긴 것이라
                 의미가 없다 — 순위 대신 모수 부족을 명시한다(빈칸 금지). */}
             {sc.miiwan_rank != null && sc.cohort_size >= 2 ? (
@@ -847,7 +897,11 @@ export function MiiWANCohortReport() {
             ) : (
               <>같은 시기에 데뷔한 비교 대상이 부족하다 (이 지표의 데뷔일 값이 있는 팀 {sc.cohort_size}팀, MiiWAN 포함).</>
             )}
-            {" "}값은 데뷔일({baseTol}) / D+{data.as_of_day}({atTol}) 안에서 가장 가까운 날의
+          </p>
+          {/* C1 — 측정 허용폭·≈ 표기는 방법론이라 승격된 순위 줄에서 떼어
+              보조 위계로 되돌린다(같은 문단에 있으면 결론 한 줄이 다시 길어진다). */}
+          <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
+            값은 데뷔일({baseTol}) / D+{data.as_of_day}({atTol}) 안에서 가장 가까운 날의
             측정값을 썼고, 줄마다 실제로 잰 날짜를 함께 적었다.
             {nearTie.size > 0 && (
               <> <strong class="text-zinc-400">≈</strong> 표시가 붙은 순위는 추정치가
@@ -857,12 +911,18 @@ export function MiiWANCohortReport() {
           {/* 광고 의심 배지와 짝이 되는 각주 — 배지가 안 뜨는 지표·시점에도
               "배수는 돈으로도 만들 수 있다"는 읽는 법 자체를 남긴다. 07-30:
               같은 말을 세 절에 나눠 하던 문장을 한 문장으로 줄였다(판정 규칙의
-              상세는 아래 자연 유입 섹션 캡션이 한 번만 말한다). */}
+              상세는 아래 자연 유입 섹션 캡션이 한 번만 말한다).
+              C2(07-30 경영 리뷰) — 배지 임계는 "광고를 과하게 쓴 게 뚜렷한 팀"만
+              가리키도록 캘리브레이션한 값이라, 배지가 없는 팀도 기준선 부근일 수
+              있다. 그 자리에 아무 말이 없으면 "배지 없음 = 광고 영향 없음"으로
+              읽힌다 — 배지 로직·티어는 그대로 두고 읽는 법만 봉합한다. */}
           <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
             성장 배수는 광고비로도 만들 수 있는 숫자라, 판정 점수
             {" "}{ORG_AD_SUSPECT_THRESHOLD}점 미만인 팀에는 배수 옆에
-            {" "}&lsquo;광고 영향 의심&rsquo;을 붙이고 아래
+            {" "}&lsquo;{SUSPECT_LABEL}&rsquo;을 붙이고 아래
             {" "}<strong class="text-zinc-300">자연 유입 점수</strong>와 같이 읽게 했다.
+            {" "}배지가 없다고 광고 영향이 없다는 뜻은 아니다 — 전 팀의 판정 점수는
+            아래 자연 유입 점수에서 공개된다.
           </p>
           {/* S — 데뷔 전/후 대역이 다르다는 사실을 분리해 쓴다. 하나로 뭉치면
               "0.3~3 이 정상"과 실제 데뷔 전 수치(수십~수백)가 정면 충돌한다.
@@ -873,8 +933,11 @@ export function MiiWANCohortReport() {
                 구독 효율 읽는 법 — 데뷔 전 값은 절대값이 아니라 팀 간 상대 비교로
               </summary>
               <p class="mt-1 leading-relaxed">
+                {/* C5(07-30 투자 리뷰) — "현재 전 팀이 이 범위 안에 있다"는
+                    정적 주장이라 데이터가 바뀌면 조용히 거짓이 된다(그 사실을
+                    검증하는 코드가 어디에도 없었다). 정상 구간 정의만 남긴다. */}
                 조회수 1,000회당 늘어난 구독자. <strong class="text-zinc-300">데뷔 후</strong>
-                {" "}정상 구간은 0.3~3이고 현재 전 팀이 이 범위 안에 있다.
+                {" "}정상 구간은 0.3~3이다.
                 {" "}<strong class="text-zinc-300">데뷔 전</strong>은 조회수 자체가 적어
                 비율이 수십~수백으로 뜨는 게 보통이라, 유독 높은 팀은 영상 노출 없이
                 구독자가 늘었다는 뜻으로 읽는다. 구독자·조회수가 같은 날 함께 측정된
@@ -913,12 +976,22 @@ export function MiiWANCohortReport() {
               여기서 고정 문구를 덧붙이면 데이터에서 파생되지 않은 결론이
               모든 창에 그대로 실린다(제외 뒤 남은 조회수에도 의심 대역이
               섞여 있어 "나머지는 자연 소비"라고 단정할 수 없다). */}
+          {/* A4(07-30 타이포 리뷰) — 이 결론의 강조색이 zinc-100 이면 바로 위
+              '잘하고 있는 점/보완할 점'(zinc-200)보다 밝아 위계가 뒤집힌다.
+              제외 점수는 해석 두 줄 **다음** 가는 값이므로 같은 zinc-200 굵기로. */}
           <VerdictLines v={oVerdict} extra={miiwanExPaid && (
             <p class="pt-1">
-              <strong class="text-zinc-100">{miiwanExPaid.headline}</strong>
+              <strong class="text-zinc-200">{miiwanExPaid.headline}</strong>
               <span class="block text-hint text-zinc-500">{miiwanExPaid.note}</span>
             </p>
           )} />
+          {/* A5(07-30 경영 리뷰) — 이 섹션은 "배제하기 어렵다"에서 끝나 다음
+              행동이 없었다. 결정 지향 안내 한 줄을 보조 위계로 붙인다. 문구는
+              lib 상수(WEAK_REMEDY 와 같은 성격) — 판정이 걸린 창에서만 낸다:
+              보완할 점이 없는 창에 액션만 남으면 근거 없는 지시가 된다. */}
+          {oVerdict.weak && (
+            <p class="mb-2 text-hint text-zinc-400">{ORG_ACTION_HINT}</p>
+          )}
           {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
               폭 자체가 신호라 한 점으로 뭉개지 않는다. R10 — 진한 막대가 우리 팀. */}
           {/* 눈금 행 — 등급 경계를 축처럼 보여준다. 좌우 스페이서는 아래 행의
@@ -1027,7 +1100,7 @@ export function MiiWANCohortReport() {
                     </span>
                     {o.score_view_weighted_ex_paid != null && (
                       <span class="block text-hint font-medium text-zinc-300">
-                        광고 투입 제외 {o.score_view_weighted_ex_paid}점
+                        {EX_PAID_LABEL_SHORT} {o.score_view_weighted_ex_paid}점
                       </span>
                     )}
                   </span>
@@ -1068,21 +1141,30 @@ export function MiiWANCohortReport() {
               아니라 규모(편수·조회수 점유)로 읽으라고 못 박는다. */}
           <details class="mt-1 text-hint text-zinc-500">
             <summary class={SUMMARY}>점수대·비교 기간과 &lsquo;{EX_PAID_LABEL}&rsquo; 점수 읽는 법</summary>
+            {/* A6(07-30 투자 리뷰) — 예전엔 양 끝 두 대역(40 미만·70 이상)만
+                설명해, 우리가 실제로 서 있는 가운데 대역이 무슨 뜻인지 화면
+                어디에도 없었다. 배경에 그려진 다섯 구간을 전부 정의한다.
+                경계 숫자는 전부 VERDICT_THRESHOLDS 보간 — 손으로 적으면
+                재보정 때 배경색과 설명이 조용히 갈린다. */}
             <p class="mt-1 leading-relaxed">
-              배경 색 구간은 점수대의 뜻이다 — {ORG_AD_SUSPECT_THRESHOLD}점 미만(붉은
-              구간)이면 광고를 과하게 쓴 것으로 보고 위 그래프·표에
-              {" "}&lsquo;광고 의심&rsquo;을 붙이며, {VERDICT_THRESHOLDS.organic}점
-              이상(초록 구간)이면 자연 유입이 우세하다. MiiWAN이 지금까지 지나온
+              배경 색 구간은 점수대의 뜻이다 — {T.suspect}점 미만(붉은 구간) = 광고
+              과다 · {T.suspect}~{T.borderline}(주황) = 의심 대역 ·
+              {" "}{T.borderline}~{T.organic}(노랑) = 경계 · {T.organic}점 이상(초록) =
+              자연 유입 우세({T.organic_strong}점 이상은 진한 초록). 광고 과다
+              기준선({ORG_AD_SUSPECT_THRESHOLD}점) 미만인 팀에는 위 그래프·표에
+              {" "}&lsquo;{SUSPECT_LABEL}&rsquo;을 붙인다. MiiWAN이 지금까지 지나온
               기간({orgWindowLabel})까지만 세서 비교한다 — 먼저 데뷔한 팀만 더 긴
               기간을 쓰면 공정하지 않기 때문이다.
             </p>
+            {/* A3 — 보장 산술("제외 후 점수가 기준선 위인 건 당연하다")과 판정
+                앵커는 이제 제외 점수 문단(exPaidNote.note)이 상시로 공시한다.
+                여기서 같은 말을 반복하지 않고, 이 각주는 "틱·숫자가 무엇을 뺀
+                값인가"라는 정의만 담당한다. */}
             <p class="mt-1 leading-relaxed">
-              세로 틱과 &lsquo;광고 투입 제외&rsquo; 숫자는 광고 투입으로 판정된
+              세로 틱과 &lsquo;{EX_PAID_LABEL_SHORT}&rsquo; 숫자는 광고 투입으로 판정된
               ({ORG_AD_SUSPECT_THRESHOLD}점 미만) 영상을 빼고 다시 센 조회수 기준
-              점수다. 제외 기준이 판정선과 같은 선이라 남은 점수가 기준선 위로
-              올라오는 것 자체는 당연하니, 읽을 것은 틱의 위치가 아니라
-              {" "}<strong class="text-zinc-300">몇 편이 조회수의 몇 %를 차지했는가</strong>
-              이며, 이 값은 위 판정 점수와 &lsquo;광고 의심&rsquo; 표시를 바꾸지 않는다.
+              점수다. 읽을 것은 틱의 위치가 아니라
+              {" "}<strong class="text-zinc-300">몇 편이 조회수의 몇 %를 차지했는가</strong>다.
             </p>
           </details>
         </div>
@@ -1110,6 +1192,26 @@ export function MiiWANCohortReport() {
             배수는 &mdash;로 남는 팀이 있을 수 있다. 표의 &lsquo;데뷔 전 값&rsquo; 칸은
             그 창에 측정이 없으면 확보된 가장 이른 데뷔 전 값을 측정일과 함께 싣고,
             데뷔 전 측정이 아예 없는 팀은 &mdash;로 둔다.
+            {/* B2(07-30 투자 리뷰) — 산점도 x축이 쓰는 '총 성장 배수'만 정의가
+                없어, 표의 두 배수와 어떻게 다른지 화면에서 확인할 방법이 없었다.
+                분모·앵커 규칙을 응답 상수에서 파생해 적는다. */}
+            {" "}산점도의 <strong class="text-zinc-400">총 성장 배수</strong>는 D+{data.as_of_day} 값 ÷
+            데뷔 전 앵커 값이다
+            {preDebutDays != null
+              ? <> (원칙 데뷔 {preDebutDays}일 전 ±{PRE_BASE_WINDOW}일, 그 창에 측정이 없으면
+                확보된 가장 이른 데뷔 전 값)</>
+              : <> (그 창에 측정이 없으면 확보된 가장 이른 데뷔 전 값)</>}
+            {" "}— 데뷔 전 구간까지 포함하므로 표의 데뷔 후 배수보다 크게 나온다.
+          </li>
+          {/* E1(07-30 투자 리뷰) — "왜 유튜브 지표만 보나"가 화면 어디에도 없어
+              "유리한 것만 골랐다"로 읽힐 여지가 있었다. 백엔드 METRICS 주석의
+              사유를 한 줄로 옮긴다(계산은 불변 — 공시만 추가). */}
+          <li>
+            <strong class="text-zinc-400">지표 선정</strong> — 커뮤니티 활동·뉴스 노출은
+            이 화면에서 뺐다. 커뮤니티는 갤러리가 열린 시점이 팀마다 달라 데뷔일
+            값이 성장의 출발선이 아니라 &lsquo;언제 갤러리가 생겼나&rsquo;를 재는 값이
+            되고, 뉴스는 수집 방식마다 세는 단위(누적 건수 / 그 주의 건수)가 섞여
+            있어 배수 비교가 성립하지 않는다. 다른 화면의 같은 지표는 그대로 쓴다.
           </li>
           <li>
             <strong class="text-zinc-400">비교 대상 선정</strong> — {debutRange

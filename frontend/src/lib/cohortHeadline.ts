@@ -176,26 +176,40 @@ export function fmtDelta(n: number | null, unit: string): string | null {
 export const EX_PAID_LABEL = "광고 투입 콘텐츠 제외";
 
 /**
+ * 좁은 자리(막대 옆 숫자 컬럼·접은 각주 본문)용 축약 라벨. 정식 라벨을
+ * 그대로 쓰면 w-36 컬럼에서 줄이 접혀 숫자와 라벨이 어긋난다. 상수로 두는
+ * 이유는 EX_PAID_LABEL 과 같다 — 축약형도 화면 두 곳이 같은 말을 써야 한다.
+ */
+export const EX_PAID_LABEL_SHORT = "광고 투입 제외";
+
+/**
  * 유료 판정 제외 요약. headline(승격 표시용 결론 한 줄) / note(보조 각주)로
  * 나눠 돌려준다 — 이 수치는 "보완할 점" 다음으로 중요한데 예전엔 한 문장에
  * 뭉쳐 있어 시각적으로 승격할 지점이 없었다(07-30 피드백). 필드가 하나라도
  * 없으면 null — 문장을 지어내지 않는다.
  *
- * note 에 판정 점수 앵커를 붙이는 이유: 제외 점수가 판정 점수보다 한참 높게
- * 나온다(제외 기준이 판정선과 같은 선이라 구조적으로 그렇다). 앵커가 없으면
- * 투자사 독자가 제외 점수를 이 팀의 결론 점수로 가져가고 배지도 풀린 것으로
- * 읽는다 — 판정·배지는 이 수치와 무관하게 그대로라는 사실을 같은 문단에서
- * 못 박는다. 데이터에서 파생되지 않는 해석(예: "나머지는 자연 소비다")은
- * 붙이지 않는다.
+ * R1(07-30 3방향 리뷰) 역할 분리 — 이 섹션은 판정을 두 곳에서 말하고 있었다.
+ * 이제 **weak = 판정과 그 위치(짧게)**, **여기 = 쏠림 구조와 제외 점수(수치
+ * 담당)**로 나눈다. 그래서 예전에 organicityVerdict.weak 이 들고 있던 쏠림
+ * 원인 절(몇 편이 조회수 몇 %)이 이리로 내려왔고, weak 은 한 문장이 됐다.
  *
- * 쏠림 규모(조회수 점유 %)는 여기서 말하지 않는다 — organicityVerdict.weak
- * 이 "왜 점수가 낮은가"의 원인 절로 이미 말하므로, 같은 사실을 두 문단이
- * 반복하면 섹션이 다시 구구절절해진다.
+ * note 가 말하는 세 가지 (셋 다 데이터 파생 · 순서가 곧 읽는 순서):
+ *  ⓐ 쏠림 대비 — 편수 비중과 조회수 점유를 **한 문장 안에서** 맞세운다.
+ *    둘을 떼어 놓으면 "광고 영상이 11%뿐"과 "조회수의 71%"가 각각 다른
+ *    결론으로 읽힌다. 나란히 놓아야 '쏠림'이 숫자로 보인다.
+ *  ⓑ 보장 산술 — 제외 기준이 판정선과 같은 선이라 제외 후 점수가 그 위인
+ *    것은 발견이 아니라 정의다. 예전엔 접은 각주에만 있어서, 접어둔 채로
+ *    보면 보장된 산술이 성과처럼 읽혔다. 상시 공시로 승격한다.
+ *  ⓒ 판정 앵커 — 제외 점수가 판정 점수보다 한참 높게 나오므로(ⓑ의 귀결),
+ *    앵커가 없으면 독자가 제외 점수를 이 팀의 결론 점수로 가져간다.
+ *    예전 문구는 "‘광고 의심’ 표시는 그대로"였는데 MiiWAN 행에는 그 표시가
+ *    없어 화면에 없는 것을 지칭했다 — 판정 점수 자체를 앵커로 바꾼다.
+ * 데이터에서 파생되지 않는 해석(예: "나머지는 자연 소비다")은 붙이지 않는다.
  */
 export interface ExPaidNote {
   /** 승격 표시용 결론 — "광고 투입 콘텐츠 제외 69.5점". */
   headline: string;
-  /** 보조 각주 — 제외 대상 규모 + "판정·배지는 그대로" 앵커. */
+  /** 보조 각주 — 쏠림 대비 + 보장 산술 + 판정 점수 앵커. */
   note: string;
 }
 
@@ -205,14 +219,27 @@ export function exPaidNote(o: OrgRow | undefined | null): ExPaidNote | null {
     paid_view_share: share, score_view_weighted_ex_paid: exScore } = o;
   if (!total || !paid || share == null || exScore == null) return null;
   const judge = adJudgeScore(o);
+  const T = ORG_AD_SUSPECT_THRESHOLD;
   return {
     headline: `${EX_PAID_LABEL} ${exScore}점`,
-    note: `광고를 투입한 것으로 판정된 ${paid}편(전체 ${total}편)을 뺀 나머지 `
-      + `${total - paid}편의 조회수 기준 점수다. 이는 쏠림을 걷어낸 참고 분해이고, `
-      + (judge == null ? `위 판정 점수와` : `판정 점수 ${judge}점과`)
-      + ` ‘광고 의심’ 표시는 이 수치와 무관하게 그대로다.`,
+    note: `전체 ${total}편 중 광고 투입 판정 ${paid}편(편수의 ${Math.round(paid / total * 100)}%)이`
+      + ` 조회수의 ${Math.round(share * 100)}%를 가져갔다.`
+      + ` 제외 기준이 판정선(${T}점 미만)과 같아 제외 후 점수가 ${T}점 위인 것 자체는`
+      + ` 당연하다 — 볼 것은 쏠림의 규모다.`
+      + (judge == null
+        ? ` 위 판정 점수는 이 수치와 무관하게 그대로다.`
+        : ` 판정 점수 ${judge}점은 이 수치와 무관하게 그대로다.`),
   };
 }
+
+/**
+ * A5(07-30 경영 리뷰) — 자연 유입 섹션은 "광고 영향을 배제하기 어렵다"에서
+ * 끝나 독자가 다음에 무엇을 할지 알 수 없었다. WEAK_REMEDY 와 같은 성격의
+ * **정적 액션 안내**라 데이터 파생이 아니다(수치·결론이 아니라 다음 안건).
+ * 상수로 두는 이유도 같다 — 화면에 손으로 적으면 문구가 조용히 갈린다.
+ */
+export const ORG_ACTION_HINT =
+  "다음 액션 — 광고 집행 내역(어느 영상·기간)을 정리해 판정과 대조할 수 있게 준비할 것.";
 
 /**
  * B1 — 광고 의심 판정에 쓰는 점수 = 편수 기준과 조회수 기준 중 **낮은 쪽**.
@@ -416,9 +443,36 @@ export function scorecardVerdict(d: CohortData, metric: string): SectionVerdict 
       // 자기 자신을 이긴 것을 강점으로 파는 문장이 된다.
       + (preRank === 1 && preN >= 2 ? " — 데뷔 전에 이미 팬덤을 쌓아둔 팀이다." : ".")
     : null;
+  // C3(07-30 투자 리뷰) — "출발선이 큰 만큼 배수가 작게 나온다"는 인과는
+  // 출발선이 실제로 큰 편일 때만 참이다. 예전엔 무조건 붙어서, 출발선이
+  // 하위권인 창에서도 같은 변명이 나갔다. 헤드라인 conclusionLine 과 **같은
+  // 규칙**(상위 절반)으로 게이트한다 — 두 문장이 한 화면에 있는데 서로 다른
+  // 기준으로 인과를 붙이면 어느 쪽이 맞는지 독자가 판정할 수 없다.
+  const baseTopHalf = baseRank != null && baseN >= 2
+    && baseRank <= Math.ceil(baseN / 2);
+  // C4(07-30 투자 리뷰) — "늘어난 사람 수와 같이 읽는다"는 읽는 법만 주고
+  // 정작 그 순위를 안 줬다. 순증(D+N 값 − 출발선) 순위를 데이터로 낸다.
+  // 모수는 pre/base 와 같은 패턴 — 순증을 낼 수 있는 비참조 팀만 센다
+  // (값이 없는 팀을 분모에 넣으면 "N팀 중"이 부풀고 그 팀이 암묵적으로
+  // 아래 순위로 세어진다).
+  const deltaOf = (r: ScRow) => r.value_at_day != null && r.base_value != null
+    ? r.value_at_day - r.base_value : null;
+  const myDelta = deltaOf(mine);
+  const deltaPeers = peers.map(deltaOf).filter((v): v is number => v != null);
+  const deltaN = myDelta != null ? deltaPeers.length + 1 : 0;
+  const unit = METRIC_UNITS[metric] ?? "";
+  const deltaClause = myDelta != null && deltaN >= 2
+    ? ` 순증(${fmtDelta(myDelta, unit)})은 ${deltaN}팀 중 ${rankDesc(myDelta, deltaPeers)}위다.`
+    : "";
   const weak = mine.growth_multiple != null && sc?.miiwan_rank != null && sc.cohort_size >= 2
     ? `데뷔 후 성장 배수 ${fmtMultiple(mine.growth_multiple)}는 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위다`
-      + " — 출발선이 큰 만큼 배수는 구조적으로 작게 나오니, 늘어난 사람 수와 같이 읽는다."
+      + (baseTopHalf
+        // 순증 순위가 있으면 "같이 읽는다"는 안내를 실제 순위로 대체한다.
+        ? (deltaClause
+          ? " — 출발선이 큰 만큼 배수는 구조적으로 작게 나온다."
+          : " — 출발선이 큰 만큼 배수는 구조적으로 작게 나오니, 늘어난 사람 수와 같이 읽는다.")
+        : ".")
+      + deltaClause
     : null;
   return { good, weak };
 }
@@ -444,10 +498,14 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
   // 같은 가드다. "1팀 중 1위"는 자기 자신을 이긴 것이라 뜻이 없다.
   const rankClause = standing.size >= 2
     ? ` — 편수 기준으로는 ${standing.size}팀 중 ${standing.scoreRank}위` : "";
-  // "대부분 자연 소비"는 편수 점수가 실제로 과반일 때만 — 낮은 점수에 붙이면
-  // 점수와 정반대되는 결론을 같은 문장이 말하게 된다.
+  // "대부분 ~"은 편수 점수가 실제로 과반일 때만 — 낮은 점수에 붙이면 점수와
+  // 정반대되는 결론을 같은 문장이 말하게 된다.
+  // A1(07-30 3방향 리뷰) — 예전 문구는 "대부분은 자연 **소비**되고 있다"였다.
+  // '소비'는 조회수 개념인데 이 점수의 근거는 편수라, 바로 아래 "조회수의
+  // 71%가 광고 투입 영상에 쏠렸다"와 같은 화면에서 정면 충돌했다. 편수
+  // 근거에 맞는 카탈로그 표현(무엇이 올라갔나)으로 바꾼다.
   const bulk = standing.score >= VERDICT_THRESHOLDS.borderline
-    ? "만든 콘텐츠의 대부분은 자연 소비되고 있다." : null;
+    ? "만든 영상의 대부분은 광고 없이 올라간 것으로 판정됐다." : null;
   // 등급 선언의 기준은 반드시 판정 점수(min) — 막대·배지가 그리는 값이다.
   const grade = standing.judgeScore >= VERDICT_THRESHOLDS.organic
     ? `판정 점수(편수·조회수 중 낮은 쪽) ${standing.judgeScore}점 기준으로도 자연 유입 우세 등급이다.` : null;
@@ -456,35 +514,24 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
   let weak: string | null = null;
   if (standing.judgeScore < VERDICT_THRESHOLDS.organic) {
     const nearLine = standing.judgeScore - ORG_AD_SUSPECT_THRESHOLD;
-    // I3 — 원인 절("조회수 쪽이 낮아 판정이 그 값이 됐다")은 실제로 조회수
-    // 점수가 편수 점수보다 낮아 min 을 만들었을 때만 붙인다. 조회수 점수가
-    // 없는 창이나 편수 쪽이 더 낮은 창에서도 무조건 나가면 데이터가 뒷받침
-    // 하지 않는 인과를 지어내는 것이다.
-    const mine = d.organicity.find((o) => o.group_key === "miiwan");
-    const viewLower = mine?.score != null && mine.score_view_weighted != null
-      && mine.score_view_weighted < mine.score;
-    // 07-30 피드백 — 이 줄만 읽으면 "광고 과다"로만 읽히고 끝나 오해가 남았다.
-    // 조회수 점수가 낮은 진짜 이유는 카탈로그 전체가 광고성이어서가 아니라
-    // 광고를 태운 소수 콘텐츠에 조회수가 쏠렸기 때문이다 — 그 구조를 같은
-    // 문장 안에서 데이터(편수·조회수 점유)로 말한다. 쏠림 규모 필드가 없으면
-    // 지어내지 않고 종전의 짧은 원인 절로 물러난다.
-    const paid = mine?.paid_video_count;
-    const share = mine?.paid_view_share;
-    const cause = !viewLower
-      ? ""
-      : paid && share != null
-        ? ` 다만 편수 기준 ${mine!.score}점보다 낮은 조회수 기준 ${mine!.score_view_weighted}점은`
-          + ` 광고를 투입한 것으로 판정된 콘텐츠 ${paid}편에 조회수 ${Math.round(share * 100)}%가 쏠린`
-          + ` 구조 탓이지, 만든 콘텐츠 전체가 광고성이라는 뜻은 아니다.`
-        : ` 편수 기준 ${mine!.score}점보다 조회수 기준 ${mine!.score_view_weighted}점이 낮아 이 값이 판정 점수가 됐다.`;
-    weak = `판정 점수(편수·조회수 중 낮은 쪽) ${standing.judgeScore}점은 광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) `
+    // A2(07-30 3방향 리뷰) — 예전 weak 은 판정 위치 + 쏠림 원인 절을 한 문단에
+    // 다 담아 세 절짜리 문장이 됐고, 바로 아래 제외 점수 문단이 같은 쏠림을
+    // 다시 말했다. 역할을 나눈다: **weak = 판정과 그 위치(한 문장)**,
+    // 쏠림 수치는 exPaidNote 가 전담. 허수아비 부정("전체가 광고성이라는 뜻은
+    // 아니다")도 뺀다 — 아무도 하지 않은 주장을 반박하면 오히려 그 주장이
+    // 화면에 남는다.
+    // 판정 순위(standing.rank)를 병기하는 이유: 점수만으론 "40점 부근"이
+    // 코호트 안에서 흔한 자리인지 유독 낮은 자리인지 알 수 없다. 순위 절은
+    // 겨룰 상대가 있을 때만 — 화면 다른 곳과 같은 가드다.
+    const rankClause = standing.size >= 2 ? ` ${standing.size}팀 중 ${standing.rank}위,` : "";
+    weak = `판정 점수(편수·조회수 중 낮은 쪽) ${standing.judgeScore}점은${rankClause}`
+      + ` 광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) `
       + (nearLine < 0
         ? "아래라"
         : nearLine <= THRESHOLD_NEAR_BAND
           ? "부근이라"
           : `위지만 자연 유입 우세(${VERDICT_THRESHOLDS.organic}점)에는 못 미쳐`)
-      + " 우리 성장에도 광고 영향을 배제하기 어렵다."
-      + cause;
+      + " 광고 영향을 배제하기 어렵다.";
   }
   return { good, weak };
 }
@@ -519,7 +566,11 @@ export function headline(d: CohortData): Headline {
     if (!sc || sc.miiwan_rank == null || sc.cohort_size < 2) continue;
     const label = METRIC_LABELS[m] ?? m;
     const mine = sc.rows.find((r) => r.group_key === "miiwan");
-    const head = `${label} ${fmtMultiple(mine?.growth_multiple ?? null)}`
+    // B4(07-30 경영 리뷰) 라벨 정합 — 이 배수는 growth_multiple(데뷔 후)인데
+    // 수식이 없어, 같은 목록의 "데뷔 전 성장 13.8×"·산점도의 "총 성장 배수
+    // 15.0×"와 나란히 놓이면 세 배수가 같은 축으로 읽혔다. 계산은 그대로
+    // 두고 라벨만 붙인다.
+    const head = `${label} 데뷔 후 성장 ${fmtMultiple(mine?.growth_multiple ?? null)}`
       + ` — 같은 시기 데뷔 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위`;
     if (sc.miiwan_rank <= Math.ceil(sc.cohort_size / 2)) {
       strengths.push(head);
@@ -600,7 +651,8 @@ function conclusionLine(d: CohortData): string | null {
   // 안에서 정면 충돌한다 — 헤드라인 루프·표 각주·orgTop 과 같은 가드다.
   // 배수·순증 자체는 사실이므로 문장을 통째로 없애지는 않는다.
   const ranked = sc.miiwan_rank != null && sc.cohort_size >= 2;
-  let out = `${label} ${fmtMultiple(mine.growth_multiple)}`
+  // B4 — 라벨 정합. 이 배수도 growth_multiple(데뷔 후)이다(위 루프와 같은 이유).
+  let out = `${label} 데뷔 후 성장 ${fmtMultiple(mine.growth_multiple)}`
     + (delta ? ` (${delta})` : "")
     + (ranked ? ` — 같은 시기 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위.` : ".");
 
