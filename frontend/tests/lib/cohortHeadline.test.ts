@@ -2,7 +2,8 @@
 // "언제 강점으로 세우고 언제 광고 근거를 붙이는가"를 테스트로 고정한다.
 import { describe, expect, it, test } from "vitest";
 import {
-  AD_SUSPECT_METRICS, NEAR_TIE_RATIO, ORG_AD_SUSPECT_THRESHOLD, THRESHOLD_NEAR_BAND,
+  AD_SUSPECT_METRICS, EX_PAID_LABEL, NEAR_TIE_RATIO, ORG_AD_SUSPECT_THRESHOLD,
+  THRESHOLD_NEAR_BAND,
   adJudgeScore, cohortComposition, curveVerdict, debutDateRange, exPaidNote, fmtDelta,
   fmtMultiple, headline, nearTieKeys, organicStanding, organicityVerdict, scorecardVerdict,
   type CohortData, type OrgRow, type ScRow,
@@ -589,6 +590,49 @@ describe("organicityVerdict", () => {
     expect(v.weak).toContain("편수 기준 55점보다 조회수 기준 35점이 낮아");
   });
 
+  // 07-30 피드백 ① — "보완할 점"이 광고 과다 인상만 주고 끝나던 문제.
+  // 점수가 낮은 원인은 카탈로그 전체가 광고성이어서가 아니라 광고를 태운
+  // 소수 콘텐츠에 조회수가 쏠렸기 때문이고, 그 구조를 같은 줄에서 데이터로
+  // 말해야 오해가 남지 않는다(K2).
+  test("weak — 쏠림 규모(편수·조회수 점유)가 있으면 원인 절을 데이터로 결합한다", () => {
+    const d = cohort({
+      organicity: [
+        { group_key: "miiwan", score: 74, video_count: 122, reference: false,
+          score_view_weighted: 41.4, window_video_count: 122, paid_video_count: 14,
+          paid_view_share: 0.712, score_view_weighted_ex_paid: 69.5 },
+        org("owis", 90),
+      ],
+    });
+    const v = organicityVerdict(d);
+    expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
+    expect(v.weak).toContain("14편");
+    expect(v.weak).toContain("71%");
+    expect(v.weak).toContain("쏠린");
+    // 오해 차단 절이 반드시 같은 문장에 남는다.
+    expect(v.weak).toContain("만든 콘텐츠 전체가 광고성이라는 뜻은 아니다");
+  });
+
+  test("weak — 쏠림 규모 필드가 없으면 종전의 짧은 원인 절로 물러난다", () => {
+    // paid_video_count / paid_view_share 가 없는 창 — 수치를 지어내지 않는다.
+    const d = cohort({ organicity: [org("miiwan", 55, false, 35), org("owis", 90)] });
+    const v = organicityVerdict(d);
+    expect(v.weak).toContain("편수 기준 55점보다 조회수 기준 35점이 낮아");
+    expect(v.weak).not.toContain("쏠린");
+  });
+
+  test("weak — 편수 쪽이 더 낮으면 쏠림 규모가 있어도 원인 절을 붙이지 않는다", () => {
+    // judge=35 는 편수 쪽 — 조회수 쏠림이 원인이 아니므로 인과를 지어내지 않는다.
+    const d = cohort({
+      organicity: [
+        { group_key: "miiwan", score: 35, video_count: 122, reference: false,
+          score_view_weighted: 60, window_video_count: 122, paid_video_count: 14,
+          paid_view_share: 0.712, score_view_weighted_ex_paid: 69.5 },
+        org("owis", 90),
+      ],
+    });
+    expect(organicityVerdict(d).weak).not.toContain("쏠린");
+  });
+
   test("weak — 조회수 기준 점수가 없는 창에서는 인과 절을 붙이지 않는다", () => {
     const d = cohort({ organicity: [org("miiwan", 35), org("owis", 90)] });
     const v = organicityVerdict(d);
@@ -749,11 +793,23 @@ describe("exPaidNote", () => {
   const base = { group_key: "miiwan", score: 74, video_count: 122, reference: false,
     score_view_weighted: 41.4, window_video_count: 122, paid_video_count: 14,
     paid_view_share: 0.712, score_view_weighted_ex_paid: 69.5 };
-  test("유료 판정 편수·조회수 점유·제외 점수를 한 문장으로 만든다", () => {
-    const note = exPaidNote(base as OrgRow);
-    expect(note).toContain("14편");
-    expect(note).toContain("71%");
-    expect(note).toContain("69.5점");
+  // 07-30 — headline(승격 표시용 결론) / note(보조 각주)로 나뉜다. 예전엔 한
+  // 문장이라 화면에서 승격할 지점이 없어 "제외 시 N점"이 소자 각주에 묻혔다.
+  test("headline = 라벨 + 제외 점수, 무엇을 제외했는지가 라벨에 있다", () => {
+    const r = exPaidNote(base as OrgRow)!;
+    expect(r.headline).toBe(`${EX_PAID_LABEL} 69.5점`);
+    expect(EX_PAID_LABEL).toContain("광고");
+  });
+  test("note = 제외 대상 규모(편수)", () => {
+    const r = exPaidNote(base as OrgRow)!;
+    expect(r.note).toContain("14편");
+    expect(r.note).toContain("전체 122편");
+    expect(r.note).toContain("108편");   // 122 − 14
+  });
+  // 쏠림 점유(%)는 organicityVerdict.weak 의 원인 절이 말한다 — 두 문단이
+  // 같은 사실을 반복하면 섹션이 다시 구구절절해진다(07-30 피드백 ②).
+  test("조회수 점유 %는 여기서 말하지 않는다 (weak 원인 절과 중복 금지)", () => {
+    expect(exPaidNote(base as OrgRow)!.note).not.toContain("71%");
   });
   test("유료 판정이 0편이거나 필드가 없으면 null", () => {
     expect(exPaidNote({ ...base, paid_video_count: 0 } as OrgRow)).toBeNull();
@@ -764,20 +820,20 @@ describe("exPaidNote", () => {
   // (제외 기준 = 판정선) 앵커가 없으면 투자사 독자가 제외 점수를 결론
   // 점수로 가져간다. 앵커 숫자는 데이터 파생(min 규칙)이지 상수가 아니다.
   test("판정 점수 앵커를 붙여 판정·배지가 그대로임을 못 박는다", () => {
-    const note = exPaidNote(base as OrgRow)!;
-    expect(note).toContain("판정 점수 41.4점");   // = min(편수 74, 조회수 41.4)
-    expect(note).toContain("광고 의심");
+    const r = exPaidNote(base as OrgRow)!;
+    expect(r.note).toContain("판정 점수 41.4점");   // = min(편수 74, 조회수 41.4)
+    expect(r.note).toContain("광고 의심");
   });
   test("판정 점수가 없으면 숫자 없이 앵커만 (없는 값을 지어내지 않는다)", () => {
-    const note = exPaidNote({ ...base, score: null } as OrgRow)!;
-    expect(note).toContain("위 판정 점수와");
-    expect(note).not.toMatch(/판정 점수 [\d.]+점/);
+    const r = exPaidNote({ ...base, score: null } as OrgRow)!;
+    expect(r.note).toContain("위 판정 점수와");
+    expect(r.note).not.toMatch(/판정 점수 [\d.]+점/);
   });
   // 데이터에서 파생되지 않는 결론("나머지는 자연 소비")은 문장에 없다 —
   // 제외 뒤 남은 조회수에도 의심 대역이 섞여 있어 단정할 수 없다.
   test("고정 해석 문구를 덧붙이지 않는다", () => {
-    const note = exPaidNote(base as OrgRow)!;
-    expect(note).not.toContain("자연 소비");
-    expect(note).not.toContain("자연 유입에 가깝");
+    const r = exPaidNote(base as OrgRow)!;
+    expect(r.note).not.toContain("자연 소비");
+    expect(r.note).not.toContain("자연 유입에 가깝");
   });
 });

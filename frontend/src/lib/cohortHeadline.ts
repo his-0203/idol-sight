@@ -167,31 +167,51 @@ export function fmtDelta(n: number | null, unit: string): string | null {
 }
 
 /**
- * 유료 판정 제외 요약 한 줄 — "조회수 점수가 낮은 원인이 소수 집행 콘텐츠
- * 쏠림"임을 드릴다운 없이 보여준다. 동어반복 방지를 위해 제외 점수는 반드시
- * 쏠림 규모(편수·점유)와 한 문장에 묶는다. 필드가 하나라도 없으면 null —
- * 문장을 지어내지 않는다.
- *
- * 끝에 판정 점수 앵커를 붙이는 이유: 이 문장은 화면에서 판정 점수보다 먼저
- * 읽히는데, 제외 점수가 판정 점수보다 한참 높게 나온다(제외 기준이 판정선과
- * 같은 선이라 구조적으로 그렇다). 앵커가 없으면 투자사 독자가 제외 점수를
- * 이 팀의 결론 점수로 가져가고 배지도 풀린 것으로 읽는다 — 판정·배지는
- * 이 수치와 무관하게 그대로라는 사실을 같은 문단에서 못 박는다. 데이터에서
- * 파생되지 않는 해석(예: "나머지는 자연 소비다")은 붙이지 않는다.
+ * 유료 판정 제외 점수의 화면 라벨. 화면 네 곳(요약 줄·막대 숫자 컬럼·틱
+ * 툴팁·캡션)이 같은 말을 써야 독자가 세 군데의 같은 수치를 같은 것으로
+ * 읽는다. 예전 라벨 "제외 시"는 무엇을 제외했는지가 빠져 있어 "광고를 태운
+ * 콘텐츠를 빼면 점수가 잘 나온다"는 사실 자체가 화면에서 안 읽혔다(07-30
+ * 사용자 피드백). 상수로 두는 이유는 종전과 같다 — hand-copy desync 방지.
  */
-export function exPaidNote(o: OrgRow | undefined | null): string | null {
+export const EX_PAID_LABEL = "광고 투입 콘텐츠 제외";
+
+/**
+ * 유료 판정 제외 요약. headline(승격 표시용 결론 한 줄) / note(보조 각주)로
+ * 나눠 돌려준다 — 이 수치는 "보완할 점" 다음으로 중요한데 예전엔 한 문장에
+ * 뭉쳐 있어 시각적으로 승격할 지점이 없었다(07-30 피드백). 필드가 하나라도
+ * 없으면 null — 문장을 지어내지 않는다.
+ *
+ * note 에 판정 점수 앵커를 붙이는 이유: 제외 점수가 판정 점수보다 한참 높게
+ * 나온다(제외 기준이 판정선과 같은 선이라 구조적으로 그렇다). 앵커가 없으면
+ * 투자사 독자가 제외 점수를 이 팀의 결론 점수로 가져가고 배지도 풀린 것으로
+ * 읽는다 — 판정·배지는 이 수치와 무관하게 그대로라는 사실을 같은 문단에서
+ * 못 박는다. 데이터에서 파생되지 않는 해석(예: "나머지는 자연 소비다")은
+ * 붙이지 않는다.
+ *
+ * 쏠림 규모(조회수 점유 %)는 여기서 말하지 않는다 — organicityVerdict.weak
+ * 이 "왜 점수가 낮은가"의 원인 절로 이미 말하므로, 같은 사실을 두 문단이
+ * 반복하면 섹션이 다시 구구절절해진다.
+ */
+export interface ExPaidNote {
+  /** 승격 표시용 결론 — "광고 투입 콘텐츠 제외 69.5점". */
+  headline: string;
+  /** 보조 각주 — 제외 대상 규모 + "판정·배지는 그대로" 앵커. */
+  note: string;
+}
+
+export function exPaidNote(o: OrgRow | undefined | null): ExPaidNote | null {
   if (!o) return null;
   const { window_video_count: total, paid_video_count: paid,
     paid_view_share: share, score_view_weighted_ex_paid: exScore } = o;
   if (!total || !paid || share == null || exScore == null) return null;
   const judge = adJudgeScore(o);
-  const anchor = ` 이는 쏠림을 걷어낸 참고 분해이고, `
-    + (judge == null ? `위 판정 점수와` : `판정 점수 ${judge}점과`)
-    + ` ‘광고 의심’ 표시는 이 수치와 무관하게 그대로다.`;
-  return `유료 광고로 판정된 영상 ${paid}편(전체 ${total}편)이 조회수의 `
-    + `${Math.round(share * 100)}%를 차지한다 — 이들을 제외한 나머지 `
-    + `${total - paid}편의 조회수 기준 점수는 ${exScore}점이다.`
-    + anchor;
+  return {
+    headline: `${EX_PAID_LABEL} ${exScore}점`,
+    note: `광고를 투입한 것으로 판정된 ${paid}편(전체 ${total}편)을 뺀 나머지 `
+      + `${total - paid}편의 조회수 기준 점수다. 이는 쏠림을 걷어낸 참고 분해이고, `
+      + (judge == null ? `위 판정 점수와` : `판정 점수 ${judge}점과`)
+      + ` ‘광고 의심’ 표시는 이 수치와 무관하게 그대로다.`,
+  };
 }
 
 /**
@@ -439,11 +459,24 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
     // I3 — 원인 절("조회수 쪽이 낮아 판정이 그 값이 됐다")은 실제로 조회수
     // 점수가 편수 점수보다 낮아 min 을 만들었을 때만 붙인다. 조회수 점수가
     // 없는 창이나 편수 쪽이 더 낮은 창에서도 무조건 나가면 데이터가 뒷받침
-    // 하지 않는 인과를 지어내는 것이다. 쏠림의 실제 규모(편수·조회수 점유)는
-    // 바로 위 exPaidNote 문단이 이미 말하므로 여기서는 겹치지 않게 짧게 쓴다.
+    // 하지 않는 인과를 지어내는 것이다.
     const mine = d.organicity.find((o) => o.group_key === "miiwan");
     const viewLower = mine?.score != null && mine.score_view_weighted != null
       && mine.score_view_weighted < mine.score;
+    // 07-30 피드백 — 이 줄만 읽으면 "광고 과다"로만 읽히고 끝나 오해가 남았다.
+    // 조회수 점수가 낮은 진짜 이유는 카탈로그 전체가 광고성이어서가 아니라
+    // 광고를 태운 소수 콘텐츠에 조회수가 쏠렸기 때문이다 — 그 구조를 같은
+    // 문장 안에서 데이터(편수·조회수 점유)로 말한다. 쏠림 규모 필드가 없으면
+    // 지어내지 않고 종전의 짧은 원인 절로 물러난다.
+    const paid = mine?.paid_video_count;
+    const share = mine?.paid_view_share;
+    const cause = !viewLower
+      ? ""
+      : paid && share != null
+        ? ` 다만 편수 기준 ${mine!.score}점보다 낮은 조회수 기준 ${mine!.score_view_weighted}점은`
+          + ` 광고를 투입한 것으로 판정된 콘텐츠 ${paid}편에 조회수 ${Math.round(share * 100)}%가 쏠린`
+          + ` 구조 탓이지, 만든 콘텐츠 전체가 광고성이라는 뜻은 아니다.`
+        : ` 편수 기준 ${mine!.score}점보다 조회수 기준 ${mine!.score_view_weighted}점이 낮아 이 값이 판정 점수가 됐다.`;
     weak = `판정 점수(편수·조회수 중 낮은 쪽) ${standing.judgeScore}점은 광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) `
       + (nearLine < 0
         ? "아래라"
@@ -451,9 +484,7 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
           ? "부근이라"
           : `위지만 자연 유입 우세(${VERDICT_THRESHOLDS.organic}점)에는 못 미쳐`)
       + " 우리 성장에도 광고 영향을 배제하기 어렵다."
-      + (viewLower
-        ? ` 편수 기준 ${mine!.score}점보다 조회수 기준 ${mine!.score_view_weighted}점이 낮아 이 값이 판정 점수가 됐다.`
-        : "");
+      + cause;
   }
   return { good, weak };
 }

@@ -11,7 +11,8 @@
 //   ⑤ 자연 유입 점수 (②의 세로축 해부 — 가장 깊은 드릴다운)
 //   ⑥ 방법론 각주·제외 목록 (파인 프린트)
 // 시각 위계도 같은 방향으로 내려간다 — ①은 강조 카드, ②~⑤는 통일된
-// 소제목+리드(SECTION_TITLE / SECTION_LEAD), ⑥은 text-hint 소자.
+// 소제목+리드(SECTION_TITLE / SECTION_LEAD) 아래 해석 블록(VerdictLines),
+// 방법론성 각주와 ⑥은 접은 text-hint 소자(제외 목록만 기본 펼침).
 // 열세 지표도 숨기지 않는다 — 가짜 없는 보고가 전제.
 //
 // 배수 하나로 서열이 만들어지는 걸 네 군데서 막는다: 표의 '출발선' 컬럼
@@ -25,6 +26,7 @@
 // 쓰지 않고 각각 "같은 시기에 데뷔한 팀들 / 자연 유입 점수 / 데뷔일=100
 // 성장 폭 / 측정값 / 오차 범위"로 말한다. 정직성 장치(측정일 병기 · 제외
 // 명시 · est 배지)는 문장만 쉬워질 뿐 그대로 남는다.
+import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
 import { api } from "../api";
@@ -36,8 +38,8 @@ import { EstBadge } from "./EstBadge";
 import { VERDICT_COLOR, VERDICT_THRESHOLDS, scoreColor } from "../lib/organicity";
 // 헤드라인 문구·임계값은 순수 로직이라 lib 로 뺐다 (테스트: tests/lib/cohortHeadline.test.ts).
 import {
-  AD_SUSPECT_METRICS, METRIC_LABELS, METRIC_UNITS, ORG_AD_SUSPECT_THRESHOLD,
-  ORG_SCORE_GAP_CHIP, PRIMARY_METRIC,
+  AD_SUSPECT_METRICS, EX_PAID_LABEL, METRIC_LABELS, METRIC_UNITS,
+  ORG_AD_SUSPECT_THRESHOLD, ORG_SCORE_GAP_CHIP, PRIMARY_METRIC,
   adJudgeScore, adScoreMap, cohortComposition, curveVerdict, debutDateRange,
   exPaidNote, fmtDelta, fmtMultiple, headline, nearTieKeys, organicityVerdict,
   scorecardVerdict,
@@ -102,31 +104,43 @@ const TIER_BAND_BG = `linear-gradient(to right, ${[
 ].map(([c, from, to]) =>
   `${hexAlpha(c as string, TIER_BAND_ALPHA)} ${from}% ${to}%`).join(", ")})`;
 
-// 시각 위계: 결론 카드 > 섹션 카드(제목 + 리드) > 각주. 카드마다 제각각이던
-// 소제목·리드 스타일을 이 두 상수로 통일한다 — 새 색·새 토큰은 도입하지
-// 않고 기존 zinc 스케일과 text-hint 만 쓴다.
-const SECTION_TITLE = "text-sm font-medium text-zinc-200";
+// 시각 위계 3단 (07-30 피드백 "작은 텍스트가 너무 많고 위계가 없다"):
+//   ① 섹션 제목  16px/600/zinc-200
+//   ② 해석(잘함·보완·핵심 수치) 14px/zinc-200 + 좌측 보더로 시각 분리
+//   ③ 보조(리드·각주·소자 수치) 11px(text-hint)/zinc-400~600
+// 예전엔 ①이 14px/500/zinc-200, ②가 14px/zinc-300 이라 크기·굵기·색이 거의
+// 같아 눈이 줄을 세우지 못했다. 새 색·새 토큰은 도입하지 않고 기존 zinc
+// 스케일과 tailwind.config 의 의미 스케일(hint/data/body) 안에서만 벌린다.
+const SECTION_TITLE = "text-base font-semibold text-zinc-200";
 const SECTION_LEAD = "mb-2 text-hint text-zinc-400";
 const CHIP = "rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400";
+/** 접은 각주의 여는 손잡이 — 방법론성 설명은 전부 이 형태로 통일한다. */
+const SUMMARY = "cursor-pointer text-zinc-400 hover:text-zinc-200";
 
 /** 섹션별 MiiWAN 읽기 — 그림·표만으로는 자사 위치가 안 읽힌다는 피드백(07-29).
-    문장은 전부 lib에서 데이터로 산출 — 결론 하드코딩 금지. */
-function VerdictLines({ v }: { v: SectionVerdict }) {
-  if (!v.good && !v.weak) return null;
+    문장은 전부 lib에서 데이터로 산출 — 결론 하드코딩 금지.
+    좌측 보더 + 들여쓰기로 주변 각주(③)와 시각적으로 떼어 놓는다: 이 두 줄만
+    읽어도 섹션 결론이 잡혀야 한다(07-30 피드백 "10초 스캔").
+    extra = 같은 해석 위계로 붙는 섹션 고유 결론(자연 유입 섹션의 '광고 투입
+    콘텐츠 제외' 점수). 해석 두 줄이 없어도 extra 만으로 블록을 세운다 —
+    데이터가 있는데 그리지 않는 경로를 만들지 않기 위해서다. */
+function VerdictLines({ v, extra }: { v: SectionVerdict; extra?: ComponentChildren }) {
+  if (!v.good && !v.weak && !extra) return null;
   return (
-    <div class="mt-2 space-y-1 text-sm leading-relaxed">
+    <div class="my-3 space-y-1 border-l-2 border-zinc-700 pl-3 text-sm leading-relaxed">
       {v.good && (
-        <p class="text-zinc-300">
+        <p class="text-zinc-200">
           <strong class="text-emerald-400">잘하고 있는 점</strong>
           <span class="text-zinc-600"> — </span>{v.good}
         </p>
       )}
       {v.weak && (
-        <p class="text-zinc-300">
+        <p class="text-zinc-200">
           <strong class="text-amber-400">보완할 점</strong>
           <span class="text-zinc-600"> — </span>{v.weak}
         </p>
       )}
+      {extra}
     </div>
   );
 }
@@ -524,13 +538,14 @@ export function MiiWANCohortReport() {
             <h3 class={SECTION_TITLE}>성장의 질</h3>
             <span class={CHIP}>{METRIC_LABELS[QUALITY_METRIC] ?? QUALITY_METRIC} 기준</span>
           </div>
+          {/* F4 — 기준선이 40점(광고 과다 컷)으로 내려온 뒤로 "위 = 광고 없이
+              컸다"는 organic(70점) 컷 이야기와 섞여 아래 막대 캡션("70점부터
+              자연 유입 우세")과 모순됐다. 위쪽은 "과다 사용 정황이 없다"까지만.
+              R11(07-30) — 리드는 축 세 개를 한 줄로만 말한다. 사분면 해석·
+              참조 원 규칙 같은 읽는 법은 아래 접은 각주로 내렸다. */}
           <p class={SECTION_LEAD}>
-            <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> —
-            오른쪽일수록 데뷔 전(약 30일 전)부터 지금까지 빠르게 컸고, 위쪽일수록
-            {/* F4 — 기준선이 40점(광고 과다 컷)으로 내려온 뒤로 "위 = 광고 없이
-                컸다"는 organic(70점) 컷 이야기와 섞여 아래 막대 캡션("70점부터
-                자연 유입 우세")과 모순됐다. 위쪽은 "과다 사용 정황이 없다"까지만. */}
-            광고 과다 사용 정황이 없는 쪽이다. 원이 클수록 현재 팬 규모가 크다.
+            오른쪽일수록 빠르게 컸고, 위쪽일수록 광고 과다 사용 정황이 없으며,
+            원이 클수록 현재 팬 규모가 크다.
           </p>
           <div style={{ height: "320px" }}>
             <canvas ref={qCanvasRef} />
@@ -538,30 +553,34 @@ export function MiiWANCohortReport() {
           {/* R5 — 자사 위치 서술(舊 scatterNote)은 Task 2에서 qualityVerdict로
               흡수됐고, 여기서 VerdictLines로 렌더한다. */}
           <VerdictLines v={qVerdict} />
-          <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
-            가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
-            팀들의 총 성장 배수(데뷔 전 값 대비) 중앙값
-            {quality.medianGrowth != null && <> ({fmtMultiple(quality.medianGrowth)})</>}.
-            {" "}오른쪽 아래 팀은 빠르게 컸지만 자연 유입 점수가 낮아 광고 효과가
-            섞여 있을 수 있고, 위쪽 팀은 속도가 느려도 광고 과다 사용 정황은
-            없는 쪽이다. 속이 빈 원은 참고용(PLAVE)이라 순위·중앙값에서 뺐다.
-            {" "}세로축은 <strong class="text-zinc-300">편수·조회수 두 기준 중 낮은
-            점수</strong>다 — 어느 한쪽으로도 방어할 수 없는 보수적 판정이며, 자사를
-            포함한 전 팀에 같은 기준을 적용한다.
-          </p>
-          {/* 값이 없는 팀을 조용히 지우면 "코호트가 원래 이만큼"으로 읽힌다 —
-              누가 왜 빠졌는지 함께 밝힌다(가짜 없음 · 열세 숨김 금지). */}
-          {quality.excluded.length > 0 && (
-            <p class="mt-1 text-hint text-zinc-500">
-              표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}
+          {/* R11 — 예전엔 여기 text-hint 문단이 셋 연속으로 붙어 있어 해석 두
+              줄이 각주에 파묻혔다. 읽는 법(방법론)은 접고, 공시성 문단(누가
+              빠졌나·어느 날짜로 그렸나)만 한 줄로 합쳐 펼친 채 남긴다 —
+              접어서 안 보이면 "숨겼다"와 구분되지 않기 때문이다. */}
+          <details class="mt-2 text-hint text-zinc-500">
+            <summary class={SUMMARY}>그래프 읽는 법</summary>
+            <p class="mt-1 leading-relaxed">
+              가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
+              팀들의 총 성장 배수(데뷔 전 값 대비) 중앙값
+              {quality.medianGrowth != null && <> ({fmtMultiple(quality.medianGrowth)})</>}.
+              {" "}오른쪽 아래 팀은 빠르게 컸지만 자연 유입 점수가 낮아 광고 효과가
+              섞여 있을 수 있다. 속이 빈 원은 참고용(PLAVE)이라 순위·중앙값에서 뺐다.
+              {" "}세로축은 편수·조회수 두 기준 중 낮은 점수이며, 자사를 포함한 전 팀에
+              같은 기준을 적용한다.
             </p>
-          )}
-          {/* M1 — 앵커가 "데뷔 약 30일 전"이라는 x축 전제에서 벗어난 팀(데뷔일
-              폴백뿐 아니라 D-21처럼 창 밖에서 잡힌 느슨한 앵커도)은 조용히
-              넘기지 않고 실제로 쓴 날짜를 공시한다. isLooseAnchor()가 두
-              경우를 하나의 규칙으로 판정한다. */}
-          {quality.points.some((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? 30)) && (
-            <p class="mt-1 text-hint text-zinc-500">
+          </details>
+          {/* 값이 없는 팀을 조용히 지우면 "코호트가 원래 이만큼"으로 읽힌다 —
+              누가 왜 빠졌는지 함께 밝힌다(가짜 없음 · 열세 숨김 금지).
+              M1 — 앵커가 "데뷔 약 30일 전"이라는 x축 전제에서 벗어난 팀(데뷔일
+              폴백뿐 아니라 D-21처럼 창 밖에서 잡힌 느슨한 앵커도)도 같은 줄에서
+              실제로 쓴 날짜를 공시한다. isLooseAnchor()가 두 경우를 하나의
+              규칙으로 판정한다. */}
+          {(quality.excluded.length > 0
+            || quality.points.some((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? 30))) && (
+            <p class="mt-1 text-hint text-zinc-500 leading-relaxed">
+              {quality.excluded.length > 0 && (
+                <>표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}{" "}</>
+              )}
               {quality.points
                 .filter((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? 30))
                 .map((p) => p.anchorDay === 0
@@ -577,11 +596,9 @@ export function MiiWANCohortReport() {
       {/* ③ 성장곡선(데뷔일=100) + 지표 pill 탭 — 시간 흐름(중간 층위). */}
       <div>
         <h3 class={SECTION_TITLE}>시간에 따른 성장</h3>
-        {/* R2 — 곡선 캡션은 두 문장으로. 나머지 설명은 차트 위 칩과 각주로 뺐다. */}
+        {/* R2 — 곡선 캡션은 한 줄로. 세로선·배경의 뜻은 차트 위 칩과 각주에 있다. */}
         <p class={SECTION_LEAD}>
-          <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> — 각 팀의
-          데뷔일 값을 100으로 놓았을 때 누가 더 가파른지 (200이면 두 배).
-          옅은 배경은 데뷔 전 구간이고, 세로선이 데뷔일이다.
+          각 팀의 데뷔일 값을 100으로 놓았을 때 누가 더 가파른지 (200이면 두 배).
         </p>
         <div role="tablist" aria-label="지표 선택"
              class="mb-2 flex overflow-x-auto gap-1 card p-1">
@@ -599,9 +616,12 @@ export function MiiWANCohortReport() {
             );
           })}
         </div>
-        {/* 점이 드문 구간이 "완만한 성장"으로 읽히지 않게 칩으로 먼저 알린다. */}
+        {/* 점이 드문 구간이 "완만한 성장"으로 읽히지 않게 칩으로 먼저 알린다.
+            리드에서 뺀 축 표기(세로선·옅은 배경)도 같은 칩 줄에 둔다 — 같은
+            층위(범례)라 문단으로 따로 세우면 소자 문단만 늘어난다. */}
         <div class="mb-2 flex flex-wrap gap-2">
           <span class={CHIP}>점 = 실제 측정 시점 · 일부 팀은 주 1회 측정이라 직선 구간 있음</span>
+          <span class={CHIP}>세로선 = 데뷔일 · 옅은 배경 = 데뷔 전 구간</span>
         </div>
         {/* 패널은 하나(내용만 교체) — tabIndex 0 이라 캔버스밖에 없어도
             키보드로 도달·스크롤할 수 있다. */}
@@ -636,13 +656,16 @@ export function MiiWANCohortReport() {
         <div>
           <h3 class={SECTION_TITLE}>팀별 상세</h3>
           <p class={SECTION_LEAD}>
-            <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> — 같은 시기에
-            데뷔한 팀들 사이에서 우리가 몇 번째로 크게 늘었는지, 그리고 그 성장이
-            데뷔 전에 쌓인 것인지 데뷔 후에 만든 것인지.
+            우리가 몇 번째로 크게 늘었는지, 그 성장이 데뷔 전에 쌓인 것인지
+            데뷔 후에 만든 것인지.
           </p>
           <VerdictLines v={sVerdict} />
-          {/* C1 — 비교 대상 구성을 표 앞에 고정 노출. 각주까지 내려가야 알 수
-              있으면 "왜 4팀뿐이냐"는 질문이 먼저 나온다. */}
+          {/* C1 — 비교 대상 구성은 표 앞에 고정 노출(공시). 각주까지 내려가야
+              알 수 있으면 "왜 4팀뿐이냐"는 질문이 먼저 나온다.
+              R11(07-30) — 반면 '출발선 읽는 법'·'배지 범례'는 방법론이라
+              접는다: 출발선 인과는 바로 위 '보완할 점'이 이미 한 줄로 말하고
+              (같은 사실을 두 번 말하지 않는다), 배지 뜻은 표를 실제로 볼 때
+              찾으면 되는 참조 정보다. */}
           <p class="mb-2 text-hint text-zinc-500">
             비교 대상: 같은 시기 데뷔 {composition.candidates}팀 중 데이터 확보
             {" "}{composition.withData}팀
@@ -652,19 +675,20 @@ export function MiiWANCohortReport() {
                 ({composition.referenceNames.join(", ")}, 순위 제외)</>
             )}
           </p>
-          {/* R1 두 번째(마지막) 자리 — 출발선 읽는 법을 표 바로 위로 승격. */}
-          <p class="mb-2 text-hint text-zinc-500">
-            <strong class="text-zinc-300">출발선을 같이 볼 것</strong> — 출발선이 클수록
-            배수는 구조적으로 작게 나온다. 1천에서 2천이 되면 2.0×지만, 30만에서
-            32만이 되면 1.1×다. 늘어난 사람 수는 뒤가 훨씬 많은데도 배수는 앞이 크다.
-          </p>
-          {/* E1 — 배지 뜻을 hover 없이 상시 노출. hover 는 모바일에서 존재하지 않는다. */}
-          <p class="mb-2 text-hint text-zinc-600">
-            <span class="rounded bg-zinc-800/60 px-1 py-[1px] text-[10px] text-zinc-500">est</span>
-            {" "}= 나중에 되짚어 채운 추정치(모양은 믿되 절대값은 참고) ·
-            {" "}<span class="rounded bg-zinc-800/60 px-1 py-[1px] text-[10px] text-zinc-500">bf</span>
-            {" "}= 검색 키워드 집계로 확인한 값 · 배지 없음 = 그날 직접 수집한 실측값
-          </p>
+          <details class="mb-2 text-hint text-zinc-500">
+            <summary class={SUMMARY}>표 읽는 법 · 배지 뜻</summary>
+            <p class="mt-1 leading-relaxed">
+              출발선이 클수록 배수는 구조적으로 작게 나온다 — 1천에서 2천이 되면
+              2.0×지만 30만에서 32만이 되면 1.1×다. 늘어난 사람 수는 뒤가 훨씬 많다.
+            </p>
+            {/* E1 — 배지 뜻은 hover 없이 글자로. hover 는 모바일에 존재하지 않는다. */}
+            <p class="mt-1 text-zinc-600">
+              <span class="rounded bg-zinc-800/60 px-1 py-[1px] text-[10px] text-zinc-500">est</span>
+              {" "}= 나중에 되짚어 채운 추정치(모양은 믿되 절대값은 참고) ·
+              {" "}<span class="rounded bg-zinc-800/60 px-1 py-[1px] text-[10px] text-zinc-500">bf</span>
+              {" "}= 검색 키워드 집계로 확인한 값 · 배지 없음 = 그날 직접 수집한 실측값
+            </p>
+          </details>
           <div class="overflow-x-auto rounded-lg border border-zinc-800">
           {/* M3 — 컬럼 7개(구독 효율 포함 시)라 900px에선 좁은 화면에서 셀이
               눌린다. 1000px로 여유를 둔다. */}
@@ -831,27 +855,32 @@ export function MiiWANCohortReport() {
             )}
           </p>
           {/* 광고 의심 배지와 짝이 되는 각주 — 배지가 안 뜨는 지표·시점에도
-              "배수는 돈으로도 만들 수 있다"는 읽는 법 자체를 남긴다. */}
+              "배수는 돈으로도 만들 수 있다"는 읽는 법 자체를 남긴다. 07-30:
+              같은 말을 세 절에 나눠 하던 문장을 한 문장으로 줄였다(판정 규칙의
+              상세는 아래 자연 유입 섹션 캡션이 한 번만 말한다). */}
           <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
-            성장 배수는 광고비를 써서도 만들 수 있는 숫자다. 그래서 이 표만 보지 말고
-            아래 <strong class="text-zinc-300">자연 유입 점수</strong>(광고 없이 팬이 스스로
-            찾아온 정도)와 같이 봐야 한다 — 판정은 <strong class="text-zinc-300">편수·조회수
-            두 기준 중 낮은 점수</strong>로 하고, {ORG_AD_SUSPECT_THRESHOLD}점 미만인 팀에
-            &lsquo;광고 영향 의심&rsquo;을 붙인다. 이는 공개 영상 지표로 낸 자체 추정이며,
-            자사를 포함한 전 팀에 같은 기준을 적용한다.
+            성장 배수는 광고비로도 만들 수 있는 숫자라, 판정 점수
+            {" "}{ORG_AD_SUSPECT_THRESHOLD}점 미만인 팀에는 배수 옆에
+            {" "}&lsquo;광고 영향 의심&rsquo;을 붙이고 아래
+            {" "}<strong class="text-zinc-300">자연 유입 점수</strong>와 같이 읽게 했다.
           </p>
           {/* S — 데뷔 전/후 대역이 다르다는 사실을 분리해 쓴다. 하나로 뭉치면
-              "0.3~3 이 정상"과 실제 데뷔 전 수치(수십~수백)가 정면 충돌한다. */}
+              "0.3~3 이 정상"과 실제 데뷔 전 수치(수십~수백)가 정면 충돌한다.
+              접되 오독 방지 핵심("데뷔 전은 상대 비교")은 손잡이 문구에 남긴다. */}
           {showEfficiency && (
-            <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
-              <strong class="text-zinc-300">구독 효율</strong> = 조회수 1,000회당 늘어난
-              구독자. <strong class="text-zinc-300">데뷔 후</strong> 정상 구간은 0.3~3이고
-              현재 전 팀이 이 범위 안에 있다. <strong class="text-zinc-300">데뷔 전</strong>은
-              조회수 자체가 적어 비율이 수십~수백으로 뜨는 게 보통이므로, 절대값이
-              아니라 <strong class="text-zinc-300">팀 간 상대 비교</strong>로 읽는다 — 유독
-              높은 팀은 영상 노출 없이 구독자가 늘었다는 뜻이다. 구독자·조회수가 같은
-              날 함께 측정된 실측값끼리만 비교했고, 한쪽이 비면 &mdash; 로 둔다.
-            </p>
+            <details class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
+              <summary class={SUMMARY}>
+                구독 효율 읽는 법 — 데뷔 전 값은 절대값이 아니라 팀 간 상대 비교로
+              </summary>
+              <p class="mt-1 leading-relaxed">
+                조회수 1,000회당 늘어난 구독자. <strong class="text-zinc-300">데뷔 후</strong>
+                {" "}정상 구간은 0.3~3이고 현재 전 팀이 이 범위 안에 있다.
+                {" "}<strong class="text-zinc-300">데뷔 전</strong>은 조회수 자체가 적어
+                비율이 수십~수백으로 뜨는 게 보통이라, 유독 높은 팀은 영상 노출 없이
+                구독자가 늘었다는 뜻으로 읽는다. 구독자·조회수가 같은 날 함께 측정된
+                실측값끼리만 비교했고, 한쪽이 비면 &mdash; 로 둔다.
+              </p>
+            </details>
           )}
           </div>
         </div>
@@ -872,25 +901,24 @@ export function MiiWANCohortReport() {
             <span class={CHIP}>{orgWindowLabel} · 데뷔 창 기준</span>
           </div>
           <p class={SECTION_LEAD}>
-            <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> — 위 산점도
-            세로축의 상세. 데뷔 전후 영상들이 유료 광고로 밀린 것처럼 보이는지 하나씩
-            자동 판정해 100점 만점으로 평균 낸 값이고, 높을수록 광고 없이 사람들이
-            스스로 찾아왔다는 뜻이다. 창이 데뷔 전까지 걸쳐 있는 이유는 유료 캠페인이
-            주로 데뷔 직전에 집행되기 때문이다.
+            영상 하나하나가 광고로 밀린 것처럼 보이는지 자동 판정해 100점 만점으로
+            평균 낸 값 — 높을수록 사람들이 스스로 찾아왔다는 뜻이다.
           </p>
-          {/* MiiWAN 조회수 점수 하락의 원인을 드릴다운 없이 상시 노출 —
-              동어반복을 피하려 제외 점수를 반드시 쏠림 규모(편수·점유)와
-              한 문장에 묶는다(exPaidNote). 문장은 exPaidNote 가 전부 만든다:
+          {/* 07-30 피드백 ③ — "광고 투입 콘텐츠 제외 N점"이 이 섹션에서
+              '보완할 점' 다음으로 중요한 사실이다(자연 확장 콘텐츠만 보면
+              점수가 잘 나온다는 뜻). 예전엔 hint 소자 문단으로 '보완할 점'
+              위에 얹혀 있어 원인 설명처럼만 읽혔다. 이제 해석 블록 안으로
+              들여 굵은 결론 한 줄(headline)로 세우고, 규모·앵커는 그 아래
+              보조 각주(note)로 내린다. 문장은 전부 exPaidNote 가 만든다 —
               여기서 고정 문구를 덧붙이면 데이터에서 파생되지 않은 결론이
               모든 창에 그대로 실린다(제외 뒤 남은 조회수에도 의심 대역이
               섞여 있어 "나머지는 자연 소비"라고 단정할 수 없다). */}
-          {miiwanExPaid && (
-            <p class="mb-2 text-hint text-zinc-400">
-              <strong class="text-zinc-300">MiiWAN 조회수 점수가 낮은 이유</strong>
-              {" — "}{miiwanExPaid}
+          <VerdictLines v={oVerdict} extra={miiwanExPaid && (
+            <p class="pt-1">
+              <strong class="text-zinc-100">{miiwanExPaid.headline}</strong>
+              <span class="block text-hint text-zinc-500">{miiwanExPaid.note}</span>
             </p>
-          )}
-          <VerdictLines v={oVerdict} />
+          )} />
           {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
               폭 자체가 신호라 한 점으로 뭉개지 않는다. R10 — 진한 막대가 우리 팀. */}
           {/* 눈금 행 — 등급 경계를 축처럼 보여준다. 좌우 스페이서는 아래 행의
@@ -911,7 +939,7 @@ export function MiiWANCohortReport() {
                 </span>
               ))}
             </div>
-            <span class="w-32 shrink-0" />
+            <span class="w-36 shrink-0" />
             <span class="w-20 shrink-0" />
             <span class="w-28 shrink-0" />
           </div>
@@ -971,11 +999,11 @@ export function MiiWANCohortReport() {
                     {o.score_view_weighted_ex_paid != null
                       && (o.paid_video_count ?? 0) > 0 && (
                       <div class="absolute top-[-3px] bottom-[-3px] w-[2px] -translate-x-1/2 rounded"
-                           title={`유료 판정 ${o.paid_video_count}편`
+                           title={`${EX_PAID_LABEL} ${o.score_view_weighted_ex_paid}점`
+                             + ` — 판정된 ${o.paid_video_count}편`
                              + (o.paid_view_share == null ? ""
                                : `(조회수의 ${Math.round(o.paid_view_share * 100)}%)`)
-                             + ` 제외 시 조회수 기준 ${o.score_view_weighted_ex_paid}점`
-                             + ` · 판정 점수·배지는 그대로`}
+                             + `을 뺀 조회수 기준 점수 · 판정 점수·배지는 그대로`}
                            style={{ left: `${clampPct(o.score_view_weighted_ex_paid)}%`,
                                     background: colorOf(o.group_key),
                                     opacity: isMine ? 1 : 0.75 }} />
@@ -988,13 +1016,18 @@ export function MiiWANCohortReport() {
                       틱과 달리 유료 0편도 그대로 적는다 — 값 비교라 제외해도
                       같다는 사실이 그 자체로 답이고, 겹쳐 오독될 위치 표시가
                       아니기 때문이다. */}
-                  <span class="w-32 shrink-0 text-right text-hint tabular-nums text-zinc-500">
-                    <span class="block">
+                  {/* 07-30 — 둘째 줄은 예전엔 "제외 시 N점"이었다. 무엇을
+                      제외했는지가 빠져 "광고를 태운 콘텐츠를 빼면 이만큼"이라는
+                      뜻이 안 읽혔고, 색도 첫 줄보다 어두워(zinc-600) 덜 중요한
+                      값으로 보였다. 라벨을 붙이고 밝기·굵기를 첫 줄 위로
+                      올린다 — 판정 점수(w-9 굵은 숫자) 다음 가는 위계. */}
+                  <span class="w-36 shrink-0 text-right tabular-nums">
+                    <span class="block text-hint text-zinc-500">
                       편수 {byCount} · 조회수 {o.score_view_weighted == null ? "—" : byViews}
                     </span>
                     {o.score_view_weighted_ex_paid != null && (
-                      <span class="block text-zinc-600">
-                        제외 시 {o.score_view_weighted_ex_paid}점
+                      <span class="block text-hint font-medium text-zinc-300">
+                        광고 투입 제외 {o.score_view_weighted_ex_paid}점
                       </span>
                     )}
                   </span>
@@ -1017,16 +1050,15 @@ export function MiiWANCohortReport() {
               );
             })}
           </div>
+          {/* 항상 펼쳐 두는 한 줄 = 막대를 읽는 최소 규칙 + 자기공시(K3):
+              유료 여부는 공개 지표로 낸 **자체 추정 판정**이라는 사실이 이
+              화면에서 접힌 적이 없어야 한다. 나머지(등급 밴드·창 길이·제외
+              점수 읽는 법)는 방법론이라 접는다. */}
           <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
-            <strong class="text-zinc-300">굵은 숫자가 판정 점수</strong> — 영상 편수로 본
-            점수(채운 점)와 조회수로 본 점수(빈 점) 중 <strong class="text-zinc-300">낮은
-            쪽</strong>이다. 조회수 점수가 유독 낮으면 조회수가 소수의 광고성 영상에 쏠려
-            있다는 뜻이고, 두 점 사이가 멀수록 그 쏠림이 크다. 배경 색 구간은 점수대의
-            뜻이다 — {ORG_AD_SUSPECT_THRESHOLD}점 미만(붉은 구간)이면 광고를 과하게 쓴
-            것으로 보고 위 그래프·표에 &lsquo;광고 의심&rsquo;을 붙이며,
-            {" "}{VERDICT_THRESHOLDS.organic}점 이상(초록 구간)이면 자연 유입이 우세하다.
-            MiiWAN이 지금까지 지나온 기간({orgWindowLabel})까지만 세서 비교한다 — 먼저
-            데뷔한 팀만 더 긴 기간을 쓰면 공정하지 않기 때문이다.
+            <strong class="text-zinc-300">굵은 숫자가 판정 점수</strong> — 편수로 본
+            점수(채운 점)와 조회수로 본 점수(빈 점) 중 낮은 쪽이고, 두 점이 멀수록
+            조회수가 소수 영상에 쏠려 있다는 뜻이다. 유료 여부는 공개 영상 지표로 낸
+            자체 추정 판정이며, 자사를 포함한 전 팀에 같은 기준을 적용한다.
           </p>
           {/* 제외 점수 읽는 법 — 제외 기준이 판정선과 **같은 선**이라
               (영상별 유료 판정 = 점수 ORG_AD_SUSPECT_THRESHOLD 미만) 남은
@@ -1034,22 +1066,36 @@ export function MiiWANCohortReport() {
               이 구조를 적어두지 않으면 "틱이 기준선을 넘었다"가 발견처럼
               읽힌다 — 보장된 산술을 성과로 파는 문장이 된다. 그래서 방향이
               아니라 규모(편수·조회수 점유)로 읽으라고 못 박는다. */}
-          <p class="mt-1 text-hint text-zinc-500 leading-relaxed">
-            <strong class="text-zinc-300">세로 틱과 &lsquo;제외 시&rsquo; 숫자</strong>는
-            유료 판정({ORG_AD_SUSPECT_THRESHOLD}점 미만) 영상을 빼고 다시 센 조회수 기준
-            점수다. 제외 기준이 판정선과 같은 선이라, 뺀 영상은 모두 기준선 아래
-            영상이고 남은 점수가 기준선 위로 올라오는 것 자체는 당연하다. 그래서 읽을
-            것은 틱의 위치가 아니라 <strong class="text-zinc-300">몇 편이 조회수의 몇
-            %를 차지했는가</strong>이며(틱에 마우스를 올리면 나온다), 이 값은 위 판정
-            점수와 &lsquo;광고 의심&rsquo; 표시를 바꾸지 않는다.
-          </p>
+          <details class="mt-1 text-hint text-zinc-500">
+            <summary class={SUMMARY}>점수대·비교 기간과 &lsquo;{EX_PAID_LABEL}&rsquo; 점수 읽는 법</summary>
+            <p class="mt-1 leading-relaxed">
+              배경 색 구간은 점수대의 뜻이다 — {ORG_AD_SUSPECT_THRESHOLD}점 미만(붉은
+              구간)이면 광고를 과하게 쓴 것으로 보고 위 그래프·표에
+              {" "}&lsquo;광고 의심&rsquo;을 붙이며, {VERDICT_THRESHOLDS.organic}점
+              이상(초록 구간)이면 자연 유입이 우세하다. MiiWAN이 지금까지 지나온
+              기간({orgWindowLabel})까지만 세서 비교한다 — 먼저 데뷔한 팀만 더 긴
+              기간을 쓰면 공정하지 않기 때문이다.
+            </p>
+            <p class="mt-1 leading-relaxed">
+              세로 틱과 &lsquo;광고 투입 제외&rsquo; 숫자는 광고 투입으로 판정된
+              ({ORG_AD_SUSPECT_THRESHOLD}점 미만) 영상을 빼고 다시 센 조회수 기준
+              점수다. 제외 기준이 판정선과 같은 선이라 남은 점수가 기준선 위로
+              올라오는 것 자체는 당연하니, 읽을 것은 틱의 위치가 아니라
+              {" "}<strong class="text-zinc-300">몇 편이 조회수의 몇 %를 차지했는가</strong>
+              이며, 이 값은 위 판정 점수와 &lsquo;광고 의심&rsquo; 표시를 바꾸지 않는다.
+            </p>
+          </details>
         </div>
       )}
 
-      {/* ⑥ 방법론 각주·제외 목록 — 파인 프린트. 내용은 유지하고 리드인 불릿으로
-          쪼갠다(한 덩어리 문단은 아무도 끝까지 읽지 않는다). */}
+      {/* ⑥ 방법론 각주·제외 목록 — 파인 프린트. 07-30: 내용은 그대로 두고
+          접는다. 다섯 불릿이 늘 펼쳐져 있어 화면 끝이 소자 텍스트 벽으로
+          끝났다(K4/K5). 제외 목록은 종전대로 기본 펼침 — 접으면 "숨겼다"와
+          구분되지 않는다. */}
       <div class="space-y-1.5 text-hint text-zinc-500">
-        <ul class="space-y-1 leading-relaxed">
+        <details>
+          <summary class={SUMMARY}>측정·비교 방법 (정렬 · 배수 계산 · 대상 선정 · 추정치 · 제외 원칙)</summary>
+        <ul class="mt-1 space-y-1 leading-relaxed">
           <li>
             <strong class="text-zinc-400">정렬 방식</strong> — 팀마다 데뷔한 날이
             다르므로 각 팀의 데뷔일을 똑같이 0일로 맞춘 뒤 같은 경과일끼리 비교한다.
@@ -1087,6 +1133,7 @@ export function MiiWANCohortReport() {
             순위를 유리하게도 불리하게도 조정하지 않는다 — 모수에서 빠질 뿐이다.
           </li>
         </ul>
+        </details>
         {/* R4 — 제외 목록은 기본 펼침. 접어두면 "숨겼다"와 구분되지 않는다. */}
         {data.excluded.length > 0 && (
           <details open class="text-hint text-zinc-500">
