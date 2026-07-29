@@ -32,6 +32,8 @@ import { fmt } from "../format";
 import { colorOf, fillOf } from "../design/groups";
 import { EmptyState } from "./EmptyState";
 import { EstBadge } from "./EstBadge";
+// 자연 유입 점수 등급 경계·색 — organicity.ts 가 단일 원천(DebutWindow* 계열과 공유).
+import { VERDICT_COLOR, VERDICT_THRESHOLDS, scoreColor } from "../lib/organicity";
 // 헤드라인 문구·임계값은 순수 로직이라 lib 로 뺐다 (테스트: tests/lib/cohortHeadline.test.ts).
 import {
   AD_SUSPECT_METRICS, METRIC_LABELS, METRIC_UNITS, ORG_AD_SUSPECT_THRESHOLD,
@@ -76,6 +78,26 @@ function fmtEfficiency(v: number | null): string {
 function clampPct(v: number): number {
   return Math.max(0, Math.min(100, v));
 }
+
+/** organicity 등급색 hex → rgba. 등급 밴드 배경은 원색이면 막대를 잡아먹는다. */
+function hexAlpha(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/** 등급 밴드 배경 — 경계·색 모두 organicity.ts 단일 원천에서 파생. */
+const TIER_BAND_ALPHA = 0.10;
+const T = VERDICT_THRESHOLDS;
+const TIER_BAND_BG = `linear-gradient(to right, ${[
+  [VERDICT_COLOR.likely_paid, 0, T.suspect],
+  [VERDICT_COLOR.suspect, T.suspect, T.borderline],
+  [VERDICT_COLOR.borderline, T.borderline, T.organic],
+  [VERDICT_COLOR.organic, T.organic, T.organic_strong],
+  [VERDICT_COLOR.organic_strong, T.organic_strong, 100],
+].map(([c, from, to]) =>
+  `${hexAlpha(c as string, TIER_BAND_ALPHA)} ${from}% ${to}%`).join(", ")})`;
 
 // 시각 위계: 결론 카드 > 섹션 카드(제목 + 리드) > 각주. 카드마다 제각각이던
 // 소제목·리드 스타일을 이 두 상수로 통일한다 — 새 색·새 토큰은 도입하지
@@ -831,11 +853,25 @@ export function MiiWANCohortReport() {
           </p>
           {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
               폭 자체가 신호라 한 점으로 뭉개지 않는다. R10 — 진한 막대가 우리 팀. */}
+          {/* 눈금 행 — 등급 경계를 축처럼 보여준다. 좌우 스페이서는 아래 행의
+              이름/숫자 컬럼 폭과 같아야 트랙과 정렬된다. */}
+          <div class="flex items-center gap-2 text-sm" aria-hidden="true">
+            <span class="w-20 shrink-0" />
+            <span class="w-9 shrink-0" />
+            <div class="relative h-4 flex-1 text-[10px] tabular-nums text-zinc-600">
+              {[0, T.suspect, T.borderline, T.organic, T.organic_strong, 100].map((t) => (
+                <span key={t} class="absolute -translate-x-1/2" style={{ left: `${t}%` }}>{t}</span>
+              ))}
+            </div>
+            <span class="w-32 shrink-0" />
+            <span class="w-20 shrink-0" />
+          </div>
           <div class="space-y-1.5">
             {orgRows.map((o) => {
               // orgRows 는 score != null 로 걸러진 행이라 여기서 non-null 이다.
               const byCount = o.score!;
               const byViews = o.score_view_weighted ?? byCount;
+              const judge = adJudgeScore(o)!;
               const lo = Math.min(byCount, byViews);
               const hi = Math.max(byCount, byViews);
               const isMine = o.group_key === "miiwan";
@@ -845,20 +881,43 @@ export function MiiWANCohortReport() {
                   <span class="w-20 shrink-0" style={{ color: colorOf(o.group_key) }}>
                     {data.groups[o.group_key]?.name ?? o.group_key}
                   </span>
-                  <div class="relative h-2 flex-1 rounded bg-zinc-800">
-                    <div class="absolute h-2 rounded"
-                         style={{ left: `${clampPct(lo)}%`,
-                                  width: `${Math.max(1.5, clampPct(hi) - clampPct(lo))}%`,
-                                  background: colorOf(o.group_key),
-                                  opacity: isMine ? 1 : 0.5 }} />
-                  </div>
-                  <span class="w-28 shrink-0 text-right tabular-nums text-zinc-400">
-                    {byCount}
-                    <span class="text-zinc-600"> / </span>
-                    {o.score_view_weighted == null ? "—" : o.score_view_weighted}
+                  {/* 판정 점수 — 이 행의 결론. 색은 등급색(단일 원천). */}
+                  <span class="w-9 shrink-0 text-right tabular-nums font-semibold"
+                        style={{ color: scoreColor(judge) }}
+                        title={`판정 점수 ${judge}점 (편수 ${byCount} · 조회수 ${byViews} 중 낮은 쪽)`}>
+                    {judge}
                   </span>
-                  {/* B4 — 점수만 있으면 "34편 평균"과 "2편 평균"이 같아 보인다. */}
-                  <span class="w-24 shrink-0 text-right text-hint text-zinc-600">
+                  <div class="relative h-3 flex-1 rounded"
+                       style={{ background: TIER_BAND_BG }}>
+                    {/* 광고 의심 기준선 */}
+                    <div class="absolute top-[-2px] bottom-[-2px] w-px"
+                         style={{ left: `${ORG_AD_SUSPECT_THRESHOLD}%`,
+                                  background: hexAlpha(VERDICT_COLOR.likely_paid, 0.7) }} />
+                    {/* 두 기준 사이 구간 */}
+                    <div class="absolute top-1/2 h-1 -translate-y-1/2 rounded"
+                         style={{ left: `${clampPct(lo)}%`,
+                                  width: `${Math.max(1, clampPct(hi) - clampPct(lo))}%`,
+                                  background: colorOf(o.group_key),
+                                  opacity: isMine ? 0.9 : 0.45 }} />
+                    {/* 편수 기준 = 채운 점 / 조회수 기준 = 속 빈 점 */}
+                    <div class="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                         title={`편수 기준 ${byCount}점`}
+                         style={{ left: `${clampPct(byCount)}%`,
+                                  background: colorOf(o.group_key),
+                                  opacity: isMine ? 1 : 0.75 }} />
+                    {o.score_view_weighted != null && (
+                      <div class="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
+                           title={`조회수 기준 ${byViews}점`}
+                           style={{ left: `${clampPct(byViews)}%`,
+                                    borderColor: colorOf(o.group_key),
+                                    background: "rgb(24 24 27)", // zinc-900 카드 배경
+                                    opacity: isMine ? 1 : 0.75 }} />
+                    )}
+                  </div>
+                  <span class="w-32 shrink-0 text-right text-hint tabular-nums text-zinc-500">
+                    편수 {byCount} · 조회수 {o.score_view_weighted == null ? "—" : byViews}
+                  </span>
+                  <span class="w-20 shrink-0 text-right text-hint text-zinc-600">
                     영상 {o.video_count}편
                   </span>
                   {wide && (
@@ -872,14 +931,15 @@ export function MiiWANCohortReport() {
             })}
           </div>
           <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
-            숫자는 <strong class="text-zinc-300">편수 기준 / 조회수 기준</strong> 순이고,
-            막대는 그 두 값을 잇는 구간이다 — 막대가 길수록 두 기준이 갈린다는 뜻으로,
-            조회수가 소수의 광고성 영상에 쏠려 있을 때 그렇게 된다.
-            {" "}<strong class="text-zinc-300">진한 막대가 MiiWAN</strong>이다.
-            판정은 두 기준 중 낮은 점수로 하고, {ORG_AD_SUSPECT_THRESHOLD}점 미만이면
-            위 표의 배수 옆에 &lsquo;광고 영향 의심&rsquo;을 붙인다. MiiWAN이 지금까지
-            지나온 기간({orgWindowLabel})까지만 세서 비교한다 — 먼저 데뷔한 팀만 더 긴
-            기간을 쓰면 공정하지 않기 때문이다.
+            <strong class="text-zinc-300">굵은 숫자가 판정 점수</strong> — 영상 편수로 본
+            점수(채운 점)와 조회수로 본 점수(빈 점) 중 <strong class="text-zinc-300">낮은
+            쪽</strong>이다. 조회수 점수가 유독 낮으면 조회수가 소수의 광고성 영상에 쏠려
+            있다는 뜻이고, 두 점 사이가 멀수록 그 쏠림이 크다. 배경 색 구간은 점수대의
+            뜻이다 — {ORG_AD_SUSPECT_THRESHOLD}점 미만(붉은 구간)이면 광고를 과하게 쓴
+            것으로 보고 위 그래프·표에 &lsquo;광고 의심&rsquo;을 붙이며,
+            {" "}{VERDICT_THRESHOLDS.organic}점 이상(초록 구간)이면 자연 유입이 우세하다.
+            MiiWAN이 지금까지 지나온 기간({orgWindowLabel})까지만 세서 비교한다 — 먼저
+            데뷔한 팀만 더 긴 기간을 쓰면 공정하지 않기 때문이다.
           </p>
         </div>
       )}
