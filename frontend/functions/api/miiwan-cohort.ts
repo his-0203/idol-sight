@@ -115,10 +115,17 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     // base_day/at_day = 실제로 값을 집어온 경과일. 탐색 허용폭(D0±BASE_WINDOW,
     // D+N±AT_DAY_WINDOW) 때문에 표의 "D+43 값"이 실은 D+41 스냅샷일 수 있어,
     // 어느 날 값인지 화면에 밝힌다(투자사 보고 — 측정일 숨김 금지).
+    //
+    // base_value = 성장배수의 분모(= 출발선). 지금까지 분모를 응답에 싣지
+    // 않아 화면이 "왜 저 팀 배수가 크고 우리는 작은가"에 답할 수 없었다 —
+    // 배수는 출발선이 작을수록 구조적으로 커지므로(1천→2천 = 2.0× 이지만
+    // 30만→32만 = 1.1×), 분모를 같이 보여주지 않으면 순위가 규모 차이를
+    // 성과 차이로 위장한다.
     const scRows: Array<{
       group_key: string; value_at_day: number | null;
       growth_multiple: number | null; source: string | null; reference: boolean;
-      base_day: number | null; at_day: number | null; base_source: string | null;
+      base_day: number | null; base_value: number | null;
+      at_day: number | null; base_source: string | null;
     }> = [];
     for (const gk of ALL_KEYS) {
       const pts = aligned[gk];
@@ -132,7 +139,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         scRows.push({
           group_key: gk, value_at_day: null, growth_multiple: null,
           source: null, reference: isRef(gk),
-          base_day: null, at_day: null, base_source: null,
+          base_day: null, base_value: null, at_day: null, base_source: null,
         });
         continue;
       }
@@ -150,6 +157,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         source: at?.source ?? null,
         reference: isRef(gk),
         base_day: base?.day ?? null,
+        base_value: base?.value ?? null,
         at_day: at?.day ?? null,
         base_source: base?.source ?? null,
       });

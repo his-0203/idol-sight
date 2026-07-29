@@ -13,6 +13,8 @@ export type ScRow = {
   growth_multiple: number | null; source: string | null; reference: boolean;
   /** 실제로 값을 집어온 경과일 — 탐색 허용폭 때문에 D+N과 다를 수 있다. */
   base_day: number | null; at_day: number | null; base_source: string | null;
+  /** 성장배수의 분모(출발선). 배수만으론 저베이스 왜곡을 설명할 수 없어 함께 낸다. */
+  base_value: number | null;
 };
 export type OrgRow = {
   group_key: string; score: number | null; video_count: number; reference: boolean;

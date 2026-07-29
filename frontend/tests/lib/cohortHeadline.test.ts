@@ -13,7 +13,7 @@ const sc = (miiwan_rank: number | null, cohort_size: number, mult = 2) => ({
   rows: [{
     group_key: "miiwan", value_at_day: 1000, growth_multiple: mult,
     source: "live", reference: false,
-    base_day: 0, at_day: 43, base_source: "live",
+    base_day: 0, base_value: 400, at_day: 43, base_source: "live",
   }],
   miiwan_rank, cohort_size,
 });

@@ -2,8 +2,13 @@
 //
 // 동시기 성과 — 같은 시기에 데뷔한 팀들과의 비교 (투자사 보고 서사).
 // 구조: ① 결론 헤드라인(스코어카드에서 자동 산출, 하드코딩 금지)
-//      ② 성장곡선(데뷔일=100) ③ 스코어카드 표 ④ 자연 유입 점수
-//      ⑤ 방법론 각주. 열세 지표도 숨기지 않는다 — 가짜 없는 보고가 전제.
+//      ② 성장곡선(데뷔일=100) ③ 스코어카드 표 ④ 성장의 질 산점도
+//      ⑤ 자연 유입 점수 ⑥ 방법론 각주.
+// 열세 지표도 숨기지 않는다 — 가짜 없는 보고가 전제.
+//
+// 배수 하나로 서열이 만들어지는 걸 세 군데서 막는다: 표의 '출발선' 컬럼
+// (저베이스일수록 배수가 구조적으로 커진다) · 곡선의 흐린 선(광고 의심)
+// · 산점도(속도와 자연 유입을 분리한 2축). 셋 다 같은 임계 상수를 쓴다.
 //
 // 카피 원칙: 읽는 사람은 투자사·경영진이지 데이터 담당자가 아니다.
 // "코호트 / 유기성 / 인덱스 / 스냅샷 / 허용폭" 같은 내부 용어는 화면에
@@ -14,7 +19,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
 import { api } from "../api";
 import { fmt } from "../format";
-import { colorOf } from "../design/groups";
+import { colorOf, fillOf } from "../design/groups";
 import { EmptyState } from "./EmptyState";
 import { EstBadge } from "./EstBadge";
 // 헤드라인 문구·임계값은 순수 로직이라 lib 로 뺐다 (테스트: tests/lib/cohortHeadline.test.ts).
@@ -22,6 +27,14 @@ import {
   AD_SUSPECT_METRICS, METRIC_LABELS, ORG_AD_SUSPECT_THRESHOLD,
   fmtMultiple, headline, type CohortData, type CurvePoint, type OrgRowScored,
 } from "../lib/cohortHeadline";
+// 산점도 데이터 준비도 순수 로직 (테스트: tests/lib/cohortQuality.test.ts).
+import { QUALITY_METRIC, buildQualityScatter } from "../lib/cohortQuality";
+
+// 광고 의심 라인의 투명도 — 참조선(PLAVE)이 이미 점선을 쓰고 있어
+// "의심"에 점선을 또 쓰면 두 인코딩이 겹쳐 읽힌다. 의심 = 흐림 + ⚠,
+// 참조 = 점선으로 채널을 분리한다.
+const SUSPECT_LINE_ALPHA = 0.45;
+const SUSPECT_MARK = " ⚠";
 
 /** excluded.reason → 화면 문구. 사유별로 운영 대응이 달라 뭉뚱그리지 않는다. */
 const EXCLUDED_REASONS: Record<string, string> = {
@@ -58,6 +71,9 @@ export function MiiWANCohortReport() {
   const [metricSel, setMetricSel] = useState<string>("yt_subscribers");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chartRef = useRef<Chart | null>(null);
+  // 산점도는 지표 탭과 독립적인 별도 차트라 인스턴스를 따로 들고 있는다.
+  const qCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const qChartRef = useRef<Chart | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -88,18 +104,37 @@ export function MiiWANCohortReport() {
     const entries = Object.entries(curves)
       // 미완이 라인이 항상 마지막(최상단)에 그려지게 정렬
       .sort(([a], [b]) => (a === "miiwan" ? 1 : b === "miiwan" ? -1 : 0));
+    // 곡선은 출발선이 작은 팀을 압승처럼 그린다. 표의 배지는 표까지 내려와야
+    // 읽히므로, 첫인상을 만드는 곡선 자체에 같은 신호를 얹는다 — 배지와
+    // 동일 스코프(유튜브 지표 한정 · 점수 없는 팀은 손대지 않음).
+    const adScope = AD_SUSPECT_METRICS.has(metric);
+    const orgScore = new Map(
+      data.organicity.filter((o) => o.score != null).map((o) => [o.group_key, o.score!]),
+    );
+    const isSuspect = (gk: string): boolean => {
+      const s = orgScore.get(gk);
+      return adScope && s != null && s < ORG_AD_SUSPECT_THRESHOLD;
+    };
+    // 툴팁이 라벨만 보고 판단할 수 있게 의심 계열 라벨을 모아둔다
+    // (dataset.label 에는 ⚠ 만 붙고 "왜"는 툴팁에서 풀어 쓴다).
+    const suspectLabels = new Set<string>();
     chartRef.current = new Chart(canvas, {
       type: "line",
       data: {
         datasets: entries.map(([gk, pts]) => {
           const ref = data.groups[gk]?.reference;
           const isMine = gk === "miiwan";
+          const suspect = isSuspect(gk);
+          const label = (data.groups[gk]?.name ?? gk)
+            + (ref ? " (참조)" : "") + (suspect ? SUSPECT_MARK : "");
+          if (suspect) suspectLabels.add(label);
           return {
-            label: (data.groups[gk]?.name ?? gk) + (ref ? " (참조)" : ""),
+            label,
             data: pts.map((p) => ({ x: p.day, y: p.index })),
-            borderColor: colorOf(gk),
-            backgroundColor: colorOf(gk),
+            borderColor: suspect ? fillOf(gk, SUSPECT_LINE_ALPHA) : colorOf(gk),
+            backgroundColor: suspect ? fillOf(gk, SUSPECT_LINE_ALPHA) : colorOf(gk),
             borderWidth: isMine ? 3 : 1.5,
+            // 점선은 참조선 전용 — 의심은 투명도로만 표현해 두 인코딩을 분리.
             borderDash: ref ? [6, 4] : undefined,
             pointRadius: 0,
             pointHoverRadius: 4,
@@ -127,7 +162,11 @@ export function MiiWANCohortReport() {
                 const x = items[0]?.parsed.x;
                 return x == null ? "" : dayLabel(x);
               },
-              label: (item) => `${item.dataset.label}: ${item.parsed.y}`,
+              label: (item) => {
+                const l = item.dataset.label ?? "";
+                return `${l}: ${item.parsed.y}`
+                  + (suspectLabels.has(l) ? " (광고 영향 의심)" : "");
+              },
             },
           },
         },
@@ -135,6 +174,106 @@ export function MiiWANCohortReport() {
     });
     return () => { chartRef.current?.destroy(); chartRef.current = null; };
   }, [data, metric, hasCurves]);
+
+  // ④ 성장의 질 산점도. 지표 탭과 무관하게 항상 구독자 기준(QUALITY_METRIC)
+  // 이라 탭 전환에 다시 그리지 않는다 — deps 는 data 뿐.
+  useEffect(() => {
+    qChartRef.current?.destroy();
+    qChartRef.current = null;
+    const canvas = qCanvasRef.current;
+    if (!canvas || !data) return;
+    const s = buildQualityScatter(data);
+    if (!s.points.length) return;
+
+    // 가이드라인 두 개(자연 유입 임계 · 성장배수 중앙값)를 캔버스에 직접
+    // 그린다. annotation 플러그인을 새로 들이는 대신 인라인 플러그인 —
+    // 선의 의미는 축 옆 소형 라벨로만 적고, 사분면 해석은 아래 캡션에서
+    // 문장으로 푼다(캔버스 텍스트는 좁은 화면에서 넘친다).
+    const guides = {
+      id: "cohortQualityGuides",
+      afterDatasetsDraw(chart: Chart) {
+        const { ctx, chartArea: a, scales } = chart;
+        if (!a || !scales.x || !scales.y) return;
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(148,163,184,0.35)";
+        ctx.fillStyle = "rgba(148,163,184,0.65)";
+        ctx.font = "11px sans-serif";
+
+        const yPix = scales.y.getPixelForValue(s.threshold);
+        if (yPix >= a.top && yPix <= a.bottom) {
+          ctx.beginPath();
+          ctx.moveTo(a.left, yPix);
+          ctx.lineTo(a.right, yPix);
+          ctx.stroke();
+          ctx.textAlign = "left";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(`자연 유입 ${s.threshold}점`, a.left + 4, yPix - 3);
+        }
+        if (s.medianGrowth != null) {
+          const xPix = scales.x.getPixelForValue(s.medianGrowth);
+          if (xPix >= a.left && xPix <= a.right) {
+            ctx.beginPath();
+            ctx.moveTo(xPix, a.top);
+            ctx.lineTo(xPix, a.bottom);
+            ctx.stroke();
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillText(`중앙값 ${fmtMultiple(s.medianGrowth)}`, xPix, a.top + 2);
+          }
+        }
+        ctx.restore();
+      },
+    };
+
+    qChartRef.current = new Chart(canvas, {
+      type: "bubble",
+      data: {
+        // 그룹당 한 데이터셋 — 범례에서 팀별로 켜고 끌 수 있고, 색·채움
+        // (참조는 hollow)을 데이터셋 단위로 줄 수 있다.
+        datasets: s.points.map((p) => ({
+          label: p.name + (p.reference ? " (참조)" : ""),
+          data: [{ x: p.growth, y: p.organic, r: p.radius }],
+          // 참조(PLAVE)는 체급이 달라 순위·중앙값에서 빠진다 — 속이 빈 원으로
+          // "같이 재는 대상이 아님"을 형태로 구분한다.
+          backgroundColor: p.reference
+            ? "transparent"
+            : fillOf(p.group_key, p.group_key === "miiwan" ? 0.75 : 0.45),
+          borderColor: colorOf(p.group_key),
+          borderWidth: p.group_key === "miiwan" ? 3 : 2,
+        })),
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            title: { display: true, text: "성장배수 (데뷔일 대비 몇 배)" },
+            ticks: { callback: (v) => fmtMultiple(Number(v)) },
+          },
+          y: {
+            title: { display: true, text: "자연 유입 점수" },
+            suggestedMin: 0, suggestedMax: 100,
+          },
+        },
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: (item) => {
+                const p = s.points[item.datasetIndex];
+                if (!p) return item.dataset.label ?? "";
+                return `${p.name}: ${fmtMultiple(p.growth)} · 자연 유입 ${p.organic}점`
+                  + ` · 구독자 ${fmt(p.scale)}`;
+              },
+            },
+          },
+        },
+      },
+      plugins: [guides],
+    });
+    return () => { qChartRef.current?.destroy(); qChartRef.current = null; };
+  }, [data]);
 
   if (err) return <EmptyState title="동시기 비교 로드 실패" hint={err} icon="⚠️" />;
   if (!data) return <EmptyState title="불러오는 중…" hint="" icon="⏳" />;
@@ -153,6 +292,9 @@ export function MiiWANCohortReport() {
     data.organicity.filter((o) => o.score != null).map((o) => [o.group_key, o.score!]),
   );
   const adSuspectMetric = AD_SUSPECT_METRICS.has(metric);
+  // 산점도는 캔버스(useEffect)와 캡션(아래 JSX)이 같은 결과를 봐야 한다 —
+  // 제외 목록·중앙값을 두 곳에서 따로 계산하면 화면이 자기모순에 빠진다.
+  const quality = buildQualityScatter(data);
   // 코호트 후보 = 참조선(PLAVE)을 뺀 동시기 그룹 수 — **미완이 포함**.
   // cohort_size(백엔드)도 미완이 기준값이 있으면 미완이를 포함해 세므로
   // 포함 기준을 여기에 맞춘다. (미완이를 뺀 5팀과 비교하면 "후보 5팀 중
@@ -237,6 +379,16 @@ export function MiiWANCohortReport() {
             </div>
           )}
         </div>
+        {/* 흐린 선의 뜻은 곡선 바로 아래서 밝힌다 — 표까지 내려가야 알 수
+            있으면 첫인상은 이미 굳는다. 뉴스 탭에는 적용되지 않으므로
+            캡션도 유튜브 지표에서만 보인다(배지와 같은 스코프). */}
+        {hasCurves && adSuspectMetric && (
+          <p class="mt-2 text-hint text-zinc-500">
+            흐린 선 ⚠ = 자연 유입 점수가 {ORG_AD_SUSPECT_THRESHOLD}점 미만이라
+            광고 효과가 섞여 있을 수 있는 팀. 점선은 참고용(PLAVE)이라는 뜻으로
+            의미가 다르다.
+          </p>
+        )}
       </div>
 
       {/* ③ 동시기 스코어카드 */}
@@ -247,10 +399,11 @@ export function MiiWANCohortReport() {
             데뷔한 팀들 사이에서 우리가 몇 번째로 크게 늘었는지. 성장배수는 데뷔일
             대비 지금 몇 배가 됐는지를 뜻한다.
           </p>
-          <table class="w-full min-w-[560px] text-sm tabular-nums">
+          <table class="w-full min-w-[640px] text-sm tabular-nums">
             <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
               <tr>
                 <th class="px-3 py-2 text-left">그룹</th>
+                <th class="px-3 py-2 text-right">출발선 (데뷔일 값)</th>
                 <th class="px-3 py-2 text-right">D+{data.as_of_day} 시점 값</th>
                 <th class="px-3 py-2 text-right">성장배수 (데뷔일 대비)</th>
               </tr>
@@ -278,6 +431,13 @@ export function MiiWANCohortReport() {
                           <span class="ml-1 text-hint text-zinc-500"
                                 title="먼저 성공한 선례라 체급이 달라 순위에서 뺀다">참고용 · 순위 제외</span>
                         )}
+                      </td>
+                      {/* 출발선 = 성장배수의 분모. 이 칸이 없으면 "왜 우리 배수가
+                          작은가"에 표가 답하지 못하고, 배수 순위가 곧 실력 순위로
+                          읽힌다. 측정일은 옆 칸(기준 D+N)에 이미 병기돼 있다. */}
+                      <td class="px-3 py-2 text-right text-zinc-400">
+                        {r.base_value == null ? "—" : fmt(r.base_value)}
+                        <EstBadge source={r.base_source} />
                       </td>
                       <td class="px-3 py-2 text-right text-zinc-300">
                         <div>
@@ -335,10 +495,48 @@ export function MiiWANCohortReport() {
             찾아온 정도)와 같이 봐야 한다 — 유튜브 지표는 그 점수가
             {" "}{ORG_AD_SUSPECT_THRESHOLD}점 미만인 팀에 &lsquo;광고 영향 의심&rsquo;을 표시해 뒀다.
           </p>
+          {/* 저베이스 왜곡 해명 — 배수 순위가 곧 실력 순위로 읽히는 걸 막는다. */}
+          <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
+            <strong class="text-zinc-300">출발선을 같이 볼 것</strong> — 출발선이 클수록
+            배수는 구조적으로 작게 나온다. 1천에서 2천이 되면 2.0×지만, 30만에서
+            32만이 되면 1.1×다. 늘어난 사람 수는 뒤가 훨씬 많은데도 배수는 앞이 크다.
+          </p>
         </div>
       )}
 
-      {/* ④ 자연 유입 점수(유기성) — 데뷔 직후 구간 한정(미완이 경과일이 도달한
+      {/* ④ 성장의 질 — 속도(x)와 자연 유입(y)을 분리한 2축. 곡선·표가 배수
+          하나로 만드는 서열을 여기서 풀어준다. 지표 탭과 무관하게 항상
+          구독자 기준(QUALITY_METRIC)이라 축 라벨에 그걸 밝힌다. */}
+      {quality.points.length > 0 && (
+        <div class="card">
+          <p class="mb-1 text-sm font-medium text-zinc-200">성장의 질</p>
+          <p class="mb-2 text-hint text-zinc-400">
+            <strong class="text-zinc-300">이 그림으로 알 수 있는 것</strong> —
+            오른쪽일수록 빠르게 컸고, 위쪽일수록 광고 없이 컸다. 원이 클수록 현재
+            팬 규모가 크다. ({METRIC_LABELS[QUALITY_METRIC] ?? QUALITY_METRIC} 기준)
+          </p>
+          <div style={{ height: "320px" }}>
+            <canvas ref={qCanvasRef} />
+          </div>
+          <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
+            가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
+            팀들의 성장배수 중앙값
+            {quality.medianGrowth != null && <> ({fmtMultiple(quality.medianGrowth)})</>}.
+            {" "}오른쪽 아래에 있는 팀은 빠르게 컸지만 자연 유입 점수가 낮아 광고
+            효과가 섞여 있을 수 있고, 위쪽에 있는 팀은 속도가 느려도 광고 없이 팬이
+            모인 쪽이다. 속이 빈 원은 참고용(PLAVE)이라 순위·중앙값에서 뺐다.
+          </p>
+          {/* 값이 없는 팀을 조용히 지우면 "코호트가 원래 이만큼"으로 읽힌다 —
+              누가 왜 빠졌는지 함께 밝힌다(가짜 없음 · 열세 숨김 금지). */}
+          {quality.excluded.length > 0 && (
+            <p class="mt-1 text-hint text-zinc-500">
+              표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ⑤ 자연 유입 점수(유기성) — 데뷔 직후 구간 한정(미완이 경과일이 도달한
           버킷까지만). 아래 '코호트 유기성 비교'(롤링 창)와 기준이 다름을 명시. */}
       {data.organicity_unavailable && (
         <div class="card">
@@ -388,7 +586,7 @@ export function MiiWANCohortReport() {
         </div>
       )}
 
-      {/* ⑤ 방법론 각주 — "이 비교 어떻게 만든 거냐"에 화면만으로 답하기 */}
+      {/* ⑥ 방법론 각주 — "이 비교 어떻게 만든 거냐"에 화면만으로 답하기 */}
       <div class="space-y-1.5">
         <p class="text-hint text-zinc-500 leading-relaxed">
           어떻게 계산했나: 팀마다 데뷔한 날이 다르므로 각 팀의 데뷔일을 똑같이 0일로

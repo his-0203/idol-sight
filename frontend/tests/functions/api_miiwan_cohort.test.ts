@@ -141,7 +141,22 @@ describe("/api/miiwan-cohort", () => {
     expect(mine.base_source).toBe("live");
     // 데이터 없는 코호트 구성원도 필드 자체는 존재(null) — 프론트가 분기할 수 있어야.
     const plave = rows.find((r: any) => r.group_key === "plave");
-    expect(plave).toMatchObject({ base_day: null, at_day: null, base_source: null });
+    expect(plave).toMatchObject({
+      base_day: null, base_value: null, at_day: null, base_source: null,
+    });
+  });
+
+  // 성장배수의 분모를 화면이 못 보면 "출발선이 작아서 큰 배수"를 실력 차이로
+  // 읽는다 — 분자(value_at_day)와 분모(base_value)를 같이 낸다.
+  it("스코어카드 행에 출발선 값(base_value) — 배수 = 도달값 ÷ 출발선", async () => {
+    const body = await call(baseHandler);
+    const rows = body.scorecard.yt_subscribers.rows;
+    const mine = rows.find((r: any) => r.group_key === "miiwan");
+    expect(mine.base_value).toBe(1000);
+    expect(mine.value_at_day).toBe(2000);
+    expect(mine.growth_multiple).toBeCloseTo(mine.value_at_day / mine.base_value);
+    const peer = rows.find((r: any) => r.group_key === "myrakl");
+    expect(peer.base_value).toBe(5000);
   });
 
   it("유기성 점수는 shrunk 우선·simple fallback (raw view-weighted mean 아님)", async () => {
