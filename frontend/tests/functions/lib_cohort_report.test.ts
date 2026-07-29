@@ -20,21 +20,27 @@ describe("baseValueAt", () => {
 
 describe("indexCurve", () => {
   it("D0=100 정규화, day 0..asOfDay만 포함", () => {
-    const out = indexCurve(pts([[-5, 999], [0, 200], [10, 300], [43, 500], [60, 900]]), 43)!;
+    const out = indexCurve(pts([[-5, 999], [0, 200], [10, 300], [43, 500], [60, 900]]), 43).curve!;
     expect(out[0]).toEqual({ day: 0, index: 100, source: "live" });
     expect(out.find((p) => p.day === 10)!.index).toBe(150);
     expect(out.find((p) => p.day === 43)!.index).toBe(250);
     expect(out.some((p) => p.day < 0 || p.day > 43)).toBe(false);
   });
   it("기준점이 음수일이면 곡선도 그 날부터 (합성 D0 포인트 만들지 않음)", () => {
-    const out = indexCurve(pts([[-2, 50], [10, 100]]), 43)!;
+    const out = indexCurve(pts([[-2, 50], [10, 100]]), 43).curve!;
     expect(out[0]).toEqual({ day: -2, index: 100, source: "live" });
     expect(out.some((p) => p.day === 0)).toBe(false); // D0 스냅샷 없음 → 합성 금지
     expect(out.find((p) => p.day === 10)!.index).toBe(200);
   });
-  it("D0 기준값 없음/0이면 null (가짜 수치 생성 금지)", () => {
-    expect(indexCurve(pts([[20, 300]]), 43)).toBeNull();
-    expect(indexCurve(pts([[0, 0], [10, 5]]), 43)).toBeNull();
+  it("D0 기준값 없음/0이면 no_d0_baseline (가짜 수치 생성 금지)", () => {
+    expect(indexCurve(pts([[20, 300]]), 43)).toEqual({ curve: null, reason: "no_d0_baseline" });
+    expect(indexCurve(pts([[0, 0], [10, 5]]), 43))
+      .toEqual({ curve: null, reason: "no_d0_baseline" });
+  });
+  it("기준값은 있는데 창 안에 점이 없으면 empty_window (두 사유를 뭉치지 않음)", () => {
+    // 기준값은 D+2 (D0±3 안) 인데 asOfDay=1 이라 fromDay..asOfDay 창이 빈다.
+    const out = indexCurve(pts([[2, 500]]), 1);
+    expect(out).toEqual({ curve: null, reason: "empty_window" });
   });
 });
 

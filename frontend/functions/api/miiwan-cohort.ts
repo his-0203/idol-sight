@@ -15,6 +15,7 @@ import {
 import { alignByDebut } from "../lib/debutAligned";
 import {
   AT_DAY_WINDOW, BASE_WINDOW, baseValueAt, growthMultiple, indexCurve, rankOf,
+  type CurvePoint,
 } from "../lib/cohortReport";
 
 const TARGET = "miiwan";
@@ -55,6 +56,7 @@ interface OrgRow {
   organic_score_mean_shrunk: number | null;
   organic_score_mean_simple: number | null;
   scored_video_count: number;
+  video_count: number;
 }
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
@@ -92,7 +94,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   );
 
   const isRef = (gk: string) => (REFERENCE as readonly string[]).includes(gk);
-  const curves: Record<string, Record<string, ReturnType<typeof indexCurve>>> = {};
+  const curves: Record<string, Record<string, CurvePoint[]>> = {};
   const scorecard: Record<string, unknown> = {};
   const excluded: Array<{ group_key: string; metric: string; reason: string }> = [];
 
@@ -105,7 +107,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       })),
       from, to,
     );
-    const metricCurves: Record<string, NonNullable<ReturnType<typeof indexCurve>>> = {};
+    const metricCurves: Record<string, CurvePoint[]> = {};
     // base_day/at_day = 실제로 값을 집어온 경과일. 탐색 허용폭(D0±BASE_WINDOW,
     // D+N±AT_DAY_WINDOW) 때문에 표의 "D+43 값"이 실은 D+41 스냅샷일 수 있어,
     // 어느 날 값인지 화면에 밝힌다(투자사 보고 — 측정일 숨김 금지).
@@ -130,9 +132,11 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         });
         continue;
       }
-      const curve = indexCurve(pts, asOfDay);
+      // 곡선이 없을 땐 사유를 그대로 옮긴다 — "D-Day 기준값 자체가 없음"과
+      // "기준값은 있는데 D0~D+N 창이 비어 있음"은 운영상 대응이 다르다.
+      const { curve, reason } = indexCurve(pts, asOfDay);
       if (curve) metricCurves[gk] = curve;
-      else excluded.push({ group_key: gk, metric, reason: "no_d0_baseline" });
+      else excluded.push({ group_key: gk, metric, reason });
       const at = baseValueAt(pts, asOfDay, AT_DAY_WINDOW);
       const base = baseValueAt(pts, 0, BASE_WINDOW);
       scRows.push({
@@ -155,11 +159,13 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       miiwan_rank: mine == null ? null : rankOf(mine, peers),
       cohort_size: mine == null ? peers.length : peers.length + 1,
     };
-    curves[metric] = metricCurves as never;
+    curves[metric] = metricCurves;
   }
 
-  // 동시기 유기성 — COALESCE(shrunk, simple) 을 scored_video_count 가중 평균
-  // (debut-window/summary.ts 의 헤드라인 집계와 동일 규칙).
+  // 동시기 유기성 — canonical 집계(debut-window/summary.ts)와 동일한 가중치:
+  // shrunk 는 scored_video_count(실제 표본 수), simple 폴백은 video_count.
+  // 폴백 행에까지 scored_video_count 를 쓰면 pre-0092(scored=0) 행이 통째로
+  // 버려지거나 두 집계가 서로 다른 숫자를 내놓는다.
   // 핵심 쿼리(groups·agg_summary)는 실패 시 그대로 던져 fail-fast 500 —
   // 그게 없으면 곡선·순위 자체가 조작된 값이 된다. 유기성은 보조 데이터라
   // 이 쿼리만 실패해도 나머지 응답(곡선·스코어카드)까지 죽이지 않고
@@ -171,7 +177,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const orgRows = await d1Query<OrgRow>(
     env.DB,
     `SELECT group_key, organic_score_mean_shrunk, organic_score_mean_simple,
-            scored_video_count
+            scored_video_count, video_count
        FROM debut_window_organicity_summary
       WHERE group_key IN (${ph}) AND window_bucket IN (${orgPh})`,
     [...ALL_KEYS, ...orgWindow.buckets],
@@ -181,11 +187,13 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   });
   const orgAgg = new Map<string, { wsum: number; n: number }>();
   for (const r of orgRows) {
-    const score = r.organic_score_mean_shrunk ?? r.organic_score_mean_simple;
-    if (score == null || !r.scored_video_count) continue;
+    const useShrunk = r.organic_score_mean_shrunk != null;
+    const score = useShrunk ? r.organic_score_mean_shrunk : r.organic_score_mean_simple;
+    const weight = Number(useShrunk ? r.scored_video_count : r.video_count);
+    if (score == null || !Number.isFinite(weight) || weight <= 0) continue;
     const a = orgAgg.get(r.group_key) ?? { wsum: 0, n: 0 };
-    a.wsum += score * r.scored_video_count;
-    a.n += r.scored_video_count;
+    a.wsum += score * weight;
+    a.n += weight;
     orgAgg.set(r.group_key, a);
   }
   // 쿼리 자체가 실패했을 땐 그룹별 null-placeholder 행도 만들지 않는다 —
@@ -199,6 +207,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         return {
           group_key: gk,
           score: a && a.n > 0 ? Math.round((a.wsum / a.n) * 10) / 10 : null,
+          // 실효 표본 수 = 점수에 실제로 실린 가중치 합 (shrunk 행은
+          // scored_video_count, simple 폴백 행은 video_count).
           video_count: a?.n ?? 0,
           reference: isRef(gk),
         };
@@ -211,6 +221,10 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
 
   return jsonResponse({
     as_of_day: asOfDay,
+    // 측정 허용폭을 응답에 실어 보낸다 — 화면 각주가 "±3 / ±7" 을 따로
+    // 하드코딩하면 상수를 바꿨을 때 표기와 실제 계산이 조용히 어긋난다
+    // (투자사 보고 — 화면 자기모순 금지).
+    windows: { base: BASE_WINDOW, at: AT_DAY_WINDOW },
     metrics: [...METRICS],
     groups: groupsOut,
     curves,
