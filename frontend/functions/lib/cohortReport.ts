@@ -135,6 +135,47 @@ export function preMultiple(
 }
 
 /**
+ * 데뷔 전 앵커 — "데뷔 전부터 지금까지" 총 성장배수의 분모.
+ * D-PRE_DEBUT_DAYS±PRE_BASE_WINDOW 를 먼저 찾고, 비면 데뷔 전 구간에서
+ * 확보된 가장 이른 양수 값으로 물러난다(수집이 D-21부터인 팀을 창 하나
+ * 차이로 통째로 떨어뜨리지 않는다 — 실제 앵커 날짜는 호출부가 공시).
+ * 데뷔 전 값이 전무하면 null — 합성하지 않는다.
+ */
+export function preAnchor(points: Map<number, AlignedValue>): BasePoint | null {
+  const strict = baseValueAt(points, -PRE_DEBUT_DAYS, PRE_BASE_WINDOW);
+  if (strict && strict.value > 0) return strict;
+  let earliest: BasePoint | null = null;
+  for (const [day, p] of points) {
+    if (day >= 0 || !(p.value > 0)) continue;
+    if (!earliest || day < earliest.day) {
+      earliest = { day, value: p.value, source: p.source };
+    }
+  }
+  return earliest;
+}
+
+/**
+ * 총 성장배수 = D+N 값 ÷ 데뷔 전 앵커. 데뷔 후 배수(growthMultiple)와 달리
+ * 데뷔 전에 쌓은 성장까지 한 숫자로 잰다 — 산점도 x축이 "데뷔 전부터 후까지"
+ * 를 묻기 위해 쓴다. 데뷔 전 앵커가 없는 팀은 D0 기준값으로 물러나되
+ * anchor_day(=0)로 그 사실을 실어 보낸다(화면이 공시).
+ */
+export function totalMultiple(
+  points: Map<number, AlignedValue>,
+  asOfDay: number,
+): { multiple: number; anchor_day: number; anchor_source: string } | null {
+  const at = baseValueAt(points, asOfDay, AT_DAY_WINDOW);
+  if (!at) return null;
+  const anchor = preAnchor(points) ?? baseValueAt(points, 0, BASE_WINDOW);
+  if (!anchor || !(anchor.value > 0)) return null;
+  return {
+    multiple: at.value / anchor.value,
+    anchor_day: anchor.day,
+    anchor_source: anchor.source,
+  };
+}
+
+/**
  * 목표일에 가장 가까운 날. 동률이면 이른 날 (baseValueAt 과 같은 규칙 —
  * 두 탐색이 서로 다른 날을 고르면 같은 표 안에서 근거가 어긋난다).
  */

@@ -20,6 +20,11 @@ export type ScRow = {
   /** 조회수 1,000회당 늘어난 구독자 — 데뷔 전 / 데뷔 후 구간. */
   subs_per_1k_pre: number | null;
   subs_per_1k_post: number | null;
+  /** 데뷔 전 앵커 값 (D-30±7 우선, 없으면 데뷔 전 최초 확보 값). */
+  pre_value: number | null; pre_day: number | null; pre_source: string | null;
+  /** 총 성장배수 (데뷔 전 앵커 → D+N). 앵커 날짜는 total_anchor_day 로 공시. */
+  total_multiple: number | null;
+  total_anchor_day: number | null; total_anchor_source: string | null;
 };
 export type OrgRow = {
   group_key: string; score: number | null; video_count: number; reference: boolean;

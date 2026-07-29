@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 import {
   BASE_WINDOW, ESTIMATE_SOURCE, PRE_BASE_WINDOW, PRE_DEBUT_DAYS,
-  baseValueAt, growthMultiple, indexCurve, measuredOnly, preMultiple,
-  rankOf, subsPer1kViews,
+  baseValueAt, growthMultiple, indexCurve, measuredOnly, preAnchor,
+  preMultiple, rankOf, subsPer1kViews, totalMultiple,
 } from "../../functions/lib/cohortReport";
 
 // empty_window 주석의 "base.day >= fromDay 항상 참" 전제는 base 탐색 폭이
@@ -118,6 +118,41 @@ describe("preMultiple", () => {
     expect(preMultiple(pts([[0, 300]]))).toBeNull();
     expect(preMultiple(pts([[-PRE_DEBUT_DAYS, 100]]))).toBeNull();
     expect(preMultiple(pts([[-PRE_DEBUT_DAYS, 0], [0, 300]]))).toBeNull();
+  });
+});
+
+describe("preAnchor / totalMultiple", () => {
+  const pt = (value: number, source = "live") => ({ value, source });
+
+  it("D-30±7 안의 값을 앵커로 잡는다", () => {
+    const pts = new Map([[-30, pt(1000)], [0, pt(2000)], [40, pt(4000)]]);
+    expect(preAnchor(pts)).toEqual({ day: -30, value: 1000, source: "live" });
+    expect(totalMultiple(pts, 40)).toEqual(
+      { multiple: 4, anchor_day: -30, anchor_source: "live" });
+  });
+
+  it("D-30±7이 비면 데뷔 전 가장 이른 값으로 물러난다 (bthd 케이스: D-21부터)", () => {
+    const pts = new Map([[-21, pt(500)], [-10, pt(800)], [0, pt(1000)], [40, pt(2000)]]);
+    expect(preAnchor(pts)).toEqual({ day: -21, value: 500, source: "live" });
+    expect(totalMultiple(pts, 40)?.multiple).toBe(4);
+    expect(totalMultiple(pts, 40)?.anchor_day).toBe(-21);
+  });
+
+  it("데뷔 전 값이 전무하면 앵커는 null, 총 배수는 D0 기준으로 물러난다 (myrakl 케이스)", () => {
+    const pts = new Map([[0, pt(1000)], [40, pt(3000)]]);
+    expect(preAnchor(pts)).toBeNull();
+    expect(totalMultiple(pts, 40)).toEqual(
+      { multiple: 3, anchor_day: 0, anchor_source: "live" });
+  });
+
+  it("0 이하 값은 앵커로 쓰지 않는다", () => {
+    const pts = new Map([[-30, pt(0)], [-15, pt(200)], [0, pt(400)], [40, pt(800)]]);
+    expect(preAnchor(pts)).toEqual({ day: -15, value: 200, source: "live" });
+  });
+
+  it("도달값이 없으면 null", () => {
+    const pts = new Map([[-30, pt(1000)], [0, pt(2000)]]);
+    expect(totalMultiple(pts, 40)).toBeNull();
   });
 });
 

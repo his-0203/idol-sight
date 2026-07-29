@@ -15,8 +15,8 @@ import {
 import { alignByDebut } from "../lib/debutAligned";
 import {
   AT_DAY_WINDOW, BASE_WINDOW, PRE_BASE_WINDOW, PRE_DEBUT_DAYS, baseValueAt,
-  growthMultiple, indexCurve, measuredOnly, preMultiple, rankOf, subsPer1kViews,
-  type CurvePoint,
+  growthMultiple, indexCurve, measuredOnly, preAnchor, preMultiple, rankOf,
+  subsPer1kViews, totalMultiple, type CurvePoint,
 } from "../lib/cohortReport";
 import type { AlignedValue } from "../lib/debutAligned";
 
@@ -68,6 +68,14 @@ interface ScorecardRow {
   /** 조회수 1,000회당 늘어난 구독자 — 데뷔 전 / 데뷔 후 구간. */
   subs_per_1k_pre: number | null;
   subs_per_1k_post: number | null;
+  /** 데뷔 전 앵커 값 (D-30±7 우선, 없으면 데뷔 전 최초 확보 값). 표의 "데뷔 전 값" 컬럼. */
+  pre_value: number | null;
+  pre_day: number | null;
+  pre_source: string | null;
+  /** 총 성장배수 = D+N ÷ 데뷔 전 앵커 (앵커 없으면 데뷔일 기준 — anchor_day 로 공시). */
+  total_multiple: number | null;
+  total_anchor_day: number | null;
+  total_anchor_source: string | null;
 }
 interface SummaryRow {
   group_key: string; debut_date: string | null; snapshot_at: string;
@@ -174,6 +182,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
           pre_multiple: null, source: null, reference: isRef(gk),
           base_day: null, base_value: null, at_day: null, base_source: null,
           subs_per_1k_pre: null, subs_per_1k_post: null,
+          pre_value: null, pre_day: null, pre_source: null,
+          total_multiple: null, total_anchor_day: null, total_anchor_source: null,
         });
         continue;
       }
@@ -213,6 +223,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
             : curveReason,
         });
       }
+      const anchor = preAnchor(pts);
+      const total = totalMultiple(pts, asOfDay);
       scRows.push({
         group_key: gk,
         value_at_day: at?.value ?? null,
@@ -228,6 +240,12 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         // 뒤에 채운다(아래 별도 패스).
         subs_per_1k_pre: null,
         subs_per_1k_post: null,
+        pre_value: anchor?.value ?? null,
+        pre_day: anchor?.day ?? null,
+        pre_source: anchor?.source ?? null,
+        total_multiple: total?.multiple ?? null,
+        total_anchor_day: total?.anchor_day ?? null,
+        total_anchor_source: total?.anchor_source ?? null,
       });
     }
     const mine = scRows.find((r) => r.group_key === TARGET)?.growth_multiple ?? null;

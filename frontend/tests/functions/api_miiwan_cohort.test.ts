@@ -150,6 +150,8 @@ describe("/api/miiwan-cohort", () => {
     const plave = rows.find((r: any) => r.group_key === "plave");
     expect(plave).toMatchObject({
       base_day: null, base_value: null, at_day: null, base_source: null,
+      pre_value: null, pre_day: null, pre_source: null,
+      total_multiple: null, total_anchor_day: null, total_anchor_source: null,
     });
   });
 
@@ -189,6 +191,13 @@ describe("/api/miiwan-cohort", () => {
     expect(mine.subs_per_1k_pre).toBeCloseTo(10);
     // 데뷔 후 구독 +1,000, 조회 +100,000 → 1,000뷰당 10
     expect(mine.subs_per_1k_post).toBeCloseTo(10);
+    // 데뷔 전 앵커(D-30, 500) + 총 성장배수(500 → D+30 값 2,000 = 4.0×).
+    expect(mine.pre_value).toBe(500);
+    expect(mine.pre_day).toBe(-30);
+    expect(mine.pre_source).toBe("live");
+    expect(mine.total_multiple).toBeCloseTo(4);
+    expect(mine.total_anchor_day).toBe(-30);
+    expect(mine.total_anchor_source).toBe("live");
   });
 
   // 추정 보간값은 앵커 없는 구간에 없던 급등을 그린다 — 곡선은 실측만 잇되

@@ -19,6 +19,8 @@ const row = (
   source: "live", reference,
   base_day: 0, base_value: 1000, at_day: 43, base_source: "live",
   pre_multiple: null, subs_per_1k_pre: null, subs_per_1k_post: null,
+  pre_value: null, pre_day: null, pre_source: null,
+  total_multiple: null, total_anchor_day: null, total_anchor_source: null,
 });
 
 const org = (

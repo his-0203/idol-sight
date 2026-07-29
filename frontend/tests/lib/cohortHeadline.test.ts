@@ -16,6 +16,8 @@ const row = (over: Partial<ScRow> & { group_key: string }): ScRow => ({
   source: "live", reference: false,
   base_day: 0, base_value: 400, at_day: 43, base_source: "live",
   pre_multiple: 1.5, subs_per_1k_pre: 2.1, subs_per_1k_post: 1.4,
+  pre_value: 400, pre_day: -30, pre_source: "live",
+  total_multiple: 5, total_anchor_day: -30, total_anchor_source: "live",
   ...over,
 });
 
