@@ -9,10 +9,12 @@
 // 미완이 배지가 무의미해지므로 곡선·표에는 나오되 순위 모수에서 제외.
 import { d1Query, type D1Database } from "../lib/d1";
 import { jsonResponse } from "../lib/jsonResponse";
-import { debutAgeDaysKST } from "../lib/debutWindowBuckets";
+import {
+  bucketIndexForAge, debutAgeDaysKST, labelForIndex,
+} from "../lib/debutWindowBuckets";
 import { alignByDebut } from "../lib/debutAligned";
 import {
-  AT_DAY_WINDOW, baseValueAt, growthMultiple, indexCurve, rankOf,
+  AT_DAY_WINDOW, BASE_WINDOW, baseValueAt, growthMultiple, indexCurve, rankOf,
 } from "../lib/cohortReport";
 
 const TARGET = "miiwan";
@@ -22,9 +24,21 @@ const ALL_KEYS = [TARGET, ...COHORT, ...REFERENCE];
 const METRICS = [
   "yt_subscribers", "yt_total_views", "naver_total_news", "dc_total_posts",
 ] as const;
-// 유기성: 동시기 = D-Day(−10..9)·D+20(10..29)·D+40(30..49)·D+60(50..69) 버킷
-// (debutWindowBuckets 라벨 체계) — 데뷔 직후 ~70일 창.
-const ORGANICITY_BUCKETS = ["D-Day", "D+20", "D+40", "D+60"];
+// 유기성 창의 왼쪽 끝 = D-Day 버킷 (debutWindowBuckets 시퀀스 index 3).
+// 오른쪽 끝은 고정이 아니라 미완이의 현재 경과일이 도달한 버킷까지 —
+// 고정 D+60 창이면 미완이(D+43)는 D+60 버킷이 통째로 비는데 피어는 70일치가
+// 다 차 있어 "덜 채워진 쪽 vs 다 채운 쪽"을 비교하게 된다.
+const ORGANICITY_FIRST_BUCKET_INDEX = 3; // labelForIndex(3) === "D-Day"
+
+/** 미완이 경과일이 도달한 버킷까지의 라벨 목록 + 표시용 창 라벨. */
+function organicityWindow(asOfDay: number): { buckets: string[]; label: string } {
+  const right = Math.max(ORGANICITY_FIRST_BUCKET_INDEX, bucketIndexForAge(asOfDay));
+  const buckets: string[] = [];
+  for (let i = ORGANICITY_FIRST_BUCKET_INDEX; i <= right; i++) buckets.push(labelForIndex(i));
+  const first = buckets[0]!;
+  const last = buckets[buckets.length - 1]!;
+  return { buckets, label: first === last ? first : `${first}~${last}` };
+}
 
 interface GroupRow { key: string; name: string; debut_date: string | null }
 interface SummaryRow {
@@ -33,8 +47,14 @@ interface SummaryRow {
   naver_total_news: number | null; dc_total_posts: number | null;
   data_source: string;
 }
+// 헤드라인 유기성 점수는 코드베이스 표준(src/lib/organicity.ts
+// headlineOrganicScore)과 동일하게 shrunk → simple 순 fallback.
+// raw organic_score_mean 은 뷰 가중이라 아웃라이어 한 편에 끌려간다.
 interface OrgRow {
-  group_key: string; organic_score_mean: number | null; scored_video_count: number;
+  group_key: string;
+  organic_score_mean_shrunk: number | null;
+  organic_score_mean_simple: number | null;
+  scored_video_count: number;
 }
 
 export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) => {
@@ -84,9 +104,13 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       from, to,
     );
     const metricCurves: Record<string, NonNullable<ReturnType<typeof indexCurve>>> = {};
+    // base_day/at_day = 실제로 값을 집어온 경과일. 탐색 허용폭(D0±BASE_WINDOW,
+    // D+N±AT_DAY_WINDOW) 때문에 표의 "D+43 값"이 실은 D+41 스냅샷일 수 있어,
+    // 어느 날 값인지 화면에 밝힌다(투자사 보고 — 측정일 숨김 금지).
     const scRows: Array<{
       group_key: string; value_at_day: number | null;
       growth_multiple: number | null; source: string | null; reference: boolean;
+      base_day: number | null; at_day: number | null; base_source: string | null;
     }> = [];
     for (const gk of ALL_KEYS) {
       const pts = aligned[gk];
@@ -100,6 +124,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         scRows.push({
           group_key: gk, value_at_day: null, growth_multiple: null,
           source: null, reference: isRef(gk),
+          base_day: null, at_day: null, base_source: null,
         });
         continue;
       }
@@ -107,12 +132,16 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       if (curve) metricCurves[gk] = curve;
       else excluded.push({ group_key: gk, metric, reason: "no_d0_baseline" });
       const at = baseValueAt(pts, asOfDay, AT_DAY_WINDOW);
+      const base = baseValueAt(pts, 0, BASE_WINDOW);
       scRows.push({
         group_key: gk,
         value_at_day: at?.value ?? null,
         growth_multiple: growthMultiple(pts, asOfDay),
         source: at?.source ?? null,
         reference: isRef(gk),
+        base_day: base?.day ?? null,
+        at_day: at?.day ?? null,
+        base_source: base?.source ?? null,
       });
     }
     const mine = scRows.find((r) => r.group_key === TARGET)?.growth_multiple ?? null;
@@ -127,29 +156,33 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     curves[metric] = metricCurves as never;
   }
 
-  // 동시기 유기성 — scored_video_count 가중 평균.
+  // 동시기 유기성 — COALESCE(shrunk, simple) 을 scored_video_count 가중 평균
+  // (debut-window/summary.ts 의 헤드라인 집계와 동일 규칙).
   // 핵심 쿼리(groups·agg_summary)는 실패 시 그대로 던져 fail-fast 500 —
   // 그게 없으면 곡선·순위 자체가 조작된 값이 된다. 유기성은 보조 데이터라
   // 이 쿼리만 실패해도 나머지 응답(곡선·스코어카드)까지 죽이지 않고
   // degrade한다 — 단, "값 없음"과 "쿼리 실패"를 조용히 같은 빈 배열로
   // 위장하지 않도록 organicity_unavailable 플래그로 실패를 명시한다.
-  const orgPh = ORGANICITY_BUCKETS.map(() => "?").join(",");
+  const orgWindow = organicityWindow(asOfDay);
+  const orgPh = orgWindow.buckets.map(() => "?").join(",");
   let organicityUnavailable = false;
   const orgRows = await d1Query<OrgRow>(
     env.DB,
-    `SELECT group_key, organic_score_mean, scored_video_count
+    `SELECT group_key, organic_score_mean_shrunk, organic_score_mean_simple,
+            scored_video_count
        FROM debut_window_organicity_summary
       WHERE group_key IN (${ph}) AND window_bucket IN (${orgPh})`,
-    [...ALL_KEYS, ...ORGANICITY_BUCKETS],
+    [...ALL_KEYS, ...orgWindow.buckets],
   ).catch(() => {
     organicityUnavailable = true;
     return [] as OrgRow[];
   });
   const orgAgg = new Map<string, { wsum: number; n: number }>();
   for (const r of orgRows) {
-    if (r.organic_score_mean == null || !r.scored_video_count) continue;
+    const score = r.organic_score_mean_shrunk ?? r.organic_score_mean_simple;
+    if (score == null || !r.scored_video_count) continue;
     const a = orgAgg.get(r.group_key) ?? { wsum: 0, n: 0 };
-    a.wsum += r.organic_score_mean * r.scored_video_count;
+    a.wsum += score * r.scored_video_count;
     a.n += r.scored_video_count;
     orgAgg.set(r.group_key, a);
   }
@@ -181,6 +214,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     curves,
     scorecard,
     organicity,
+    organicity_window: orgWindow.label,
     organicity_unavailable: organicityUnavailable,
     excluded,
   });

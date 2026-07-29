@@ -37,19 +37,22 @@ export function indexCurve(
 ): CurvePoint[] | null {
   const base = baseValueAt(points, 0, BASE_WINDOW);
   if (!base || base.value <= 0) return null;
+  // 곡선 시작점 = 기준점이 실제로 있는 날. 기준점이 D-2 스냅샷이면 곡선도
+  // D-2(=100)에서 시작한다 — 존재하지 않는 D0 값을 합성해 끼워넣지 않는다
+  // (가짜 수치 금지). 기준점이 D0 이후면 종전대로 day 0 부터.
+  const fromDay = Math.min(base.day, 0);
   const out: CurvePoint[] = [];
   for (const [day, p] of points) {
-    if (day < 0 || day > asOfDay) continue;
+    if (day < fromDay || day > asOfDay) continue;
     out.push({
       day,
       index: Math.round((p.value / base.value) * 1000) / 10, // 소수 1자리
       source: p.source,
     });
   }
-  // 기준점이 day<0 스냅샷이면 day 0 인덱스 100 점이 없을 수 있음 — 항상 시작점 보장.
-  if (!out.some((p) => p.day === Math.max(base.day, 0))) {
-    out.push({ day: Math.max(base.day, 0), index: 100, source: base.source });
-  }
+  // 창 안에 남는 점이 하나도 없으면 곡선이 아니라 "없음" — 빈 데이터셋을
+  // 내보내 차트에 유령 계열을 만들지 않는다.
+  if (!out.length) return null;
   out.sort((a, b) => a.day - b.day);
   return out;
 }

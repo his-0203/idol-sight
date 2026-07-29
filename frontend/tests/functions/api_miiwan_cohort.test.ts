@@ -4,12 +4,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { onRequestGet } from "../../functions/api/miiwan-cohort";
 
-const envWith = (handler: (sql: string) => any[]) => ({
-  DB: { prepare: vi.fn((sql: string) => ({
-    bind: vi.fn().mockReturnThis(),
-    all: vi.fn(async () => ({ results: handler(sql) })),
-    first: vi.fn(async () => handler(sql)[0] ?? null),
-  })) },
+type Capture = (sql: string, params: unknown[]) => void;
+
+const envWith = (handler: (sql: string) => any[], capture?: Capture) => ({
+  DB: { prepare: vi.fn((sql: string) => {
+    const stmt: any = {
+      bind: vi.fn((...params: unknown[]) => { capture?.(sql, params); return stmt; }),
+      all: vi.fn(async () => ({ results: handler(sql) })),
+      first: vi.fn(async () => handler(sql)[0] ?? null),
+    };
+    return stmt;
+  }) },
 } as any);
 
 const req = () => ({ request: new Request("https://x/api/miiwan-cohort") });
@@ -40,8 +45,8 @@ const summaryRows = () => {
   return [...mk("miiwan", 30, 1000, 2000), ...mk("myrakl", 200, 5000, 15000)];
 };
 
-async function call(handler: (sql: string) => any[]) {
-  const res = await onRequestGet({ env: envWith(handler), ...req() } as any);
+async function call(handler: (sql: string) => any[], capture?: Capture) {
+  const res = await onRequestGet({ env: envWith(handler, capture), ...req() } as any);
   expect(res.status).toBe(200);
   return await res.json() as any;
 }
@@ -51,8 +56,11 @@ describe("/api/miiwan-cohort", () => {
     if (sql.includes("FROM groups")) return GROUPS();
     if (sql.includes("FROM agg_summary")) return summaryRows();
     if (sql.includes("debut_window_organicity_summary")) return [
-      { group_key: "miiwan", organic_score_mean: 80, scored_video_count: 10 },
-      { group_key: "myrakl", organic_score_mean: 60, scored_video_count: 20 },
+      { group_key: "miiwan", organic_score_mean_shrunk: 80,
+        organic_score_mean_simple: 55, scored_video_count: 10 },
+      // shrunk NULL (pre-0092 행) → simple 로 fallback
+      { group_key: "myrakl", organic_score_mean_shrunk: null,
+        organic_score_mean_simple: 60, scored_video_count: 20 },
     ];
     return [];
   };
@@ -106,6 +114,48 @@ describe("/api/miiwan-cohort", () => {
     });
     expect(body.organicity_unavailable).toBe(true);
     expect(body.organicity).toEqual([]);
+  });
+
+  it("스코어카드 행에 실제 측정일 메타(base_day·at_day·base_source)", async () => {
+    const body = await call(baseHandler);
+    const rows = body.scorecard.yt_subscribers.rows;
+    const mine = rows.find((r: any) => r.group_key === "miiwan");
+    expect(mine.base_day).toBe(0);
+    expect(mine.at_day).toBe(30);       // D+30 스냅샷에서 집어온 값
+    expect(mine.base_source).toBe("live");
+    // 데이터 없는 코호트 구성원도 필드 자체는 존재(null) — 프론트가 분기할 수 있어야.
+    const plave = rows.find((r: any) => r.group_key === "plave");
+    expect(plave).toMatchObject({ base_day: null, at_day: null, base_source: null });
+  });
+
+  it("유기성 점수는 shrunk 우선·simple fallback (raw view-weighted mean 아님)", async () => {
+    const body = await call(baseHandler);
+    const byKey = Object.fromEntries(
+      body.organicity.map((o: any) => [o.group_key, o]));
+    expect(byKey.miiwan.score).toBe(80);  // shrunk 80 (simple 55 아님)
+    expect(byKey.myrakl.score).toBe(60);  // shrunk NULL → simple 60
+    expect(byKey.miiwan.video_count).toBe(10);
+  });
+
+  it("유기성 창은 미완이가 도달한 버킷까지만 (고정 D+60 창 금지)", async () => {
+    const orgParams: unknown[] = [];
+    const cap: Capture = (sql, params) => {
+      if (sql.includes("debut_window_organicity_summary")) orgParams.push(...params);
+    };
+    // 미완이 D+100 → D-Day..D+100 버킷까지, 그 너머는 조회하지 않는다.
+    const old = await call((sql) => {
+      if (sql.includes("FROM groups")) return GROUPS(100);
+      if (sql.includes("FROM agg_summary")) return summaryRows();
+      return [];
+    }, cap);
+    expect(old.organicity_window).toBe("D-Day~D+100");
+    expect(orgParams).toContain("D+100");
+    expect(orgParams).not.toContain("D+120");
+
+    // 미완이 D+30 → 아직 D+60 버킷에 도달 못함 (피어만 70일치 쓰는 불공정 방지).
+    const young = await call(baseHandler);
+    expect(young.organicity_window.startsWith("D-Day")).toBe(true);
+    expect(young.organicity_window).not.toContain("D+60");
   });
 
   it("miiwan debut_date 없으면 503-급 에러 대신 명시적 4xx", async () => {

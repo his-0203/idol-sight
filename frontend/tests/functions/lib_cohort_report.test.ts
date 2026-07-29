@@ -26,6 +26,12 @@ describe("indexCurve", () => {
     expect(out.find((p) => p.day === 43)!.index).toBe(250);
     expect(out.some((p) => p.day < 0 || p.day > 43)).toBe(false);
   });
+  it("기준점이 음수일이면 곡선도 그 날부터 (합성 D0 포인트 만들지 않음)", () => {
+    const out = indexCurve(pts([[-2, 50], [10, 100]]), 43)!;
+    expect(out[0]).toEqual({ day: -2, index: 100, source: "live" });
+    expect(out.some((p) => p.day === 0)).toBe(false); // D0 스냅샷 없음 → 합성 금지
+    expect(out.find((p) => p.day === 10)!.index).toBe(200);
+  });
   it("D0 기준값 없음/0이면 null (가짜 수치 생성 금지)", () => {
     expect(indexCurve(pts([[20, 300]]), 43)).toBeNull();
     expect(indexCurve(pts([[0, 0], [10, 5]]), 43)).toBeNull();
