@@ -18,6 +18,7 @@ const row = (
   group_key, value_at_day, growth_multiple,
   source: "live", reference,
   base_day: 0, base_value: 1000, at_day: 43, base_source: "live",
+  pre_multiple: null, subs_per_1k_pre: null, subs_per_1k_post: null,
 });
 
 const org = (group_key: string, score: number | null, reference = false): OrgRow =>

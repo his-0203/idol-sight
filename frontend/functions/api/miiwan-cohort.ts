@@ -14,27 +14,32 @@ import {
 } from "../lib/debutWindowBuckets";
 import { alignByDebut } from "../lib/debutAligned";
 import {
-  AT_DAY_WINDOW, BASE_WINDOW, PRE_DEBUT_DAYS, baseValueAt, growthMultiple,
-  indexCurve, rankOf, type CurvePoint,
+  AT_DAY_WINDOW, BASE_WINDOW, PRE_BASE_WINDOW, PRE_DEBUT_DAYS, baseValueAt,
+  growthMultiple, indexCurve, measuredOnly, preMultiple, rankOf, subsPer1kViews,
+  type CurvePoint,
 } from "../lib/cohortReport";
+import type { AlignedValue } from "../lib/debutAligned";
 
 const TARGET = "miiwan";
 const COHORT = ["myrakl", "owis", "bdawn", "bthd", "skinz"] as const;
 const REFERENCE = ["plave"] as const;
 const ALL_KEYS = [TARGET, ...COHORT, ...REFERENCE];
 // 지표는 "데뷔일 대비 얼마나 늘었나"를 성장배수로 말할 수 있는 것만 둔다.
-// dc_total_posts(커뮤니티 활동)는 여기서 뺐다 — 갤러리 개설 시점이 그룹마다
-// 달라 D-Day 기준값이 성장의 출발선이 아니라 "갤러리가 언제 열렸나"를
-// 재는 값이 되고, 그 위에서 낸 성장배수는 동시기 비교로 읽히지 않는다.
-// (다른 화면의 dc_total_posts 는 그대로 — 여기 동시기 성과에서만 제외.)
-const METRICS = [
-  "yt_subscribers", "yt_total_views", "naver_total_news",
-] as const;
-// 유기성 창의 왼쪽 끝 = D-Day 버킷 (debutWindowBuckets 시퀀스 index 3).
-// 오른쪽 끝은 고정이 아니라 미완이의 현재 경과일이 도달한 버킷까지 —
-// 고정 D+60 창이면 미완이(D+43)는 D+60 버킷이 통째로 비는데 피어는 70일치가
-// 다 차 있어 "덜 채워진 쪽 vs 다 채운 쪽"을 비교하게 된다.
-const ORGANICITY_FIRST_BUCKET_INDEX = 3; // labelForIndex(3) === "D-Day"
+// 뺀 것 (둘 다 이 화면 한정 — 다른 화면의 같은 지표는 그대로 쓴다):
+//  · dc_total_posts — 갤러리 개설 시점이 그룹마다 달라 D-Day 기준값이 성장의
+//    출발선이 아니라 "갤러리가 언제 열렸나"를 재는 값이 된다.
+//  · naver_total_news — live 수집은 누적 건수인데 백필 행은 그 주의 기간
+//    건수라 단위가 섞여 있다. 누적÷기간으로 낸 배수는 성장이 아니라 두
+//    수집 방식의 차이를 재는 값이라 동시기 비교가 성립하지 않는다.
+const METRICS = ["yt_subscribers", "yt_total_views"] as const;
+// 유기성 창의 왼쪽 끝 = 곡선이 그리는 데뷔 전 구간(D-PRE_DEBUT_DAYS)을 덮는
+// 버킷. 종전에는 D-Day 버킷(index 3)에서 잘랐는데, 실측 확인 결과 유료
+// 캠페인은 데뷔 전 1~3주에 몰려 있었다 — D-Day 부터 세면 광고가 실제로
+// 집행된 구간이 통째로 집계 밖으로 빠져 점수가 실제보다 깨끗하게 나온다.
+// 시퀀스 index 0(D-60)까지 내리지 않는 이유는 곡선·표가 보는 구간(D-30~)과
+// 창을 맞추기 위해서다 — 화면마다 다른 창을 쓰면 숫자끼리 대조가 안 된다.
+// (이 화면 한정. 워커·다른 유기성 화면의 창은 건드리지 않는다.)
+const ORGANICITY_FIRST_BUCKET_INDEX = bucketIndexForAge(-PRE_DEBUT_DAYS);
 
 /** 미완이 경과일이 도달한 버킷까지의 라벨 목록 + 표시용 창 라벨. */
 function organicityWindow(asOfDay: number): { buckets: string[]; label: string } {
@@ -47,19 +52,39 @@ function organicityWindow(asOfDay: number): { buckets: string[]; label: string }
 }
 
 interface GroupRow { key: string; name: string; debut_date: string | null }
+interface ScorecardRow {
+  group_key: string;
+  value_at_day: number | null;
+  /** 데뷔 후 배수 (데뷔일 → D+asOf). */
+  growth_multiple: number | null;
+  /** 데뷔 전 배수 (D-PRE_DEBUT_DAYS → 데뷔일). */
+  pre_multiple: number | null;
+  source: string | null;
+  reference: boolean;
+  base_day: number | null;
+  base_value: number | null;
+  at_day: number | null;
+  base_source: string | null;
+  /** 조회수 1,000회당 늘어난 구독자 — 데뷔 전 / 데뷔 후 구간. */
+  subs_per_1k_pre: number | null;
+  subs_per_1k_post: number | null;
+}
 interface SummaryRow {
   group_key: string; debut_date: string | null; snapshot_at: string;
   yt_subscribers: number | null; yt_total_views: number | null;
-  naver_total_news: number | null;
   data_source: string;
 }
 // 헤드라인 유기성 점수는 코드베이스 표준(src/lib/organicity.ts
 // headlineOrganicScore)과 동일하게 shrunk → simple 순 fallback.
 // raw organic_score_mean 은 뷰 가중이라 아웃라이어 한 편에 끌려간다.
+// organic_score_mean 은 버킷 안에서 이미 뷰 가중 평균이라 별도로 병기한다
+// (편수 기준 점수와 크게 벌어지면 조회수가 소수의 영상에 쏠려 있다는 신호).
 interface OrgRow {
   group_key: string;
   organic_score_mean_shrunk: number | null;
   organic_score_mean_simple: number | null;
+  organic_score_mean: number | null;
+  total_views: number | null;
   scored_video_count: number;
 }
 
@@ -88,7 +113,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const rows = await d1Query<SummaryRow>(
     env.DB,
     `SELECT s.group_key, g.debut_date, s.snapshot_at,
-            s.yt_subscribers, s.yt_total_views, s.naver_total_news,
+            s.yt_subscribers, s.yt_total_views,
             s.data_source
        FROM agg_summary s
        JOIN groups g ON g.key = s.group_key
@@ -101,8 +126,14 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
 
   const isRef = (gk: string) => (REFERENCE as readonly string[]).includes(gk);
   const curves: Record<string, Record<string, CurvePoint[]>> = {};
-  const scorecard: Record<string, unknown> = {};
+  const scorecard: Record<string, {
+    rows: ScorecardRow[]; miiwan_rank: number | null; cohort_size: number;
+  }> = {};
   const excluded: Array<{ group_key: string; metric: string; reason: string }> = [];
+
+  // 지표별 정렬 결과를 남겨둔다 — 구독 획득 효율은 구독자와 조회수를 **같은
+  // 날짜 쌍**에서 집어야 해서 두 지표의 점 목록이 동시에 필요하다.
+  const alignedByMetric: Record<string, Record<string, Map<number, AlignedValue>>> = {};
 
   for (const metric of METRICS) {
     const aligned = alignByDebut(
@@ -113,6 +144,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       })),
       from, to,
     );
+    alignedByMetric[metric] = aligned;
     const metricCurves: Record<string, CurvePoint[]> = {};
     // base_day/at_day = 실제로 값을 집어온 경과일. 탐색 허용폭(D0±BASE_WINDOW,
     // D+N±AT_DAY_WINDOW) 때문에 표의 "D+43 값"이 실은 D+41 스냅샷일 수 있어,
@@ -123,12 +155,11 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     // 배수는 출발선이 작을수록 구조적으로 커지므로(1천→2천 = 2.0× 이지만
     // 30만→32만 = 1.1×), 분모를 같이 보여주지 않으면 순위가 규모 차이를
     // 성과 차이로 위장한다.
-    const scRows: Array<{
-      group_key: string; value_at_day: number | null;
-      growth_multiple: number | null; source: string | null; reference: boolean;
-      base_day: number | null; base_value: number | null;
-      at_day: number | null; base_source: string | null;
-    }> = [];
+    //
+    // pre_multiple = 데뷔 전 배수(D-PRE_DEBUT_DAYS → 데뷔일). growth_multiple 은
+    // 이제 "데뷔 후" 배수로 읽는다 — 둘을 나눠 보면 출발선이 데뷔 전에 쌓인
+    // 것인지 데뷔 직전 단기간에 채워진 것인지 구분된다.
+    const scRows: ScorecardRow[] = [];
     for (const gk of ALL_KEYS) {
       const pts = aligned[gk];
       const g = byKey.get(gk);
@@ -140,28 +171,63 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         // 행에서 사라지면 안 된다.
         scRows.push({
           group_key: gk, value_at_day: null, growth_multiple: null,
-          source: null, reference: isRef(gk),
+          pre_multiple: null, source: null, reference: isRef(gk),
           base_day: null, base_value: null, at_day: null, base_source: null,
+          subs_per_1k_pre: null, subs_per_1k_post: null,
         });
         continue;
       }
-      // 곡선이 없을 땐 사유를 그대로 옮긴다 — "D-Day 기준값 자체가 없음"과
-      // "기준값은 있는데 D0~D+N 창이 비어 있음"은 운영상 대응이 다르다.
-      const { curve, reason } = indexCurve(pts, asOfDay);
+      // 곡선은 실측 점(live · backfill_exact)만 잇는다 — 추정 보간값은 앵커가
+      // 없는 구간에서 실제로 없던 급등·출렁임을 그려낸다. 기준값(=100) 탐색도
+      // 같은 실측 집합에서 하므로, 실측 기준값이 없으면 곡선만 빠지고 표의
+      // 배수는(전체 소스 기준이라) 남을 수 있다 — 이 비대칭은 화면 각주가 밝힌다.
+      const curvePts = measuredOnly(pts);
+      const { curve, reason: curveReason } = indexCurve(curvePts, asOfDay);
       if (curve) metricCurves[gk] = curve;
-      else excluded.push({ group_key: gk, metric, reason });
       const at = baseValueAt(pts, asOfDay, AT_DAY_WINDOW);
       const base = baseValueAt(pts, 0, BASE_WINDOW);
+      const growth = growthMultiple(pts, asOfDay);
+      // (그룹,지표)당 excluded 는 정확히 최대 1건. 곡선 실패와 배수 실패를
+      // 따로 push 하면 같은 항목이 두 줄 나오고, 더 나쁘게는 "곡선만 빠지고
+      // 표의 배수는 남는다"는 곡선-side 문구가 배수도 없는 행에 붙어 거짓이
+      // 된다(D0 근방에 추정값만 있고 D+N 값이 아예 없는 조합). 우선순위:
+      //   ① 배수 자체를 못 냄 → 그 원인(기준값 없음 / 도달값 없음)
+      //   ② 배수는 있는데 곡선만 실패 → 곡선 사유
+      // ②의 문구만이 "표의 배수는 남는다"를 항상 참으로 만든다.
+      if (growth == null) {
+        excluded.push({
+          group_key: gk,
+          metric,
+          // base.value <= 0 이면 growthMultiple 이 기준값을 못 쓴 것이라
+          // 도달값 유무와 무관하게 기준값 문제로 분류한다.
+          reason: base && base.value > 0 ? "no_at_day_value" : "no_d0_baseline",
+        });
+      } else if (!curve) {
+        // 여기 오면 배수는 살아 있다 — 실측 기준값만 없는 경우는 "기준값
+        // 자체가 없음"과 대응이 달라 별도 사유로 구분한다.
+        excluded.push({
+          group_key: gk,
+          metric,
+          reason: curveReason === "no_d0_baseline"
+            ? "no_measured_d0_baseline"
+            : curveReason,
+        });
+      }
       scRows.push({
         group_key: gk,
         value_at_day: at?.value ?? null,
-        growth_multiple: growthMultiple(pts, asOfDay),
+        growth_multiple: growth,
+        pre_multiple: preMultiple(pts),
         source: at?.source ?? null,
         reference: isRef(gk),
         base_day: base?.day ?? null,
         base_value: base?.value ?? null,
         at_day: at?.day ?? null,
         base_source: base?.source ?? null,
+        // 구독 효율은 구독자·조회수를 함께 봐야 해서 두 지표가 다 정렬된
+        // 뒤에 채운다(아래 별도 패스).
+        subs_per_1k_pre: null,
+        subs_per_1k_post: null,
       });
     }
     const mine = scRows.find((r) => r.group_key === TARGET)?.growth_multiple ?? null;
@@ -174,6 +240,30 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       cohort_size: mine == null ? peers.length : peers.length + 1,
     };
     curves[metric] = metricCurves;
+  }
+
+  // 구독 획득 효율 — 두 지표가 다 정렬된 뒤에야 계산할 수 있어 별도 패스.
+  // 조회수는 거의 안 늘었는데 구독자만 뛰면 값이 크게 튄다(영상 노출 없이
+  // 구독이 붙었다는 뜻). 실측 점만 쓰고, 구독자·조회수가 **같은 날** 다 있는
+  // 날짜에서만 양 끝을 집는다 — 구간이 어긋나면 비율 자체가 무의미해진다.
+  // 화면에는 수치만 싣고 임계선·판정 플래그는 두지 않는다: 해석은 캡션이
+  // 설명하고 판단은 읽는 사람 몫이다.
+  const subsAligned = alignedByMetric["yt_subscribers"] ?? {};
+  const viewsAligned = alignedByMetric["yt_total_views"] ?? {};
+  for (const [, card] of Object.entries(scorecard)) {
+    for (const row of card.rows) {
+      const s = subsAligned[row.group_key];
+      const v = viewsAligned[row.group_key];
+      if (!s || !v) continue;
+      const sm = measuredOnly(s);
+      const vm = measuredOnly(v);
+      row.subs_per_1k_pre = subsPer1kViews(
+        sm, vm, -PRE_DEBUT_DAYS, PRE_BASE_WINDOW, 0, BASE_WINDOW,
+      );
+      row.subs_per_1k_post = subsPer1kViews(
+        sm, vm, 0, BASE_WINDOW, asOfDay, AT_DAY_WINDOW,
+      );
+    }
   }
 
   // 동시기 유기성 — 그룹 수준 규칙은 organicity.ts 의 headlineOrganicScore
@@ -195,7 +285,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const orgRows = await d1Query<OrgRow>(
     env.DB,
     `SELECT group_key, organic_score_mean_shrunk, organic_score_mean_simple,
-            scored_video_count
+            organic_score_mean, total_views, scored_video_count
        FROM debut_window_organicity_summary
       WHERE group_key IN (${ph}) AND window_bucket IN (${orgPh})`,
     [...ALL_KEYS, ...orgWindow.buckets],
@@ -204,14 +294,27 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     return [] as OrgRow[];
   });
   const orgAgg = new Map<string, { wsum: number; n: number }>();
+  // 뷰 가중 집계: organic_score_mean 은 **버킷 안에서 이미 뷰 가중 평균**이라
+  // 버킷 사이를 합칠 때의 가중치는 편수가 아니라 그 버킷의 조회수여야 한다
+  // (같은 테이블의 total_views — 추정이 아니라 실제 컬럼).
+  const orgViewAgg = new Map<string, { wsum: number; n: number }>();
   for (const r of orgRows) {
     const score = r.organic_score_mean_shrunk ?? r.organic_score_mean_simple;
     const weight = Number(r.scored_video_count);
-    if (score == null || !Number.isFinite(weight) || weight <= 0) continue;
-    const a = orgAgg.get(r.group_key) ?? { wsum: 0, n: 0 };
-    a.wsum += score * weight;
-    a.n += weight;
-    orgAgg.set(r.group_key, a);
+    if (score != null && Number.isFinite(weight) && weight > 0) {
+      const a = orgAgg.get(r.group_key) ?? { wsum: 0, n: 0 };
+      a.wsum += score * weight;
+      a.n += weight;
+      orgAgg.set(r.group_key, a);
+    }
+    const vScore = r.organic_score_mean;
+    const vWeight = Number(r.total_views);
+    if (vScore != null && Number.isFinite(vWeight) && vWeight > 0) {
+      const a = orgViewAgg.get(r.group_key) ?? { wsum: 0, n: 0 };
+      a.wsum += vScore * vWeight;
+      a.n += vWeight;
+      orgViewAgg.set(r.group_key, a);
+    }
   }
   // 쿼리 자체가 실패했을 땐 그룹별 null-placeholder 행도 만들지 않는다 —
   // "데이터 없음(score:null)"과 "쿼리 실패"를 organicity 배열 모양만으로는
@@ -221,9 +324,14 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     ? []
     : ALL_KEYS.filter((gk) => byKey.has(gk)).map((gk) => {
         const a = orgAgg.get(gk);
+        const v = orgViewAgg.get(gk);
         return {
           group_key: gk,
           score: a && a.n > 0 ? Math.round((a.wsum / a.n) * 10) / 10 : null,
+          // 편수 기준 점수와 나란히 놓는 조회수 기준 점수. 둘이 크게 벌어지면
+          // 조회수가 소수의 광고성 영상에 쏠려 있다는 신호다.
+          score_view_weighted:
+            v && v.n > 0 ? Math.round((v.wsum / v.n) * 10) / 10 : null,
           // 실효 표본 수 = 점수에 실제로 실린 scored_video_count 합.
           video_count: a?.n ?? 0,
           reference: isRef(gk),

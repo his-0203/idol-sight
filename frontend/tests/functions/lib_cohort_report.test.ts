@@ -4,7 +4,9 @@
 // 인덱스 = D0 기준값 100 정규화, 성장배수 = D+N/D0, 순위 = 내림차순.
 import { describe, expect, it } from "vitest";
 import {
-  BASE_WINDOW, PRE_DEBUT_DAYS, baseValueAt, indexCurve, growthMultiple, rankOf,
+  BASE_WINDOW, ESTIMATE_SOURCE, PRE_BASE_WINDOW, PRE_DEBUT_DAYS,
+  baseValueAt, growthMultiple, indexCurve, measuredOnly, preMultiple,
+  rankOf, subsPer1kViews,
 } from "../../functions/lib/cohortReport";
 
 // empty_window 주석의 "base.day >= fromDay 항상 참" 전제는 base 탐색 폭이
@@ -89,5 +91,74 @@ describe("rankOf", () => {
     expect(rankOf(3.5, [1.2, 5.0, 2.0])).toBe(2);
     expect(rankOf(9, [1, 2])).toBe(1);
     expect(rankOf(1, [2, 3, 4])).toBe(4);
+  });
+});
+
+describe("measuredOnly", () => {
+  it("추정 보간값만 걷어내고 원본은 그대로 둔다", () => {
+    const src = pts([[0, 100], [5, 200, ESTIMATE_SOURCE], [10, 300, "backfill_exact"]]);
+    const out = measuredOnly(src);
+    expect([...out.keys()].sort((a, b) => a - b)).toEqual([0, 10]);
+    expect(src.size).toBe(3); // 원본 불변
+  });
+});
+
+describe("preMultiple", () => {
+  it("데뷔일 값 ÷ D-PRE_DEBUT_DAYS 값", () => {
+    expect(preMultiple(pts([[-PRE_DEBUT_DAYS, 100], [0, 250]]))).toBeCloseTo(2.5);
+  });
+  // 데뷔 전 앵커는 주 1회라 ±3 이면 다 빠진다 — ±7 이 필요한 이유.
+  it("데뷔 전 기준값 탐색 폭은 ±PRE_BASE_WINDOW (경계 포함, 그 밖은 null)", () => {
+    const inside = -PRE_DEBUT_DAYS + PRE_BASE_WINDOW;
+    expect(preMultiple(pts([[inside, 100], [0, 300]]))).toBeCloseTo(3);
+    const outside = -PRE_DEBUT_DAYS + PRE_BASE_WINDOW + 1;
+    expect(preMultiple(pts([[outside, 100], [0, 300]]))).toBeNull();
+  });
+  it("한쪽 값이 없거나 0 이면 null (무한대급 배수 금지)", () => {
+    expect(preMultiple(pts([[0, 300]]))).toBeNull();
+    expect(preMultiple(pts([[-PRE_DEBUT_DAYS, 100]]))).toBeNull();
+    expect(preMultiple(pts([[-PRE_DEBUT_DAYS, 0], [0, 300]]))).toBeNull();
+  });
+});
+
+describe("subsPer1kViews", () => {
+  // 구독자·조회수가 **같은 날** 다 있는 날짜에서만 양 끝을 집는다.
+  it("공통 날짜에서 구독자 증분 ÷ (조회수 증분/1000)", () => {
+    const subs = pts([[0, 1_000], [43, 3_000]]);
+    const views = pts([[0, 100_000], [43, 1_100_000]]);
+    // 구독 +2,000 / 조회 +1,000,000 → 1,000뷰당 2.0
+    expect(subsPer1kViews(subs, views, 0, 3, 43, 7)).toBeCloseTo(2);
+  });
+  it("한쪽에만 있는 날짜는 후보에서 빠진다 (구간 어긋남 방지)", () => {
+    // 구독자는 D+43 에 있지만 조회수는 D+40 에만 있다 → 공통 날짜는 D0 뿐.
+    const subs = pts([[0, 1_000], [43, 9_999]]);
+    const views = pts([[0, 100_000], [40, 500_000]]);
+    expect(subsPer1kViews(subs, views, 0, 3, 43, 7)).toBeNull();
+  });
+  it("조회수 증분이 0 이하이면 null (분모 0 근처 폭주 금지)", () => {
+    const flat = pts([[0, 100_000], [43, 100_000]]);
+    expect(subsPer1kViews(pts([[0, 1_000], [43, 5_000]]), flat, 0, 3, 43, 7)).toBeNull();
+    const down = pts([[0, 200_000], [43, 100_000]]);
+    expect(subsPer1kViews(pts([[0, 1_000], [43, 5_000]]), down, 0, 3, 43, 7)).toBeNull();
+  });
+  it("양 끝이 같은 날로 잡히면 null (구간이 없다)", () => {
+    const subs = pts([[0, 1_000]]);
+    const views = pts([[0, 100_000]]);
+    expect(subsPer1kViews(subs, views, 0, 3, 2, 7)).toBeNull();
+  });
+  // 탐색 폭이 겹치면 뒤집힌 구간(a > b)이 나올 수 있다 — 증분 부호가 통째로
+  // 반대라 dViews>0 가드에 우연히 걸리는 것에 기대지 않고 명시적으로 막는다.
+  it("구간이 뒤집히면(시작 > 끝) null", () => {
+    // 시작 목표 D+10(±7), 끝 목표 D+2(±7) → 후보 {0, 12} 에서 a=12, b=0.
+    const subs = pts([[0, 1_000], [12, 5_000]]);
+    const views = pts([[0, 100_000], [12, 900_000]]);
+    expect(subsPer1kViews(subs, views, 10, 7, 2, 7)).toBeNull();
+  });
+  it("호출부가 실측만 넘기면 추정 점은 계산에 안 들어간다", () => {
+    const subs = measuredOnly(pts([[0, 1_000], [20, 9_999, ESTIMATE_SOURCE], [43, 3_000]]));
+    const views = measuredOnly(pts([
+      [0, 100_000], [20, 200_000, ESTIMATE_SOURCE], [43, 1_100_000],
+    ]));
+    expect(subsPer1kViews(subs, views, 0, 3, 43, 7)).toBeCloseTo(2);
   });
 });

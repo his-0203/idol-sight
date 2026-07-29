@@ -15,9 +15,16 @@ export type ScRow = {
   base_day: number | null; at_day: number | null; base_source: string | null;
   /** 성장배수의 분모(출발선). 배수만으론 저베이스 왜곡을 설명할 수 없어 함께 낸다. */
   base_value: number | null;
+  /** 데뷔 전 배수 (D-pre_debut → 데뷔일). growth_multiple 은 데뷔 후 배수. */
+  pre_multiple: number | null;
+  /** 조회수 1,000회당 늘어난 구독자 — 데뷔 전 / 데뷔 후 구간. */
+  subs_per_1k_pre: number | null;
+  subs_per_1k_post: number | null;
 };
 export type OrgRow = {
   group_key: string; score: number | null; video_count: number; reference: boolean;
+  /** 같은 창의 조회수 기준(뷰 가중) 점수. 편수 기준 score 와 나란히 읽는다. */
+  score_view_weighted?: number | null;
 };
 /** score가 실제로 있는 행만 남긴 뒤 쓰는 좁힌 타입 (막대 폭 계산에 non-null 필요). */
 export type OrgRowScored = Omit<OrgRow, "score"> & { score: number };
@@ -40,12 +47,13 @@ export type CohortData = {
   excluded: Array<{ group_key: string; metric: string; reason: string }>;
 };
 
-// 커뮤니티 활동(dc_total_posts)은 동시기 성과에서 제외 — API 의 METRICS 와
-// 짝을 맞춘다. 다른 화면의 커뮤니티 지표는 그대로 쓴다.
+// 커뮤니티 활동(dc_total_posts)·뉴스 노출(naver_total_news)은 동시기 성과에서
+// 제외 — API 의 METRICS 와 짝을 맞춘다. 사유는 그쪽 주석 참조(뉴스는 live 가
+// 누적, 백필이 기간 건수라 단위가 섞여 배수 비교가 성립하지 않는다).
+// 다른 화면의 같은 지표는 그대로 쓴다.
 export const METRIC_LABELS: Record<string, string> = {
   yt_subscribers: "구독자",
   yt_total_views: "누적 조회수",
-  naver_total_news: "뉴스 노출",
 };
 
 /**
@@ -62,8 +70,10 @@ export const ORG_AD_SUSPECT_THRESHOLD = VERDICT_THRESHOLDS.organic;
 
 /**
  * 광고 의심 배지를 다는 지표. 자연 유입 점수는 "영상"이 유료로 밀린
- * 것인지를 판정한 값이라 유튜브 성장에만 걸린다 — 뉴스 노출은 영상
- * 판정과 무관하므로 같은 근거로 감점하지 않는다.
+ * 것인지를 판정한 값이라 유튜브 성장에만 걸린다 — 영상 판정과 무관한
+ * 지표에는 같은 근거로 감점하지 않는다. 현재 METRICS 가 전부 유튜브라
+ * 결과적으로 전 지표가 대상이지만, 스코프 개념 자체는 Set 으로 남긴다
+ * (다시 비유튜브 지표가 들어오면 그때 자동으로 갈린다).
  */
 export const AD_SUSPECT_METRICS = new Set(["yt_subscribers", "yt_total_views"]);
 
@@ -71,7 +81,6 @@ export const AD_SUSPECT_METRICS = new Set(["yt_subscribers", "yt_total_views"]);
 export const WEAK_REMEDY: Record<string, string> = {
   yt_subscribers: "멤버 개인 콘텐츠·쇼츠 후킹 등 구독으로 넘어가게 만드는 콘텐츠를 늘릴 것",
   yt_total_views: "쇼츠 업로드 주기를 올려 알고리즘 노출을 키울 것",
-  naver_total_news: "보도자료·인터뷰 주기를 만들어 언론 노출을 늘릴 것",
 };
 
 export function fmtMultiple(m: number | null): string {
@@ -136,21 +145,26 @@ export function headline(d: CohortData): Headline {
     }
   }
 
-  // 자연 유입 점수가 임계 이상이면 "이 성장이 광고가 아니라 팬이 만든 것"
-  // 이라는 근거가 된다 — 스코어카드의 광고 의심 배지와 같은 기준을 써
-  // 화면 안에서 강점 설명과 배지가 서로 어긋나지 않게 한다.
+  // 자연 유입 점수는 강점을 뒷받침하는 보조 근거로만 쓴다.
   //
-  // 단, 강점이 뉴스 노출뿐일 때는 이 문장을 붙이지 않는다. 점수는 영상
-  // 판정에서 나온 값이라 뉴스 순위를 변호하지 못하고, 유튜브가 오히려
-  // 약점 목록에 있는데 "이 성장은 광고가 아니다"라고 말하면 바로 아래
-  // 보완 목록과 자기모순이 된다.
+  // 톤: "광고가 아니라 팬이 만든 것"이라는 단정은 쓰지 않는다. 점수는
+  // 영상 단위 판정의 평균이라 "광고가 하나도 없었다"를 증명하지 못하고,
+  // 실제로 미완이도 데뷔 전 구간이 완전히 깨끗하지는 않다. 대신 코호트
+  // 안에서의 상대 위치("의존이 낮은 편")로만 말한다.
+  //
+  // 조건: 절대 임계 단독으로는 붙이지 않고 **코호트 상위 절반일 때만**.
+  // 점수 창(데뷔 전 포함)을 넓히면 절대값이 통째로 내려갈 수 있는데,
+  // 그때 임계만 보고 문구가 사라지거나 남으면 과장·누락이 생긴다.
+  // 순위는 창이 바뀌어도 모든 팀에 같은 방향으로 작용해 흔들림이 적다.
+  //
+  // 강점이 유튜브 지표일 때만 — 점수는 영상 판정에서 나온 값이라 영상과
+  // 무관한 지표의 순위를 변호하지 못한다.
   const org = organicStanding(d);
   const orgTop = org != null && org.size >= 2
     && org.rank <= Math.ceil(org.size / 2);
-  const strengthWhy = hasAdRelevantStrength && org
-    && org.score >= ORG_AD_SUSPECT_THRESHOLD
-    ? `자연 유입 점수 ${org.score}점 — 이 성장은 광고로 산 것이 아니라 팬이 스스로 찾아와 만든 것이다`
-      + (orgTop ? ` (같은 시기 데뷔 ${org.size}팀 중 ${org.rank}위).` : ".")
+  const strengthWhy = hasAdRelevantStrength && org && orgTop
+    ? `자연 유입 점수 ${org.score}점 — 같은 시기 데뷔 ${org.size}팀 중 ${org.rank}위로,`
+      + " 유료 광고에 기댄 정도가 낮은 편이다."
     : null;
 
   return {

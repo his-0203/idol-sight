@@ -36,12 +36,25 @@ import { QUALITY_METRIC, buildQualityScatter } from "../lib/cohortQuality";
 const SUSPECT_LINE_ALPHA = 0.45;
 const SUSPECT_MARK = " ⚠";
 
-/** excluded.reason → 화면 문구. 사유별로 운영 대응이 달라 뭉뚱그리지 않는다. */
+/**
+ * excluded.reason → 화면 문구. 사유별로 운영 대응이 달라 뭉뚱그리지 않는다.
+ * (그룹,지표)당 사유는 최대 1건이고, 앞의 둘은 "표의 배수도 못 냈다",
+ * 뒤의 둘은 "배수는 남았고 곡선만 빠졌다"를 뜻한다 — 이 구분이 지켜져야
+ * 곡선-side 문구의 "표의 배수는 남는다"가 항상 참이 된다.
+ */
 const EXCLUDED_REASONS: Record<string, string> = {
   no_data_in_window: "비교 구간에 측정값이 아예 없음",
-  no_d0_baseline: "데뷔일 시점 값이 없음 (과거 데이터 보완 전)",
-  empty_window: "데뷔일 값은 있으나 비교 구간에 측정값이 없음",
+  no_d0_baseline: "데뷔일 시점 값이 없어 배수를 낼 수 없음",
+  no_at_day_value: "비교 시점에 아직 도달하지 않았거나 그 구간 측정값이 없음",
+  no_measured_d0_baseline:
+    "데뷔일 시점 실측값이 없음 (곡선만 제외 — 표의 배수는 추정값으로 남음)",
+  empty_window: "데뷔일 값은 있으나 비교 구간에 측정값이 없음 (곡선만 제외)",
 };
+
+/** 구독 효율(subs/1k뷰) 표기. 소수 1자리 — 0.3~3 대역을 구분해 보여야 한다. */
+function fmtEfficiency(v: number | null): string {
+  return v == null ? "—" : (Math.round(v * 10) / 10).toFixed(1);
+}
 
 const accent = colorOf("miiwan");
 
@@ -333,6 +346,8 @@ export function MiiWANCohortReport() {
     data.organicity.filter((o) => o.score != null).map((o) => [o.group_key, o.score!]),
   );
   const adSuspectMetric = AD_SUSPECT_METRICS.has(metric);
+  // 구독 효율은 조회수 대비 구독자라 구독자 탭에서만 뜻이 통한다.
+  const showEfficiency = metric === "yt_subscribers";
   // 산점도는 캔버스(useEffect)와 캡션(아래 JSX)이 같은 결과를 봐야 한다 —
   // 제외 목록·중앙값을 두 곳에서 따로 계산하면 화면이 자기모순에 빠진다.
   const quality = buildQualityScatter(data);
@@ -403,7 +418,9 @@ export function MiiWANCohortReport() {
           곡선은 {preDebutLabel} 표시한다 — 데뷔 전 구간(옅은 배경)이 가파른
           팀은 데뷔 시점에 이미 팬이 모여 있었다는 뜻이다. 성장배수와 순위는
           지금도 <strong class="text-zinc-300">데뷔일(세로선)</strong> 값이 기준이라
-          이 표시 범위 변경에 영향을 받지 않는다.
+          이 표시 범위 변경에 영향을 받지 않는다. 곡선은 실제로 측정된 점만
+          잇는다 — 측정이 주 1회였던 팀은 점 사이가 직선으로 보이며, 그 사이를
+          메운 추정값은 그리지 않는다(없던 급등이 그려지는 것을 막는다).
         </p>
         <div role="tablist" aria-label="지표 선택"
              class="mb-3 flex overflow-x-auto gap-1 card p-1">
@@ -450,16 +467,23 @@ export function MiiWANCohortReport() {
         <div class="overflow-x-auto rounded-lg border border-zinc-800">
           <p class="px-3 py-2 text-hint text-zinc-400 border-b border-zinc-800/60">
             <strong class="text-zinc-300">이 표로 알 수 있는 것</strong> — 같은 시기에
-            데뷔한 팀들 사이에서 우리가 몇 번째로 크게 늘었는지. 성장배수는 데뷔일
-            대비 지금 몇 배가 됐는지를 뜻한다.
+            데뷔한 팀들 사이에서 우리가 몇 번째로 크게 늘었는지. 성장을 데뷔 전
+            ({preDebutLabel} 데뷔일까지)과 데뷔 후(데뷔일 → D+{data.as_of_day})로
+            나눠 적었다 — 같은 출발선이라도 그 값이 데뷔 전에 쌓인 것인지 데뷔
+            직전에 채워진 것인지가 다르기 때문이다.
           </p>
-          <table class="w-full min-w-[640px] text-sm tabular-nums">
+          <table class="w-full min-w-[860px] text-sm tabular-nums">
             <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
               <tr>
-                <th class="px-3 py-2 text-left">그룹</th>
-                <th class="px-3 py-2 text-right">출발선 (데뷔일 값)</th>
-                <th class="px-3 py-2 text-right">D+{data.as_of_day} 시점 값</th>
-                <th class="px-3 py-2 text-right">성장배수 (데뷔일 대비)</th>
+                <th scope="col" class="px-3 py-2 text-left">그룹</th>
+                <th scope="col" class="px-3 py-2 text-right">출발선 (데뷔일 값)</th>
+                <th scope="col" class="px-3 py-2 text-right">D+{data.as_of_day} 시점 값</th>
+                <th scope="col" class="px-3 py-2 text-right">데뷔 전 성장</th>
+                <th scope="col" class="px-3 py-2 text-right">데뷔 후 성장</th>
+                {/* 구독 효율은 "조회수 대비 구독자"라 구독자 탭에서만 뜻이 통한다. */}
+                {showEfficiency && (
+                  <th scope="col" class="px-3 py-2 text-right">데뷔 전 구독 효율</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -505,6 +529,12 @@ export function MiiWANCohortReport() {
                           </div>
                         )}
                       </td>
+                      {/* 데뷔 전 / 데뷔 후를 나눠 놓으면 "출발선이 크다"가
+                          데뷔 전에 쌓인 것인지 데뷔 직전에 채워진 것인지
+                          보인다. 정렬 기준은 종전대로 데뷔 후 성장. */}
+                      <td class="px-3 py-2 text-right text-zinc-400">
+                        {fmtMultiple(r.pre_multiple)}
+                      </td>
                       <td class={"px-3 py-2 text-right " + (isMine ? "font-semibold" : "text-zinc-300")}
                           style={isMine ? { color: accent } : undefined}>
                         {fmtMultiple(r.growth_multiple)}
@@ -517,6 +547,18 @@ export function MiiWANCohortReport() {
                           </div>
                         )}
                       </td>
+                      {/* 수치만 — 임계선·판정 플래그를 두지 않는다. 읽는 법은
+                          아래 캡션이 설명하고 판단은 읽는 사람 몫이다. */}
+                      {showEfficiency && (
+                        <td class="px-3 py-2 text-right text-zinc-400">
+                          {fmtEfficiency(r.subs_per_1k_pre)}
+                          {r.subs_per_1k_post != null && (
+                            <div class="text-hint text-zinc-600">
+                              데뷔 후 {fmtEfficiency(r.subs_per_1k_post)}
+                            </div>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -555,6 +597,16 @@ export function MiiWANCohortReport() {
             배수는 구조적으로 작게 나온다. 1천에서 2천이 되면 2.0×지만, 30만에서
             32만이 되면 1.1×다. 늘어난 사람 수는 뒤가 훨씬 많은데도 배수는 앞이 크다.
           </p>
+          {/* 수치만 놓고 읽는 법을 준다 — 특정 팀을 지목하거나 판정하지 않는다. */}
+          {showEfficiency && (
+            <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
+              <strong class="text-zinc-300">구독 효율</strong> = 조회수 1,000회당 늘어난
+              구독자. 정상 구간은 어느 팀이든 0.3~3 수준이고, 이보다 크게 높으면 영상
+              노출 없이 구독자가 늘었다는 뜻이라 유료 캠페인 가능성을 시사한다.
+              구독자·조회수가 같은 날 함께 측정된 실측값끼리만 비교했고, 한쪽이
+              비면 &mdash; 로 둔다.
+            </p>
+          )}
         </div>
       )}
 
@@ -602,16 +654,17 @@ export function MiiWANCohortReport() {
       {orgRows.length > 0 && (
         <div class="card">
           <p class="mb-1 text-sm font-medium text-zinc-200">
-            자연 유입 점수 (각 팀의 데뷔 직후 {orgWindowLabel} 기준)
+            자연 유입 점수 ({orgWindowLabel} 기준)
             {miiwanOrg && (
               <span class="ml-2 text-hint text-zinc-500">MiiWAN {miiwanOrg.score}점</span>
             )}
           </p>
           <p class="mb-2 text-hint text-zinc-400">
-            <strong class="text-zinc-300">이 점수로 알 수 있는 것</strong> — 이 성장이
-            광고로 산 것인지, 팬이 만들어준 것인지. 데뷔 직후 영상들이 유료 광고로
-            밀린 것처럼 보이는지 하나씩 판정해 100점 만점으로 평균 낸 값이고,
-            높을수록 광고 없이 사람들이 스스로 찾아왔다는 뜻이다.
+            <strong class="text-zinc-300">이 점수로 알 수 있는 것</strong> — 이 성장에
+            광고가 얼마나 섞여 있는지. 데뷔 전후 영상들이 유료 광고로 밀린 것처럼
+            보이는지 하나씩 판정해 100점 만점으로 평균 낸 값이고, 높을수록 광고
+            없이 사람들이 스스로 찾아왔다는 뜻이다. 창이 데뷔 전까지 걸쳐 있는
+            이유는 유료 캠페인이 주로 데뷔 직전에 집행되기 때문이다.
           </p>
           <div class="space-y-1.5">
             {orgRows.map((o) => (
@@ -626,15 +679,26 @@ export function MiiWANCohortReport() {
                                 opacity: o.group_key === "miiwan" ? 1 : 0.5 }} />
                 </div>
                 <span class="w-12 text-right tabular-nums text-zinc-400">{o.score}</span>
+                {/* 편수 기준(막대)과 조회수 기준을 나란히 — 둘이 벌어지는
+                    정도 자체가 신호라 한쪽만 보여주면 안 된다. */}
+                <span class="w-24 text-right text-hint text-zinc-600"
+                      title="같은 기간을 조회수로 가중해 낸 점수 (막대는 영상 편수 기준)">
+                  {o.score_view_weighted == null
+                    ? "조회수 기준 —"
+                    : `조회수 기준 ${o.score_view_weighted}점`}
+                </span>
                 {o.reference && <span class="text-hint text-zinc-600">참고용</span>}
               </div>
             ))}
           </div>
           <p class="mt-2 text-hint text-zinc-500">
-            {ORG_AD_SUSPECT_THRESHOLD}점 미만이면 위 표의 성장배수 옆에 &lsquo;광고 영향
+            막대는 영상 <strong class="text-zinc-300">편수</strong> 기준, 옆의 값은
+            같은 기간을 <strong class="text-zinc-300">조회수</strong>로 가중한 점수다.
+            두 값의 차이가 크면 조회수가 소수의 광고성 영상에 쏠려 있다는 뜻이다.
+            {" "}{ORG_AD_SUSPECT_THRESHOLD}점 미만이면 위 표의 성장배수 옆에 &lsquo;광고 영향
             의심&rsquo;을 붙인다. MiiWAN이 지금까지 지나온 기간({orgWindowLabel})까지만
             세서 비교한다 — 먼저 데뷔한 팀만 더 긴 기간을 쓰면 공정하지 않기
-            때문이다. 아래 &lsquo;코호트 유기성 비교&rsquo;는 데뷔 직후가 아니라 최근
+            때문이다. 아래 &lsquo;코호트 유기성 비교&rsquo;는 이 창이 아니라 최근
             기간을 보는 것이라 숫자가 다를 수 있다.
           </p>
         </div>
@@ -647,6 +711,8 @@ export function MiiWANCohortReport() {
           맞춘 뒤, 데뷔 후 같은 날짜끼리 비교한다. 그래프는 데뷔일 값을 100으로 놓고
           그린 성장 폭이고 {preDebutLabel} 그린다(데뷔 전 값은 100 아래에 깔린다 —
           수집이 없던 팀은 그냥 늦게 시작하며, 없는 날을 만들어 채우지 않는다).
+          곡선에는 실측값만 쓰고 표의 배수는 추정값(est)까지 쓰므로, 실측 데뷔일
+          값이 없는 팀은 곡선에서만 빠지고 표에는 배수가 남을 수 있다.
           성장배수는 D+{data.as_of_day} 값 ÷ 데뷔일 값이다
           (데뷔일 값은 데뷔일({baseTol}), 지금 값은 D+{data.as_of_day}({atTol}) 안에서
           가장 가까운 날의 측정값). 비교 대상은 비슷한 시기에 데뷔한 K-POP 버추얼
