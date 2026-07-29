@@ -54,8 +54,12 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
   // Pull every (group, snapshot_at, metric) row whose snapshot's day
   // offset from the group's debut_date falls in [from, to]. SQLite's
   // julianday() handles ISO dates fine; we cast to int for an integer
-  // day offset bucket. Groups without a debut_date are excluded —
-  // there's nothing to align them to.
+  // day offset bucket. debut_date is a KST calendar date, so the
+  // snapshot is shifted +9h before taking its calendar day — same
+  // convention as alignByDebut / debutAgeDaysKST. This is a coarse
+  // prefilter only; ../lib/debutAligned.ts does the exact bucketing.
+  // Groups without a debut_date are excluded — there's nothing to
+  // align them to.
   // confederation 모델 (STELLIVE) 은 우산형 산하 멤버 그룹별로 데뷔
   // 일자가 다른 구조라 단일 debut_date 정렬이 의미가 없음.
   // MarketOverview 카드에서는 정상 표시되지만 DebutCurve 차트에서만
@@ -69,7 +73,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env, req
       WHERE g.is_active = 1
         AND (g.group_model IS NULL OR g.group_model != 'confederation')
         AND g.debut_date IS NOT NULL
-        AND CAST(julianday(date(s.snapshot_at)) - julianday(g.debut_date) AS INTEGER) BETWEEN ? AND ?
+        AND CAST(julianday(date(s.snapshot_at, '+9 hours')) - julianday(g.debut_date) AS INTEGER)
+            BETWEEN ? AND ?
       ORDER BY g.key, s.snapshot_at ASC`,
     [from, to]);
 

@@ -73,6 +73,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const asOfDay = Number.isFinite(rawAge) ? Math.max(0, rawAge) : 0;
 
   // 한 방 쿼리: 대상 그룹 × 4지표. 정렬 범위는 D-7(기준값 탐색 여유)~D+asOf+7.
+  // date(snapshot_at, '+9 hours') — debut_date 가 KST 달력 날짜이고 정확한
+  // 버킷팅(alignByDebut)도 KST 기준이라 프리필터도 같은 달력을 써야 한다.
   const from = -7;
   const to = asOfDay + AT_DAY_WINDOW;
   const rows = await d1Query<SummaryRow>(
@@ -84,7 +86,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
        JOIN groups g ON g.key = s.group_key
       WHERE s.group_key IN (${ph})
         AND g.debut_date IS NOT NULL
-        AND CAST(julianday(date(s.snapshot_at)) - julianday(g.debut_date) AS INTEGER)
+        AND CAST(julianday(date(s.snapshot_at, '+9 hours')) - julianday(g.debut_date) AS INTEGER)
             BETWEEN ? AND ?`,
     [...ALL_KEYS, from, to],
   );
