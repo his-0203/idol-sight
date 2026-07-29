@@ -185,6 +185,18 @@ export const GROUP_LEXICON: GroupEntry[] = [
       { alias: "비그릿츠", label: "BEGRITZ", word: false },
     ],
   },
+  {
+    key: "bthd",
+    display: "BTHD",
+    aliases: [
+      // 0075 seed 의 context_keywords 와 같은 표기 계열. "BTHD" 는 4자
+      // 영문 약자라 word=true 로 경계를 요구한다 (부분 문자열 FP 방지).
+      { alias: "B THE HOOD", label: "BTHD", word: false },
+      { alias: "BTHEHOOD",   label: "BTHD", word: true },
+      { alias: "BTHD",       label: "BTHD", word: true },
+      { alias: "비더후드",   label: "BTHD", word: false },
+    ],
+  },
 ];
 
 // 매칭 시 사용할 (alias, key, label, word) 평탄 배열을 alias 길이 내림차순으로

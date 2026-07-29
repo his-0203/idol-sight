@@ -10,7 +10,7 @@ import { api } from "../api";
 import { fmt } from "../format";
 import { colorOf } from "../design/groups";
 import { EmptyState } from "./EmptyState";
-import { EstBadge } from "../views/MiiWANBriefing";
+import { EstBadge } from "./EstBadge";
 
 type CurvePoint = { day: number; index: number; source: string };
 type ScRow = {
