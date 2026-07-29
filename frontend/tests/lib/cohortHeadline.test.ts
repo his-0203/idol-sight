@@ -215,7 +215,7 @@ describe("organicStanding", () => {
       organicity: [org("miiwan", 70), org("myrakl", 90), org("plave", 95, true)],
     }));
     // plave 를 세면 3팀 중 3위가 되지만, 표·곡선과 같은 규칙으로 제외.
-    expect(s).toEqual({ score: 70, judgeScore: 70, rank: 2, size: 2 });
+    expect(s).toEqual({ score: 70, judgeScore: 70, rank: 2, scoreRank: 2, size: 2 });
   });
 
   test("순위도 판정 점수(min) 기준 — 배지와 다른 숫자로 줄 세우지 않는다", () => {
@@ -223,14 +223,17 @@ describe("organicStanding", () => {
       // 편수로는 miiwan 90 > myrakl 80 이지만, 판정 점수는 40 < 80.
       organicity: [org("miiwan", 90, false, 40), org("myrakl", 80)],
     }));
-    expect(s).toEqual({ score: 90, judgeScore: 40, rank: 2, size: 2 });
+    // 편수 순위(scoreRank)와 판정 순위(rank)가 갈리는 자리 — 같은 모수(size)
+    // 안에서 둘 다 나와야 "편수로는 1위인데 판정으로는 2위"를 한 화면에서
+    // 모순 없이 쓸 수 있다(C1).
+    expect(s).toEqual({ score: 90, judgeScore: 40, rank: 2, scoreRank: 1, size: 2 });
   });
 
   test("점수 없는 팀은 분모에 넣지 않는다", () => {
     const s = organicStanding(cohort({
       organicity: [org("miiwan", 80), org("myrakl", null), org("owis", null)],
     }));
-    expect(s).toEqual({ score: 80, judgeScore: 80, rank: 1, size: 1 });
+    expect(s).toEqual({ score: 80, judgeScore: 80, rank: 1, scoreRank: 1, size: 1 });
   });
 
   test("미완이 점수 자체가 없으면 null", () => {
@@ -241,14 +244,14 @@ describe("organicStanding", () => {
   test("점수 동률이면 같은 순위 (경쟁 순위)", () => {
     expect(organicStanding(cohort({
       organicity: [org("miiwan", 80), org("myrakl", 80), org("owis", 50)],
-    }))).toEqual({ score: 80, judgeScore: 80, rank: 1, size: 3 });
+    }))).toEqual({ score: 80, judgeScore: 80, rank: 1, scoreRank: 1, size: 3 });
   });
 });
 
 // 성장곡선(③)의 MiiWAN 읽기 — 곡선은 기울기만 보이고 "그래서 우리는?"이
 // 없다. PRIMARY_METRIC 고정 — 탭을 바꿔도 이 카드의 결론은 안 바뀐다.
 describe("curveVerdict", () => {
-  test("순증>0 — good에 순증·정체 팀 수, weak에 배수·하위권", () => {
+  test("순증>0 — good에 순증·정체 팀 수, weak에 배수·순위 사실", () => {
     const d = cohort({
       scorecard: {
         yt_subscribers: {
@@ -265,7 +268,38 @@ describe("curveVerdict", () => {
     expect(v.good).toContain(fmtDelta(600, "명")!);
     expect(v.good).toContain("1팀과 대비된다");
     expect(v.weak).toContain(fmtMultiple(2.5));
-    expect(v.weak).toContain("하위권");
+    // I1 — 예전엔 배수와 무관하게 "완만하다 · 하위권"이 나갔다. 평가어 없이
+    // 응답이 준 순위 사실만 쓴다.
+    expect(v.weak).toContain("3팀 중 3위다");
+    expect(v.weak).not.toContain("완만");
+    expect(v.weak).not.toContain("하위권");
+  });
+
+  // I1 가드 — 순위는 하드코딩이 아니라 scorecard 에서 파생된다. 같은 shape
+  // 에서 miiwan_rank 만 바꾸면 문장의 순위도 따라가야 한다.
+  test("weak의 순위는 픽스처의 miiwan_rank를 따라간다", () => {
+    const build = (rank: number, size: number) => cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [row({ group_key: "miiwan", value_at_day: 1000, base_value: 400, growth_multiple: 2.5 })],
+          miiwan_rank: rank, cohort_size: size,
+        },
+      },
+    });
+    expect(curveVerdict(build(1, 6)).weak).toContain("6팀 중 1위다");
+    expect(curveVerdict(build(5, 6)).weak).toContain("6팀 중 5위다");
+  });
+
+  test("비교 대상이 1팀뿐이면 순위 절 없이 배수만 말한다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [row({ group_key: "miiwan", value_at_day: 1000, base_value: 400, growth_multiple: 2.5 })],
+          miiwan_rank: 1, cohort_size: 1,
+        },
+      },
+    });
+    expect(curveVerdict(d).weak).toBe(`증가 폭은 ${fmtMultiple(2.5)}.`);
   });
 
   test("순증>0인데 정체 팀이 0이면 대비 문구를 붙이지 않는다", () => {
@@ -297,19 +331,20 @@ describe("curveVerdict", () => {
     expect(v.weak).toContain("증가가 멈춰 있다");
   });
 
-  test("순증을 낼 값(출발선·D+N 값)이 없으면 배수만으로 하위권을 말한다", () => {
+  test("순증을 낼 값(출발선·D+N 값)이 없으면 배수·순위만 말한다", () => {
     const d = cohort({
       scorecard: {
         yt_subscribers: {
           rows: [row({ group_key: "miiwan", value_at_day: null, base_value: null, growth_multiple: 0.9 })],
-          miiwan_rank: 1, cohort_size: 1,
+          miiwan_rank: 2, cohort_size: 4,
         },
       },
     });
     const v = curveVerdict(d);
     expect(v.good).toBeNull();
     expect(v.weak).toContain(fmtMultiple(0.9));
-    expect(v.weak).toContain("하위권");
+    expect(v.weak).toContain("4팀 중 2위다");
+    expect(v.weak).not.toContain("하위권");
   });
 
   test("데이터 없음(미완 행·배수 모두) — good·weak 모두 null", () => {
@@ -351,9 +386,51 @@ describe("scorecardVerdict", () => {
       },
     });
     const v = scorecardVerdict(d, "yt_subscribers");
-    expect(v.good).toContain("3팀 중 1위");
-    expect(v.good).toContain(fmtMultiple(3.0));
+    expect(v.good).toContain("출발선(데뷔일 값)은 3팀 중 1위");
+    expect(v.good).toContain(`${fmtMultiple(3.0)}는 데뷔 전 값이 있는 3팀 중 1위`);
     expect(v.good).toContain("이미 팬덤을 쌓아둔 팀이다");
+  });
+
+  // I4 — 데뷔 전 배수의 모수는 출발선 모수와 다르다(값이 없는 팀 존재).
+  // 예전엔 preRank 만 내고 baseN 옆에 붙여 놔 "같은 N팀 중"으로 읽혔고,
+  // pre_multiple 이 없는 팀이 암묵적으로 아래 순위로 세어졌다.
+  test("good — 데뷔 전 배수 모수는 출발선 모수와 따로 센다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 900, pre_multiple: 3.0 }),
+            row({ group_key: "owis", base_value: 400, pre_multiple: 1.5 }),
+            // 데뷔 전 값이 없는 팀 — 출발선 모수(3)엔 들어가지만 데뷔 전
+            // 모수(2)엔 안 들어가고, 미완이 아래로 세어지지도 않는다.
+            row({ group_key: "bthd", base_value: 200, pre_multiple: null }),
+            // 참조선(PLAVE)은 양쪽 모수에서 모두 빠진다.
+            row({ group_key: "plave", base_value: 9000, pre_multiple: 9.0, reference: true }),
+          ],
+          miiwan_rank: 1, cohort_size: 3,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    expect(v.good).toContain("출발선(데뷔일 값)은 3팀 중 1위");
+    expect(v.good).toContain("데뷔 전 값이 있는 2팀 중 1위");
+  });
+
+  test("good — 데뷔 전 값이 있는 팀이 미완이뿐이면 1위 강조를 붙이지 않는다", () => {
+    const d = cohort({
+      scorecard: {
+        yt_subscribers: {
+          rows: [
+            row({ group_key: "miiwan", base_value: 900, pre_multiple: 3.0 }),
+            row({ group_key: "owis", base_value: 400, pre_multiple: null }),
+          ],
+          miiwan_rank: 1, cohort_size: 2,
+        },
+      },
+    });
+    const v = scorecardVerdict(d, "yt_subscribers");
+    expect(v.good).toContain("데뷔 전 값이 있는 1팀 중 1위");
+    expect(v.good).not.toContain("이미 팬덤을 쌓아둔 팀이다");
   });
 
   test("good — 데뷔 전 배수 1위가 아니면 부연 문장이 없다", () => {
@@ -371,8 +448,8 @@ describe("scorecardVerdict", () => {
     const v = scorecardVerdict(d, "yt_subscribers");
     // 출발선(base_value)은 900 > 400 이라 1위지만, 데뷔 전 배수(pre_multiple)는
     // 1.2 < 3.0 이라 2위 — 두 순위가 갈리는 걸 그대로 보여준다.
-    expect(v.good).toContain("2팀 중 1위");
-    expect(v.good).toContain(`${fmtMultiple(1.2)}는 2위`);
+    expect(v.good).toContain("출발선(데뷔일 값)은 2팀 중 1위");
+    expect(v.good).toContain(`${fmtMultiple(1.2)}는 데뷔 전 값이 있는 2팀 중 2위`);
     expect(v.good).not.toContain("이미 팬덤을 쌓아둔 팀이다");
   });
 
@@ -449,16 +526,53 @@ describe("organicityVerdict", () => {
   test("good — 편수 점수·순위, organic 이상이면 우세 등급 문구", () => {
     const d = cohort({ organicity: [org("miiwan", 75), org("owis", 60), org("bthd", 50)] });
     const v = organicityVerdict(d);
-    expect(v.good).toContain("75점");
-    expect(v.good).toContain("3팀 중 1위");
+    expect(v.good).toContain("영상 편수 기준 75점");
+    // 순위는 어느 기준으로 센 순위인지 문장에 박아 쓴다 — 판정(min) 기준으로
+    // 정렬된 아래 목록과 다른 줄 세우기라는 걸 독자가 알 수 있어야 한다.
+    expect(v.good).toContain("편수 기준으로는 3팀 중 1위");
+    expect(v.good).not.toContain("판정 가능한");
     expect(v.good).toContain("자연 유입 우세 등급이다");
+  });
+
+  // C1 — 이 섹션의 자기모순 봉합. 편수 점수는 우세 등급인데 판정 점수(막대·
+  // 배지가 그리는 값)는 그 아래인 실측 형태에서, 등급 선언이 나가면 바로
+  // 아래 주황 막대와 정면 충돌한다. 등급 기준은 반드시 판정 점수다.
+  test("good — 편수 점수가 우세 등급이어도 판정 점수가 그 아래면 등급 선언을 하지 않는다", () => {
+    const d = cohort({
+      organicity: [
+        org("miiwan", 74, false, 41), org("owis", 80, false, 78), org("bthd", 60, false, 55),
+      ],
+    });
+    const v = organicityVerdict(d);
+    expect(v.good).toContain("영상 편수 기준 74점");
+    expect(v.good).toContain("편수 기준으로는 3팀 중 2위");
+    expect(v.good).not.toContain("우세 등급");
+    expect(v.good).not.toContain("판정 가능한");
+  });
+
+  test("good — 등급 선언은 판정 점수가 우세 등급일 때만, 그 점수를 함께 쓴다", () => {
+    const d = cohort({ organicity: [org("miiwan", 90, false, 72), org("owis", 60)] });
+    const v = organicityVerdict(d);
+    expect(v.good).toContain("72점 기준으로도 자연 유입 우세 등급이다");
+  });
+
+  test("good — 편수 점수가 과반에 못 미치면 '대부분 자연 소비' 절을 붙이지 않는다", () => {
+    const v = organicityVerdict(cohort({ organicity: [org("miiwan", 30), org("owis", 80)] }));
+    expect(v.good).toContain("영상 편수 기준 30점");
+    expect(v.good).not.toContain("자연 소비");
+  });
+
+  test("good — 점수가 있는 팀이 미완이뿐이면 순위 절을 붙이지 않는다", () => {
+    const v = organicityVerdict(cohort({ organicity: [org("miiwan", 75), org("owis", null)] }));
+    expect(v.good).toContain("영상 편수 기준 75점.");
+    expect(v.good).not.toContain("팀 중");
   });
 
   test("good — organic 미만이면 우세 등급 문구를 붙이지 않는다", () => {
     const d = cohort({ organicity: [org("miiwan", 55), org("owis", 60)] });
     const v = organicityVerdict(d);
     expect(v.good).not.toContain("우세 등급");
-    expect(v.good).toContain("콘텐츠 대부분은 자연 소비되고 있다");
+    expect(v.good).toContain("만든 콘텐츠의 대부분은 자연 소비되고 있다");
   });
 
   // 자기공시 이동 보존 가드 — 헤드라인에서 지운 organicNote 의 핵심
@@ -470,7 +584,24 @@ describe("organicityVerdict", () => {
     expect(v.weak).toContain(`${ORG_AD_SUSPECT_THRESHOLD}점`);
     expect(v.weak).toContain("35점");
     expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
-    expect(v.weak).toContain("조회수가 소수 광고성 영상에 쏠린");
+    // I3 — 인과 절은 실제로 조회수 쪽이 낮아 min 이 된 경우에만, 그리고
+    // 두 점수를 다 보여주는 형태로만 붙인다(위 exPaidNote 문단과 중복 금지).
+    expect(v.weak).toContain("편수 기준 55점보다 조회수 기준 35점이 낮아");
+  });
+
+  test("weak — 조회수 기준 점수가 없는 창에서는 인과 절을 붙이지 않는다", () => {
+    const d = cohort({ organicity: [org("miiwan", 35), org("owis", 90)] });
+    const v = organicityVerdict(d);
+    expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
+    expect(v.weak).not.toContain("조회수 기준");
+  });
+
+  test("weak — 편수 쪽이 더 낮아 판정된 경우에도 인과 절을 붙이지 않는다", () => {
+    // score=35, score_view_weighted=60 → judge=35 인데 원인은 조회수가 아니다.
+    const d = cohort({ organicity: [org("miiwan", 35, false, 60), org("owis", 90)] });
+    const v = organicityVerdict(d);
+    expect(v.weak).toContain("광고 영향을 배제하기 어렵다");
+    expect(v.weak).not.toContain("조회수 기준");
   });
 
   test("weak — 판정 점수가 기준선 부근(±THRESHOLD_NEAR_BAND)이면 '부근이라'", () => {

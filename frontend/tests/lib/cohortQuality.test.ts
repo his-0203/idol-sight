@@ -3,6 +3,7 @@
 import { describe, expect, test } from "vitest";
 import {
   MAX_RADIUS, MIN_RADIUS, PRE_BASE_WINDOW, QUALITY_METRIC, Y_AXIS_PADDING,
+  MULTIPLE_CAVEAT,
   buildQualityScatter, isLooseAnchor, median, qualityVerdict, radiusFor, yRangeFor,
 } from "../../src/lib/cohortQuality";
 import {
@@ -262,6 +263,49 @@ describe("qualityVerdict", () => {
     expect(v.good).toContain("가장 빠르게 팬덤을 키웠다");
     // 원 크기(현재 팬 규모)는 miiwan 10,000 < owis 40,000 → 2위.
     expect(v.good).toContain("2위다");
+    // C2 — 배수 캐비앗은 1위 강조와 **같은 문단**에 항상 붙는다. 예전엔
+    // weak 의 마지막 분기라 자연 유입 점수가 기준선 근처면 도달하지 못했고,
+    // "가장 빠르게 팬덤을 키웠다"만 캐비앗 없이 나갔다.
+    expect(v.good).toContain(MULTIPLE_CAVEAT);
+  });
+
+  // C2 — 캐비앗은 구조적 사실이라 순위 방향과 무관하게 양방향 상시.
+  test("good — 배수 순위가 낮아도 배수 캐비앗은 그대로 붙는다", () => {
+    const s = buildQualityScatter(cohort(
+      [row("miiwan", 1.2, 10_000), row("owis", 5.0, 40_000), row("bthd", 4.0, 30_000)],
+      [org("miiwan", 90), org("owis", 60), org("bthd", 50)],
+    ));
+    const v = qualityVerdict(s);
+    expect(v.good).toContain("3팀 중 3위");
+    expect(v.good).toContain(MULTIPLE_CAVEAT);
+  });
+
+  // C2 — 자연 유입 점수가 기준선 부근이면(실측 상황) weak 은 그 이야기를
+  // 하고, 캐비앗은 good 쪽에서 이미 나간다 — 둘 중 하나만 나오는 예전 구조는
+  // "1위" 주장이 캐비앗 없이 화면에 남는 경로를 만들었다.
+  test("good — 자연 유입 경고가 weak을 차지해도 캐비앗은 good에 남는다", () => {
+    const s = buildQualityScatter(cohort(
+      [row("miiwan", 5.0, 10_000), row("owis", 2.0, 40_000)],
+      [org("miiwan", ORG_AD_SUSPECT_THRESHOLD + THRESHOLD_NEAR_BAND), org("owis", 90)],
+    ));
+    const v = qualityVerdict(s);
+    expect(v.good).toContain("가장 빠르게 팬덤을 키웠다");
+    expect(v.good).toContain(MULTIPLE_CAVEAT);
+    expect(v.weak).toContain("부근이라");
+  });
+
+  // M4 — 비교 대상이 미완이뿐이면 "1팀 중 1위 — 가장 빠르게 …"·"원 크기 1위"
+  // 는 자기 자신을 이긴 것을 강점으로 파는 문장이다. 순위 절 자체를 뺀다.
+  test("good — 비참조 비교 대상이 1팀뿐이면 순위 절을 붙이지 않는다", () => {
+    const s = buildQualityScatter(cohort(
+      [row("miiwan", 5.0, 10_000), row("plave", 9.0, 90_000, true)],
+      [org("miiwan", 80), org("plave", 90, true)],
+    ));
+    const v = qualityVerdict(s);
+    expect(v.good).toContain(`총 성장 배수 ${fmtMultiple(5.0)}.`);
+    expect(v.good).not.toContain("팀 중");
+    expect(v.good).not.toContain("원 크기");
+    expect(v.good).toContain(MULTIPLE_CAVEAT);
   });
 
   test("good — 1위가 아니면 강조 문장을 붙이지 않는다", () => {
@@ -294,14 +338,18 @@ describe("qualityVerdict", () => {
     expect(v.weak).toContain("광고 영향이 없다고 확정하기 어렵다");
   });
 
-  test("weak — 기준선에서 충분히 위인데 성장 배수가 1~2위면 과대해석 주의를 말한다", () => {
+  // C2 — 예전엔 이 조합(기준선에서 충분히 위 + 배수 1~2위)에서만 캐비앗이
+  // weak 으로 나왔다. 이제 캐비앗은 good 상시라 weak 은 자연 유입 이야기만
+  // 하고, 할 말이 없으면 null 이다.
+  test("weak — 기준선에서 충분히 위면 배수 순위가 1위여도 null (캐비앗은 good으로)", () => {
     const s = buildQualityScatter(cohort(
       [row("miiwan", 5.0, 10_000), row("owis", 2.0, 40_000), row("bthd", 1.5, 3_000)],
-      // gap = 90 - 40 = 50 > THRESHOLD_NEAR_BAND, growthRank = 1위(<=2).
+      // gap = 90 - 40 = 50 > THRESHOLD_NEAR_BAND, growthRank = 1위.
       [org("miiwan", 90), org("owis", 60), org("bthd", 50)],
     ));
     const v = qualityVerdict(s);
-    expect(v.weak).toContain("배수 순위를 그대로 실력 순위로 읽지 않는다");
+    expect(v.weak).toBeNull();
+    expect(v.good).toContain(MULTIPLE_CAVEAT);
   });
 
   test("weak — 기준선도 멀고 배수 순위도 낮으면 null", () => {

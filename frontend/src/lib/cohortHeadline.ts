@@ -105,7 +105,12 @@ export const PRIMARY_METRIC = "yt_subscribers";
 export const ORG_AD_SUSPECT_THRESHOLD = VERDICT_THRESHOLDS.suspect;
 
 /**
- * 임계선에서 이 점수 안쪽이면 "판정이 갈릴 수 있는 자리"로 본다.
+ * 임계선 **위쪽으로** 이 점수 안쪽이면 "판정이 갈릴 수 있는 자리"로 본다.
+ * 단측(one-sided)으로 쓴다 — gap = 점수 − 임계선이라 할 때
+ * `gap < 0` = "기준선 아래"(이미 걸린 팀), `0 ≤ gap ≤ band` = "기준선 부근",
+ * `gap > band` = 기준선에서 충분히 떨어짐. 아래쪽은 이 대역으로 완충하지
+ * 않는다 — 기준선 아래는 근접 여부와 무관하게 그냥 걸린 것이고, 거기에
+ * "부근이라 애매하다"를 붙이면 판정이 물러진다.
  * 원래 cohortQuality.ts(산점도)가 정의해 scatterNote 에서 썼던 상수 —
  * 이제 organicityVerdict(자연 유입 섹션)도 같은 판단을 문장으로 내야 해서
  * 여기로 옮겼다. cohortQuality.ts 는 이 파일을 import하는 기존 방향이라
@@ -294,6 +299,13 @@ export function organicStanding(d: CohortData): {
   /** 판정에 쓰는 점수 = 편수·조회수 중 낮은 쪽 (B1). 순위도 이 값 기준. */
   judgeScore: number;
   rank: number;
+  /**
+   * 같은 모수(size) 안에서 **편수 기준 점수**로 다시 센 순위. 편수 점수를
+   * 말하는 문장은 편수 순위를, 판정 점수를 말하는 문장은 판정 순위(rank)를
+   * 써야 하는데 둘을 각자 계산하면 모수가 갈린다 — 한 함수가 같은 scored
+   * 집합에서 두 순위를 함께 내 "N팀"이 항상 같은 N이 되게 한다.
+   */
+  scoreRank: number;
   size: number;
 } | null {
   const scored = d.organicity.filter(
@@ -309,6 +321,7 @@ export function organicStanding(d: CohortData): {
     // 순위도 판정 점수 기준 — 배지·흐린 선과 다른 숫자로 줄을 세우면
     // "우리는 2위인데 왜 의심 표시가 붙었나"가 화면 안에서 안 풀린다.
     rank: rankDesc(myJudge, judged),
+    scoreRank: rankDesc(mine.score, scored.map((o) => o.score)),
     size: scored.length,
   };
 }
@@ -321,7 +334,8 @@ export function organicStanding(d: CohortData): {
  * 이 카드의 결론이 바뀌면 안 된다).
  */
 export function curveVerdict(d: CohortData): SectionVerdict {
-  const rows = d.scorecard[PRIMARY_METRIC]?.rows ?? [];
+  const sc = d.scorecard[PRIMARY_METRIC];
+  const rows = sc?.rows ?? [];
   const mine = rows.find((r) => r.group_key === "miiwan");
   if (!mine || mine.growth_multiple == null) return { good: null, weak: null };
   const delta = mine.value_at_day != null && mine.base_value != null
@@ -329,16 +343,24 @@ export function curveVerdict(d: CohortData): SectionVerdict {
   const stalled = rows.filter((r) =>
     !r.reference && r.group_key !== "miiwan" && r.growth_multiple != null && r.growth_multiple <= 1).length;
   const unit = METRIC_UNITS[PRIMARY_METRIC] ?? "";
+  // I1 — 예전엔 "완만하다 · 곡선의 기울기만 보면 하위권이다"를 배수와 무관하게
+  // 붙였다. 배수가 좋아져도 같은 자기비하가 나가고, 실제 순위(miiwan_rank)와
+  // 어긋날 수도 있다. 평가어를 빼고 응답이 준 순위 사실만 쓴다 — 순위 모수가
+  // 없거나 비교 대상이 1팀뿐이면("1팀 중 1위"는 뜻이 없다) 배수만 말한다.
+  const ranked = sc?.miiwan_rank != null && sc.cohort_size >= 2
+    ? ` ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위다` : null;
+  const multClause = (lead: string) =>
+    `${lead} ${fmtMultiple(mine.growth_multiple)}${ranked ? `로${ranked}` : ""}.`;
   let good: string | null = null;
   let weak: string | null;
   if (delta != null && delta > 0) {
     good = `데뷔 후에도 ${METRIC_LABELS[PRIMARY_METRIC]}가 ${fmtDelta(delta, unit)} 늘며 증가를 유지하고 있다`
       + (stalled > 0 ? ` — 데뷔 후 늘지 않은 ${stalled}팀과 대비된다.` : ".");
-    weak = `다만 증가 폭은 ${fmtMultiple(mine.growth_multiple)}로 완만하다 — 곡선의 기울기만 보면 하위권이다.`;
+    weak = multClause("증가 폭은");
   } else {
     weak = delta != null
       ? `데뷔 후 ${METRIC_LABELS[PRIMARY_METRIC]}가 ${fmtDelta(delta, unit)} — 증가가 멈춰 있다.`
-      : `데뷔 후 증가 폭 ${fmtMultiple(mine.growth_multiple)} — 곡선의 기울기만 보면 하위권이다.`;
+      : multClause("데뷔 후 증가 폭은");
   }
   return { good, weak };
 }
@@ -358,11 +380,21 @@ export function scorecardVerdict(d: CohortData, metric: string): SectionVerdict 
   const baseRank = mine.base_value != null
     ? peers.filter((r) => (r.base_value ?? -1) > mine.base_value!).length + 1 : null;
   const baseN = rows.filter((r) => !r.reference && r.base_value != null).length;
+  // I4 — 데뷔 전 배수는 값이 없는 팀이 있어 모수가 출발선(baseN)과 다르다.
+  // 예전엔 preRank 만 내고 baseN 옆에 붙여 놔서 "같은 N팀 중"으로 읽혔고,
+  // pre_multiple 이 없는 팀이 암묵적으로 아래 순위로 세어지고 있었다.
+  // 헤드라인 H2 와 같은 표현("데뷔 전 값이 있는 N팀 중")으로 모수를 그
+  // 자리에서 스스로 설명하게 만든다.
+  const prePeers = peers.filter((r) => r.pre_multiple != null);
   const preRank = mine.pre_multiple != null
-    ? peers.filter((r) => (r.pre_multiple ?? -1) > mine.pre_multiple!).length + 1 : null;
+    ? prePeers.filter((r) => r.pre_multiple! > mine.pre_multiple!).length + 1 : null;
+  const preN = mine.pre_multiple != null ? prePeers.length + 1 : 0;
   const good = baseRank != null && preRank != null
-    ? `출발선(데뷔일 값)은 ${baseN}팀 중 ${baseRank}위, 데뷔 전 성장 배수 ${fmtMultiple(mine.pre_multiple)}는 ${preRank}위`
-      + (preRank === 1 ? " — 데뷔 전에 이미 팬덤을 쌓아둔 팀이다." : ".")
+    ? `출발선(데뷔일 값)은 ${baseN}팀 중 ${baseRank}위, 데뷔 전 성장 배수 ${fmtMultiple(mine.pre_multiple)}는`
+      + ` 데뷔 전 값이 있는 ${preN}팀 중 ${preRank}위`
+      // 1위 강조는 실제로 겨룰 상대가 있을 때만 — "1팀 중 1위"에 붙이면
+      // 자기 자신을 이긴 것을 강점으로 파는 문장이 된다.
+      + (preRank === 1 && preN >= 2 ? " — 데뷔 전에 이미 팬덤을 쌓아둔 팀이다." : ".")
     : null;
   const weak = mine.growth_multiple != null && sc?.miiwan_rank != null && sc.cohort_size >= 2
     ? `데뷔 후 성장 배수 ${fmtMultiple(mine.growth_multiple)}는 ${sc.cohort_size}팀 중 ${sc.miiwan_rank}위다`
@@ -374,32 +406,54 @@ export function scorecardVerdict(d: CohortData, metric: string): SectionVerdict 
 /**
  * 자연 유입 섹션(⑤)의 MiiWAN 읽기 — 헤드라인에서 뺀 자기공시(판정 점수 ↔
  * 기준선 관계, 광고 영향을 배제하기 어렵다는 사실)가 여기로 옮겨온다.
- * good/weak 모두 organicStanding() 을 재사용해 배지·표와 같은 숫자를
- * 쓴다(같은 팀을 다른 숫자로 두 번 줄 세우지 않는다) — good의 순위만은
- * 판정 점수(min)가 아니라 편수 기준 원점수로 다시 센다(이 문장이 말하는
- * 값 자체가 편수 기준이라서 그렇다).
+ * good/weak 모두 organicStanding() 을 재사용해 배지·표와 같은 숫자를 쓴다
+ * (같은 팀을 다른 숫자로 두 번 줄 세우지 않는다).
+ *
+ * C1 — 이 섹션은 한 화면 안에서 세 숫자를 동시에 보여준다: 편수 점수(good이
+ * 말하는 값) · 판정 점수(막대·배지가 그리는 값, 편수·조회수 중 낮은 쪽) ·
+ * 판정 점수로 정렬된 팀 목록. 예전 good은 편수 순위를 "판정 가능한 N팀 중
+ * M위"라는 **판정 기준 문구**에 실어 목록 순서와 어긋났고, 등급 선언
+ * ("자연 유입 우세 등급")까지 편수 점수로 내 바로 아래 주황 막대와 정면
+ * 충돌했다. 그래서 ⓐ 순위는 기준을 문장에 박아 쓰고("편수 기준으로는")
+ * ⓑ 등급 선언은 판정 점수가 실제로 우세 등급일 때만 낸다.
  */
 export function organicityVerdict(d: CohortData): SectionVerdict {
   const standing = organicStanding(d);
   if (!standing) return { good: null, weak: null };
-  const scoredPeers = d.organicity.filter(
-    (o): o is OrgRowScored => o.score != null && !o.reference && o.group_key !== "miiwan",
-  );
-  const rank = rankDesc(standing.score, scoredPeers.map((o) => o.score));
-  const good = `영상 편수 기준 ${standing.score}점으로 판정 가능한 ${standing.size}팀 중 ${rank}위`
-    + (standing.score >= VERDICT_THRESHOLDS.organic
-      ? " — 자연 유입 우세 등급이다."
-      : " — 콘텐츠 대부분은 자연 소비되고 있다.");
+  // 순위 절은 겨룰 상대가 있을 때만 — 화면 다른 곳(헤드라인 결론·표 각주)과
+  // 같은 가드다. "1팀 중 1위"는 자기 자신을 이긴 것이라 뜻이 없다.
+  const rankClause = standing.size >= 2
+    ? ` — 편수 기준으로는 ${standing.size}팀 중 ${standing.scoreRank}위` : "";
+  // "대부분 자연 소비"는 편수 점수가 실제로 과반일 때만 — 낮은 점수에 붙이면
+  // 점수와 정반대되는 결론을 같은 문장이 말하게 된다.
+  const bulk = standing.score >= VERDICT_THRESHOLDS.borderline
+    ? "만든 콘텐츠의 대부분은 자연 소비되고 있다." : null;
+  // 등급 선언의 기준은 반드시 판정 점수(min) — 막대·배지가 그리는 값이다.
+  const grade = standing.judgeScore >= VERDICT_THRESHOLDS.organic
+    ? `판정 점수(편수·조회수 중 낮은 쪽) ${standing.judgeScore}점 기준으로도 자연 유입 우세 등급이다.` : null;
+  const good = `영상 편수 기준 ${standing.score}점${rankClause}.`
+    + [bulk, grade].filter((s): s is string => s != null).map((s) => ` ${s}`).join("");
   let weak: string | null = null;
   if (standing.judgeScore < VERDICT_THRESHOLDS.organic) {
     const nearLine = standing.judgeScore - ORG_AD_SUSPECT_THRESHOLD;
+    // I3 — 원인 절("조회수 쪽이 낮아 판정이 그 값이 됐다")은 실제로 조회수
+    // 점수가 편수 점수보다 낮아 min 을 만들었을 때만 붙인다. 조회수 점수가
+    // 없는 창이나 편수 쪽이 더 낮은 창에서도 무조건 나가면 데이터가 뒷받침
+    // 하지 않는 인과를 지어내는 것이다. 쏠림의 실제 규모(편수·조회수 점유)는
+    // 바로 위 exPaidNote 문단이 이미 말하므로 여기서는 겹치지 않게 짧게 쓴다.
+    const mine = d.organicity.find((o) => o.group_key === "miiwan");
+    const viewLower = mine?.score != null && mine.score_view_weighted != null
+      && mine.score_view_weighted < mine.score;
     weak = `판정 점수(편수·조회수 중 낮은 쪽) ${standing.judgeScore}점은 광고 과다 기준선(${ORG_AD_SUSPECT_THRESHOLD}점) `
       + (nearLine < 0
         ? "아래라"
         : nearLine <= THRESHOLD_NEAR_BAND
           ? "부근이라"
           : `위지만 자연 유입 우세(${VERDICT_THRESHOLDS.organic}점)에는 못 미쳐`)
-      + " 우리 성장에도 광고 영향을 배제하기 어렵다 — 조회수가 소수 광고성 영상에 쏠린 것이 원인이다.";
+      + " 우리 성장에도 광고 영향을 배제하기 어렵다."
+      + (viewLower
+        ? ` 편수 기준 ${mine!.score}점보다 조회수 기준 ${mine!.score_view_weighted}점이 낮아 이 값이 판정 점수가 됐다.`
+        : "");
   }
   return { good, weak };
 }

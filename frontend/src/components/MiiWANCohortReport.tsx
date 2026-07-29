@@ -615,7 +615,11 @@ export function MiiWANCohortReport() {
             </div>
           )}
         </div>
-        <VerdictLines v={cVerdict} />
+        {/* I2 — cVerdict 는 PRIMARY_METRIC(구독자) 고정 결론이라 조회수 탭에
+            그대로 두면 라벨 없이 다른 지표의 판정문이 붙는다. 곡선이 없는
+            지표에서는 EmptyState 아래에 결론만 남아 근거 없는 단정이 된다.
+            둘 다 아닌 경우에만 낸다. */}
+        {metric === PRIMARY_METRIC && hasCurves && <VerdictLines v={cVerdict} />}
         {/* R7 — 흐린 선의 뜻. ⚠ 글리프는 위 '보완할 것'과 겹치므로 말로 쓴다. */}
         {hasCurves && adSuspectMetric && (
           <p class="mt-2 text-hint text-zinc-500">

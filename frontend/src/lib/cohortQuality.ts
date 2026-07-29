@@ -187,6 +187,17 @@ function rankDescOf(mine: number, others: number[]): number {
 }
 
 /**
+ * C2 — 총 성장 배수의 구조적 한계. 분모가 데뷔 전 앵커라 출발점이 작은 팀은
+ * 같은 순증으로도 훨씬 큰 배수가 나온다(미완이 앵커는 2천 미만). 이건 순위가
+ * 높든 낮든 항상 성립하는 **구조적 사실**이라 조건부로 붙일 성질이 아니다 —
+ * 예전엔 weak 의 마지막 분기에 있어서 자연 유입 점수가 기준선 근처면(=실제
+ * 상황) 영영 도달하지 못했고, "가장 빠르게 팬덤을 키웠다"만 캐비앗 없이
+ * 나갔다. 그래서 good 문장에 상시 부착한다.
+ */
+export const MULTIPLE_CAVEAT =
+  "총 성장 배수는 데뷔 전 출발점이 작을수록 크게 나온다 — 배수 순위를 그대로 실력 순위로 읽지 않는다.";
+
+/**
  * R5 — 산점도의 MiiWAN 읽기 — 그림만으로는 "왼쪽=뒤처짐" 오독이 흔해(기존
  * scatterNote의 문제의식) 잘함/보완 두 줄로 나눠 자동 서술한다.
  * 결론을 손으로 적지 않는다 — 좌표·순위·임계 근접은 전부 데이터에서.
@@ -195,11 +206,20 @@ export function qualityVerdict(s: QualityScatter): SectionVerdict {
   const mine = s.points.find((p) => p.group_key === "miiwan");
   if (!mine) return { good: null, weak: null };
   const peers = s.points.filter((p) => !p.reference);
-  const growthRank = rankDescOf(mine.growth, peers.filter((p) => p !== mine).map((p) => p.growth));
-  const scaleRank = rankDescOf(mine.scale, peers.filter((p) => p !== mine).map((p) => p.scale));
-  const good = `총 성장 배수 ${fmtMultiple(mine.growth)}로 ${peers.length}팀 중 ${growthRank}위`
-    + (growthRank === 1 ? " — 데뷔 전 준비 기간부터 지금까지 가장 빠르게 팬덤을 키웠다" : "")
-    + `. 원 크기(현재 팬 규모)로는 ${scaleRank}위다.`;
+  const others = peers.filter((p) => p !== mine);
+  const growthRank = rankDescOf(mine.growth, others.map((p) => p.growth));
+  const scaleRank = rankDescOf(mine.scale, others.map((p) => p.scale));
+  // M4 — 순위 절은 비참조 비교 대상이 2팀 이상일 때만. 미완이 혼자 남으면
+  // "1팀 중 1위 — 가장 빠르게 팬덤을 키웠다"가 되는데, 이건 자기 자신을 이긴
+  // 것을 강점으로 파는 문장이다(헤드라인 결론·표 각주와 같은 가드).
+  const ranked = peers.length >= 2;
+  const good = `총 성장 배수 ${fmtMultiple(mine.growth)}`
+    + (ranked ? `로 ${peers.length}팀 중 ${growthRank}위` : "")
+    + (ranked && growthRank === 1 ? " — 데뷔 전 준비 기간부터 지금까지 가장 빠르게 팬덤을 키웠다" : "")
+    + "."
+    + (ranked ? ` 원 크기(현재 팬 규모)로는 ${scaleRank}위다.` : "")
+    // 배수 캐비앗은 순위 방향과 무관하게 항상 — 위 C2 주석 참조.
+    + ` ${MULTIPLE_CAVEAT}`;
   const gap = mine.organic - s.threshold;
   let weak: string | null;
   if (gap < 0) {
@@ -207,8 +227,6 @@ export function qualityVerdict(s: QualityScatter): SectionVerdict {
   } else if (gap <= THRESHOLD_NEAR_BAND) {
     weak = `자연 유입 점수 ${mine.organic}점은 광고 과다 기준선(${s.threshold}점) 부근이라`
       + " 광고 영향이 없다고 확정하기 어렵다.";
-  } else if (growthRank <= 2) {
-    weak = "총 성장 배수는 데뷔 전 출발점이 작을수록 크게 나온다 — 배수 순위를 그대로 실력 순위로 읽지 않는다.";
   } else {
     weak = null;
   }
