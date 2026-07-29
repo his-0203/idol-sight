@@ -583,6 +583,82 @@ export function organicityVerdict(d: CohortData): SectionVerdict {
   return { good, weak };
 }
 
+/**
+ * ⑤-b 데뷔 창 활동 — "얼마나 올려서 얼마나 반응을 얻었나"(투입 대비 산출).
+ *
+ * 이 표에 세울 행 = 활동 데이터가 실제로 있는 그룹만. 정렬은 창 내 조회수
+ * 내림차순이고 참조선(PLAVE)은 맨 아래 — 순위 모수 밖이라 섞어 세우면
+ * "1위 PLAVE"로 읽힌다(스코어카드 표와 같은 규칙).
+ */
+export function activityRows(d: CohortData): OrgRow[] {
+  return d.organicity
+    .filter((o) => (o.uploads ?? 0) > 0 || o.window_views != null)
+    .sort((a, b) => {
+      if (a.reference !== b.reference) return a.reference ? 1 : -1;
+      return (b.window_views ?? -1) - (a.window_views ?? -1);
+    });
+}
+
+/** 활동 지표 한 축의 MiiWAN 값·순위. 참조선 제외, 값이 없는 팀은 모수에서 뺀다. */
+function activityRank(rows: OrgRow[], pick: (o: OrgRow) => number | null):
+  { value: number; rank: number; size: number } | null {
+  const vals: Array<{ key: string; v: number }> = [];
+  for (const o of rows) {
+    if (o.reference) continue;
+    const v = pick(o);
+    if (v != null && Number.isFinite(v)) vals.push({ key: o.group_key, v });
+  }
+  const mine = vals.find((x) => x.key === "miiwan");
+  // 겨룰 상대가 없으면 순위를 내지 않는다 — "1팀 중 1위"는 자기 자신을
+  // 이긴 것이라 뜻이 없다(화면 다른 곳과 같은 가드).
+  if (!mine || vals.length < 2) return null;
+  return {
+    value: mine.v,
+    rank: rankDesc(mine.v, vals.map((x) => x.v)),
+    size: vals.length,
+  };
+}
+
+/**
+ * 데뷔 창 활동 섹션의 MiiWAN 읽기. 세 축(업로드 전수 · 창 내 조회수 ·
+ * 조회 1,000회당 반응)을 각각 상위 절반이면 잘하는 점, 하위 절반이면
+ * 보완할 점으로 가른다 — 헤드라인·상세표와 같은 상위 절반 규칙이다.
+ *
+ * 업로드가 상위인데 조회수가 하위인 경우에만 두 순위를 한 절에서 맞세운다:
+ * 이 섹션의 존재 이유가 "투입 대비 산출"이라, 그 대비를 각각 다른 줄로
+ * 떼어 놓으면 "많이 올렸다"와 "덜 봤다"가 서로 무관한 두 사실로 읽힌다.
+ * 문장은 각각 한 개 — 절은 쉼표로 잇되 마침표를 늘리지 않는다(K5).
+ */
+export function activityVerdict(d: CohortData): SectionVerdict {
+  const rows = d.organicity;
+  const up = activityRank(rows, (o) => (o.uploads ?? 0) > 0 ? o.uploads! : null);
+  const views = activityRank(rows, (o) => o.window_views ?? null);
+  const dens = activityRank(rows, (o) => o.engagement_per_1k_views ?? null);
+  const topHalf = (r: { rank: number; size: number }) =>
+    r.rank <= Math.ceil(r.size / 2);
+  const good: string[] = [];
+  const weak: string[] = [];
+  const put = (r: { rank: number; size: number } | null, clause: string) => {
+    if (!r) return;
+    (topHalf(r) ? good : weak).push(clause);
+  };
+  // 순서는 표의 컬럼 순서와 같다(업로드 → 조회수 → 반응 밀도) — 문장과 표가
+  // 다른 순서로 읽히면 같은 수치를 두 번 찾게 된다.
+  if (up) put(up, `업로드 ${up.value.toLocaleString("ko-KR")}편은 ${up.size}팀 중 ${up.rank}위`);
+  if (views) {
+    put(views, up && topHalf(up) && !topHalf(views)
+      ? `창 내 조회수는 ${views.size}팀 중 ${views.rank}위로,`
+        + ` 업로드 순위(${up.rank}위)만큼 도달이 따라오지 않는`
+      : `창 내 조회수는 ${views.size}팀 중 ${views.rank}위`);
+  }
+  if (dens) {
+    put(dens, `조회 1,000회당 반응 ${dens.value.toFixed(1)}건은`
+      + ` ${dens.size}팀 중 ${dens.rank}위`);
+  }
+  const join = (parts: string[]) => parts.length ? `${parts.join(", ")}다.` : null;
+  return { good: join(good), weak: join(weak) };
+}
+
 export interface Headline {
   /** "데뷔 D+43일 차 (2026-06-16 데뷔), …" — 달력 날짜 병기. */
   lead: string;

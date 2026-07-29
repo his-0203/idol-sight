@@ -4,6 +4,7 @@ import { describe, expect, it, test } from "vitest";
 import {
   AD_SUSPECT_METRICS, EX_PAID_LABEL, NEAR_TIE_RATIO,
   ORG_ACTION_HINT, ORG_AD_SUSPECT_THRESHOLD, THRESHOLD_NEAR_BAND,
+  activityRows, activityVerdict,
   adJudgeScore, cohortComposition, curveVerdict, debutDateRange, exPaidNote, fmtDelta,
   fmtMultiple, headline, nearTieKeys, organicStanding, organicityVerdict, scorecardVerdict,
   type CohortData, type OrgRow, type ScRow,
@@ -1051,5 +1052,122 @@ describe("exPaidNote", () => {
       expect(s).not.toContain("자연 소비");
       expect(s).not.toContain("자연 유입에 가깝");
     }
+  });
+});
+
+// ── 데뷔 창 활동 (업로드 전수 · 창 내 조회수 · 반응 밀도) ────────────────
+/** 활동 필드가 실린 유기성 행. 2026-07-30 실측 shape 를 그대로 쓴다. */
+const actRow = (
+  group_key: string, uploads: number, views: number | null,
+  eng1k: number | null, reference = false,
+  parts?: { long: number; short: number },
+): OrgRow => ({
+  group_key, score: 60, video_count: 10, reference,
+  uploads, window_views: views, engagement_per_1k_views: eng1k,
+  uploads_long: parts?.long ?? null, uploads_short: parts?.short ?? null,
+});
+
+/**
+ * 2026-07-30 실측(D-20~D+40 창). 업로드는 미완이 2위인데 창 내 조회수는
+ * 꼴찌 — "많이 올렸는데 도달은 적고, 대신 반응 밀도는 1위"라는 이 화면의
+ * 핵심 대비가 픽스처에 그대로 들어 있어야 문장 규칙을 검증할 수 있다.
+ */
+const ACT_LIVE = [
+  actRow("miiwan", 107, 2_028_899, 14.3, false, { long: 35, short: 72 }),
+  actRow("owis", 151, 12_508_448, 6.7),
+  actRow("bthd", 26, 6_460_810, 1.0),
+  actRow("bdawn", 74, 5_320_331, 3.6),
+  actRow("skinz", 27, 4_243_678, 7.9),
+  actRow("myrakl", 76, 2_415_028, 4.5),
+  actRow("plave", 53, 39_454_951, 29.6, true),
+];
+
+describe("activityVerdict", () => {
+  test("상위 절반은 잘하는 점 — 업로드·반응 밀도 순위를 한 문장으로", () => {
+    const v = activityVerdict(cohort({ organicity: ACT_LIVE }));
+    expect(v.good).toContain("업로드 107편");
+    expect(v.good).toContain("6팀 중 2위");
+    expect(v.good).toContain("조회 1,000회당 반응 14.3건");
+    // 참조선(PLAVE 29.6)이 모수에 섞이면 미완이 밀도가 2위로 밀린다.
+    expect(v.good).toContain("6팀 중 1위");
+    expect(sentenceCount(v.good!)).toBe(1);
+  });
+
+  // 이 섹션의 존재 이유 = 투입 대비 산출. 업로드가 상위인데 조회수가
+  // 하위면 그 대비 자체가 보완할 점이라, 두 순위를 한 문장에서 맞세운다.
+  test("업로드는 상위인데 창 내 조회수가 하위면 그 대비를 보완할 점으로", () => {
+    const v = activityVerdict(cohort({ organicity: ACT_LIVE }));
+    expect(v.weak).toContain("창 내 조회수는 6팀 중 6위");
+    expect(v.weak).toContain("업로드 순위(2위)");
+    expect(sentenceCount(v.weak!)).toBe(1);
+  });
+
+  test("하위권 지표는 보완할 점으로 간다 (업로드·밀도 모두)", () => {
+    const v = activityVerdict(cohort({
+      organicity: [
+        actRow("miiwan", 5, 9_000_000, 1.0),
+        actRow("owis", 151, 12_508_448, 6.7),
+        actRow("bthd", 26, 6_460_810, 4.0),
+        actRow("bdawn", 74, 5_320_331, 3.6),
+      ],
+    }));
+    expect(v.weak).toContain("업로드 5편은 4팀 중 4위");
+    expect(v.weak).toContain("조회 1,000회당 반응 1.0건은 4팀 중 4위");
+    // 조회수는 상위 절반이라 잘하는 점으로 갈린다.
+    expect(v.good).toContain("창 내 조회수는 4팀 중 2위");
+    expect(sentenceCount(v.weak!)).toBe(1);
+  });
+
+  test("데이터가 없으면 문장을 지어내지 않는다", () => {
+    expect(activityVerdict(cohort({ organicity: [] })))
+      .toEqual({ good: null, weak: null });
+    // 활동 필드가 없는 응답(구버전 API)도 같은 처리.
+    expect(activityVerdict(cohort({
+      organicity: [org("miiwan", 74), org("owis", 60)],
+    }))).toEqual({ good: null, weak: null });
+  });
+
+  test("비교 대상이 1팀뿐이면 순위를 내지 않는다 (‘1팀 중 1위’ 금지)", () => {
+    const v = activityVerdict(cohort({
+      organicity: [
+        actRow("miiwan", 107, 2_028_899, 14.3),
+        actRow("plave", 53, 39_454_951, 29.6, true),
+      ],
+    }));
+    expect(v).toEqual({ good: null, weak: null });
+  });
+
+  test("값이 없는 팀은 그 지표의 모수에서만 빠진다", () => {
+    const v = activityVerdict(cohort({
+      organicity: [
+        actRow("miiwan", 107, 2_028_899, 14.3),
+        actRow("owis", 151, 12_508_448, null),
+        actRow("bdawn", 74, 5_320_331, 3.6),
+      ],
+    }));
+    // 업로드·조회수는 3팀 모수, 반응 밀도는 값이 있는 2팀 모수.
+    expect(v.good).toContain("업로드 107편은 3팀 중 2위");
+    expect(v.good).toContain("2팀 중 1위");
+  });
+});
+
+describe("activityRows", () => {
+  test("창 내 조회수 내림차순 · 참조선은 맨 아래", () => {
+    const keys = activityRows(cohort({ organicity: ACT_LIVE }))
+      .map((o) => o.group_key);
+    expect(keys).toEqual([
+      "owis", "bthd", "bdawn", "skinz", "myrakl", "miiwan", "plave",
+    ]);
+  });
+
+  test("활동 데이터가 없는 그룹은 빈 줄로 세우지 않는다", () => {
+    const rows = activityRows(cohort({
+      organicity: [
+        actRow("miiwan", 107, 2_028_899, 14.3),
+        org("owis", 60),              // 활동 필드 자체가 없음
+        actRow("bthd", 0, null, null), // 업로드 0 · 조회수 없음
+      ],
+    }));
+    expect(rows.map((o) => o.group_key)).toEqual(["miiwan"]);
   });
 });

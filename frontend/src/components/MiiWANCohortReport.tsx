@@ -41,6 +41,7 @@ import {
   AD_SUSPECT_METRICS, EX_PAID_LABEL, METRIC_LABELS,
   METRIC_UNITS, ORG_ACTION_HINT, ORG_AD_SUSPECT_THRESHOLD, ORG_SCORE_GAP_CHIP,
   PRIMARY_METRIC,
+  activityRows, activityVerdict,
   adJudgeScore, adScoreMap, cohortComposition, curveVerdict, debutDateRange,
   exPaidNote, fmtDelta, fmtMultiple, headline, nearTieKeys, organicityVerdict,
   scorecardVerdict,
@@ -493,6 +494,9 @@ export function MiiWANCohortReport() {
   const cVerdict = curveVerdict(data);
   const sVerdict = scorecardVerdict(data, metric);
   const oVerdict = organicityVerdict(data);
+  // ⑤-b 데뷔 창 활동 — 표에 세울 행과 그 해석. 둘 다 lib 산출(같은 규칙).
+  const actRows = activityRows(data);
+  const aVerdict = activityVerdict(data);
   const composition = cohortComposition(data, metric);
   const debutRange = debutDateRange(data);
   const nearTie = nearTieKeys(sc?.rows ?? []);
@@ -1212,6 +1216,94 @@ export function MiiWANCohortReport() {
               {" "}<strong class="text-zinc-300">몇 편이 조회수의 몇 %를 차지했는가</strong>다.
             </p>
           </details>
+        </div>
+      )}
+
+      {/* ⑤-b 데뷔 창 활동 — ⑤가 "광고 없이 컸나"(질)를 본다면 여기는 "얼마나
+          올려서 얼마나 도달·반응했나"(양과 밀도)다. 같은 창(orgWindowLabel)의
+          같은 쿼리에서 온 수치라 위 점수와 나란히 읽어도 기간이 어긋나지 않는다.
+          자연 유입 섹션 바로 뒤에 두는 이유: 판정 점수의 분모(무엇을 얼마나
+          올렸나)가 여기 있어서, 위에서 생긴 "그래서 얼마나 만든 건데?"가
+          바로 다음 화면에서 답을 받는다. */}
+      {actRows.length > 0 && (
+        <div class="card">
+          <div class="mb-1 flex flex-wrap items-center gap-2">
+            <h3 class={SECTION_TITLE}>데뷔 창 활동</h3>
+            <span class={CHIP}>{orgWindowLabel} · 데뷔 창 기준</span>
+          </div>
+          <p class={SECTION_LEAD}>
+            얼마나 올려서(업로드) 얼마나 도달했고(조회수) 얼마나 반응을 얻었나 —
+            투입 대비 산출.
+          </p>
+          <VerdictLines v={aVerdict} />
+          <div class="overflow-x-auto rounded-lg border border-zinc-800">
+            <table class="w-full min-w-[560px] text-sm tabular-nums">
+              <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
+                <tr>
+                  <th scope="col" class="px-3 py-2 text-left">그룹</th>
+                  {/* 라벨 주의 — 여기서 세는 것은 창 안에 올라온 **전체** 영상이고,
+                      위 자연 유입의 '영상 N편'은 판정이 가능했던 표본이다.
+                      두 수를 같은 이름으로 부르면 독자가 같은 숫자로 읽는다. */}
+                  <th scope="col" class="px-3 py-2 text-right">업로드 (롱·숏)</th>
+                  <th scope="col" class="px-3 py-2 text-right">창 내 조회수</th>
+                  <th scope="col" class="px-3 py-2 text-right">
+                    조회 1,000회당 반응
+                    <div class="font-normal normal-case tracking-normal text-zinc-600">
+                      높을수록 반응이 밀도 있다
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {actRows.flatMap((o, i) => {
+                  const isMine = o.group_key === "miiwan";
+                  const firstRef = o.reference && !actRows[i - 1]?.reference;
+                  const parts = o.uploads_long != null && o.uploads_short != null
+                    ? `롱 ${o.uploads_long}·숏 ${o.uploads_short}` : null;
+                  return [
+                    firstRef ? (
+                      <tr key="act-ref-divider">
+                        <td colSpan={4}
+                            class="border-t-2 border-zinc-700 px-3 py-2 text-hint text-zinc-500">
+                          아래는 순위에서 제외한 참고 사례 — 데뷔 시기·규모가 달라
+                          같이 세지 않는다.
+                        </td>
+                      </tr>
+                    ) : null,
+                    <tr key={o.group_key}
+                        class={"border-t border-zinc-800/60" + (isMine ? " bg-zinc-800/40" : "")}>
+                      <td class="px-3 py-2" style={{ color: colorOf(o.group_key) }}>
+                        {data.groups[o.group_key]?.name ?? o.group_key}
+                      </td>
+                      <td class={"px-3 py-2 text-right " + (isMine ? "font-semibold" : "text-zinc-300")}
+                          style={isMine ? { color: accent } : undefined}>
+                        {(o.uploads ?? 0) > 0 ? `${o.uploads}편` : "—"}
+                        {parts && (
+                          <div class="text-hint font-normal text-zinc-600">{parts}</div>
+                        )}
+                      </td>
+                      <td class="px-3 py-2 text-right text-zinc-400">
+                        {o.window_views == null ? "—" : fmt(o.window_views)}
+                      </td>
+                      <td class="px-3 py-2 text-right text-zinc-300">
+                        {o.engagement_per_1k_views == null
+                          ? "—" : o.engagement_per_1k_views.toFixed(1)}
+                      </td>
+                    </tr>,
+                  ];
+                })}
+              </tbody>
+            </table>
+            {/* 라벨 충돌 방지 — 이 각주가 없으면 "업로드 107편"과 위 섹션의
+                "영상 122편"이 같은 모집단으로 읽혀, 둘이 다를 때 화면이
+                자기모순처럼 보인다. 반응의 정의도 여기서 한 번만 말한다. */}
+            <p class="px-3 py-2 text-hint text-zinc-500 leading-relaxed border-t border-zinc-800/60">
+              업로드 편수는 창 안에 올라온 <strong class="text-zinc-400">전체</strong> 영상 수이고,
+              위 자연 유입의 &lsquo;영상 N편&rsquo;은 그중 점수를 낼 수 있었던 표본이라 두
+              숫자는 다르다. 반응은 공개된 좋아요·댓글 합이며, 조회수가 없는 팀은
+              &mdash;로 둔다.
+            </p>
+          </div>
         </div>
       )}
 
