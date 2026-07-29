@@ -21,7 +21,8 @@ def test_migration_adds_ccv_tracked_and_samples_table():
     assert "live_ccv_samples" in tables
     seeded = {r[0] for r in conn.execute(
         "SELECT key FROM groups WHERE ccv_tracked=1")}
-    assert {"miiwan", "plave", "owis", "wegosix"} <= seeded
+    # 0110 — 0104 전역 시드에서 누락됐던 hollin·begritz 포함을 고정한다.
+    assert {"miiwan", "plave", "owis", "wegosix", "hollin", "begritz"} <= seeded
     indexes = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='index' "
         "AND tbl_name='live_ccv_samples'")}
