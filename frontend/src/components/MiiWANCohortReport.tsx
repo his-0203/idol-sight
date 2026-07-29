@@ -486,27 +486,6 @@ export function MiiWANCohortReport() {
             </ul>
           </div>
         )}
-
-        {/* H4 — 자연 유입 위치는 강·약점과 독립. 자기 점수가 기준 아래면
-            상위권이어도 그 사실을 먼저 쓴다. H8 은 팀명 없이 정황만. */}
-        {(head.organicNote || head.paidSignalNote) && (
-          <div class="mt-3 space-y-1">
-            {head.organicNote && (
-              <p class="text-sm text-zinc-300">{head.organicNote}</p>
-            )}
-            {head.paidSignalNote && (
-              <p class="text-hint text-zinc-400">{head.paidSignalNote}</p>
-            )}
-          </div>
-        )}
-
-        {/* R1 — "출발선을 맞춰 본다"는 설명이 나오는 두 자리 중 하나(결론 아래).
-            나머지 한 자리는 표 위 캡션이고, 그 밖에서는 다른 정보를 쓴다. */}
-        <p class="mt-3 text-hint text-zinc-500">
-          규모가 큰 팀이 이기는 비교가 아니다 — 각 팀의 데뷔일을 똑같이 출발선에
-          놓고, <strong class="text-zinc-300">데뷔한 지 같은 날짜(D+{data.as_of_day})에
-          얼마나 늘었는지</strong>를 견준다.
-        </p>
       </div>
 
       {/* ② 성장의 질 — 속도(x)·자연 유입(y)·규모(원)를 한 장에 담은 가장

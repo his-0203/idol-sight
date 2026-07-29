@@ -3,7 +3,6 @@
 import { describe, expect, it, test } from "vitest";
 import {
   AD_SUSPECT_METRICS, NEAR_TIE_RATIO, ORG_AD_SUSPECT_THRESHOLD,
-  PRE_EFFICIENCY_OUTLIER_RATIO,
   adJudgeScore, cohortComposition, debutDateRange, exPaidNote, fmtDelta,
   headline, nearTieKeys, organicStanding,
   type CohortData, type OrgRow, type ScRow,
@@ -194,145 +193,19 @@ describe("headline — 강·약점 분류", () => {
     expect(h.strengths).toEqual([]);
     expect(h.weaknesses).toEqual([]);
     expect(h.neutral).toContain("데뷔일 시점 데이터");
-    expect(h.organicNote).toBeNull();
   });
 });
 
-// H4 — 자연 유입 위치는 강·약점과 독립이다. 자기 점수가 기준 아래면
-// 상위권이어도 그 사실을 먼저 말한다(상위권이라고 자기 약점을 생략하면 숨김).
-describe("headline — 자연 유입 문장(H4)", () => {
-  test("기준 위 + 상위 절반이면 상대 표현으로 덧붙인다", () => {
-    const h = headline(cohort({
-      scorecard: { yt_subscribers: sc(1, 4) },
-      organicity: [org("miiwan", 82), org("myrakl", 60)],
-    }));
-    expect(h.organicNote).toContain("82점");
-    expect(h.organicNote).toContain("판정 가능한 2팀 중 1위");
-    expect(h.organicNote).toContain("낮은 편");
-    // 단정 금지 — "광고가 아니라 팬이 만든 것" 류의 확정 표현은 쓰지 않는다.
-    expect(h.organicNote).not.toContain("팬이 스스로 찾아와 만든 것");
-  });
-
-  test("강점이 하나도 없어도 노출된다 (게이트 제거)", () => {
-    const h = headline(cohort({
-      scorecard: {
-        yt_subscribers: sc(4, 4, 1.1, [
-          row({ group_key: "owis", growth_multiple: 2.2, pre_multiple: 9 }),
-          row({ group_key: "bthd", growth_multiple: 2.0, pre_multiple: 8 }),
-        ]),
-      },
-      organicity: [org("miiwan", 82), org("myrakl", 60)],
-    }));
-    expect(h.strengths).toEqual([]);
-    expect(h.organicNote).toContain("판정 가능한 2팀 중 1위");
-  });
-
-  test("자기 점수가 기준 아래면 상위권이어도 그 사실을 먼저 쓴다", () => {
-    const h = headline(cohort({
-      scorecard: { yt_subscribers: sc(1, 4) },
-      organicity: [
-        org("miiwan", ORG_AD_SUSPECT_THRESHOLD - 5),
-        org("myrakl", 30),
-      ],
-    }));
-    // 완성 문장으로 고정한다 — "다만 …2팀 중 1위로 상대적으로는 낮은 편"처럼
-    // 주어가 빠지면 "순위가 낮다"로 읽혀 뜻이 정반대가 된다.
-    expect(h.organicNote).toBe(
-      `자연 유입 점수 ${ORG_AD_SUSPECT_THRESHOLD - 5}점으로 자체 기준`
-      + `(${ORG_AD_SUSPECT_THRESHOLD}점) 아래라 우리 성장에도 광고 몫이 섞여 있을 수 있다.`
-      + " 다만 판정 가능한 2팀 중 1위로, 유료 광고에 기댄 정도는 상대적으로 낮은 편이다.",
-    );
-  });
-
-  // F1 — 회색 지대(suspect ≤ score < organic)는 순위와 무관하게 항상 노출돼야
-  // 한다. 이전엔 "기준 미만" 분기도 "상위권" 분기도 못 걸려 H4 줄 자체가
-  // 통째로 사라졌다 — 2026-07-29 실측(miiwan 41.4점 · 판정 가능 6팀 중 4위)이
-  // 정확히 이 구간이다.
-  test("회색 지대(기준 이상·organic 미만)면 순위와 무관하게 경계 문구를 낸다", () => {
-    const h = headline(cohort({
-      scorecard: { yt_subscribers: sc(1, 4) },
-      organicity: [
-        org("bdawn", 37.4), org("bthd", 45.6), org("miiwan", 41.4),
-        org("myrakl", 29.8), org("owis", 46.7), org("skinz", 43.6),
-      ],
-    }));
-    // 판정 가능 6팀 중 miiwan(41.4)보다 큰 값은 45.6·46.7·43.6 → 4위,
-    // 상위 절반(3위 이내) 밖이라 예전 "상위권" 분기 조건도 만족 못 한다.
-    expect(h.organicNote).toBe(
-      "자연 유입 점수 41.4점 — 광고 과다 기준선(40점)은 넘었지만 자연 유입 우세"
-      + " 기준(70점)에는 못 미쳐, 우리 성장에도 광고 몫이 섞여 있을 수 있다.",
-    );
-  });
-
-  test("회색 지대 경계값(기준 자체)도 회색 지대 문구를 낸다 — 기준 미만 분기와 안 겹친다", () => {
-    const h = headline(cohort({
-      scorecard: { yt_subscribers: sc(1, 4) },
-      organicity: [org("miiwan", ORG_AD_SUSPECT_THRESHOLD), org("myrakl", 90)],
-    }));
-    expect(h.organicNote).toContain(`${ORG_AD_SUSPECT_THRESHOLD}점`);
-    expect(h.organicNote).toContain("넘었지만 자연 유입 우세");
-  });
-
-  test("점수가 null 인 그룹은 근거 없이 광고 판정을 하지 않는다", () => {
-    const h = headline(cohort({
-      scorecard: { yt_subscribers: sc(1, 4) },
-      organicity: [org("miiwan", null), org("myrakl", 60)],
-    }));
-    expect(h.organicNote).toBeNull();
-  });
-
-  // B1 — 판정 점수는 두 기준 중 낮은 쪽. 조회수가 광고성 영상 몇 편에 쏠려
-  // 편수 점수만 깨끗한 팀이 통과하면 안 된다.
+// B1 — 판정 점수는 두 기준 중 낮은 쪽. 조회수가 광고성 영상 몇 편에 쏠려
+// 편수 점수만 깨끗한 팀이 통과하면 안 된다. (organicNote 를 통한 간접
+// 검증은 헤드라인 보조 문장 제거와 함께 정리 — 이 함수 자체는 adScoreMap·
+// organicStanding 이 계속 쓴다.)
+describe("adJudgeScore", () => {
   test("판정 점수는 편수·조회수 중 낮은 쪽", () => {
     expect(adJudgeScore(org("x", 90, false, 30))).toBe(30);
     expect(adJudgeScore(org("x", 30, false, 90))).toBe(30);
     expect(adJudgeScore(org("x", 55))).toBe(55);          // 조회수 점수 없음
     expect(adJudgeScore(org("x", null, false, 40))).toBeNull();
-    const h = headline(cohort({
-      scorecard: { yt_subscribers: sc(1, 4) },
-      // 편수로는 기준 위(90)지만 조회수로는 아래(30) → 판정은 30.
-      organicity: [org("miiwan", 90, false, 30), org("myrakl", 20)],
-    }));
-    expect(h.organicNote).toContain("30점");
-    expect(h.organicNote).toContain("자체 기준");
-  });
-});
-
-// H8 — 팀명은 쓰지 않는다. 우리가 질 수 없는 주장이라 수치는 표에만 둔다.
-describe("headline — 유가 정황 종합(H8)", () => {
-  test("기준 아래 경쟁 팀이 있으면 정황을 한 줄로, 팀명 없이", () => {
-    const h = headline(cohort({
-      groups: { owis: { name: "OWIS", debut_date: null, reference: false } },
-      scorecard: {
-        yt_subscribers: sc(1, 3, 2, [row({ group_key: "owis", growth_multiple: 3 })]),
-      },
-      organicity: [org("miiwan", 82), org("owis", 30)],
-    }));
-    expect(h.paidSignalNote).toContain("유료 캠페인 정황");
-    expect(h.paidSignalNote).not.toContain("OWIS");
-  });
-
-  test("데뷔 전 구독 효율이 자사 대비 배수 이상인 팀도 정황으로 본다", () => {
-    const h = headline(cohort({
-      scorecard: {
-        yt_subscribers: sc(1, 3, 2, [row({
-          group_key: "owis", growth_multiple: 3,
-          subs_per_1k_pre: 2.1 * PRE_EFFICIENCY_OUTLIER_RATIO,
-        })]),
-      },
-      organicity: [org("miiwan", 82), org("owis", 90)],
-    }));
-    expect(h.paidSignalNote).not.toBeNull();
-  });
-
-  test("정황이 없으면 문장을 만들지 않는다", () => {
-    const h = headline(cohort({
-      scorecard: {
-        yt_subscribers: sc(1, 3, 2, [row({ group_key: "owis", growth_multiple: 3 })]),
-      },
-      organicity: [org("miiwan", 82), org("owis", 90)],
-    }));
-    expect(h.paidSignalNote).toBeNull();
   });
 });
 

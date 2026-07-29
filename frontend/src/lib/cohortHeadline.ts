@@ -133,14 +133,6 @@ export const NEAR_TIE_RATIO = 0.1;
  */
 export const ORG_SCORE_GAP_CHIP = 15;
 
-/**
- * 데뷔 전 구독 효율이 자사 대비 이 배수 이상인 팀이 있으면 유가 정황으로
- * 본다. 절대 임계가 아니라 **코호트 내 상대 비율**이다 — 데뷔 전 구간은
- * 조회수 자체가 적어 비율이 수십~수백으로 뜨는 게 정상이라, 절대선을
- * 그으면 전 팀이 걸리거나 아무도 안 걸린다.
- */
-export const PRE_EFFICIENCY_OUTLIER_RATIO = 3;
-
 export function fmtMultiple(m: number | null): string {
   return m == null ? "—" : `${(Math.round(m * 10) / 10).toFixed(1)}×`;
 }
@@ -313,12 +305,8 @@ export interface Headline {
   strengths: string[];
   /** H3 — 강점이 없을 때 블록을 비우는 대신 쓸 문구 (숨김으로 읽히지 않게). */
   strengthsEmpty: string | null;
-  /** H4 — 자연 유입 위치. 강·약점과 독립. */
-  organicNote: string | null;
   /** 하위 절반 항목 — 순위 · 1위 수치 · 보완 방향. */
   weaknesses: string[];
-  /** H8 — 경쟁 팀 유가 정황 종합(팀명 미표기). */
-  paidSignalNote: string | null;
   /** 강점·약점 둘 다 못 뽑았을 때의 중립 문구. */
   neutral: string | null;
 }
@@ -376,47 +364,6 @@ export function headline(d: CohortData): Headline {
     }
   }
 
-  // ── H4 자연 유입 위치 (강·약점과 독립) ──────────────────────────────
-  // 톤: "광고가 아니라 팬이 만든 것"이라는 단정은 쓰지 않는다. 점수는 영상
-  // 단위 판정의 평균이라 "광고가 하나도 없었다"를 증명하지 못하고, 실제로
-  // 우리도 데뷔 전 구간이 완전히 깨끗하지는 않다.
-  //
-  // 자기 점수가 임계 아래면 순위와 무관하게 **먼저 그 사실을 말한다** —
-  // 상위권이라는 이유로 자기 약점을 생략하면 그게 곧 숨김이다. 상대적으로
-  // 낫다는 말은 그 뒤에 단서로만 붙인다.
-  const org = organicStanding(d);
-  const orgTop = org != null && org.size >= 2
-    && org.rank <= Math.ceil(org.size / 2);
-  // "상대적으로 낮은 편"의 주어를 반드시 적는다 — 주어가 없으면 바로 앞
-  // 절이 순위 이야기라서 "순위가 낮다"로 읽히고, 뜻이 정반대가 된다.
-  const relClause = org
-    ? ` 다만 판정 가능한 ${org.size}팀 중 ${org.rank}위로, 유료 광고에 기댄 정도는`
-      + ` 상대적으로 낮은 편이다.`
-    : "";
-  // F1 — 세 구간이 판정 점수만으로 서로 배타적으로 나뉜다 (순위는 첫 구간의
-  // 부연에만 쓴다):
-  //   ① score < suspect(40)         → 자체 약점을 먼저 말한다 (기존).
-  //   ② suspect ≤ score < organic   → "회색 지대". 순위와 무관하게 항상
-  //     노출해야 한다 — 그렇지 않으면 이 구간에 걸린 점수(예: 41.4)는
-  //     ①에도 ③에도 안 걸려 H4 줄 자체가 통째로 사라진다(자기공시 소실).
-  //   ③ score ≥ organic(70)         → 상위권 안심 문장. 예전엔 순위(orgTop)로
-  //     게이트했는데, 점수 자체가 organic 을 넘겼다는 사실이 이미 "낮은 편"
-  //     이라는 근거라 순위 게이트가 없어도 거짓이 되지 않는다.
-  let organicNote: string | null = null;
-  if (org && org.judgeScore < ORG_AD_SUSPECT_THRESHOLD) {
-    organicNote = `자연 유입 점수 ${org.judgeScore}점으로 자체 기준`
-      + `(${ORG_AD_SUSPECT_THRESHOLD}점) 아래라 우리 성장에도 광고 몫이 섞여 있을 수 있다.`
-      + (orgTop ? relClause : "");
-  } else if (org && org.judgeScore < VERDICT_THRESHOLDS.organic) {
-    organicNote = `자연 유입 점수 ${org.judgeScore}점 — 광고 과다 기준선`
-      + `(${ORG_AD_SUSPECT_THRESHOLD}점)은 넘었지만 자연 유입 우세 기준`
-      + `(${VERDICT_THRESHOLDS.organic}점)에는 못 미쳐, 우리 성장에도 광고 몫이`
-      + " 섞여 있을 수 있다.";
-  } else if (org) {
-    organicNote = `자연 유입 점수 ${org.judgeScore}점 — 판정 가능한 ${org.size}팀 중`
-      + ` ${org.rank}위로, 유료 광고에 기댄 정도가 낮은 편이다.`;
-  }
-
   return {
     lead: leadLine(d),
     conclusion: conclusionLine(d),
@@ -425,9 +372,7 @@ export function headline(d: CohortData): Headline {
     strengthsEmpty: strengths.length
       ? null
       : "이번 비교에서 상위 절반에 든 항목이 없다.",
-    organicNote,
     weaknesses,
-    paidSignalNote: paidSignalLine(d),
     neutral: strengths.length || weaknesses.length
       ? null
       : "아직 같은 시기 데뷔 팀과 순위를 낼 만큼 데뷔일 시점 데이터가 모이지 않았다.",
@@ -476,25 +421,4 @@ function conclusionLine(d: CohortData): string | null {
       : ` 출발선은 ${v}${unit}으로 ${size}팀 중 ${baseRank}위 규모다.`;
   }
   return out;
-}
-
-/**
- * H8 — 경쟁 팀 유가 정황 종합. **팀명은 쓰지 않는다**: 이 화면은 공개
- * 지표로 낸 자체 추정이고, 특정 사에 대한 단정은 우리가 질 수 없는
- * 주장이다. 팀별 수치는 표에 그대로 있으니 판단은 읽는 사람 몫으로 둔다.
- */
-function paidSignalLine(d: CohortData): string | null {
-  const scores = adScoreMap(d);
-  const rows = peersOf(d.scorecard[PRIMARY_METRIC]?.rows ?? []);
-  const mineEff = rows.find((r) => r.group_key === "miiwan")?.subs_per_1k_pre ?? null;
-  const suspect = rows.some((r) => {
-    if (r.group_key === "miiwan") return false;
-    const s = scores.get(r.group_key);
-    if (s != null && s < ORG_AD_SUSPECT_THRESHOLD) return true;
-    return mineEff != null && mineEff > 0 && r.subs_per_1k_pre != null
-      && r.subs_per_1k_pre >= mineEff * PRE_EFFICIENCY_OUTLIER_RATIO;
-  });
-  return suspect
-    ? "일부 경쟁 팀은 구독 효율·자연 유입 점수에서 유료 캠페인 정황이 관측된다 (팀별 수치는 아래 표)."
-    : null;
 }
