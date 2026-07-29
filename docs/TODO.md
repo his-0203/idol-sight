@@ -21,5 +21,7 @@
 - [ ] **음방 추적 후보 판정** — 실물 음방 활동 시 `collectors/music_show._GROUP_QUERY_ALIASES`
   **+** `llm/music_show.GROUP_KEY_ENUM` 둘 다 추가(test_music_show_collector 가드).
   현재 버추얼·프리데뷔라 미추가.
-- [ ] **미완소년 비교 사다리 편입 검토(선택)** — 지표 축적 후 `frontend/functions/api/miiwan.ts`
-  `BENCHMARK_GROUPS` 도장깨기 순서에 넣을지 판단(현재 큐레이션 6팀 유지).
+- [ ] **미완소년 동시기 코호트 편입 검토(선택)** — 데뷔 후 지표가 쌓이면
+  `frontend/functions/api/miiwan-cohort.ts` 의 `COHORT` 배열에 넣을지 판단.
+  (`miiwan.ts`의 앵커 벤치마크 `BENCHMARK_GROUPS` 사다리는 2026-07-29 삭제 —
+  동시기 비교는 `/api/miiwan-cohort` 로 일원화됨.)
