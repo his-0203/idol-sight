@@ -14,8 +14,8 @@ import {
 } from "../lib/debutWindowBuckets";
 import { alignByDebut } from "../lib/debutAligned";
 import {
-  AT_DAY_WINDOW, BASE_WINDOW, baseValueAt, growthMultiple, indexCurve, rankOf,
-  type CurvePoint,
+  AT_DAY_WINDOW, BASE_WINDOW, PRE_DEBUT_DAYS, baseValueAt, growthMultiple,
+  indexCurve, rankOf, type CurvePoint,
 } from "../lib/cohortReport";
 
 const TARGET = "miiwan";
@@ -78,10 +78,12 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   const rawAge = debutAgeDaysKST(miiwan.debut_date, new Date());
   const asOfDay = Number.isFinite(rawAge) ? Math.max(0, rawAge) : 0;
 
-  // 한 방 쿼리: 대상 그룹 × METRICS. 정렬 범위는 D-7(기준값 탐색 여유)~D+asOf+7.
+  // 한 방 쿼리: 대상 그룹 × METRICS. 정렬 범위는 곡선이 그리는 데뷔 전
+  // 구간(D-PRE_DEBUT_DAYS)부터 D+asOf+7 까지 — 손으로 적은 D-7 을 쓰면
+  // 상수를 늘렸을 때 곡선만 넓어지고 데이터는 안 따라와 조용히 잘린다.
   // date(snapshot_at, '+9 hours') — debut_date 가 KST 달력 날짜이고 정확한
   // 버킷팅(alignByDebut)도 KST 기준이라 프리필터도 같은 달력을 써야 한다.
-  const from = -7;
+  const from = -PRE_DEBUT_DAYS;
   const to = asOfDay + AT_DAY_WINDOW;
   const rows = await d1Query<SummaryRow>(
     env.DB,
@@ -238,7 +240,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     // 측정 허용폭을 응답에 실어 보낸다 — 화면 각주가 "±3 / ±7" 을 따로
     // 하드코딩하면 상수를 바꿨을 때 표기와 실제 계산이 조용히 어긋난다
     // (투자사 보고 — 화면 자기모순 금지).
-    windows: { base: BASE_WINDOW, at: AT_DAY_WINDOW },
+    // pre_debut 도 같은 이유로 함께 — 화면 캡션이 "데뷔 30일 전부터"를
+    // 따로 적어두면 상수를 바꿨을 때 문구만 옛날 값으로 남는다.
+    windows: { base: BASE_WINDOW, at: AT_DAY_WINDOW, pre_debut: PRE_DEBUT_DAYS },
     metrics: [...METRICS],
     groups: groupsOut,
     curves,

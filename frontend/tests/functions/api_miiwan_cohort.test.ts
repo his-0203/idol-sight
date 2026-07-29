@@ -3,6 +3,7 @@
 // 처리, 응답 형태. (라이브는 HMAC 게이트 — 이 레이어에서 검증.)
 import { describe, expect, it, vi } from "vitest";
 import { onRequestGet } from "../../functions/api/miiwan-cohort";
+import { PRE_DEBUT_DAYS } from "../../functions/lib/cohortReport";
 
 type Capture = (sql: string, params: unknown[]) => void;
 
@@ -193,9 +194,22 @@ describe("/api/miiwan-cohort", () => {
     expect(mi.video_count).toBe(10);
   });
 
-  it("측정 허용폭 상수를 응답에 노출 (화면 각주 하드코딩 desync 방지)", async () => {
+  it("측정 허용폭·데뷔 전 구간 상수를 응답에 노출 (화면 각주 desync 방지)", async () => {
     const body = await call(baseHandler);
-    expect(body.windows).toEqual({ base: 3, at: 7 });
+    expect(body.windows).toEqual({ base: 3, at: 7, pre_debut: PRE_DEBUT_DAYS });
+  });
+
+  // 곡선이 D-30 부터 그려지는데 조회 창이 D-7 에 머물면 데뷔 전 구간이
+  // 조용히 잘린다 — 창의 왼쪽 끝이 상수를 따라가는지 고정한다.
+  it("조회 창 왼쪽 끝 = -PRE_DEBUT_DAYS (데뷔 전 구간까지 긁어온다)", async () => {
+    let summaryParams: unknown[] = [];
+    await call(baseHandler, (sql, params) => {
+      if (sql.includes("FROM agg_summary")) summaryParams = params;
+    });
+    // [...ALL_KEYS, from, to] 순 — 뒤 두 개가 범위.
+    const [from, to] = summaryParams.slice(-2) as number[];
+    expect(from).toBe(-PRE_DEBUT_DAYS);
+    expect(to).toBeGreaterThan(0);
   });
 
   // 두 사유가 같은 라벨로 뭉치면 "데뷔 수집이 통째로 빈 그룹"과 "기준값은

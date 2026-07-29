@@ -23,8 +23,11 @@ export type OrgRow = {
 export type OrgRowScored = Omit<OrgRow, "score"> & { score: number };
 export type CohortData = {
   as_of_day: number;
-  /** 백엔드의 측정 허용폭 상수 (D-Day±base / D+N±at). 각주가 이 값에서 파생된다. */
-  windows?: { base: number; at: number };
+  /**
+   * 백엔드 상수 (D-Day±base / D+N±at 측정 허용폭, 곡선이 그리는 데뷔 전
+   * 구간 pre_debut). 화면 각주·캡션이 전부 이 값에서 파생된다.
+   */
+  windows?: { base: number; at: number; pre_debut?: number };
   metrics: string[];
   groups: Record<string, { name: string; debut_date: string | null; reference: boolean }>;
   curves: Record<string, Record<string, CurvePoint[]>>;

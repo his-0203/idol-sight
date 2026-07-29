@@ -118,6 +118,39 @@ export function MiiWANCohortReport() {
     // 툴팁이 라벨만 보고 판단할 수 있게 의심 계열 라벨을 모아둔다
     // (dataset.label 에는 ⚠ 만 붙고 "왜"는 툴팁에서 풀어 쓴다).
     const suspectLabels = new Set<string>();
+    const preDebut = data.windows?.pre_debut;
+
+    // 곡선이 데뷔 전 구간까지 그려지므로 "어디가 데뷔일인가"가 한눈에
+    // 보여야 한다 — 성장배수·순위는 여전히 이 세로선의 값이 기준이다.
+    // 산점도 가이드라인과 같은 인라인 플러그인 패턴.
+    const debutMark = {
+      id: "cohortDebutMark",
+      beforeDatasetsDraw(chart: Chart) {
+        const { ctx, chartArea: a, scales } = chart;
+        if (!a || !scales.x) return;
+        const x0 = scales.x.getPixelForValue(0);
+        if (!(x0 >= a.left && x0 <= a.right)) return;
+        ctx.save();
+        // 데뷔 전 구간은 아주 옅은 음영만 — 선+라벨이 주인공이라 음영이
+        // 눈에 띄면 곡선을 읽는 데 방해가 된다.
+        if (x0 > a.left) {
+          ctx.fillStyle = "rgba(113,113,122,0.07)"; // zinc-500 / very low
+          ctx.fillRect(a.left, a.top, x0 - a.left, a.bottom - a.top);
+        }
+        ctx.beginPath();
+        ctx.moveTo(x0, a.top);
+        ctx.lineTo(x0, a.bottom);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(245,158,11,0.55)"; // amber-500
+        ctx.stroke();
+        ctx.fillStyle = "rgba(245,158,11,0.9)";
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = x0 > a.right - 32 ? "right" : "left";
+        ctx.textBaseline = "top";
+        ctx.fillText("데뷔", x0 + (x0 > a.right - 32 ? -4 : 4), a.top + 2);
+        ctx.restore();
+      },
+    };
     chartRef.current = new Chart(canvas, {
       type: "line",
       data: {
@@ -149,8 +182,15 @@ export function MiiWANCohortReport() {
         scales: {
           x: {
             type: "linear",
-            title: { display: true, text: "데뷔 후 며칠 (D+N)" },
-            // 기준점이 데뷔 전 측정값이면 곡선이 음수 day에서 시작할 수 있다.
+            // 축 제목의 데뷔 전 구간도 응답 상수에서 — 숫자를 손으로 적으면
+            // 백엔드 상수를 바꿨을 때 축만 옛 값으로 남는다.
+            title: {
+              display: true,
+              text: preDebut == null
+                ? "데뷔일 기준 며칠"
+                : `데뷔일 기준 며칠 (D-${preDebut} ~ D+${data.as_of_day})`,
+            },
+            // 곡선이 데뷔 전 구간부터 그려져 x 는 음수에서 시작한다.
             ticks: { callback: (v) => dayLabel(Number(v)) },
           },
           y: { title: { display: true, text: "데뷔일 값을 100으로 놓은 성장 폭" } },
@@ -171,6 +211,7 @@ export function MiiWANCohortReport() {
           },
         },
       },
+      plugins: [debutMark],
     });
     return () => { chartRef.current?.destroy(); chartRef.current = null; };
   }, [data, metric, hasCurves]);
@@ -311,6 +352,11 @@ export function MiiWANCohortReport() {
   // 상수를 바꿨을 때 표기와 실제 계산이 조용히 어긋난다.
   const baseTol = tol(data.windows?.base);
   const atTol = tol(data.windows?.at);
+  // 곡선이 그리는 데뷔 전 구간. 응답에 없으면 숫자를 지어내지 않고
+  // "데뷔 전부터"로 뭉뚱그린다(측정 허용폭 표기와 같은 처리).
+  const preDebutDays = data.windows?.pre_debut;
+  const preDebutLabel = preDebutDays == null
+    ? "데뷔 전부터" : `데뷔 ${preDebutDays}일 전부터`;
 
   return (
     <div class="space-y-4">
@@ -350,6 +396,14 @@ export function MiiWANCohortReport() {
           <strong class="text-zinc-300">이 그래프로 알 수 있는 것</strong> — 출발선을
           맞췄을 때 누가 더 가파르게 크고 있는지. 각 팀의 데뷔일 값을 100으로 놓고,
           거기서 몇까지 올라왔는지를 그린다 (200이면 두 배).
+        </p>
+        {/* 데뷔 전 구간을 왜 같이 그리는지 — 미완이는 데뷔 전부터 팬덤을
+            쌓아온 팀이라 이 구간이 곧 "출발선이 큰 이유"의 근거다. */}
+        <p class="mb-2 text-hint text-zinc-500">
+          곡선은 {preDebutLabel} 표시한다 — 데뷔 전 구간(옅은 배경)이 가파른
+          팀은 데뷔 시점에 이미 팬이 모여 있었다는 뜻이다. 성장배수와 순위는
+          지금도 <strong class="text-zinc-300">데뷔일(세로선)</strong> 값이 기준이라
+          이 표시 범위 변경에 영향을 받지 않는다.
         </p>
         <div role="tablist" aria-label="지표 선택"
              class="mb-3 flex overflow-x-auto gap-1 card p-1">
@@ -591,7 +645,9 @@ export function MiiWANCohortReport() {
         <p class="text-hint text-zinc-500 leading-relaxed">
           어떻게 계산했나: 팀마다 데뷔한 날이 다르므로 각 팀의 데뷔일을 똑같이 0일로
           맞춘 뒤, 데뷔 후 같은 날짜끼리 비교한다. 그래프는 데뷔일 값을 100으로 놓고
-          그린 성장 폭, 성장배수는 D+{data.as_of_day} 값 ÷ 데뷔일 값이다
+          그린 성장 폭이고 {preDebutLabel} 그린다(데뷔 전 값은 100 아래에 깔린다 —
+          수집이 없던 팀은 그냥 늦게 시작하며, 없는 날을 만들어 채우지 않는다).
+          성장배수는 D+{data.as_of_day} 값 ÷ 데뷔일 값이다
           (데뷔일 값은 데뷔일({baseTol}), 지금 값은 D+{data.as_of_day}({atTol}) 안에서
           가장 가까운 날의 측정값). 비교 대상은 비슷한 시기에 데뷔한 K-POP 버추얼
           {" "}{cohortCandidates}팀(MiiWAN 포함) 중 {METRIC_LABELS[metric] ?? metric} 지표에서
