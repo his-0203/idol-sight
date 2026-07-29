@@ -66,11 +66,13 @@ function fmtMultiple(m: number | null): string {
 }
 
 /**
- * 측정 허용폭 표기(`±3`). 응답에 상수가 없으면 숫자를 지어내지 않고 생략한다 —
- * 틀린 허용폭을 보여주느니 안 보여주는 쪽이 낫다 (투자사 보고).
+ * 측정 허용폭 표기(`±3`). 응답에 상수가 없으면 숫자를 지어내지 않고
+ * "허용폭 내"로 우아하게 생략한다 — 틀린 허용폭을 보여주느니 안 보여주는
+ * 쪽이 낫다 (투자사 보고). 항상 괄호 안에서 쓰여 세 사용처(스코어카드 각주 ·
+ * 방법론 각주 ×2)가 같은 생략 처리를 갖는다.
  */
 function tol(n: number | undefined): string {
-  return n == null ? "" : `±${n}`;
+  return n == null ? "허용폭 내" : `±${n}`;
 }
 
 /** 데뷔 경과일 라벨 — 음수(데뷔 전 기준 스냅샷)면 "D-2" 로 쓴다. */
@@ -311,13 +313,13 @@ export function MiiWANCohortReport() {
               </>
             ) : miiwanBaselineMissing ? (
               <>
-                MiiWAN의 이 지표 D-Day 기준값({baseTol || "허용폭 내"})이 없어 동시기 순위를
+                MiiWAN의 이 지표 D-Day 기준값({baseTol})이 없어 동시기 순위를
                 내지 않는다 (기준값 확보 피어 {sc.cohort_size}팀).
               </>
             ) : (
               <>동시기 비교 가능한 코호트 부족 (이 지표 기준값 확보 그룹 {sc.cohort_size}팀, MiiWAN 포함).</>
             )}
-            {" "}값은 D-Day{baseTol} / D+{data.as_of_day}{atTol} 안의 최근접 스냅샷에서 집었고,
+            {" "}값은 D-Day({baseTol}) / D+{data.as_of_day}({atTol}) 안의 최근접 스냅샷에서 집었고,
             행마다 실제 측정일을 병기했다.
           </p>
         </div>
@@ -370,7 +372,7 @@ export function MiiWANCohortReport() {
         <p class="text-hint text-zinc-500 leading-relaxed">
           방법론: 각 그룹의 데뷔일을 D-Day(=0일)로 정렬하고 같은 경과일의 스냅샷을
           비교. 성장곡선은 D-Day 값=100 인덱스, 성장배수는 D+{data.as_of_day} 값 ÷ D-Day 값
-          (기준값은 D-Day{baseTol}, 도달값은 D+{data.as_of_day}{atTol} 안의 최근접 스냅샷).
+          (기준값은 D-Day({baseTol}), 도달값은 D+{data.as_of_day}({atTol}) 안의 최근접 스냅샷).
           순위 코호트는 데뷔 초기 구간을 정렬해 비교한 K-POP 버추얼 후보 {cohortCandidates}팀
           (MiiWAN 포함) 중 {METRIC_LABELS[metric] ?? metric} 지표에서 기준값이 확보된
           {" "}{sc?.cohort_size ?? 0}팀,

@@ -19,11 +19,13 @@ export const GROUP_COLORS = {
   uryael:   "#84cc16", // lime-500   — UR:L (유아렐) Sandbox Network 첫 버추얼
   hollin:   "#d946ef", // fuchsia-500 — WhOLLiN (홀린) 플레이리스트 첫 버추얼 보이그룹
   begritz:  "#0ea5e9", // sky-500    — BEGRITZ (비그릿츠) 디네이블 버추얼 아이돌
-  // BTHD (비더후드) — 동시기 코호트 차트에 skinz(amber 38°)·bdawn(red 0°)·
-  // owis(blue 217°)·myrakl(purple 271°)·miiwan(teal 176°)·plave(pink 330°)와
-  // 함께 그려진다. 그 사이 최대 공백이 38°~176° 라 hue 108° 를 잡았고,
-  // 팔레트 전체에서 가장 가까운 lime-500(82°)·green-500(142°)보다 밝게 둬
-  // (L 62%) 겹쳐 그려도 구분된다.
+  // BTHD (비더후드) — 동시기 코호트 차트(MiiWANCohortReport)에는
+  // skinz(amber 38°)·bdawn(red 0°)·owis(blue 217°)·myrakl(purple 271°)·
+  // miiwan(teal 176°)·plave(pink 330°)와 함께 그려져 hue 공백(38°~176°)만
+  // 으로 충분하지만, 가장 가까운 실제 공동 렌더 이웃은 DebutCurve 차트의
+  // isedol(green-500 #22c55e, hue 142°, L45%)이다 — hue 108° 로 그 옆(팔레트
+  // 전체에서 가장 가까운 lime-500 82°·green-500 142° 사이)에 두되 isedol보다
+  // 밝게(L 62%) 잡아 겹쳐 그려도 명도차로 구분된다.
   bthd:     "#78dd5f", // leaf green — BTHD (비더후드)
 } as const;
 
