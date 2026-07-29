@@ -38,13 +38,14 @@ import { VERDICT_COLOR, VERDICT_THRESHOLDS, scoreColor } from "../lib/organicity
 import {
   AD_SUSPECT_METRICS, METRIC_LABELS, METRIC_UNITS, ORG_AD_SUSPECT_THRESHOLD,
   ORG_SCORE_GAP_CHIP, PRIMARY_METRIC,
-  adJudgeScore, adScoreMap, cohortComposition, debutDateRange, exPaidNote,
-  fmtDelta, fmtMultiple, headline, nearTieKeys,
-  type CohortData, type CurvePoint, type OrgRow,
+  adJudgeScore, adScoreMap, cohortComposition, curveVerdict, debutDateRange,
+  exPaidNote, fmtDelta, fmtMultiple, headline, nearTieKeys, organicityVerdict,
+  scorecardVerdict,
+  type CohortData, type CurvePoint, type OrgRow, type SectionVerdict,
 } from "../lib/cohortHeadline";
 // 산점도 데이터 준비도 순수 로직 (테스트: tests/lib/cohortQuality.test.ts).
 import {
-  QUALITY_METRIC, buildQualityScatter, isLooseAnchor,
+  QUALITY_METRIC, buildQualityScatter, isLooseAnchor, qualityVerdict,
 } from "../lib/cohortQuality";
 
 // 광고 의심 라인의 투명도 — 참조선(PLAVE)이 이미 점선을 쓰고 있어
@@ -107,6 +108,28 @@ const TIER_BAND_BG = `linear-gradient(to right, ${[
 const SECTION_TITLE = "text-sm font-medium text-zinc-200";
 const SECTION_LEAD = "mb-2 text-hint text-zinc-400";
 const CHIP = "rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400";
+
+/** 섹션별 MiiWAN 읽기 — 그림·표만으로는 자사 위치가 안 읽힌다는 피드백(07-29).
+    문장은 전부 lib에서 데이터로 산출 — 결론 하드코딩 금지. */
+function VerdictLines({ v }: { v: SectionVerdict }) {
+  if (!v.good && !v.weak) return null;
+  return (
+    <div class="mt-2 space-y-1 text-sm leading-relaxed">
+      {v.good && (
+        <p class="text-zinc-300">
+          <strong class="text-emerald-400">잘하고 있는 점</strong>
+          <span class="text-zinc-600"> — </span>{v.good}
+        </p>
+      )}
+      {v.weak && (
+        <p class="text-zinc-300">
+          <strong class="text-amber-400">보완할 점</strong>
+          <span class="text-zinc-600"> — </span>{v.weak}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const accent = colorOf("miiwan");
 
@@ -420,6 +443,11 @@ export function MiiWANCohortReport() {
   // 산점도는 캔버스(useEffect)와 캡션(아래 JSX)이 같은 결과를 봐야 한다 —
   // 제외 목록·중앙값을 두 곳에서 따로 계산하면 화면이 자기모순에 빠진다.
   const quality = buildQualityScatter(data);
+  // 섹션별 잘함/보완 두 줄 — 전부 lib 함수 산출(컴포넌트는 조립·계산 안 함).
+  const qVerdict = qualityVerdict(quality);
+  const cVerdict = curveVerdict(data);
+  const sVerdict = scorecardVerdict(data, metric);
+  const oVerdict = organicityVerdict(data);
   const composition = cohortComposition(data, metric);
   const debutRange = debutDateRange(data);
   const nearTie = nearTieKeys(sc?.rows ?? []);
@@ -508,7 +536,8 @@ export function MiiWANCohortReport() {
             <canvas ref={qCanvasRef} />
           </div>
           {/* R5 — 자사 위치 서술(舊 scatterNote)은 Task 2에서 qualityVerdict로
-              흡수됐다. 잘함/보완 두 줄 렌더는 Task 3(VerdictLines 배치)에서 붙인다. */}
+              흡수됐고, 여기서 VerdictLines로 렌더한다. */}
+          <VerdictLines v={qVerdict} />
           <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
             가로 점선은 자연 유입 {quality.threshold}점, 세로 점선은 같은 시기 데뷔
             팀들의 총 성장 배수(데뷔 전 값 대비) 중앙값
@@ -586,6 +615,7 @@ export function MiiWANCohortReport() {
             </div>
           )}
         </div>
+        <VerdictLines v={cVerdict} />
         {/* R7 — 흐린 선의 뜻. ⚠ 글리프는 위 '보완할 것'과 겹치므로 말로 쓴다. */}
         {hasCurves && adSuspectMetric && (
           <p class="mt-2 text-hint text-zinc-500">
@@ -606,6 +636,7 @@ export function MiiWANCohortReport() {
             데뷔한 팀들 사이에서 우리가 몇 번째로 크게 늘었는지, 그리고 그 성장이
             데뷔 전에 쌓인 것인지 데뷔 후에 만든 것인지.
           </p>
+          <VerdictLines v={sVerdict} />
           {/* C1 — 비교 대상 구성을 표 앞에 고정 노출. 각주까지 내려가야 알 수
               있으면 "왜 4팀뿐이냐"는 질문이 먼저 나온다. */}
           <p class="mb-2 text-hint text-zinc-500">
@@ -855,6 +886,7 @@ export function MiiWANCohortReport() {
               {" — "}{miiwanExPaid}
             </p>
           )}
+          <VerdictLines v={oVerdict} />
           {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
               폭 자체가 신호라 한 점으로 뭉개지 않는다. R10 — 진한 막대가 우리 팀. */}
           {/* 눈금 행 — 등급 경계를 축처럼 보여준다. 좌우 스페이서는 아래 행의
