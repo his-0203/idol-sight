@@ -12,6 +12,9 @@
 import {
   ORG_AD_SUSPECT_THRESHOLD, adScoreMap, fmtMultiple, type CohortData,
 } from "./cohortHeadline";
+// F4 — "기준선 위 = 광고 과다 없음" 서술이 organic(70) 등급과도 일관되게
+// 갈리는지 판단하려면 suspect(40) 뿐 아니라 organic(70) 컷도 필요하다.
+import { VERDICT_THRESHOLDS } from "./organicity";
 
 /** 산점도 x축이 쓰는 지표. 규모 축(원 크기)도 같은 지표의 절대값을 쓴다. */
 export const QUALITY_METRIC = "yt_subscribers";
@@ -112,11 +115,19 @@ export function buildQualityScatter(d: CohortData): QualityScatter {
     const growth = r.total_multiple;
     const organic = orgScore.get(r.group_key) ?? null;
     if (growth == null || organic == null) {
+      // F2 — growth(총 성장배수) 가 null 인 원인은 둘로 갈린다: ① D+N 시점
+      // 값(value_at_day) 자체가 아직 없음 ② 앵커(데뷔 전 값)·데뷔일 값이
+      // 없어 분모를 못 냄. r.value_at_day 는 total_multiple 이 쓰는 분자와
+      // 같은 값(백엔드 totalMultiple() 의 `at`)이라, 이게 null 이면 무조건
+      // ①이다 — 표엔 데뷔 전 값·출발선이 멀쩡히 있는데도(bthd 케이스) 예전
+      // 문구("데뷔 전·데뷔일 값이 없어…")를 그대로 쓰면 표와 모순됐다.
       // 사유를 뭉뚱그리지 않는다 — 운영 대응이 다르다(수집 백필 vs 영상 판정).
       const reason = growth == null && organic == null
         ? "성장배수·자연 유입 점수 모두 없음"
         : growth == null
-          ? "데뷔 전·데뷔일 값이 없어 성장배수를 낼 수 없음"
+          ? r.value_at_day == null
+            ? `D+${d.as_of_day} 시점 값이 아직 없어 성장배수를 낼 수 없음`
+            : "데뷔 전·데뷔일 값이 없어 성장배수를 낼 수 없음"
           : "판정된 데뷔 초기 영상이 없어 자연 유입 점수가 없음";
       excluded.push({ group_key: r.group_key, name, reason });
       continue;
@@ -155,6 +166,27 @@ export function buildQualityScatter(d: CohortData): QualityScatter {
 export const THRESHOLD_NEAR_BAND = 10;
 
 /**
+ * M1 — 데뷔 전 앵커 탐색 폭(±7일). functions/lib/cohortReport.ts 의
+ * PRE_BASE_WINDOW 미러 — 프런트 번들에 서버 코드(functions/lib)를 끌어오지
+ * 않으려고 상수만 복제했다. 값 자체의 재보정(드리프트)은 손으로 못 잡으니
+ * tests/lib/cohortQuality.test.ts 가 두 값을 직접 비교해 지킨다
+ * (organicity.ts 헤더가 경고하는 hand-copy desync 방지와 같은 이유).
+ */
+export const PRE_BASE_WINDOW = 7;
+
+/**
+ * 총 성장배수의 분모(앵커)가 "데뷔 D-preDebutDays±PRE_BASE_WINDOW" 정찰
+ * 창 밖에서 잡혔는지. 창 밖이면(느슨한 앵커) 그 날짜가 우리가 광고하는
+ * "약 30일 전"과 다르다는 뜻이라 공시해야 한다 — 데뷔일(0) 폴백도 항상
+ * 느슨한 앵커로 본다. 백엔드 preAnchor() 는 창이 비면 "확보된 가장 이른
+ * 값"으로 물러나는데, 그 값이 창보다 더 이전(대칭 반대쪽)이면 오히려
+ * 보수적인 방향(실제 관찰 기간이 광고보다 김)이라 굳이 공시하지 않는다.
+ */
+export function isLooseAnchor(anchorDay: number, preDebutDays: number): boolean {
+  return anchorDay > -(preDebutDays - PRE_BASE_WINDOW);
+}
+
+/**
  * R5 — 산점도에서 자사 위치를 문장으로 자동 서술한다. 사분면 그림만 두면
  * 읽는 사람마다 다른 결론을 가져가고, 가장 흔한 오독이 "왼쪽 = 뒤처짐"이다.
  * 왼쪽인 이유(출발선)와 임계선 부근의 불확실성을 같이 말해 둔다.
@@ -172,21 +204,38 @@ export function scatterNote(s: QualityScatter): string | null {
     ? `데뷔 ${-mine.anchorDay}일 전 값 대비` : "데뷔일 값 대비(데뷔 전 측정 없음)";
 
   if (s.medianGrowth != null) {
+    // F5 — 이 축의 분모는 표의 '출발선(데뷔일 값)' 컬럼이 아니라 데뷔 전
+    // 앵커(기본 데뷔 30일 전 값, 없으면 데뷔일로 폴백)다. "출발선"이라고만
+    // 쓰면 표의 다른 컬럼을 가리키는 것으로 오독된다.
     parts.push(mine.growth < s.medianGrowth
       ? `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 왼쪽 — 성장 속도(${anchorLabel})는`
-        + " 가운데보다 느리다. 출발선이 큰 팀은 배수가 작아 구조적으로 왼쪽에 놓인다."
+        + " 가운데보다 느리다. 데뷔 전 출발선(약 30일 전 값)이 큰 팀은 배수가 작아"
+        + " 구조적으로 왼쪽에 놓인다."
+      // F6 — 캐비앗을 왼쪽 분기에만 달면 미완이 오른쪽일 때(작은 앵커 효과로
+      // 배수가 부풀 수 있음)는 그 구조적 이유가 사라져 유리하게만 읽힌다.
       : `MiiWAN은 중앙값(${fmtMultiple(s.medianGrowth)}) 오른쪽 — 성장 속도(${anchorLabel})는`
-        + " 가운데보다 빠르다.");
+        + " 가운데보다 빠르다. 반대로 데뷔 전 출발선이 작은 팀은 같은 성장이라도"
+        + " 배수가 크게 나온다.");
   }
 
+  // F4 — 기준선은 이제 광고 '과다' 컷(suspect)이지 organic 컷이 아니다.
+  // 위쪽이라고 "광고 없이 컸다"고 말하면 organic(70) 미만인 위쪽 점(예:
+  // 40~69점)까지 자연 유입 우세처럼 읽혀 막대 캡션("70점부터 우세")과
+  // 모순된다. 위쪽은 "과다 사용 정황이 없다"까지만 말하고, organic 에는
+  // 못 미치면 그 뉘앙스를 덧붙인다(H4 회색 지대와 같은 경계).
   const gap = mine.organic - s.threshold;
   if (Math.abs(gap) <= THRESHOLD_NEAR_BAND) {
-    parts.push(`자연 유입 점수 ${mine.organic}점은 기준선(${s.threshold}점) 부근이라`
-      + " 조금만 움직여도 판정이 갈릴 수 있다.");
+    parts.push(`자연 유입 점수 ${mine.organic}점은 광고 과다 기준선(${s.threshold}점)`
+      + " 부근이라 조금만 움직여도 판정이 갈릴 수 있다.");
+  } else if (gap > 0) {
+    const shortOfOrganic = mine.organic < VERDICT_THRESHOLDS.organic
+      ? ` (다만 자연 유입 우세 기준 ${VERDICT_THRESHOLDS.organic}점에는 못 미친다)`
+      : "";
+    parts.push(`자연 유입 점수 ${mine.organic}점으로 광고 과다 기준선(${s.threshold}점) 위`
+      + ` — 광고 과다 사용 정황은 없는 쪽이다${shortOfOrganic}.`);
   } else {
-    parts.push(gap > 0
-      ? `자연 유입 점수 ${mine.organic}점으로 기준선(${s.threshold}점) 위쪽에 있다.`
-      : `자연 유입 점수 ${mine.organic}점으로 기준선(${s.threshold}점) 아래에 있다.`);
+    parts.push(`자연 유입 점수 ${mine.organic}점으로 광고 과다 기준선(${s.threshold}점) 아래`
+      + " — 광고 과다 사용 정황이 있는 쪽이다.");
   }
 
   // 원 크기(현재 팬 규모)는 속도와 다른 이야기다 — 느려도 규모는 클 수 있다.

@@ -358,12 +358,26 @@ export function headline(d: CohortData): Headline {
     ? ` 다만 판정 가능한 ${org.size}팀 중 ${org.rank}위로, 유료 광고에 기댄 정도는`
       + ` 상대적으로 낮은 편이다.`
     : "";
+  // F1 — 세 구간이 판정 점수만으로 서로 배타적으로 나뉜다 (순위는 첫 구간의
+  // 부연에만 쓴다):
+  //   ① score < suspect(40)         → 자체 약점을 먼저 말한다 (기존).
+  //   ② suspect ≤ score < organic   → "회색 지대". 순위와 무관하게 항상
+  //     노출해야 한다 — 그렇지 않으면 이 구간에 걸린 점수(예: 41.4)는
+  //     ①에도 ③에도 안 걸려 H4 줄 자체가 통째로 사라진다(자기공시 소실).
+  //   ③ score ≥ organic(70)         → 상위권 안심 문장. 예전엔 순위(orgTop)로
+  //     게이트했는데, 점수 자체가 organic 을 넘겼다는 사실이 이미 "낮은 편"
+  //     이라는 근거라 순위 게이트가 없어도 거짓이 되지 않는다.
   let organicNote: string | null = null;
   if (org && org.judgeScore < ORG_AD_SUSPECT_THRESHOLD) {
     organicNote = `자연 유입 점수 ${org.judgeScore}점으로 자체 기준`
       + `(${ORG_AD_SUSPECT_THRESHOLD}점) 아래라 우리 성장에도 광고 몫이 섞여 있을 수 있다.`
       + (orgTop ? relClause : "");
-  } else if (org && orgTop) {
+  } else if (org && org.judgeScore < VERDICT_THRESHOLDS.organic) {
+    organicNote = `자연 유입 점수 ${org.judgeScore}점 — 광고 과다 기준선`
+      + `(${ORG_AD_SUSPECT_THRESHOLD}점)은 넘었지만 자연 유입 우세 기준`
+      + `(${VERDICT_THRESHOLDS.organic}점)에는 못 미쳐, 우리 성장에도 광고 몫이`
+      + " 섞여 있을 수 있다.";
+  } else if (org) {
     organicNote = `자연 유입 점수 ${org.judgeScore}점 — 판정 가능한 ${org.size}팀 중`
       + ` ${org.rank}위로, 유료 광고에 기댄 정도가 낮은 편이다.`;
   }

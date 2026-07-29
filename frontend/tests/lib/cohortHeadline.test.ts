@@ -244,6 +244,35 @@ describe("headline — 자연 유입 문장(H4)", () => {
     );
   });
 
+  // F1 — 회색 지대(suspect ≤ score < organic)는 순위와 무관하게 항상 노출돼야
+  // 한다. 이전엔 "기준 미만" 분기도 "상위권" 분기도 못 걸려 H4 줄 자체가
+  // 통째로 사라졌다 — 2026-07-29 실측(miiwan 41.4점 · 판정 가능 6팀 중 4위)이
+  // 정확히 이 구간이다.
+  test("회색 지대(기준 이상·organic 미만)면 순위와 무관하게 경계 문구를 낸다", () => {
+    const h = headline(cohort({
+      scorecard: { yt_subscribers: sc(1, 4) },
+      organicity: [
+        org("bdawn", 37.4), org("bthd", 45.6), org("miiwan", 41.4),
+        org("myrakl", 29.8), org("owis", 46.7), org("skinz", 43.6),
+      ],
+    }));
+    // 판정 가능 6팀 중 miiwan(41.4)보다 큰 값은 45.6·46.7·43.6 → 4위,
+    // 상위 절반(3위 이내) 밖이라 예전 "상위권" 분기 조건도 만족 못 한다.
+    expect(h.organicNote).toBe(
+      "자연 유입 점수 41.4점 — 광고 과다 기준선(40점)은 넘었지만 자연 유입 우세"
+      + " 기준(70점)에는 못 미쳐, 우리 성장에도 광고 몫이 섞여 있을 수 있다.",
+    );
+  });
+
+  test("회색 지대 경계값(기준 자체)도 회색 지대 문구를 낸다 — 기준 미만 분기와 안 겹친다", () => {
+    const h = headline(cohort({
+      scorecard: { yt_subscribers: sc(1, 4) },
+      organicity: [org("miiwan", ORG_AD_SUSPECT_THRESHOLD), org("myrakl", 90)],
+    }));
+    expect(h.organicNote).toContain(`${ORG_AD_SUSPECT_THRESHOLD}점`);
+    expect(h.organicNote).toContain("넘었지만 자연 유입 우세");
+  });
+
   test("점수가 null 인 그룹은 근거 없이 광고 판정을 하지 않는다", () => {
     const h = headline(cohort({
       scorecard: { yt_subscribers: sc(1, 4) },

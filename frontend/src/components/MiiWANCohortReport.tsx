@@ -43,7 +43,9 @@ import {
   type CohortData, type CurvePoint, type OrgRow,
 } from "../lib/cohortHeadline";
 // 산점도 데이터 준비도 순수 로직 (테스트: tests/lib/cohortQuality.test.ts).
-import { QUALITY_METRIC, buildQualityScatter, scatterNote } from "../lib/cohortQuality";
+import {
+  QUALITY_METRIC, buildQualityScatter, isLooseAnchor, scatterNote,
+} from "../lib/cohortQuality";
 
 // 광고 의심 라인의 투명도 — 참조선(PLAVE)이 이미 점선을 쓰고 있어
 // "의심"에 점선을 또 쓰면 두 인코딩이 겹쳐 읽힌다. 의심 = 흐림 + 텍스트 칩,
@@ -517,7 +519,10 @@ export function MiiWANCohortReport() {
           <p class={SECTION_LEAD}>
             <strong class="text-zinc-300">이걸 보면 알 수 있는 것</strong> —
             오른쪽일수록 데뷔 전(약 30일 전)부터 지금까지 빠르게 컸고, 위쪽일수록
-            광고 없이 컸다. 원이 클수록 현재 팬 규모가 크다.
+            {/* F4 — 기준선이 40점(광고 과다 컷)으로 내려온 뒤로 "위 = 광고 없이
+                컸다"는 organic(70점) 컷 이야기와 섞여 아래 막대 캡션("70점부터
+                자연 유입 우세")과 모순됐다. 위쪽은 "과다 사용 정황이 없다"까지만. */}
+            광고 과다 사용 정황이 없는 쪽이다. 원이 클수록 현재 팬 규모가 크다.
           </p>
           <div style={{ height: "320px" }}>
             <canvas ref={qCanvasRef} />
@@ -530,8 +535,8 @@ export function MiiWANCohortReport() {
             팀들의 총 성장 배수(데뷔 전 값 대비) 중앙값
             {quality.medianGrowth != null && <> ({fmtMultiple(quality.medianGrowth)})</>}.
             {" "}오른쪽 아래 팀은 빠르게 컸지만 자연 유입 점수가 낮아 광고 효과가
-            섞여 있을 수 있고, 위쪽 팀은 속도가 느려도 광고 없이 팬이 모인 쪽이다.
-            속이 빈 원은 참고용(PLAVE)이라 순위·중앙값에서 뺐다.
+            섞여 있을 수 있고, 위쪽 팀은 속도가 느려도 광고 과다 사용 정황은
+            없는 쪽이다. 속이 빈 원은 참고용(PLAVE)이라 순위·중앙값에서 뺐다.
             {" "}세로축은 <strong class="text-zinc-300">편수·조회수 두 기준 중 낮은
             점수</strong>다 — 어느 한쪽으로도 방어할 수 없는 보수적 판정이며, 자사를
             포함한 전 팀에 같은 기준을 적용한다.
@@ -543,13 +548,19 @@ export function MiiWANCohortReport() {
               표시 제외: {quality.excluded.map((e) => `${e.name} (${e.reason})`).join(" · ")}
             </p>
           )}
-          {/* 앵커가 데뷔 전이 아닌 팀(예: myrakl)은 "데뷔 전 값 대비"라는 x축
-              전제가 그 팀에는 그대로 적용되지 않는다 — 조용히 넘기지 않고
-              데뷔일로 폴백했음을 자동으로 공시한다. */}
-          {quality.points.some((p) => p.anchorDay === 0) && (
-            <p class="text-hint text-zinc-600">
-              {quality.points.filter((p) => p.anchorDay === 0).map((p) => p.name).join(", ")}
-              {"은(는) 데뷔 전 측정값이 없어 데뷔일 대비 배수로 그렸다."}
+          {/* M1 — 앵커가 "데뷔 약 30일 전"이라는 x축 전제에서 벗어난 팀(데뷔일
+              폴백뿐 아니라 D-21처럼 창 밖에서 잡힌 느슨한 앵커도)은 조용히
+              넘기지 않고 실제로 쓴 날짜를 공시한다. isLooseAnchor()가 두
+              경우를 하나의 규칙으로 판정한다. */}
+          {quality.points.some((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? 30)) && (
+            <p class="mt-1 text-hint text-zinc-500">
+              {quality.points
+                .filter((p) => isLooseAnchor(p.anchorDay, preDebutDays ?? 30))
+                .map((p) => p.anchorDay === 0
+                  ? `${p.name}은(는) 데뷔 전 측정값이 없어 데뷔일 값 대비로 그렸다.`
+                  : `${p.name}은(는) 데뷔 ${-p.anchorDay}일 전 값 대비로 그렸다`
+                    + `(${preDebutDays ?? 30}일 전 측정이 없어).`)
+                .join(" ")}
             </p>
           )}
         </div>
@@ -641,7 +652,9 @@ export function MiiWANCohortReport() {
             {" "}= 검색 키워드 집계로 확인한 값 · 배지 없음 = 그날 직접 수집한 실측값
           </p>
           <div class="overflow-x-auto rounded-lg border border-zinc-800">
-          <table class="w-full min-w-[900px] text-sm tabular-nums">
+          {/* M3 — 컬럼 7개(구독 효율 포함 시)라 900px에선 좁은 화면에서 셀이
+              눌린다. 1000px로 여유를 둔다. */}
+          <table class="w-full min-w-[1000px] text-sm tabular-nums">
             <thead class="bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
               <tr>
                 <th scope="col" class="px-3 py-2 text-left">그룹</th>
@@ -854,17 +867,26 @@ export function MiiWANCohortReport() {
           {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
               폭 자체가 신호라 한 점으로 뭉개지 않는다. R10 — 진한 막대가 우리 팀. */}
           {/* 눈금 행 — 등급 경계를 축처럼 보여준다. 좌우 스페이서는 아래 행의
-              이름/숫자 컬럼 폭과 같아야 트랙과 정렬된다. */}
+              이름/숫자/꼬리 컬럼 폭과 정확히 같아야 트랙(flex-1)이 같은 폭으로
+              맞춰진다 — 트레일링 컬럼(F3)까지 포함해 다섯 스페이서 전부 필요. */}
           <div class="flex items-center gap-2 text-sm" aria-hidden="true">
             <span class="w-20 shrink-0" />
             <span class="w-9 shrink-0" />
             <div class="relative h-4 flex-1 text-[10px] tabular-nums text-zinc-600">
+              {/* M4 — 0/100 라벨은 가운데 정렬(-translate-x-1/2)이면 절반이
+                  트랙 밖으로 넘친다. 양끝은 트랙 안쪽으로 붙인다. */}
               {[0, T.suspect, T.borderline, T.organic, T.organic_strong, 100].map((t) => (
-                <span key={t} class="absolute -translate-x-1/2" style={{ left: `${t}%` }}>{t}</span>
+                <span key={t}
+                      class={"absolute " + (t === 0 ? "left-0"
+                        : t === 100 ? "right-0" : "-translate-x-1/2")}
+                      style={t === 0 || t === 100 ? undefined : { left: `${t}%` }}>
+                  {t}
+                </span>
               ))}
             </div>
             <span class="w-32 shrink-0" />
             <span class="w-20 shrink-0" />
+            <span class="w-28 shrink-0" />
           </div>
           <div class="space-y-1.5">
             {orgRows.map((o) => {
@@ -920,12 +942,18 @@ export function MiiWANCohortReport() {
                   <span class="w-20 shrink-0 text-right text-hint text-zinc-600">
                     영상 {o.video_count}편
                   </span>
-                  {wide && (
-                    <span class={CHIP} title="영상 편수로 본 점수와 조회수로 본 점수가 크게 갈린다">
-                      편수·조회수 차이 큼
-                    </span>
-                  )}
-                  {o.reference && <span class="text-hint text-zinc-600">참고용</span>}
+                  {/* F3 — 칩·참고용 라벨을 트랙 옆에 자유폭으로 두면 폭 있는
+                      행(5/7행)만 트랙(flex-1)이 눌려 눈금·기준선과 어긋난다.
+                      고정폭 트레일링 컬럼에 담아 모든 행의 트랙 폭을 맞춘다
+                      (눈금 행에도 같은 w-28 스페이서를 뒀다). */}
+                  <span class="flex w-28 shrink-0 items-center justify-end gap-1 text-right">
+                    {wide && (
+                      <span class={CHIP} title="영상 편수로 본 점수와 조회수로 본 점수가 크게 갈린다">
+                        기준 차이 큼
+                      </span>
+                    )}
+                    {o.reference && <span class="text-hint text-zinc-600">참고용</span>}
+                  </span>
                 </div>
               );
             })}
