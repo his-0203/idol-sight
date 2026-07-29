@@ -10,10 +10,8 @@
 //   4. MiiWAN-scoped insights (scope='miiwan' OR type='ipx_action' tied
 //      to MiiWAN). Falls back to recent ipx_actions if Gemini hasn't
 //      produced any miiwan-scoped item yet.
-//   5. D-30 benchmark — for each comparison group (plave/isedol/stellive
-//      already debuted), the last agg_summary row whose snapshot_at fell
-//      within the 30 days BEFORE that group's debut_date. This is what
-//      lets the UI say "MiiWAN D-26 SNS = +12% vs PLAVE D-26".
+//
+// (Cohort/anchor benchmark comparisons moved to /api/miiwan-cohort.)
 //
 // We bias toward returning partials. If a section has no data the
 // frontend renders an empty-state card rather than failing the page.
@@ -22,68 +20,6 @@ import { d1Query, d1QueryOne, type D1Database } from "../lib/d1";
 import { jsonResponse } from "../lib/jsonResponse";
 
 const TARGET = "miiwan";
-
-// Benchmark cohort = K-POP corporate newcomer groups (corporate
-// model). ISEDOL/STELLIVE dropped — different group_model
-// (segmentary/confederation 서브컬처) and different KPI weighting
-// structure, so a flat D-30 comparison against them implies an
-// apples-to-apples relationship that doesn't hold.
-//
-// PLAVE re-added (2026-05) — historical backfill via Wayback Machine
-// (migrations 0018 + 0020) now covers yt_subscribers / yt_total_videos
-// / yt_total_views around its 2023-03 debut window, so D-30 is no
-// longer silently NULL on the PLAVE side.
-//
-// WEGOSIX (2026-05) — pre-debut peer (debut_date NULL in 0034 seed).
-// Doesn't fit the literal "D-30 이전 스냅샷" framing, but since it's
-// the only other tracked corporate-model pre-debut group it gives the
-// strategy team a parallel "right-now" reading. Handled separately
-// below: when debut_date is null we pick the latest agg_summary
-// instead of an anchored window.
-//
-// V2.22.1 (2026-05-14): order rewritten from arbitrary insertion order
-// (plave/skinz/myrakl/owis/bdawn/wegosix) to a 도장깨기 / "next wall to
-// break" sequence — left-to-right is monotone-ascending in MiiWAN's
-// effective gap to each comparison group, so the briefing reads as a
-// ladder MiiWAN climbs through.
-//
-// Distance metric: yt_subscribers is the primary signal, yt_total_views
-// is the tiebreaker (captures "tier-1 K-pop" weight that subs alone miss
-// when a 1군 group has heavy view accumulation per subscriber).
-//
-// Prod D1 verified 2026-05-14 (snapshot at the closest non-NULL D-30 row
-// per group). MiiWAN current baseline = 1.06K subs / 412K views / 81 vid.
-//
-//                   D-30 subs    D-30 views   data_source
-//   1. MY:RAKL      n/a (—)      n/a          (SB archive backfill confirmed
-//                                              channel did not exist before
-//                                              2026-02-04 = D+9. Migration
-//                                              0056 added 100 daily rows
-//                                              2026-02-04~2026-05-14 but
-//                                              D-30 (2025-12-27) is pre-
-//                                              channel — '—' is the correct
-//                                              cell value, not 0)
-//   2. B:DAWN        3,290         593K       backfill_estimate
-//   3. OWIS          4,120         603K       backfill_estimate
-//   4. WEGO-6       11,800          27K       backfill_estimate
-//   5. SKINZ        27,100         965K       backfill_estimate
-//   6. PLAVE        10,000        21.2M       backfill_estimate
-//
-// PLAVE / SKINZ swap rationale: by subs alone PLAVE (10K) < SKINZ (27K),
-// but PLAVE's D-30 views (21.2M) is 22× SKINZ's (965K) — the 1군 K-pop
-// signal is in cumulative views, not subs. Keeping PLAVE in the rightmost
-// (final wall) slot matches operator intuition. Note the PLAVE D-30 row
-// is Wayback-anchored (sparse) while SKINZ is SB Premium (dense) — the
-// raw subs comparison may be partly an artifact of backfill source
-// asymmetry, not a true ranking inversion.
-//
-// WEGO-6 is a pre-debut peer (debut_date NULL in 0034 seed). It joins
-// the ladder at slot 4 because its latest snapshot's subs (~11.8K) sits
-// between OWIS and SKINZ on the subs axis; the picker shows latest for
-// every anchor tab regardless of D-30 / D-DAY / D+30 selection.
-const BENCHMARK_GROUPS = [
-  "myrakl", "bdawn", "owis", "wegosix", "skinz", "plave",
-] as const;
 
 interface GroupRow {
   key: string; name: string; name_kr: string;
@@ -345,149 +281,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     ).catch(() => [] as LiveActivityBroadcastRow[]),
   ]);
 
-  // 5) Cohort benchmarks anchored at seven points in the debut timeline:
-  //    D-30 / D-20 / D-10 (approach), D-DAY (debut), D+10 / D+20 / D+30
-  //    (early growth). Each tab in the briefing shows the same comparison
-  //    groups but anchored at that point in their own debut window — gives
-  //    the strategy team a target trajectory ("MiiWAN 현재 vs PLAVE D-20 /
-  //    D-Day / D+10").
-  //
-  //    V2.22 (2026-05-14): split the prior 3-anchor layout (D-30/D-DAY/D+30)
-  //    into 7 anchors aligned with the Posture bar buckets. Each non-D-DAY
-  //    anchor still uses a monotone pre/post window, so under sparse
-  //    backfill the same snapshot row can resolve into multiple adjacent
-  //    anchor tabs — that's expected (the picker shows "the closest row to
-  //    this anchor on the correct side of debut", not a strict bucket).
-  //
-  //    Pre-debut peers (debut_date NULL, e.g. WEGOSIX) ignore the anchor
-  //    and always show their latest agg_summary — there is no D-DAY for
-  //    a group without a debut date.
-  type AnchorKey =
-    | "d-30" | "d-20" | "d-10"
-    | "d-day"
-    | "d+10" | "d+20" | "d+30";
-  const ANCHORS: AnchorKey[] = [
-    "d-30", "d-20", "d-10", "d-day", "d+10", "d+20", "d+30",
-  ];
-  type BenchmarkRow = {
-    group_key: string; name: string; debut_date: string | null;
-    snapshot_at: string | null;
-    data_source: string | null;
-    summary: Omit<SummaryRow, "group_key" | "snapshot_at"> | null;
-  };
-  const benchmarksByAnchor: Record<AnchorKey, BenchmarkRow[]> = {
-    "d-30": [], "d-20": [], "d-10": [],
-    "d-day": [],
-    "d+10": [], "d+20": [], "d+30": [],
-  };
-
-  // Per-anchor SQL window + target offset. Pre-debut anchors clamp to
-  // date(snapshot_at) <= debut_date; post-debut clamp the other way; D-DAY
-  // uses a symmetric ±14d window so a sparse week around debut doesn't
-  // accidentally pull in a far-side row that the column header would
-  // mislabel. Target offset picks the closest row inside the window. The
-  // fill-rate tiebreak from the original D-30 query is preserved across
-  // all anchors.
-  function anchorQuery(anchor: AnchorKey): { where: string; targetOffset: string } {
-    if (anchor === "d-day") {
-      return {
-        where: "date(snapshot_at) BETWEEN date(?, '-14 days') AND date(?, '+14 days')",
-        targetOffset: "+0 days",
-      };
-    }
-    const isPre = anchor.startsWith("d-");
-    const offsetDays = parseInt(anchor.slice(2), 10);  // 30 / 20 / 10
-    return {
-      where: isPre
-        ? "date(snapshot_at) <= date(?)"
-        : "date(snapshot_at) >= date(?)",
-      targetOffset: `${isPre ? "-" : "+"}${offsetDays} days`,
-    };
-  }
-
-  // Fetch all benchmark groups in ONE query (was one lookup per group).
-  const benchPlaceholders = BENCHMARK_GROUPS.map(() => "?").join(",");
-  const benchGroups = await d1Query<GroupRow>(
-    env.DB,
-    `SELECT key, name, name_kr, debut_date, yt_channel_id FROM groups
-      WHERE key IN (${benchPlaceholders})`,
-    [...BENCHMARK_GROUPS],
-  );
-  const benchByKey = new Map(benchGroups.map((g) => [g.key, g]));
-
-  // Build every anchor-row query up front and run them concurrently. This was
-  // 7 groups × (1 group lookup + 7 anchor queries) = ~56 SERIAL round-trips per
-  // briefing load; now it's one groups query + a single concurrent batch.
-  // A pre-debut peer (no debut_date) reuses ONE "latest snapshot" query across
-  // all its anchor tabs — its current state is the only meaningful comparison.
-  type AnchorTask = {
-    gk: string; anchor: AnchorKey; g: GroupRow; row: Promise<SummaryRow | null>;
-  };
-  const anchorTasks: AnchorTask[] = [];
-  for (const gk of BENCHMARK_GROUPS) {
-    const g = benchByKey.get(gk);
-    if (!g) continue;
-    if (!g.debut_date) {
-      const row = d1QueryOne<SummaryRow>(
-        env.DB,
-        `SELECT * FROM agg_summary
-          WHERE group_key=? AND snapshot_at = (
-            SELECT MAX(snapshot_at) FROM agg_summary WHERE group_key=?)`,
-        [gk, gk],
-      );
-      for (const anchor of ANCHORS) anchorTasks.push({ gk, anchor, g, row });
-      continue;
-    }
-    for (const anchor of ANCHORS) {
-      const { where, targetOffset } = anchorQuery(anchor);
-      // ORDER 우선순위: 1) yt_subscribers IS NOT NULL (sparse 백필에서도 subs
-      // 살아있는 행 우선) 2) 나머지 컬럼 충실도 3) anchor 근접도 4) 최신.
-      const params: unknown[] = anchor === "d-day"
-        ? [gk, g.debut_date, g.debut_date, g.debut_date]
-        : [gk, g.debut_date, g.debut_date];
-      const row = d1QueryOne<SummaryRow>(
-        env.DB,
-        `SELECT * FROM agg_summary
-          WHERE group_key=? AND ${where}
-          ORDER BY
-            (yt_subscribers IS NOT NULL) DESC,
-            (
-              (yt_total_videos  IS NOT NULL) +
-              (yt_total_views   IS NOT NULL) +
-              (CASE WHEN naver_total_news > 0 THEN 1 ELSE 0 END)
-            ) DESC,
-            ABS(julianday(date(snapshot_at)) - julianday(date(?, '${targetOffset}'))) ASC,
-            snapshot_at DESC
-          LIMIT 1`,
-        params,
-      );
-      anchorTasks.push({ gk, anchor, g, row });
-    }
-  }
-
-  await Promise.all(anchorTasks.map((t) => t.row));
-  for (const t of anchorTasks) {
-    const row = await t.row;
-    benchmarksByAnchor[t.anchor].push({
-      group_key: t.gk,
-      name: t.g.name,
-      debut_date: t.g.debut_date,
-      snapshot_at: row?.snapshot_at ?? null,
-      data_source: row?.data_source ?? null,
-      summary: row ? {
-        yt_total_videos: row.yt_total_videos,
-        yt_total_views: row.yt_total_views,
-        yt_subscribers: row.yt_subscribers,
-        dc_total_posts: row.dc_total_posts,
-        theqoo_posts: row.theqoo_posts,
-        instiz_posts: row.instiz_posts,
-        naver_total_news: row.naver_total_news,
-        controversy_count: row.controversy_count,
-        data_source: row.data_source,
-      } : null,
-    });
-  }
-
   return jsonResponse({
     group: {
       key: group.key, name: group.name, name_kr: group.name_kr,
@@ -533,7 +326,6 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       ai_comment: i.ai_comment,
       generated_at: i.generated_at,
     })),
-    benchmarks_by_anchor: benchmarksByAnchor,
     alerts,
     controversy_trend: controversyTrend,
     // DECISION 탭 데이터. member_popularity는 공개 프록시(지금 가동),

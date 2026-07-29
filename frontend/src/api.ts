@@ -49,6 +49,7 @@ export const api = {
   miiwanLiveChat: (videoId?: string) =>
     getJson<any>("/api/miiwan-live-chat" +
       (videoId ? `?video_id=${encodeURIComponent(videoId)}` : "")),
+  miiwanCohort: () => getJson<any>("/api/miiwan-cohort"),
   debutCurve:  (metric = "yt_subscribers", from = -60, to = 180) =>
     getJson<any>(`/api/debut-curve?metric=${encodeURIComponent(metric)}&from=${from}&to=${to}`),
   groupEvents: (group?: string, from?: string, to?: string) => {
