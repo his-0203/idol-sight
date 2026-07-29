@@ -20,7 +20,6 @@
 
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
-import { fmt } from "../format";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
 import { DataSourceDetails, type RawRef } from "../components/Tooltip";
