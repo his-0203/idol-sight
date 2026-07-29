@@ -38,8 +38,8 @@ import { VERDICT_COLOR, VERDICT_THRESHOLDS, scoreColor } from "../lib/organicity
 import {
   AD_SUSPECT_METRICS, METRIC_LABELS, METRIC_UNITS, ORG_AD_SUSPECT_THRESHOLD,
   ORG_SCORE_GAP_CHIP, PRIMARY_METRIC,
-  adJudgeScore, adScoreMap, cohortComposition, debutDateRange, fmtDelta,
-  fmtMultiple, headline, nearTieKeys,
+  adJudgeScore, adScoreMap, cohortComposition, debutDateRange, exPaidNote,
+  fmtDelta, fmtMultiple, headline, nearTieKeys,
   type CohortData, type CurvePoint, type OrgRow,
 } from "../lib/cohortHeadline";
 // 산점도 데이터 준비도 순수 로직 (테스트: tests/lib/cohortQuality.test.ts).
@@ -441,6 +441,8 @@ export function MiiWANCohortReport() {
   const miiwanBaselineMissing =
     sc != null && sc.rows.find((r) => r.group_key === "miiwan")?.growth_multiple == null;
   const orgWindowLabel = data.organicity_window ?? "데뷔 창";
+  // 유료 판정 제외 요약 — MiiWAN 행에서만 상시 노출(다른 팀은 표·마커로 충분).
+  const miiwanExPaid = exPaidNote(data.organicity.find((o) => o.group_key === "miiwan"));
   // 측정 허용폭은 백엔드 상수에서 파생 — 화면에 ±3 / ±7 을 따로 적어두면
   // 상수를 바꿨을 때 표기와 실제 계산이 조용히 어긋난다.
   const baseTol = tol(data.windows?.base);
@@ -864,6 +866,16 @@ export function MiiWANCohortReport() {
             스스로 찾아왔다는 뜻이다. 창이 데뷔 전까지 걸쳐 있는 이유는 유료 캠페인이
             주로 데뷔 직전에 집행되기 때문이다.
           </p>
+          {/* MiiWAN 조회수 점수 하락의 원인을 드릴다운 없이 상시 노출 —
+              동어반복을 피하려 제외 점수를 반드시 쏠림 규모(편수·점유)와
+              한 문장에 묶는다(exPaidNote). */}
+          {miiwanExPaid && (
+            <p class="mb-2 text-hint text-zinc-400">
+              <strong class="text-zinc-300">MiiWAN 조회수 점수가 낮은 이유</strong>
+              {" — "}{miiwanExPaid} 광고 노출이 소수 핵심 콘텐츠에 몰려 있고,
+              나머지 카탈로그는 자연 소비에 가깝다는 뜻이다.
+            </p>
+          )}
           {/* B2 — 편수 점수와 조회수 점수를 잇는 구간 막대. 두 기준이 갈리는
               폭 자체가 신호라 한 점으로 뭉개지 않는다. R10 — 진한 막대가 우리 팀. */}
           {/* 눈금 행 — 등급 경계를 축처럼 보여준다. 좌우 스페이서는 아래 행의
@@ -935,6 +947,15 @@ export function MiiWANCohortReport() {
                                     background: "rgb(24 24 27)", // zinc-900 카드 배경
                                     opacity: isMine ? 1 : 0.75 }} />
                     )}
+                    {/* 유료 판정 제외 점수 — 채운 점(편수)·빈 점(조회수)과 형태를
+                        분리한 세로 틱. 전 그룹 대칭 노출(미완 전용 아님). */}
+                    {o.score_view_weighted_ex_paid != null && (
+                      <div class="absolute top-[-3px] bottom-[-3px] w-[2px] -translate-x-1/2 rounded"
+                           title={`유료 판정 영상 제외 시 조회수 기준 ${o.score_view_weighted_ex_paid}점`}
+                           style={{ left: `${clampPct(o.score_view_weighted_ex_paid)}%`,
+                                    background: colorOf(o.group_key),
+                                    opacity: o.group_key === "miiwan" ? 0.9 : 0.5 }} />
+                    )}
                   </div>
                   <span class="w-32 shrink-0 text-right text-hint tabular-nums text-zinc-500">
                     편수 {byCount} · 조회수 {o.score_view_weighted == null ? "—" : byViews}
@@ -967,7 +988,9 @@ export function MiiWANCohortReport() {
             것으로 보고 위 그래프·표에 &lsquo;광고 의심&rsquo;을 붙이며,
             {" "}{VERDICT_THRESHOLDS.organic}점 이상(초록 구간)이면 자연 유입이 우세하다.
             MiiWAN이 지금까지 지나온 기간({orgWindowLabel})까지만 세서 비교한다 — 먼저
-            데뷔한 팀만 더 긴 기간을 쓰면 공정하지 않기 때문이다.
+            데뷔한 팀만 더 긴 기간을 쓰면 공정하지 않기 때문이다. 세로 틱은 유료
+            판정 영상을 빼고 다시 센 조회수 기준 점수다 — 빈 점과 틱이 멀수록
+            조회수 하락이 소수 광고성 영상 때문이라는 뜻이다.
           </p>
         </div>
       )}

@@ -153,6 +153,22 @@ export function fmtDelta(n: number | null, unit: string): string | null {
 }
 
 /**
+ * 유료 판정 제외 요약 한 줄 — "조회수 점수가 낮은 원인이 소수 집행 콘텐츠
+ * 쏠림"임을 드릴다운 없이 보여준다. 동어반복 방지를 위해 제외 점수는 반드시
+ * 쏠림 규모(편수·점유)와 한 문장에 묶는다. 필드가 하나라도 없으면 null —
+ * 문장을 지어내지 않는다.
+ */
+export function exPaidNote(o: OrgRow | undefined | null): string | null {
+  if (!o) return null;
+  const { window_video_count: total, paid_video_count: paid,
+    paid_view_share: share, score_view_weighted_ex_paid: exScore } = o;
+  if (!total || !paid || share == null || exScore == null) return null;
+  return `유료 광고로 판정된 영상 ${paid}편(전체 ${total}편)이 조회수의 `
+    + `${Math.round(share * 100)}%를 차지한다 — 이들을 제외한 나머지 `
+    + `${total - paid}편의 조회수 기준 점수는 ${exScore}점이다.`;
+}
+
+/**
  * B1 — 광고 의심 판정에 쓰는 점수 = 편수 기준과 조회수 기준 중 **낮은 쪽**.
  * 두 기준이 갈릴 때 높은 쪽을 택하면 "조회수는 광고성 영상 몇 편에 쏠렸는데
  * 편수로는 깨끗해 보이는" 팀이 통과한다. 조회수 점수가 없으면 편수만 쓴다

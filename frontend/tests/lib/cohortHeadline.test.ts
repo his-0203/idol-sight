@@ -4,8 +4,8 @@ import { describe, expect, it, test } from "vitest";
 import {
   AD_SUSPECT_METRICS, NEAR_TIE_RATIO, ORG_AD_SUSPECT_THRESHOLD,
   PRE_EFFICIENCY_OUTLIER_RATIO,
-  adJudgeScore, cohortComposition, debutDateRange, fmtDelta, headline,
-  nearTieKeys, organicStanding,
+  adJudgeScore, cohortComposition, debutDateRange, exPaidNote, fmtDelta,
+  headline, nearTieKeys, organicStanding,
   type CohortData, type OrgRow, type ScRow,
 } from "../../src/lib/cohortHeadline";
 import { VERDICT_THRESHOLDS } from "../../src/lib/organicity";
@@ -468,5 +468,22 @@ describe("상수·표기", () => {
     expect(fmtDelta(2200, "명")).toBe("+2,200명");
     expect(fmtDelta(-30, "명")).toBe("−30명");
     expect(fmtDelta(null, "명")).toBeNull();
+  });
+});
+
+describe("exPaidNote", () => {
+  const base = { group_key: "miiwan", score: 74, video_count: 122, reference: false,
+    score_view_weighted: 41.4, window_video_count: 122, paid_video_count: 14,
+    paid_view_share: 0.712, score_view_weighted_ex_paid: 69.5 };
+  test("유료 판정 편수·조회수 점유·제외 점수를 한 문장으로 만든다", () => {
+    const note = exPaidNote(base as OrgRow);
+    expect(note).toContain("14편");
+    expect(note).toContain("71%");
+    expect(note).toContain("69.5점");
+  });
+  test("유료 판정이 0편이거나 필드가 없으면 null", () => {
+    expect(exPaidNote({ ...base, paid_video_count: 0 } as OrgRow)).toBeNull();
+    expect(exPaidNote({ ...base, score_view_weighted_ex_paid: null } as OrgRow)).toBeNull();
+    expect(exPaidNote(undefined)).toBeNull();
   });
 });
