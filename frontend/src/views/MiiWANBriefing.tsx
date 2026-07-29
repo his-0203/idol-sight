@@ -36,6 +36,7 @@ import { InsightBody } from "../components/InsightBody";
 import { GroupBadge } from "../components/GroupBadge";
 import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
 import { CompetitorOrganicityBar } from "../components/CompetitorOrganicityBar";
+import { MiiWANCohortReport } from "../components/MiiWANCohortReport";
 import { FanActivityCard, type FanActivity } from "../components/FanActivityCard";
 import { MarketAnalysis } from "./MarketAnalysis";
 
@@ -480,6 +481,14 @@ export function MiiWANBriefing() {
             </div>
           );
         })()}
+      </section>
+
+      {/* 5) 동시기 성과 — 데뷔일 정렬(D+N) 코호트 벤치마크. 절대값이 아니라
+          성장 기울기·순위로 "동시기 대비 잘하고 있는가"를 증명하는 보고서형
+          섹션 (투자사 보고 근거). */}
+      <section>
+        <h2 class="section-title mb-3">동시기 성과 — 데뷔 코호트 벤치마크</h2>
+        <MiiWANCohortReport />
       </section>
 
       {/* 5b) COMPETITIVE DEBUT WINDOW POSTURE — Organic-score 가로 막대
