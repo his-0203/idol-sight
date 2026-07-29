@@ -171,11 +171,17 @@ export function MiiWANCohortReport() {
     .filter((o): o is OrgRowScored => o.score != null)
     .sort((a, b) => b.score - a.score);
   const miiwanOrg = orgRows.find((o) => o.group_key === "miiwan");
-  // 코호트 후보 = 참조선(PLAVE)과 미완이 자신을 뺀 동시기 그룹 수.
-  // 각 지표의 실제 순위 모수(cohort_size)는 D-Day 기준값이 확보된 그룹만
-  // 세므로 후보 수보다 작을 수 있다 — 각주가 둘을 함께 밝힌다.
-  const cohortCandidates = Object.entries(data.groups)
-    .filter(([key, g]) => !g.reference && key !== "miiwan").length;
+  // 코호트 후보 = 참조선(PLAVE)을 뺀 동시기 그룹 수 — **미완이 포함**.
+  // cohort_size(백엔드)도 미완이 기준값이 있으면 미완이를 포함해 세므로
+  // 포함 기준을 여기에 맞춘다. (미완이를 뺀 5팀과 비교하면 "후보 5팀 중
+  // 확보 6팀" 같은 부분집합 > 전체집합 모순이 생긴다.)
+  // cohort_size 는 그중 이 지표의 D-Day 기준값이 확보된 그룹만 세므로
+  // 후보 수 이하 — 각주가 둘을 함께 밝힌다.
+  const cohortCandidates = Object.values(data.groups).filter((g) => !g.reference).length;
+  // miiwan_rank == null 의 원인 구분: 미완이 자신의 기준값이 없어서인지
+  // (그러면 cohort_size 는 피어만 센다) 피어가 없어서인지.
+  const miiwanBaselineMissing =
+    sc != null && sc.rows.find((r) => r.group_key === "miiwan")?.growth_multiple == null;
   const orgWindowLabel = data.organicity_window ?? "데뷔 창";
   const excludedTip = data.excluded
     .map((e) => `${data.groups[e.group_key]?.name ?? e.group_key} / ${METRIC_LABELS[e.metric] ?? e.metric}: ${e.reason}`)
@@ -275,8 +281,13 @@ export function MiiWANCohortReport() {
                 성장배수 기준 동시기 {sc.cohort_size}팀 중 <strong style={{ color: accent }}>
                 MiiWAN {sc.miiwan_rank}위</strong> (참조 그룹 제외).
               </>
+            ) : miiwanBaselineMissing ? (
+              <>
+                MiiWAN의 이 지표 D-Day 기준값(±3)이 없어 동시기 순위를 내지 않는다
+                (기준값 확보 피어 {sc.cohort_size}팀).
+              </>
             ) : (
-              <>동시기 비교 가능한 코호트 부족 (이 지표 기준값 확보 그룹 {sc.cohort_size}팀).</>
+              <>동시기 비교 가능한 코호트 부족 (이 지표 기준값 확보 그룹 {sc.cohort_size}팀, MiiWAN 포함).</>
             )}
             {" "}값은 D-Day±3 / D+{data.as_of_day}±7 안의 최근접 스냅샷에서 집었고,
             행마다 실제 측정일을 병기했다.
@@ -331,8 +342,9 @@ export function MiiWANCohortReport() {
         방법론: 각 그룹의 데뷔일을 D-Day(=0일)로 정렬하고 같은 경과일의 스냅샷을
         비교. 성장곡선은 D-Day 값=100 인덱스, 성장배수는 D+{data.as_of_day} 값 ÷ D-Day 값
         (기준값은 D-Day±3, 도달값은 D+{data.as_of_day}±7 안의 최근접 스냅샷).
-        순위 코호트는 데뷔 초기 구간을 정렬해 비교한 K-POP 버추얼 후보 {cohortCandidates}팀 중
-        {" "}{METRIC_LABELS[metric] ?? metric} 지표에서 기준값이 확보된 {sc?.cohort_size ?? 0}팀,
+        순위 코호트는 데뷔 초기 구간을 정렬해 비교한 K-POP 버추얼 후보 {cohortCandidates}팀
+        (MiiWAN 포함) 중 {METRIC_LABELS[metric] ?? metric} 지표에서 기준값이 확보된
+        {" "}{sc?.cohort_size ?? 0}팀,
         PLAVE는 성공 사례 참조선(그래프 점선 · 순위 제외). <span class="text-zinc-400">est</span> 배지 =
         백필 추정치(곡선 모양 신뢰, 절대값 참고). 해당 구간 데이터가 없는 그룹은
         수치를 만들어 채우지 않고 비교에서 제외
