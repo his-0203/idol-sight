@@ -16,6 +16,8 @@ type CurvePoint = { day: number; index: number; source: string };
 type ScRow = {
   group_key: string; value_at_day: number | null;
   growth_multiple: number | null; source: string | null; reference: boolean;
+  /** 실제로 값을 집어온 경과일 — 탐색 허용폭 때문에 D+N과 다를 수 있다. */
+  base_day: number | null; at_day: number | null; base_source: string | null;
 };
 type OrgRow = {
   group_key: string; score: number | null; video_count: number; reference: boolean;
@@ -29,7 +31,9 @@ type CohortData = {
   curves: Record<string, Record<string, CurvePoint[]>>;
   scorecard: Record<string, { rows: ScRow[]; miiwan_rank: number | null; cohort_size: number }>;
   organicity: OrgRow[];
-  /** 유기성 쿼리 실패 시 true (+ organicity: []). 빈 배열이라 블록이 자연히 숨는다. */
+  /** 유기성 집계에 실제로 쓰인 데뷔 창 라벨 (예: "D-Day~D+40"). */
+  organicity_window?: string;
+  /** 유기성 쿼리 실패 시 true (+ organicity: []). 숨기지 말고 힌트 카드로 노출. */
   organicity_unavailable?: boolean;
   excluded: Array<{ group_key: string; metric: string; reason: string }>;
 };
@@ -45,6 +49,11 @@ const accent = colorOf("miiwan");
 
 function fmtMultiple(m: number | null): string {
   return m == null ? "—" : `${(Math.round(m * 10) / 10).toFixed(1)}×`;
+}
+
+/** 데뷔 경과일 라벨 — 음수(데뷔 전 기준 스냅샷)면 "D-2" 로 쓴다. */
+function dayLabel(day: number): string {
+  return day < 0 ? `D${day}` : `D+${day}`;
 }
 
 // 헤드라인: 지표별 순위를 우세(상위 절반)/열세로 나눠 한 줄 결론 생성.
@@ -131,14 +140,18 @@ export function MiiWANCohortReport() {
           x: {
             type: "linear",
             title: { display: true, text: "데뷔 후 경과일 (D+N)" },
-            ticks: { callback: (v) => `D+${v}` },
+            // 기준점이 데뷔 전 스냅샷이면 곡선이 음수 day에서 시작할 수 있다.
+            ticks: { callback: (v) => dayLabel(Number(v)) },
           },
           y: { title: { display: true, text: "인덱스 (D-Day = 100)" } },
         },
         plugins: {
           tooltip: {
             callbacks: {
-              title: (items) => `D+${items[0]?.parsed.x ?? ""}`,
+              title: (items) => {
+                const x = items[0]?.parsed.x;
+                return x == null ? "" : dayLabel(x);
+              },
               label: (item) => `${item.dataset.label}: ${item.parsed.y}`,
             },
           },
@@ -158,10 +171,12 @@ export function MiiWANCohortReport() {
     .filter((o): o is OrgRowScored => o.score != null)
     .sort((a, b) => b.score - a.score);
   const miiwanOrg = orgRows.find((o) => o.group_key === "miiwan");
-  // 순위 코호트 = 비참조 그룹에서 미완이 자신을 뺀 수.
-  const peerCount = Math.max(
-    0, Object.values(data.groups).filter((g) => !g.reference).length - 1,
-  );
+  // 코호트 후보 = 참조선(PLAVE)과 미완이 자신을 뺀 동시기 그룹 수.
+  // 각 지표의 실제 순위 모수(cohort_size)는 D-Day 기준값이 확보된 그룹만
+  // 세므로 후보 수보다 작을 수 있다 — 각주가 둘을 함께 밝힌다.
+  const cohortCandidates = Object.entries(data.groups)
+    .filter(([key, g]) => !g.reference && key !== "miiwan").length;
+  const orgWindowLabel = data.organicity_window ?? "데뷔 창";
   const excludedTip = data.excluded
     .map((e) => `${data.groups[e.group_key]?.name ?? e.group_key} / ${METRIC_LABELS[e.metric] ?? e.metric}: ${e.reason}`)
     .join("\n");
@@ -232,8 +247,16 @@ export function MiiWANCohortReport() {
                         )}
                       </td>
                       <td class="px-3 py-2 text-right text-zinc-300">
-                        {r.value_at_day == null ? "—" : fmt(r.value_at_day)}
-                        <EstBadge source={r.source} />
+                        <div>
+                          {r.value_at_day == null ? "—" : fmt(r.value_at_day)}
+                          <EstBadge source={r.source} />
+                        </div>
+                        {r.at_day != null && (
+                          <div class="text-hint text-zinc-600">
+                            실측 {dayLabel(r.at_day)}
+                            {r.base_day != null && <> · 기준 {dayLabel(r.base_day)}</>}
+                          </div>
+                        )}
                       </td>
                       <td class={"px-3 py-2 text-right " + (isMine ? "font-semibold" : "text-zinc-300")}
                           style={isMine ? { color: accent } : undefined}>
@@ -244,21 +267,36 @@ export function MiiWANCohortReport() {
                 })}
             </tbody>
           </table>
-          {sc.miiwan_rank != null && (
-            <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
-              성장배수 기준 동시기 {sc.cohort_size}팀 중 <strong style={{ color: accent }}>
-              MiiWAN {sc.miiwan_rank}위</strong> (참조 그룹 제외).
-            </p>
-          )}
+          <p class="px-3 py-2 text-hint text-zinc-500 border-t border-zinc-800/60">
+            {/* 코호트가 미완이 1팀뿐이면 "1위"는 자기 자신을 이긴 것이라
+                의미가 없다 — 순위 대신 모수 부족을 명시한다(빈칸 금지). */}
+            {sc.miiwan_rank != null && sc.cohort_size >= 2 ? (
+              <>
+                성장배수 기준 동시기 {sc.cohort_size}팀 중 <strong style={{ color: accent }}>
+                MiiWAN {sc.miiwan_rank}위</strong> (참조 그룹 제외).
+              </>
+            ) : (
+              <>동시기 비교 가능한 코호트 부족 (이 지표 기준값 확보 그룹 {sc.cohort_size}팀).</>
+            )}
+            {" "}값은 D-Day±3 / D+{data.as_of_day}±7 안의 최근접 스냅샷에서 집었고,
+            행마다 실제 측정일을 병기했다.
+          </p>
         </div>
       )}
 
-      {/* ④ 동시기 유기성 — 데뷔 창(D-Day~D+60 버킷) 한정. 아래 '코호트
-          유기성 비교'(롤링 창)와 기준이 다름을 명시. */}
+      {/* ④ 동시기 유기성 — 데뷔 창 한정(미완이 경과일이 도달한 버킷까지만).
+          아래 '코호트 유기성 비교'(롤링 창)와 기준이 다름을 명시. */}
+      {data.organicity_unavailable && (
+        <div class="card">
+          <p class="text-hint text-zinc-500">
+            유기성 데이터를 불러오지 못했습니다 (일시 오류).
+          </p>
+        </div>
+      )}
       {orgRows.length > 0 && (
         <div class="card">
           <p class="mb-2 text-sm font-medium text-zinc-200">
-            동시기 유기성 (각 그룹의 데뷔 창 D-Day~D+60 기준)
+            동시기 유기성 (각 그룹의 데뷔 창 {orgWindowLabel} 기준)
             {miiwanOrg && (
               <span class="ml-2 text-hint text-zinc-500">MiiWAN {miiwanOrg.score}점</span>
             )}
@@ -280,14 +318,21 @@ export function MiiWANCohortReport() {
               </div>
             ))}
           </div>
+          <p class="mt-2 text-hint text-zinc-500">
+            미완이가 도달한 버킷({orgWindowLabel})까지만 집계 — 피어만 더 긴 창을
+            쓰지 않도록 창을 맞춘다. 아래 &lsquo;코호트 유기성 비교&rsquo;는 데뷔 창이 아니라
+            최근 롤링 창 기준이라 숫자가 다를 수 있다.
+          </p>
         </div>
       )}
 
       {/* ⑤ 방법론 각주 — "이 비교 어떻게 만든 거냐"에 화면만으로 답하기 */}
       <p class="text-hint text-zinc-500 leading-relaxed">
         방법론: 각 그룹의 데뷔일을 D-Day(=0일)로 정렬하고 같은 경과일의 스냅샷을
-        비교. 성장곡선은 D-Day 값=100 인덱스, 성장배수는 D+{data.as_of_day} 값 ÷ D-Day 값.
-        순위 코호트는 유사 시기에 데뷔한 K-POP 버추얼 {peerCount}팀,
+        비교. 성장곡선은 D-Day 값=100 인덱스, 성장배수는 D+{data.as_of_day} 값 ÷ D-Day 값
+        (기준값은 D-Day±3, 도달값은 D+{data.as_of_day}±7 안의 최근접 스냅샷).
+        순위 코호트는 데뷔 초기 구간을 정렬해 비교한 K-POP 버추얼 후보 {cohortCandidates}팀 중
+        {" "}{METRIC_LABELS[metric] ?? metric} 지표에서 기준값이 확보된 {sc?.cohort_size ?? 0}팀,
         PLAVE는 성공 사례 참조선(그래프 점선 · 순위 제외). <span class="text-zinc-400">est</span> 배지 =
         백필 추정치(곡선 모양 신뢰, 절대값 참고). 해당 구간 데이터가 없는 그룹은
         수치를 만들어 채우지 않고 비교에서 제외
