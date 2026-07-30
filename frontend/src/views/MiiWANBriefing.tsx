@@ -389,9 +389,38 @@ export function MiiWANBriefing() {
         />
       ) : (<>
 
-      {/* 2) ACTION QUEUE — alerts + ipx_actions 통합. 매일 보는
+      {/* 2) STRATEGIC INSIGHT — LLM weekly insights, MiiWAN-scoped first.
+          (2026-07-30 사용자 지시로 Action Queue 위로 이동 — 주간 관점의
+          "무엇이 중요한가"를 먼저 읽고, 그 아래에서 오늘의 처리 목록을 본다.) */}
+      <section>
+        <h2 class="section-title mb-3">전략 인사이트 (LLM weekly)</h2>
+        {data.insights.length === 0 ? (
+          <EmptyState
+            title="아직 MiiWAN 전용 인사이트 없음"
+            hint="주간 LLM 분석이 1회 이상 돌면 여기에 채워집니다. 현재는 시장 인사이트 탭을 참고하세요."
+            icon="💡"
+          />
+        ) : (
+          <div class="space-y-4">
+            {miiwanScoped.length > 0 && (
+              <InsightGroup title="MiiWAN 전용" tone="brand"
+                            items={miiwanScoped} accent={accent} isOwn={true} />
+            )}
+            {otherInsights.length > 0 && (
+              <InsightGroup
+                title="관련 시장 인사이트"
+                tone="muted"
+                items={otherInsights}
+                hint="MiiWAN 직접은 아니지만 운영에 참고 가능"
+              />
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* 3) ACTION QUEUE — alerts + ipx_actions 통합. 매일 보는
           운영자가 "오늘 무엇을 해야 하나"를 5초 안에 답할 수 있도록
-          최상단에 위치. 빈 상태도 자리 유지 (학습된 위치 유지). */}
+          인사이트 바로 아래에 위치. 빈 상태도 자리 유지 (학습된 위치 유지). */}
       <ActionQueue ipxActions={ipxActions} otherAlerts={otherAlerts} />
 
       {/* 3) TIMELINE — 데뷔 D-day 컨텍스트에서 최근 30일 + 향후 60일
@@ -513,33 +542,6 @@ export function MiiWANBriefing() {
           바닥선</strong>이 데뷔 전 수준 위에서 유지·상승하는가로 판단한다 —
           자연 유입이 정상이라는 건 '진짜'라는 뜻이지 '충분·지속'의 증거는 아니다.
         </p>
-      </section>
-
-      {/* 6) STRATEGIC INSIGHT — LLM weekly insights, MiiWAN-scoped first. */}
-      <section>
-        <h2 class="section-title mb-3">전략 인사이트 (LLM weekly)</h2>
-        {data.insights.length === 0 ? (
-          <EmptyState
-            title="아직 MiiWAN 전용 인사이트 없음"
-            hint="주간 LLM 분석이 1회 이상 돌면 여기에 채워집니다. 현재는 시장 인사이트 탭을 참고하세요."
-            icon="💡"
-          />
-        ) : (
-          <div class="space-y-4">
-            {miiwanScoped.length > 0 && (
-              <InsightGroup title="MiiWAN 전용" tone="brand"
-                            items={miiwanScoped} accent={accent} isOwn={true} />
-            )}
-            {otherInsights.length > 0 && (
-              <InsightGroup
-                title="관련 시장 인사이트"
-                tone="muted"
-                items={otherInsights}
-                hint="MiiWAN 직접은 아니지만 운영에 참고 가능"
-              />
-            )}
-          </div>
-        )}
       </section>
 
       {/* 7) MEMBERS — debut D-7 이내 또는 데뷔 후에만 자동 노출.
