@@ -156,6 +156,81 @@ export function topDemographicLine(rows: DemographicRow[] | null | undefined): s
     + ` (${Math.round(top.viewer_pct ?? 0)}%)`;
 }
 
+// ── 구독 vs 비구독 시청 비중 (agg_youtube_analytics, 0..1) ────────────
+
+/** 균형 판정 문구 틀. 0.6 임계 = "쏠림"이라 부를 만한 보수적 기준. */
+export function subSplitLine(
+  sub: number | null | undefined,
+  unsub: number | null | undefined,
+): string | null {
+  if (sub == null || unsub == null) return null;
+  if (unsub >= 0.6) return "새 시청자 유입 비중이 높음 — 팬덤 밖으로 확장 중인 구간";
+  if (sub >= 0.6) return "구독자 반복 소비 중심 — 코어는 단단하나 신규 유입 확대가 과제";
+  return "구독자 소비와 신규 유입이 균형 — 코어 유지와 확장이 함께 진행";
+}
+
+// ── 전망 (동시기 선배 팀 궤적 기반, /api/miiwan-cohort forward) ───────
+// 예측 모델이 아니다 — 먼저 데뷔한 팀들이 같은 구간(D+asOf → D+asOf+N)에서
+// 실제로 걸은 성장 비율의 중앙값을 미완이 현재값에 적용해 "통상 경로
+// 유지 시" 수준을 보여준다. 반드시 (추정) 표기와 함께 노출할 것.
+
+export interface ForwardPoint { day: number; index: number }
+export interface ForwardData {
+  days: number;
+  curves: Record<string, Record<string, ForwardPoint[]>>;
+}
+
+export interface CohortForecast {
+  /** 비율 산출에 실제 쓰인 선배 팀 수. */
+  peerCount: number;
+  /** 구간 성장 비율 중앙값 (1.0 = 정체). */
+  medianRatio: number;
+  /** 전망 시점 (D+N). */
+  horizonDay: number;
+  /** 미완이 현재값 × medianRatio. 현재값 없으면 null. */
+  projectedValue: number | null;
+}
+
+export function cohortForecast(
+  forward: ForwardData | null | undefined,
+  metric: string,
+  asOfDay: number | null | undefined,
+  currentValue: number | null | undefined,
+): CohortForecast | null {
+  if (!forward?.curves || asOfDay == null) return null;
+  const perGroup = forward.curves[metric];
+  if (!perGroup) return null;
+  const horizon = asOfDay + forward.days;
+  const ratios: number[] = [];
+  for (const pts of Object.values(perGroup)) {
+    if (!pts?.length) continue;
+    // 시작점 = 오늘 이전·가장 가까운 점(API가 본 곡선 마지막 점을 앞에
+    // 끼워 보냄), 끝점 = 구간 내 마지막 점. 구간의 60% 이상 진행된 팀만
+    // 산입 — 며칠치만 있는 팀의 초반 기울기를 6주 비율로 오인하지 않게.
+    const sorted = [...pts].sort((a, b) => a.day - b.day);
+    const start = [...sorted].reverse().find((p) => p.day <= asOfDay) ?? sorted[0]!;
+    const end = sorted[sorted.length - 1]!;
+    if (end.day < asOfDay + forward.days * 0.6) continue;
+    if (start.index <= 0) continue;
+    ratios.push(end.index / start.index);
+  }
+  if (ratios.length < 2) return null;
+  return {
+    peerCount: ratios.length,
+    medianRatio: median(ratios),
+    horizonDay: horizon,
+    projectedValue: currentValue != null
+      ? Math.round(currentValue * median(ratios))
+      : null,
+  };
+}
+
+function median(nums: number[]): number {
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 0 ? (s[mid - 1]! + s[mid]!) / 2 : s[mid]!;
+}
+
 /** 국가 배열 → "KR 62% · JP 14% · US 8%" 상위 N 요약. watch_share는 0~1. */
 export function topCountriesLine(
   countries: Array<{ country: string; watch_share: number }> | null | undefined,

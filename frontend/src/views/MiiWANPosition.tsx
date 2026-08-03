@@ -28,8 +28,9 @@ import {
 } from "../lib/organicity";
 import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 import {
-  demographicBars, momentumLine, PILLAR_LABEL, QUADRANT_VERDICT,
-  sovPosition, topCountriesLine, topDemographicLine, type DemographicRow,
+  cohortForecast, demographicBars, momentumLine, PILLAR_LABEL,
+  QUADRANT_VERDICT, sovPosition, subSplitLine, topCountriesLine,
+  topDemographicLine, type DemographicRow,
 } from "../lib/position";
 import type { Headline } from "../lib/cohortHeadline";
 import {
@@ -59,6 +60,13 @@ export function MiiWANPosition(props: {
   cohortHead: Headline | null;
   demographics: DemographicRow[];
   industry: IndustryMarkers | null;
+  /** 구독 vs 비구독 시청 비중 (0..1, 소유자 OAuth). 미연결이면 null. */
+  subSplit: { subscribed: number | null; unsubscribed: number | null } | null;
+  /** 방송별 peak 라이브 동접 (시간 오름차순). */
+  ccvTrend: Array<{ video_id: string; peak: number; started_at: string }>;
+  /** /api/miiwan-cohort 원본 — 전망(선배 팀 궤적) 산출용. 부모가 이미
+      히어로 headline 용으로 fetch한 응답을 그대로 내려받는다. */
+  cohortRaw: any | null;
 }) {
   const [market, setMarket] = useState<any>(null);
   const [share, setShare] = useState<any>(null);
@@ -143,6 +151,18 @@ export function MiiWANPosition(props: {
 
   const countriesLine = topCountriesLine(props.countries);
   const fan = props.fanActivity;
+  const splitLine = subSplitLine(props.subSplit?.subscribed, props.subSplit?.unsubscribed);
+  const ccvSeries = props.ccvTrend.map((b) => b.peak);
+  const lastCcv = props.ccvTrend[props.ccvTrend.length - 1] ?? null;
+  const prevCcv = props.ccvTrend[props.ccvTrend.length - 2] ?? null;
+  // 전망 — 선배 팀들이 같은 구간에서 실제로 걸은 성장 비율의 중앙값을
+  // 현재 구독자에 적용. 예측 모델이 아니므로 반드시 (추정)과 근거를 병기.
+  const forecast = cohortForecast(
+    props.cohortRaw?.forward ?? null,
+    "yt_subscribers",
+    props.cohortRaw?.as_of_day ?? null,
+    mi?.summary?.yt_subscribers ?? null,
+  );
   const ageBars = demographicBars(props.demographics);
   const maxAgeTotal = ageBars.reduce((m, b) => Math.max(m, b.total), 0);
   const topDemo = topDemographicLine(props.demographics);
@@ -250,6 +270,25 @@ export function MiiWANPosition(props: {
               )}
             </div>
           )}
+          {ccvSeries.length >= 2 && (
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="w-28 shrink-0 text-xs text-zinc-500">라이브 동접 흐름</span>
+              <span class="text-emerald-500/70">
+                <Sparkline points={ccvSeries} width={120} height={22} />
+              </span>
+              {lastCcv && (
+                <span class="text-sm text-zinc-300">
+                  최근 방송 피크 {fmt(lastCcv.peak)}명
+                  {prevCcv && lastCcv.peak !== prevCcv.peak && (
+                    <span class={lastCcv.peak > prevCcv.peak ? "ml-1 text-emerald-400" : "ml-1 text-red-400"}>
+                      ({lastCcv.peak > prevCcv.peak ? "▲" : "▼"} {fmt(Math.abs(lastCcv.peak - prevCcv.peak))} vs 직전)
+                    </span>
+                  )}
+                </span>
+              )}
+              <span class="text-hint text-zinc-600">방송별 최고 동시접속 · 실측</span>
+            </div>
+          )}
           {props.cohortHead && (props.cohortHead.strengths[0] || props.cohortHead.weaknesses[0]) && (
             <div class="flex flex-wrap items-start gap-3">
               <span class="w-28 shrink-0 pt-0.5 text-xs text-zinc-500">동시기 대비</span>
@@ -261,6 +300,18 @@ export function MiiWANPosition(props: {
                   <div class="text-amber-300">⚠️ {props.cohortHead.weaknesses[0]}</div>
                 )}
                 <div class="text-hint text-zinc-600">전체 비교는 브리핑 탭 '동시기 성과' 참고</div>
+              </div>
+            </div>
+          )}
+          {forecast && (
+            <div class="flex flex-wrap items-start gap-3">
+              <span class="w-28 shrink-0 pt-0.5 text-xs text-zinc-500">전망 (동시기 경로)</span>
+              <div class="min-w-0 flex-1 text-sm text-zinc-300">
+                먼저 데뷔한 {forecast.peerCount}팀은 같은 구간에서 중앙값
+                {" "}×{forecast.medianRatio.toFixed(2)} 성장 — 통상 경로 유지 시
+                {" "}D+{forecast.horizonDay} 구독자 약{" "}
+                {forecast.projectedValue != null ? fmt(forecast.projectedValue) : "—"}
+                <span class="text-zinc-500"> (선배 팀 실적 기반 · 예측 아님 · 추정)</span>
               </div>
             </div>
           )}
@@ -283,6 +334,32 @@ export function MiiWANPosition(props: {
                  ? `채팅 참여 기준 실측 · 최근 ${fan.window_days}일`
                  : "라이브 데이터 축적 중"} />
         </div>
+
+        {/* 구독 vs 비구독 시청 비중 — "조회수가 코어 반복 소비인가, 새
+            시청자 유입인가". 소유자 OAuth 실측, 미연결이면 카드 미표시. */}
+        {props.subSplit && props.subSplit.subscribed != null && props.subSplit.unsubscribed != null && (
+          <div class="card mt-2">
+            <div class="mb-1.5 flex flex-wrap items-baseline gap-2">
+              <span class="text-xs font-semibold text-zinc-300">시청 시간 구성 — 구독자 vs 비구독자</span>
+              <span class="ml-auto text-hint text-zinc-500">자사 채널 실측</span>
+            </div>
+            <div class="flex h-3 overflow-hidden rounded-sm bg-zinc-800/60">
+              <div class="bg-[#75d7d1]/80" style={{ width: `${props.subSplit.subscribed * 100}%` }} />
+              <div class="bg-zinc-500/70" style={{ width: `${props.subSplit.unsubscribed * 100}%` }} />
+            </div>
+            <div class="mt-1 flex flex-wrap items-center gap-3 text-hint text-zinc-500">
+              <span class="flex items-center gap-1">
+                <span class="inline-block h-2 w-2 rounded-sm bg-[#75d7d1]/80" />
+                구독자 시청 {Math.round(props.subSplit.subscribed * 100)}%
+              </span>
+              <span class="flex items-center gap-1">
+                <span class="inline-block h-2 w-2 rounded-sm bg-zinc-500/70" />
+                비구독 시청 {Math.round(props.subSplit.unsubscribed * 100)}%
+              </span>
+            </div>
+            {splitLine && <p class="mt-1.5 text-sm text-zinc-300">{splitLine}</p>}
+          </div>
+        )}
 
         {/* 연령×성별 시청 분포 — 자사 채널 실측(소유자 데이터). 경쟁사가
             가질 수 없는 이 페이지의 차별 데이터라 팬덤 프로필의 중심 카드. */}

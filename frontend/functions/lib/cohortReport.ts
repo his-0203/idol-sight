@@ -22,6 +22,11 @@ export const PRE_DEBUT_DAYS = 30;
 // ±3 이면 대상 그룹이 통째로 빠진다. 데뷔 전 배수는 "출발선이 왜 이만큼
 // 인가"를 설명하는 보조 수치이므로 D0 기준값만큼 엄격할 필요가 없다.
 export const PRE_BASE_WINDOW = 7;
+// 전망 밴드 — "오늘(D+asOf)" 이후로 선배 팀(먼저 데뷔한 코호트·참조)의
+// 실제 궤적을 몇 일치 더 내보낼지. 예측 모델이 아니라 이미 걸어간 길을
+// 그대로 보여주는 것("forecast without forecasting") — 미완이 자신은 이
+// 구간 데이터가 없으므로 자연히 빠진다.
+export const FORWARD_DAYS = 42;
 // 곡선에서 제외하는 소스. backfill_estimate 는 앵커 사이를 추정으로 메운
 // 값이라, 앵커가 없는 구간에서 실제로 없던 급등·출렁임을 만들어낸다.
 // 곡선은 실측(live · backfill_exact)만 잇고 그 사이는 직선으로 둔다 —

@@ -74,6 +74,10 @@ interface YtAnalyticsRow {
   membership_count: number | null;
   membership_penetration: number | null;
   has_super_chat: number | null;
+  // 구독 vs 비구독 시청 비중 (mig 0091, 0..1). 포지션 뷰 — "조회수가 코어
+  // 반복 소비인가 새 시청자 유입인가".
+  subscribed_watch_share: number | null;
+  unsubscribed_watch_share: number | null;
 }
 interface YtAnalyticsCountryRow {
   country: string;
@@ -157,7 +161,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     summary, prevSummary, summaryHistory, health, members, insights, alerts,
     controversyTrend, memberPopularity, ytAnalytics, ytAnalyticsCountries,
     goodsPreorder, liveActivitySummary, liveActivityBroadcasts,
-    demographics, showWins, hanteoLatest,
+    demographics, showWins, hanteoLatest, ccvTrend,
   ] = await Promise.all([
     d1QueryOne<SummaryRow>(
       env.DB,
@@ -238,7 +242,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     d1QueryOne<YtAnalyticsRow>(
       env.DB,
       `SELECT snapshot_at, returning_viewers_30d, membership_count,
-              membership_penetration, has_super_chat
+              membership_penetration, has_super_chat,
+              subscribed_watch_share, unsubscribed_watch_share
          FROM agg_youtube_analytics
         WHERE group_key=? AND snapshot_at = (
           SELECT MAX(snapshot_at) FROM agg_youtube_analytics WHERE group_key=?)`,
@@ -312,6 +317,16 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         ORDER BY week_start DESC LIMIT 1`,
       [TARGET],
     ).catch(() => null),
+    // 포지션 뷰 — 방송별 peak 라이브 동접(CCV) 추이. group/[key]와 같은
+    // 집계(방송=video_id 단위 MAX), 시간 오름차순.
+    d1Query<{ video_id: string; peak: number; started_at: string }>(
+      env.DB,
+      `SELECT video_id, MAX(concurrent_viewers) AS peak,
+              MIN(sampled_at) AS started_at
+         FROM live_ccv_samples WHERE group_key=?
+        GROUP BY video_id ORDER BY started_at ASC LIMIT 24`,
+      [TARGET],
+    ).catch(() => [] as Array<{ video_id: string; peak: number; started_at: string }>),
   ]);
 
   return jsonResponse({
@@ -400,6 +415,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
             membership_penetration: ytAnalytics?.membership_penetration ?? null,
             has_super_chat: ytAnalytics?.has_super_chat == null
               ? null : Boolean(ytAnalytics.has_super_chat),
+            subscribed_watch_share: ytAnalytics?.subscribed_watch_share ?? null,
+            unsubscribed_watch_share: ytAnalytics?.unsubscribed_watch_share ?? null,
           }
         : null,
       // #4 굿즈 예판 — 국가/멤버별 집계 (지불의향 hard signal). 비었으면 [].
@@ -416,6 +433,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       : null,
     // 포지션 뷰 — 연령×성별 시청 분포. 소유자 OAuth 미연결/미적재면 [].
     demographics: demographics ?? [],
+    // 포지션 뷰 — 방송별 peak 라이브 동접 추이 (시간 오름차순).
+    ccv_trend: ccvTrend ?? [],
     // 산업 성과 마커 — 멜론 TOP100 피크(수동 시드)·음방 1위·한터 초동.
     // 신인 구간엔 전부 null/빈 배열이 정상 — 프론트가 전부 비면 숨긴다.
     industry: {

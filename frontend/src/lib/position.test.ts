@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  ageLabel, demographicBars, momentumLine, sovPosition, topCountriesLine,
-  topDemographicLine, type DemographicRow, type ShareRow,
+  ageLabel, cohortForecast, demographicBars, momentumLine, sovPosition,
+  subSplitLine, topCountriesLine, topDemographicLine,
+  type DemographicRow, type ForwardData, type ShareRow,
 } from "./position";
 
 const row = (week_end: string, group_key: string, final: number, mom = final, cum = final): ShareRow =>
@@ -80,6 +81,55 @@ describe("demographics", () => {
     expect(topDemographicLine(rows)).toBe("여성 18-24 (32%)");
     expect(topDemographicLine([])).toBeNull();
     expect(topDemographicLine(null)).toBeNull();
+  });
+});
+
+describe("subSplitLine", () => {
+  it("0.6 임계로 유입 우세/코어 우세/균형을 가른다, 결측은 null", () => {
+    expect(subSplitLine(0.3, 0.7)).toContain("확장 중");
+    expect(subSplitLine(0.65, 0.35)).toContain("코어는 단단");
+    expect(subSplitLine(0.5, 0.5)).toContain("균형");
+    expect(subSplitLine(null, 0.5)).toBeNull();
+  });
+});
+
+describe("cohortForecast", () => {
+  // asOfDay=40, forward 42일 → horizon=82. 시작점(day≤40)은 API가 본 곡선
+  // 마지막 점을 앞에 끼워 보낸 것.
+  const forward: ForwardData = {
+    days: 42,
+    curves: {
+      yt_subscribers: {
+        owis:  [{ day: 40, index: 200 }, { day: 60, index: 220 }, { day: 80, index: 240 }], // ×1.2
+        bdawn: [{ day: 39, index: 150 }, { day: 82, index: 165 }],                          // ×1.1
+        // 구간 60% 미달(끝점 day 50 < 40+25.2) → 제외
+        bthd:  [{ day: 40, index: 100 }, { day: 50, index: 300 }],
+      },
+    },
+  };
+
+  it("60% 이상 진행된 선배 팀들의 비율 중앙값으로 투영한다", () => {
+    const fc = cohortForecast(forward, "yt_subscribers", 40, 10_000)!;
+    expect(fc.peerCount).toBe(2);
+    expect(fc.medianRatio).toBeCloseTo(1.15, 5); // (1.2+1.1)/2
+    expect(fc.horizonDay).toBe(82);
+    expect(fc.projectedValue).toBe(11_500);
+  });
+
+  it("산입 가능한 팀이 2개 미만이거나 입력 결측이면 null", () => {
+    const one: ForwardData = {
+      days: 42,
+      curves: { yt_subscribers: { owis: forward.curves.yt_subscribers!.owis! } },
+    };
+    expect(cohortForecast(one, "yt_subscribers", 40, 10_000)).toBeNull();
+    expect(cohortForecast(null, "yt_subscribers", 40, 10_000)).toBeNull();
+    expect(cohortForecast(forward, "yt_total_views", 40, 10_000)).toBeNull();
+  });
+
+  it("현재값이 없으면 비율만 내고 projectedValue=null", () => {
+    const fc = cohortForecast(forward, "yt_subscribers", 40, null)!;
+    expect(fc.medianRatio).toBeCloseTo(1.15, 5);
+    expect(fc.projectedValue).toBeNull();
   });
 });
 

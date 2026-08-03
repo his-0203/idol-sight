@@ -103,6 +103,8 @@ type MiiwanData = {
   fan_activity: FanActivity | null;
   // 포지션 뷰 전용 — 연령×성별 시청 분포 + 산업 성과 마커 (/api/miiwan Phase 2).
   demographics?: Array<{ age_group: string; gender: string; viewer_pct: number | null }>;
+  // 포지션 뷰 전용 — 방송별 peak 라이브 동접 추이 (Phase 3).
+  ccv_trend?: Array<{ video_id: string; peak: number; started_at: string }>;
   industry?: {
     melon_top100_peak: number | null;
     melon_top100_depth: number | null;
@@ -132,6 +134,8 @@ type DecisionData = {
     membership_count: number | null;
     membership_penetration: number | null;
     has_super_chat: boolean | null;
+    subscribed_watch_share?: number | null;
+    unsubscribed_watch_share?: number | null;
   } | null;
   goods_preorder: Array<{
     country: string; member_id: number | null; count: number; source: string;
@@ -367,8 +371,11 @@ export function MiiWANBriefing() {
   const [mode, setMode] = useState<"briefing" | "position" | "market">("briefing");
   // 히어로에 승격된 동시기 비교 결론 — 동시기 성과 섹션과 같은 API를 쓰고
   // 문구는 headline()이 자동 산출(하드코딩 금지 원칙 동일). 실패 시 조용히
-  // 생략 — 히어로가 이 줄 없이도 성립해야 한다.
+  // 생략 — 히어로가 이 줄 없이도 성립해야 한다. 원본(cohortRaw)은 포지션
+  // 뷰의 전망(선배 팀 궤적) 산출에 재사용 — 같은 응답을 두 번 fetch하지
+  // 않는다.
   const [cohortHead, setCohortHead] = useState<Headline | null>(null);
+  const [cohortRaw, setCohortRaw] = useState<any | null>(null);
 
   useEffect(() => {
     api.miiwan().then((d) => {
@@ -378,7 +385,10 @@ export function MiiWANBriefing() {
       setShowMembers(d.days_to_debut == null || d.days_to_debut <= 7);
     }).catch((e) => setErr(String(e)));
     api.miiwanCohort()
-      .then((d) => { try { setCohortHead(headline(d)); } catch { /* 데이터 미성숙 — 생략 */ } })
+      .then((d) => {
+        setCohortRaw(d);
+        try { setCohortHead(headline(d)); } catch { /* 데이터 미성숙 — 생략 */ }
+      })
       .catch(() => {});
   }, []);
 
@@ -545,6 +555,12 @@ export function MiiWANBriefing() {
           cohortHead={cohortHead}
           demographics={data.demographics ?? []}
           industry={data.industry ?? null}
+          subSplit={data.decision.analytics ? {
+            subscribed: data.decision.analytics.subscribed_watch_share ?? null,
+            unsubscribed: data.decision.analytics.unsubscribed_watch_share ?? null,
+          } : null}
+          ccvTrend={data.ccv_trend ?? []}
+          cohortRaw={cohortRaw}
         />
       ) : (<>
 

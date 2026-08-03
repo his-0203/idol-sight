@@ -14,9 +14,9 @@ import {
 } from "../lib/debutWindowBuckets";
 import { alignByDebut } from "../lib/debutAligned";
 import {
-  AT_DAY_WINDOW, BASE_WINDOW, PRE_BASE_WINDOW, PRE_DEBUT_DAYS, baseValueAt,
-  growthMultiple, indexCurve, measuredOnly, preAnchor, preMultiple, rankOf,
-  subsPer1kViews, totalMultiple, type CurvePoint,
+  AT_DAY_WINDOW, BASE_WINDOW, FORWARD_DAYS, PRE_BASE_WINDOW, PRE_DEBUT_DAYS,
+  baseValueAt, growthMultiple, indexCurve, measuredOnly, preAnchor, preMultiple,
+  rankOf, subsPer1kViews, totalMultiple, type CurvePoint,
 } from "../lib/cohortReport";
 import type { AlignedValue } from "../lib/debutAligned";
 
@@ -126,7 +126,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
   // date(snapshot_at, '+9 hours') — debut_date 가 KST 달력 날짜이고 정확한
   // 버킷팅(alignByDebut)도 KST 기준이라 프리필터도 같은 달력을 써야 한다.
   const from = -PRE_DEBUT_DAYS;
-  const to = asOfDay + AT_DAY_WINDOW;
+  // 전망 밴드가 "오늘 이후" FORWARD_DAYS 일치의 선배 팀 궤적을 쓰므로 조회
+  // 창도 그만큼 넓힌다. 기존 곡선·배수·순위는 여전히 asOfDay에서 끊는다.
+  const to = asOfDay + Math.max(AT_DAY_WINDOW, FORWARD_DAYS);
   const rows = await d1Query<SummaryRow>(
     env.DB,
     `SELECT s.group_key, g.debut_date, s.snapshot_at,
@@ -143,6 +145,9 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
 
   const isRef = (gk: string) => (REFERENCE as readonly string[]).includes(gk);
   const curves: Record<string, Record<string, CurvePoint[]>> = {};
+  // 전망 밴드 — 오늘(D+asOf) 이후 선배 팀들의 실측 궤적. 첫 점은 본 곡선의
+  // 마지막 점과 같게 넣어 화면에서 선이 끊기지 않게 한다.
+  const forwardCurves: Record<string, Record<string, CurvePoint[]>> = {};
   const scorecard: Record<string, {
     rows: ScorecardRow[]; miiwan_rank: number | null; cohort_size: number;
   }> = {};
@@ -203,6 +208,19 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       const curvePts = measuredOnly(pts);
       const { curve, reason: curveReason } = indexCurve(curvePts, asOfDay);
       if (curve) metricCurves[gk] = curve;
+      // 전망 밴드용 forward 궤적 — 미완이 자신은 미래 데이터가 없으니 제외.
+      // 같은 indexCurve(D0=100 기준)라 본 곡선과 축이 동일하다.
+      if (gk !== TARGET && curve) {
+        const { curve: fullCurve } = indexCurve(curvePts, asOfDay + FORWARD_DAYS);
+        if (fullCurve) {
+          const fwd = fullCurve.filter((p) => p.day > asOfDay);
+          if (fwd.length) {
+            const lastSolid = curve[curve.length - 1];
+            forwardCurves[metric] ??= {};
+            forwardCurves[metric][gk] = lastSolid ? [lastSolid, ...fwd] : fwd;
+          }
+        }
+      }
       const at = baseValueAt(pts, asOfDay, AT_DAY_WINDOW);
       const base = baseValueAt(pts, 0, BASE_WINDOW);
       const growth = growthMultiple(pts, asOfDay);
@@ -471,6 +489,8 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     metrics: [...METRICS],
     groups: groupsOut,
     curves,
+    // 전망 밴드 — 오늘 이후 FORWARD_DAYS 일치 선배 팀 실측 궤적 (예측 아님).
+    forward: { days: FORWARD_DAYS, curves: forwardCurves },
     scorecard,
     organicity,
     organicity_window: orgWindow.label,
