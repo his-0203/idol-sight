@@ -15,6 +15,7 @@
 
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
+import { fmt } from "../format";
 import { KPI } from "../components/KPI";
 import { Sparkline } from "../components/Sparkline";
 import { BreadthDepthQuadrant } from "../components/BreadthDepthQuadrant";
@@ -27,7 +28,8 @@ import {
 } from "../lib/organicity";
 import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 import {
-  momentumLine, PILLAR_LABEL, QUADRANT_VERDICT, sovPosition, topCountriesLine,
+  demographicBars, momentumLine, PILLAR_LABEL, QUADRANT_VERDICT,
+  sovPosition, topCountriesLine, topDemographicLine, type DemographicRow,
 } from "../lib/position";
 import type { Headline } from "../lib/cohortHeadline";
 import {
@@ -38,6 +40,16 @@ import { fmtRate, type FanActivity } from "../components/FanActivityCard";
 
 const RISK_RULES = new Set(["identity_leak", "model_theft", "controversy_spike"]);
 
+// /api/miiwan 의 industry 필드 — 산업 표준 성과 마커. 신인 구간엔 전부
+// null/빈 배열이 정상이라, 하나라도 값이 생겼을 때만 섹션을 점등한다.
+export interface IndustryMarkers {
+  melon_top100_peak: number | null;
+  melon_top100_depth: number | null;
+  music_show_wins: number | null;
+  show_wins: Array<{ program: string; episode_date: string; song_title: string | null }>;
+  hanteo: { album: string; rank: number | null; sales: number | null; week_start: string } | null;
+}
+
 export function MiiWANPosition(props: {
   today: string;
   alerts: Array<{ rule: string; severity: string }>;
@@ -45,6 +57,8 @@ export function MiiWANPosition(props: {
   countries: Array<{ country: string; watch_share: number }> | null;
   fanActivity: FanActivity | null;
   cohortHead: Headline | null;
+  demographics: DemographicRow[];
+  industry: IndustryMarkers | null;
 }) {
   const [market, setMarket] = useState<any>(null);
   const [share, setShare] = useState<any>(null);
@@ -129,6 +143,16 @@ export function MiiWANPosition(props: {
 
   const countriesLine = topCountriesLine(props.countries);
   const fan = props.fanActivity;
+  const ageBars = demographicBars(props.demographics);
+  const maxAgeTotal = ageBars.reduce((m, b) => Math.max(m, b.total), 0);
+  const topDemo = topDemographicLine(props.demographics);
+
+  // 산업 성과 — 하나라도 값이 있을 때만 점등.
+  const ind = props.industry;
+  const showWins = ind?.show_wins ?? [];
+  const musicShowCount = Math.max(ind?.music_show_wins ?? 0, showWins.length);
+  const hasIndustry = !!ind && (
+    ind.melon_top100_peak != null || musicShowCount > 0 || ind.hanteo != null);
 
   if (!market || !share) {
     return <div class="text-zinc-500">Loading…</div>;
@@ -259,7 +283,94 @@ export function MiiWANPosition(props: {
                  ? `채팅 참여 기준 실측 · 최근 ${fan.window_days}일`
                  : "라이브 데이터 축적 중"} />
         </div>
+
+        {/* 연령×성별 시청 분포 — 자사 채널 실측(소유자 데이터). 경쟁사가
+            가질 수 없는 이 페이지의 차별 데이터라 팬덤 프로필의 중심 카드. */}
+        {ageBars.length > 0 && (
+          <div class="card mt-2">
+            <div class="mb-2 flex flex-wrap items-baseline gap-2">
+              <span class="text-xs font-semibold text-zinc-300">누가 보는가 — 연령×성별 시청 비중</span>
+              {topDemo && (
+                <span class="rounded bg-[#75d7d1]/10 px-1.5 py-[1px] text-[11px] text-[#75d7d1]">
+                  핵심 시청층: {topDemo}
+                </span>
+              )}
+              <span class="ml-auto text-hint text-zinc-500">자사 채널 실측</span>
+            </div>
+            <div class="space-y-1.5">
+              {ageBars.map((b) => (
+                <div key={b.age} class="flex items-center gap-2">
+                  <span class="w-12 shrink-0 text-right text-xs tabular-nums text-zinc-400">{b.age}</span>
+                  <div class="h-3 flex-1 overflow-hidden rounded-sm bg-zinc-800/60">
+                    <div class="flex h-full"
+                         style={{ width: `${maxAgeTotal > 0 ? (b.total / maxAgeTotal) * 100 : 0}%` }}>
+                      {b.female > 0 && (
+                        <div class="bg-rose-400/80" style={{ width: `${(b.female / b.total) * 100}%` }} />
+                      )}
+                      {b.male > 0 && (
+                        <div class="bg-sky-400/80" style={{ width: `${(b.male / b.total) * 100}%` }} />
+                      )}
+                      {b.other > 0 && (
+                        <div class="bg-zinc-500/80" style={{ width: `${(b.other / b.total) * 100}%` }} />
+                      )}
+                    </div>
+                  </div>
+                  <span class="w-10 shrink-0 text-xs tabular-nums text-zinc-500">
+                    {Math.round(b.total)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div class="mt-1.5 flex items-center gap-3 text-hint text-zinc-500">
+              <span class="flex items-center gap-1">
+                <span class="inline-block h-2 w-2 rounded-sm bg-rose-400/80" /> 여성
+              </span>
+              <span class="flex items-center gap-1">
+                <span class="inline-block h-2 w-2 rounded-sm bg-sky-400/80" /> 남성
+              </span>
+              <span class="flex items-center gap-1">
+                <span class="inline-block h-2 w-2 rounded-sm bg-zinc-500/80" /> 기타
+              </span>
+              <span class="ml-auto">전체 시청 시간 대비 % · 막대 길이는 최대 연령대 기준</span>
+            </div>
+          </div>
+        )}
       </section>
+
+      {/* 산업 성과 — 멜론·음방·초동 등 외부인이 아는 표준 마커. 신인 구간엔
+          전부 비어 있는 게 정상이라, 하나라도 달성되면 자동 점등한다
+          (빈 대시 나열은 노이즈만 만든다). */}
+      {hasIndustry && ind && (
+        <section>
+          <h2 class="section-title mb-2">산업 성과</h2>
+          <div class="flex flex-wrap gap-2">
+            {ind.melon_top100_peak != null && (
+              <span class="rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-1.5 text-sm text-emerald-200">
+                🎵 멜론 TOP100 최고 {ind.melon_top100_peak}위
+                {ind.melon_top100_depth != null && (
+                  <span class="ml-1 text-xs text-zinc-400">· {ind.melon_top100_depth}곡 진입</span>
+                )}
+              </span>
+            )}
+            {musicShowCount > 0 && (
+              <span class="rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-1.5 text-sm text-emerald-200">
+                🏆 음악방송 1위 {musicShowCount}회
+                {showWins[0] && (
+                  <span class="ml-1 text-xs text-zinc-400">
+                    · 최근 {showWins[0].program} {showWins[0].episode_date}
+                  </span>
+                )}
+              </span>
+            )}
+            {ind.hanteo && (
+              <span class="rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-1.5 text-sm text-emerald-200">
+                💿 한터 초동 {ind.hanteo.sales != null ? fmt(ind.hanteo.sales) : "—"}장
+                <span class="ml-1 text-xs text-zinc-400">· {ind.hanteo.album}</span>
+              </span>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* ⑤ 상태와 다음 일정 — 감시 체계 + 예정 이벤트로 닫는다. */}
       <section>
