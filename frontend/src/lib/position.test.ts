@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { momentumLine, sovPosition, topCountriesLine, type ShareRow } from "./position";
+import {
+  ageLabel, demographicBars, momentumLine, sovPosition, topCountriesLine,
+  topDemographicLine, type DemographicRow, type ShareRow,
+} from "./position";
 
 const row = (week_end: string, group_key: string, final: number, mom = final, cum = final): ShareRow =>
   ({ week_start: week_end, week_end, group_key, final, mom, cum });
@@ -43,6 +46,40 @@ describe("momentumLine", () => {
     expect(momentumLine(-2)).toContain("방어");
     expect(momentumLine(0.2)).toContain("비슷한 페이스");
     expect(momentumLine(null)).toBeNull();
+  });
+});
+
+describe("demographics", () => {
+  const rows: DemographicRow[] = [
+    { age_group: "age18-24", gender: "female", viewer_pct: 32 },
+    { age_group: "age18-24", gender: "male", viewer_pct: 11 },
+    { age_group: "age25-34", gender: "female", viewer_pct: 20 },
+    { age_group: "age13-17", gender: "female", viewer_pct: 8 },
+    { age_group: "age65-", gender: "user_specified", viewer_pct: 1 },
+    { age_group: "age35-44", gender: "male", viewer_pct: 0 },   // 0 → 제외
+    { age_group: "age45-54", gender: "male", viewer_pct: null }, // null → 제외
+  ];
+
+  it("ageLabel — 'age18-24'→'18-24', 'age65-'→'65+', 미지 형식 원문 유지", () => {
+    expect(ageLabel("age18-24")).toBe("18-24");
+    expect(ageLabel("age65-")).toBe("65+");
+    expect(ageLabel("unknown")).toBe("unknown");
+  });
+
+  it("demographicBars — 연령 오름차순 집계, 0/null 셀 제외", () => {
+    const bars = demographicBars(rows);
+    expect(bars.map((b) => b.age)).toEqual(["13-17", "18-24", "25-34", "65+"]);
+    const b18 = bars.find((b) => b.age === "18-24")!;
+    expect(b18.female).toBe(32);
+    expect(b18.male).toBe(11);
+    expect(b18.total).toBe(43);
+    expect(bars.find((b) => b.age === "65+")!.other).toBe(1);
+  });
+
+  it("topDemographicLine — 최대 셀 헤드라인, 빈 입력 null", () => {
+    expect(topDemographicLine(rows)).toBe("여성 18-24 (32%)");
+    expect(topDemographicLine([])).toBeNull();
+    expect(topDemographicLine(null)).toBeNull();
   });
 });
 

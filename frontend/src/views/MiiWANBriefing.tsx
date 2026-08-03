@@ -101,6 +101,15 @@ type MiiwanData = {
   decision: DecisionData;
   // P2a 찐팬 활동량 — agg_live_activity_summary 행 없으면 null(카드 '축적 중').
   fan_activity: FanActivity | null;
+  // 포지션 뷰 전용 — 연령×성별 시청 분포 + 산업 성과 마커 (/api/miiwan Phase 2).
+  demographics?: Array<{ age_group: string; gender: string; viewer_pct: number | null }>;
+  industry?: {
+    melon_top100_peak: number | null;
+    melon_top100_depth: number | null;
+    music_show_wins: number | null;
+    show_wins: Array<{ program: string; episode_date: string; song_title: string | null }>;
+    hanteo: { album: string; rank: number | null; sales: number | null; week_start: string } | null;
+  } | null;
 };
 
 // DECISION 탭 데이터. member_popularity는 공개 프록시(지금 가동),
@@ -534,6 +543,8 @@ export function MiiWANBriefing() {
           countries={data.decision.analytics?.countries ?? null}
           fanActivity={data.fan_activity}
           cohortHead={cohortHead}
+          demographics={data.demographics ?? []}
+          industry={data.industry ?? null}
         />
       ) : (<>
 

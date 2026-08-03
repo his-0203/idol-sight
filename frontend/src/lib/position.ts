@@ -96,6 +96,66 @@ export const PILLAR_LABEL: Record<string, string> = {
   sentiment:  "여론",
 };
 
+// ── 연령×성별 시청 분포 (agg_youtube_analytics_demographics) ──────────
+// viewer_pct 는 0~100. YouTube API 라벨("age18-24", "male"/"female"/
+// "user_specified")을 화면용으로 정규화한다.
+
+export interface DemographicRow {
+  age_group: string;
+  gender: string;
+  viewer_pct: number | null;
+}
+
+export interface AgeBar {
+  /** "13-17" · "65+" 등 표시용 라벨. */
+  age: string;
+  male: number;
+  female: number;
+  other: number;
+  total: number;
+}
+
+/** "age18-24" → "18-24", "age65-" → "65+". 미지 형식은 원문 유지. */
+export function ageLabel(raw: string): string {
+  const m = /^age(\d+)-(\d*)$/.exec(raw);
+  if (!m) return raw;
+  return m[2] ? `${m[1]}-${m[2]}` : `${m[1]}+`;
+}
+
+/** 연령 버킷별 남/여/기타 시청 비중. 합계 0인 버킷은 제외, 연령 오름차순. */
+export function demographicBars(rows: DemographicRow[] | null | undefined): AgeBar[] {
+  if (!rows?.length) return [];
+  const byAge = new Map<string, AgeBar>();
+  for (const r of rows) {
+    const pct = r.viewer_pct ?? 0;
+    if (pct <= 0) continue;
+    const bar = byAge.get(r.age_group)
+      ?? { age: ageLabel(r.age_group), male: 0, female: 0, other: 0, total: 0 };
+    if (r.gender === "male") bar.male += pct;
+    else if (r.gender === "female") bar.female += pct;
+    else bar.other += pct;
+    bar.total += pct;
+    byAge.set(r.age_group, bar);
+  }
+  return [...byAge.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, bar]) => bar);
+}
+
+/** 최대 단일 연령×성별 셀 → "여성 18-24 (32%)" 헤드라인. 데이터 없으면 null. */
+export function topDemographicLine(rows: DemographicRow[] | null | undefined): string | null {
+  if (!rows?.length) return null;
+  const GENDER_KR: Record<string, string> = {
+    male: "남성", female: "여성", user_specified: "기타",
+  };
+  const top = [...rows]
+    .filter((r) => (r.viewer_pct ?? 0) > 0)
+    .sort((a, b) => (b.viewer_pct ?? 0) - (a.viewer_pct ?? 0))[0];
+  if (!top) return null;
+  return `${GENDER_KR[top.gender] ?? top.gender} ${ageLabel(top.age_group)}`
+    + ` (${Math.round(top.viewer_pct ?? 0)}%)`;
+}
+
 /** 국가 배열 → "KR 62% · JP 14% · US 8%" 상위 N 요약. watch_share는 0~1. */
 export function topCountriesLine(
   countries: Array<{ country: string; watch_share: number }> | null | undefined,

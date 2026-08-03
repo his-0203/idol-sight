@@ -37,6 +37,10 @@ interface SummaryRow {
   dc_total_posts: number; theqoo_posts: number; instiz_posts: number;
   naver_total_news: number; controversy_count: number;
   data_source: string;
+  // 산업 성과 마커 (mig 0041/0042) — SELECT * 로 이미 조회되던 컬럼.
+  melon_top100_peak: number | null;
+  melon_top100_depth: number | null;
+  music_show_wins: number | null;
 }
 
 interface HealthRow {
@@ -153,6 +157,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     summary, prevSummary, summaryHistory, health, members, insights, alerts,
     controversyTrend, memberPopularity, ytAnalytics, ytAnalyticsCountries,
     goodsPreorder, liveActivitySummary, liveActivityBroadcasts,
+    demographics, showWins, hanteoLatest,
   ] = await Promise.all([
     d1QueryOne<SummaryRow>(
       env.DB,
@@ -279,6 +284,34 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         WHERE group_key=? ORDER BY ended_at ASC LIMIT 24`,
       [TARGET],
     ).catch(() => [] as LiveActivityBroadcastRow[]),
+    // 포지션 뷰 — 연령×성별 시청 분포 (mig 0091, 소유자 OAuth 전용, 매일
+    // 적재). 지금까지 LLM 프롬프트에만 쓰이고 화면 노출이 없던 데이터.
+    d1Query<{ age_group: string; gender: string; viewer_pct: number | null }>(
+      env.DB,
+      `SELECT age_group, gender, viewer_pct
+         FROM agg_youtube_analytics_demographics
+        WHERE group_key=? AND snapshot_at = (
+          SELECT MAX(snapshot_at) FROM agg_youtube_analytics_demographics
+           WHERE group_key=?)`,
+      [TARGET, TARGET],
+    ).catch(() => [] as Array<{ age_group: string; gender: string; viewer_pct: number | null }>),
+    // 산업 성과 마커 — 음방 1위 confirmed 내역 + 한터 초동 최신 1행.
+    // 신인이라 당분간 빈 결과가 정상 — 프론트가 전부 비면 섹션째 숨긴다.
+    d1Query<{ program: string; episode_date: string; song_title: string | null }>(
+      env.DB,
+      `SELECT program, episode_date, song_title
+         FROM music_show_wins_log
+        WHERE group_key=? AND status='confirmed'
+        ORDER BY episode_date DESC LIMIT 10`,
+      [TARGET],
+    ).catch(() => [] as Array<{ program: string; episode_date: string; song_title: string | null }>),
+    d1QueryOne<{ album: string; rank: number | null; sales: number | null; week_start: string }>(
+      env.DB,
+      `SELECT album, rank, sales, week_start
+         FROM hanteo_weekly WHERE group_key=?
+        ORDER BY week_start DESC LIMIT 1`,
+      [TARGET],
+    ).catch(() => null),
   ]);
 
   return jsonResponse({
@@ -381,5 +414,16 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     fan_activity: liveActivitySummary
       ? { ...liveActivitySummary, broadcasts: liveActivityBroadcasts }
       : null,
+    // 포지션 뷰 — 연령×성별 시청 분포. 소유자 OAuth 미연결/미적재면 [].
+    demographics: demographics ?? [],
+    // 산업 성과 마커 — 멜론 TOP100 피크(수동 시드)·음방 1위·한터 초동.
+    // 신인 구간엔 전부 null/빈 배열이 정상 — 프론트가 전부 비면 숨긴다.
+    industry: {
+      melon_top100_peak: summary?.melon_top100_peak ?? null,
+      melon_top100_depth: summary?.melon_top100_depth ?? null,
+      music_show_wins: summary?.music_show_wins ?? null,
+      show_wins: showWins ?? [],
+      hanteo: hanteoLatest ?? null,
+    },
   });
 };
