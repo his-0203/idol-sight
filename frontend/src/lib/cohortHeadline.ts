@@ -62,6 +62,9 @@ export type CohortData = {
   metrics: string[];
   groups: Record<string, { name: string; debut_date: string | null; reference: boolean }>;
   curves: Record<string, Record<string, CurvePoint[]>>;
+  /** 전망 밴드 — 오늘(D+asOf) 이후 선배 팀 실측 궤적 (예측 아님). 첫 점은
+      본 곡선의 마지막 점과 동일해 화면에서 선이 이어진다. */
+  forward?: { days: number; curves: Record<string, Record<string, CurvePoint[]>> };
   scorecard: Record<string, { rows: ScRow[]; miiwan_rank: number | null; cohort_size: number }>;
   organicity: OrgRow[];
   /** 유기성 집계에 실제로 쓰인 데뷔 창 라벨 (예: "D-Day~D+40"). */

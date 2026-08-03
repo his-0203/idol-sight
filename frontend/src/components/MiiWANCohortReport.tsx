@@ -29,6 +29,10 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import Chart from "chart.js/auto";
+
+// 전망 밴드(오늘 이후 선배 팀 궤적) 데이터셋의 라벨 접미 — 범례에서는
+// 숨기고(본 곡선과 같은 팀이라 항목이 중복된다) 툴팁에서만 구분한다.
+const FORWARD_SUFFIX = " · 이후 궤적(참고)";
 import { api } from "../api";
 import { fmt } from "../format";
 import { colorOf, fillOf } from "../design/groups";
@@ -232,6 +236,11 @@ export function MiiWANCohortReport() {
 
   const curves: Record<string, CurvePoint[]> = data?.curves?.[metric] ?? {};
   const hasCurves = Object.keys(curves).length > 0;
+  // 전망 밴드 — 오늘(D+asOf) 이후 선배 팀들의 실측 궤적 (예측 아님).
+  // API의 forward.curves는 본 곡선 마지막 점을 앞에 끼워 보내 선이 이어진다.
+  const fwdCurves: Record<string, CurvePoint[]> = data?.forward?.curves?.[metric] ?? {};
+  const hasForward = hasCurves && Object.keys(fwdCurves).length > 0;
+  const forwardDays: number | null = hasForward ? (data?.forward?.days ?? null) : null;
 
   useEffect(() => {
     // 어떤 조기 종료 경로에서도 이전 인스턴스가 남지 않도록 항상 먼저 파기.
@@ -288,10 +297,50 @@ export function MiiWANCohortReport() {
         ctx.restore();
       },
     };
+    // 전망 밴드 경계 — "오늘(D+asOf)" 점선 세로선. 이 오른쪽의 옅은 선은
+    // 미완이의 미래가 아니라 선배 팀들이 이미 걸은 같은 구간이다.
+    const todayMark = {
+      id: "cohortTodayMark",
+      beforeDatasetsDraw(chart: Chart) {
+        if (!hasForward || !data) return;
+        const { ctx, chartArea: a, scales } = chart;
+        if (!a || !scales.x) return;
+        const x0 = scales.x.getPixelForValue(data.as_of_day);
+        if (!(x0 >= a.left && x0 <= a.right)) return;
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([4, 3]);
+        ctx.moveTo(x0, a.top);
+        ctx.lineTo(x0, a.bottom);
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = "rgba(117,215,209,0.55)"; // 자사색 (#75d7d1)
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = "rgba(117,215,209,0.9)";
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = x0 > a.right - 56 ? "right" : "left";
+        ctx.textBaseline = "top";
+        ctx.fillText(`오늘 D+${data.as_of_day}`, x0 + (x0 > a.right - 56 ? -4 : 4), a.top + 2);
+        ctx.restore();
+      },
+    };
+    // 전망 밴드 데이터셋 — 팀 키컬러의 저투명 점선, 점 없음. 범례에서는
+    // FORWARD_SUFFIX 필터로 숨긴다.
+    const forwardDatasets: any[] = Object.entries(fwdCurves).map(([gk, pts]) => ({
+      label: (data.groups[gk]?.name ?? gk) + FORWARD_SUFFIX,
+      data: pts.map((p) => ({ x: p.day, y: p.index })),
+      borderColor: fillOf(gk, 0.25),
+      backgroundColor: fillOf(gk, 0.25),
+      borderWidth: 1.25,
+      borderDash: [3, 3],
+      pointRadius: 0,
+      pointHoverRadius: 3,
+      tension: 0.25,
+    }));
     chartRef.current = new Chart(canvas, {
       type: "line",
       data: {
-        datasets: entries.map(([gk, pts]) => {
+        datasets: [...forwardDatasets, ...entries.map(([gk, pts]) => {
           const ref = data.groups[gk]?.reference;
           const isMine = gk === "miiwan";
           const suspect = isSuspect(gk);
@@ -312,7 +361,7 @@ export function MiiWANCohortReport() {
             pointHoverRadius: 5,
             tension: 0.25,
           };
-        }),
+        })],
       },
       options: {
         responsive: true,
@@ -330,7 +379,9 @@ export function MiiWANCohortReport() {
               display: true,
               text: preDebut == null
                 ? "데뷔일 기준 며칠"
-                : `데뷔일 기준 며칠 (D-${preDebut} ~ D+${data.as_of_day})`,
+                : `데뷔일 기준 며칠 (D-${preDebut} ~ D+${data.as_of_day}`
+                  + (hasForward && forwardDays != null
+                    ? `, 옅은 선은 D+${data.as_of_day + forwardDays}까지)` : ")"),
             },
             // 곡선이 데뷔 전 구간부터 그려져 x 는 음수에서 시작한다.
             ticks: { callback: (v) => dayLabel(Number(v)) },
@@ -338,6 +389,13 @@ export function MiiWANCohortReport() {
           y: { title: { display: true, text: "데뷔일 값을 100으로 놓은 성장 폭" } },
         },
         plugins: {
+          // 전망 밴드 데이터셋은 범례에서 숨긴다 — 본 곡선과 같은 팀이라
+          // 항목이 두 배로 늘고, 색·이름이 같아 구분값이 없다.
+          legend: {
+            labels: {
+              filter: (item: any) => !String(item.text ?? "").endsWith(FORWARD_SUFFIX),
+            },
+          },
           tooltip: {
             callbacks: {
               // nearest 라 items 는 실측점 하나 — 그 점이 실제로 측정된
@@ -357,7 +415,7 @@ export function MiiWANCohortReport() {
           },
         },
       },
-      plugins: [debutMark],
+      plugins: [debutMark, todayMark],
     });
     return () => { chartRef.current?.destroy(); chartRef.current = null; };
   }, [data, metric, hasCurves]);
@@ -667,6 +725,12 @@ export function MiiWANCohortReport() {
         <div class="mb-2 flex flex-wrap gap-2">
           <span class={CHIP}>점 = 실제 측정 시점 · 일부 팀은 주 1회 측정이라 직선 구간 있음</span>
           <span class={CHIP}>세로선 = 데뷔일 · 옅은 배경 = 데뷔 전 구간</span>
+          {hasForward && (
+            <span class={CHIP}>
+              '오늘' 점선 오른쪽 옅은 선 = 먼저 데뷔한 팀들이 같은 구간에서 실제로
+              걸은 궤적 — 우리의 향후 참고 범위 (예측 아님)
+            </span>
+          )}
         </div>
         {/* 패널은 하나(내용만 교체) — tabIndex 0 이라 캔버스밖에 없어도
             키보드로 도달·스크롤할 수 있다. */}
