@@ -99,8 +99,9 @@ export function FanActivityCard({ activity }: { activity: FanActivity }) {
 
   return (
     <section class="rounded-lg border border-zinc-800 p-3">
-      <div class="mb-1 flex items-baseline justify-between">
-        <h3 class="text-sm font-semibold">찐팬 활동량 (라이브 단골 + 추정 참여)</h3>
+      {/* 제목은 부모 섹션 헤더("찐팬 활동")가 소유 — 여기 h3를 또 두면
+          같은 문장이 두 줄 연속으로 반복된다. 기간 메타만 남긴다. */}
+      <div class="mb-1 flex items-baseline justify-end">
         <span class="text-hint text-zinc-500">최근 {window_days}일 · 방송 {broadcast_count}회</span>
       </div>
 

@@ -12,7 +12,7 @@ export const ALERT_RULE_LABEL: Record<string, string> = {
   controversy_spike:  "논란 급증",
   identity_leak:      "본체 노출 가능성",
   model_theft:        "AI 도용 / 딥페이크",
-  video_velocity_24h: "24h Viral",
+  video_velocity_24h: "24시간 급상승",
   debut_milestone:    "데뷔 마일스톤",
 };
 

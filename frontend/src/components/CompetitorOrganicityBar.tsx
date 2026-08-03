@@ -85,7 +85,10 @@ export function CompetitorOrganicityBar() {
 
   return (
     <section class="cob-section">
-      <h3>데뷔 구간 경쟁 포지션</h3>
+      {/* 자체 h3 없음 — 섹션 제목은 부모(MiiWANBriefing "자연 유입 비교")가
+          소유한다. 예전 "데뷔 구간 경쟁 포지션" h3는 부모 제목과 이중
+          헤딩이었고, 부모가 "최근 기간 기준"이라 소개하는 카드에 "데뷔
+          구간"이라는 상충 라벨을 달아 기간 설명을 뒤집었다. */}
       <div class="cob-bucket-picker">
         표시 구간:
         {buckets.map((b) => (
@@ -117,8 +120,8 @@ export function CompetitorOrganicityBar() {
           const tooltip = r.display_mode === "none"
             ? `${MODE_LABEL[mode]}: 데이터 없음`
             : isFallback
-              ? `선택 버킷 데이터 없음 — 현재 시점(${r.shown_bucket}) 점수 표시 · ${r.sample_count} videos${thinNote}`
-              : `${r.sample_count} videos${thinNote}`;
+              ? `선택 구간 데이터 없음 — 현재 시점(${r.shown_bucket}) 점수 표시 · 영상 ${r.sample_count}개${thinNote}`
+              : `영상 ${r.sample_count}개${thinNote}`;
           return (
             <div class={`cob-row ${isOurs ? "ours" : ""}`} key={r.group_key} title={tooltip}>
               <div class="cob-name">{r.group_key.toUpperCase()}</div>
@@ -144,11 +147,11 @@ export function CompetitorOrganicityBar() {
         {sorted.length}개 그룹 표시 · 구간 {bucket} · {MODE_LABEL[mode]}
         {fallbackCount > 0 && (
           <> · <span class="cob-fallback-note">
-            {fallbackCount}개 그룹은 해당 버킷 데이터 없어 현재 시점 점수로 표시 (@버킷)
+            {fallbackCount}개 그룹은 해당 구간 데이터 없어 현재 시점 점수로 표시 (@구간)
           </span></>
         )}
         <br />
-        진정성(오가닉) 점수 = 진정성(비율) 신호 · 조회수 규모와 무관 — 막대 길이는 "진짜인가"지 "큰가"가 아님.
+        자연 유입 점수 = 광고 없이 모인 비율 신호 · 조회수 규모와 무관 — 막대 길이는 "진짜인가"지 "큰가"가 아님.
         {" "}<span class="cob-thin-legend">* 표본 적음(채점 3개 미만) — 중립으로 보정된 점수, 성장·볼륨은 성장 탭 참고.</span>
       </div>
     </section>

@@ -28,17 +28,26 @@ export function KPI(props: {
       muted italic line under the value (placeholder for V2.x AI-comment
       feature — not surfaced unless populated). */
   aiComment?: string;
+  /** "neutral" keeps the delta/sparkline zinc regardless of sign — for
+      metrics where more isn't inherently good (community post counts,
+      news volume: a spike can be a controversy, not a win). */
+  polarity?: "up-good" | "neutral";
+  /** Short suffix after the delta chip naming the comparison point,
+      e.g. "vs 7/27" — without it the delta reads as WoW even when the
+      previous snapshot is older than 7 days. */
+  deltaHint?: string;
 }) {
   const v = typeof props.value === "number" ? fmt(props.value) : (props.value ?? "—");
   const d = props.delta;
+  const neutral = props.polarity === "neutral";
   const deltaTone =
-    d == null || d === 0
+    d == null || d === 0 || neutral
       ? "text-zinc-500"
       : d > 0
       ? "text-emerald-400"
       : "text-red-400";
   const sparkTone =
-    d == null
+    d == null || neutral
       ? "text-zinc-500"
       : d > 0
       ? "text-emerald-500/70"
@@ -63,9 +72,12 @@ export function KPI(props: {
         <div class="text-2xl font-bold tabular-nums">{v}</div>
         {props.unit && <div class="text-xs normal-case text-zinc-500">{props.unit}</div>}
         {d != null && d !== 0 && (
-          <span class={`text-xs font-semibold tabular-nums ${deltaTone}`}>
+          <span class={`text-xs font-semibold tabular-nums ${deltaTone}`} title={props.deltaHint}>
             {d > 0 ? "▲" : "▼"}{" "}
             {props.deltaUnit === "pct" ? `${Math.abs(d).toFixed(1)}pp` : fmt(Math.abs(d))}
+            {props.deltaHint && (
+              <span class="ml-1 font-normal text-zinc-500">{props.deltaHint}</span>
+            )}
           </span>
         )}
       </div>
