@@ -1,18 +1,31 @@
 // MiiWAN strategic briefing — IPX/Abyss internal briefing tab,
-// rebuilt 2026-05-05 from a strategy-analyst lens.
+// rebuilt 2026-05-05 from a strategy-analyst lens, reworked 2026-08-03
+// after a 4-lens review (data storytelling / investor comms / IA / data
+// inventory).
 //
-// The previous layout dumped six sections in row order without a
-// hierarchy of decisions. The rebuilt version answers the six
-// questions an operator/contractor actually opens this page to ask,
-// in priority order:
+// The page must answer, in reading order, the report arc
+// 과거 → 현재 → 전망 → 액션:
 //
-//   1. NOW       — 지금 어디에 있나? (D-day · Health · 한 줄 진단)
-//   2. ACTION    — 오늘 무엇을 해야 하나? (alerts + ipx_action 통합 큐)
-//   3. RISK      — 어떤 위기에 대비해야 하나? (identity_leak / model_theft
-//                   / controversy_spike — 가상 아이돌 운영의 critical 알림)
-//   4. KPIS      — 핵심 지표가 어떻게 움직이고 있나? (WoW + 30d sparkline)
-//   5. COHORT    — 비교 대상 대비 어디에 있나? (동시기 스코어카드, /api/miiwan-cohort)
-//   6. INSIGHT   — 분석가의 권고 (LLM weekly insights)
+//   HERO     — 지금 어디인가 + 지난 주 대비 무엇이 변했나 + 이 페이스면
+//              다음 주 어디인가(추정) + 동시기 순위 결론. 섹션 점프 칩.
+//   KPIS     — 핵심 지표 (WoW + 30d sparkline). 경영진의 첫 질문이므로
+//              히어로 바로 아래.
+//   INSIGHT  — 주간 전략 분석 (LLM weekly). 07-30 사용자 지시로 액션 큐
+//              위 — 주간 관점의 "무엇이 중요한가"를 먼저 읽는다.
+//   ACTION   — 오늘 무엇을 해야 하나 (alerts + ipx_action 통합 큐).
+//   RISK     — 어떤 위기에 대비해야 하나 (identity_leak / model_theft
+//              / controversy_spike). 액션 클러스터에 인접 배치.
+//   COHORT   — 동시기 대비 어디인가 (스코어카드, /api/miiwan-cohort).
+//   피드류(이벤트·라이브 채팅·찐팬·멤버)는 하단 — 원자료성이라 결론
+//   섹션들보다 뒤.
+//
+// 뷰 모드 3종:
+//   briefing — 운영자 일일 뷰 (전체).
+//   report   — 투자 보고 뷰. 내부 QA 장치(실행 요건 배지·플레이북·
+//              수집 상태 empty state·채팅 원문)를 숨기고 결론 섹션만
+//              남긴다. est 배지·제외 공시 같은 정직성 장치는 유지 —
+//              숨기는 대상은 내부 작동 장치로 한정.
+//   market   — 국가별 진출/굿즈 분석 (MarketAnalysis).
 //
 // The "활성 멤버" 카드는 D-7 이상 남은 시점에서는 정보값이 거의
 // 없으므로 (이름/영문명 정도) 의도적으로 collapse 처리. D-7 이내
@@ -20,6 +33,8 @@
 
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
+import { fmt } from "../format";
+import { headline, type Headline } from "../lib/cohortHeadline";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
 import { EstBadge } from "../components/EstBadge";
@@ -139,13 +154,13 @@ const ALERT_PLAYBOOK: Record<string, Playbook> = {
   },
   controversy_spike: {
     steps: [
-      { verb: "트리거 트윗·게시글 원문 보존 (스크린샷+URL)", owner: "PR팀",  due: "1시간 내" },
-      { verb: "naver / dc / theqoo cross-platform 확산 여부 확인", owner: "BI", due: "오늘 안" },
+      { verb: "발단이 된 트윗·게시글 원문 보존 (스크린샷+URL)", owner: "PR팀",  due: "1시간 내" },
+      { verb: "네이버·디시·더쿠 등 다른 커뮤니티로 확산됐는지 확인", owner: "BI", due: "오늘 안" },
       { verb: "대응 / 무대응 결정 — 기본은 무대응",         owner: "PR리드", due: "오늘 안",
-        detail: "Streisand 회피 우선. 공식 대응은 false positive 시 손해 큼." },
-      { verb: "24h 후 controversy_count 재측정 + 감쇄 판정", owner: "BI",    due: "내일" },
+        detail: "공식 대응이 오히려 이슈를 키울 수 있어, 오인 신고일수록 무대응이 안전." },
+      { verb: "24시간 후 논란 글 수 재측정 + 가라앉았는지 판정", owner: "BI",    due: "내일" },
     ],
-    note: "공식 대응은 Streisand 효과로 오히려 확산 가능. 인간 검증 필수.",
+    note: "공식 대응은 오히려 확산을 키울 수 있음. 사람이 직접 확인한 뒤 결정.",
   },
   identity_leak: {
     steps: [
@@ -169,7 +184,7 @@ const ALERT_PLAYBOOK: Record<string, Playbook> = {
       { verb: "썸네일·제목 A/B 후보 1세트 준비",            owner: "콘텐츠팀", due: "오늘" },
       { verb: "공식 SNS·커뮤니티 임베드 push",              owner: "마케팅팀", due: "12h 내" },
       { verb: "후속 영상·숏츠 슬롯 1건 일정 확정",          owner: "콘텐츠팀", due: "이번 주" },
-      { verb: "광고 boost 검토 — viral_velocity ≥ 3× WoW 시", owner: "마케팅팀", due: "조건부" },
+      { verb: "확산 속도가 전주 3배 이상이면 광고 집행 검토", owner: "마케팅팀", due: "조건부" },
     ],
   },
 };
@@ -225,44 +240,108 @@ function strategicDiagnosis(d: MiiwanData): { tone: "ok" | "warn" | "critical"; 
   if (hasCritical) {
     return {
       tone: "critical",
-      line: "위기 신호 감지 — Risk Watch 우선 점검 후 대응 동선 시작.",
+      line: "위기 신호 감지 — 위기 모니터 우선 점검 후 대응 시작.",
     };
   }
   if (days == null) {
-    return { tone: "ok", line: "데뷔일 미정 — 일정 확정 후 D-N 곡선 추적 시작." };
+    return { tone: "ok", line: "데뷔일 미정 — 일정 확정 후 데뷔 기준 성장 추적 시작." };
   }
   if (debuted) {
     const dPlus = -days;
     if (dPlus <= 7) {
       return {
         tone: "warn",
-        line: `데뷔 D+${dPlus} — 초기 모멘텀 측정 윈도. 24h velocity / 첫 주 SOV 변화에 즉각 반응.`,
+        line: `데뷔 D+${dPlus} — 초기 반응 측정 구간. 첫 24시간 확산 속도·첫 주 언급 점유율 변화에 즉각 반응.`,
       };
     }
     return {
       tone: grade === "S" || grade === "A" ? "ok" : "warn",
-      line: `데뷔 D+${dPlus} — Health ${grade ?? "—"} 등급 기준 ${grade === "S" || grade === "A" ? "모멘텀 유지" : "약점 보완"} 우선.`,
+      line: `데뷔 D+${dPlus} — 건강 점수 ${grade ?? "—"} 등급 기준 ${grade === "S" || grade === "A" ? "성장 흐름 유지" : "약점 보완"} 우선.`,
     };
   }
   if (days <= 7) {
     return {
       tone: "warn",
-      line: `데뷔 D-${days} — 라스트 마일. ipx_action 큐 우선 처리, 대기 중인 알림 모두 클리어.`,
+      line: `데뷔 D-${days} — 마지막 준비 구간. 실행 권고 목록 우선 처리, 대기 중인 알림 모두 정리.`,
     };
   }
   if (days <= 30) {
     return {
       tone: hasWarn ? "warn" : "ok",
-      line: `데뷔 D-${days} — 가속 구간. D-30 벤치마크 갭 중 가장 큰 1개 지표 선정해 콘텐츠/PR 슬롯 집중.`,
+      line: `데뷔 D-${days} — 가속 구간. 동시기 팀 대비 격차가 가장 큰 지표 1개에 콘텐츠·PR 집중.`,
     };
   }
   return {
     tone: "ok",
-    line: `데뷔 D-${days} — 베이스라인 누적 단계. 코호트 곡선 fitting 추적 + 그룹 공식 채널 업로드 페이스 유지.`,
+    line: `데뷔 D-${days} — 기초 데이터 누적 단계. 동시기 팀 대비 성장 곡선 추적 + 공식 채널 업로드 페이스 유지.`,
   };
 }
 
 // Alert rule labels / severity tones: see src/lib/alerts.ts.
+
+// insights.type / health breakdown 키는 백엔드 enum 원문 — 경영진·투자자
+// 화면에 raw 토큰을 내보내지 않도록 여기서 한국어 라벨로 치환한다
+// (alerts.ts ALERT_RULE_LABEL과 같은 패턴).
+const INSIGHT_TYPE_LABEL: Record<string, string> = {
+  insight:    "분석",
+  ipx_action: "실행 권고",
+  weekly:     "주간 요약",
+  diagnosis:  "진단",
+};
+
+const HEALTH_DIMENSION_LABEL: Record<string, string> = {
+  subscribers: "구독자",
+  views:       "조회수",
+  quality:     "반응 품질",
+  community:   "커뮤니티",
+  news:        "뉴스",
+  risk:        "리스크",
+};
+
+// 보고서의 "이전 상황"과 "전망" 축 — 기존 summary/prev/history에서 파생만
+// 하고 새 수집은 없다. 전망은 최근 스냅샷 기울기의 단순 연장이라 반드시
+// (추정) 표기와 함께 노출한다 (est 배지와 같은 정직성 원칙).
+function weeklyOutlook(d: MiiwanData): { lastWeek: string | null; forecast: string | null } {
+  const cur = d.summary;
+  const prev = d.prev_summary;
+
+  let lastWeek: string | null = null;
+  if (cur && prev) {
+    const parts: string[] = [];
+    const push = (label: string, c?: number | null, p?: number | null) => {
+      if (c == null || p == null || c === p) return;
+      const diff = c - p;
+      parts.push(`${label} ${diff > 0 ? "+" : "−"}${fmt(Math.abs(diff))}`);
+    };
+    push("구독자", cur.yt_subscribers, prev.yt_subscribers);
+    push("누적 조회수", cur.yt_total_views, prev.yt_total_views);
+    push("뉴스", cur.naver_total_news, prev.naver_total_news);
+    if (parts.length) lastWeek = parts.slice(0, 3).join(" · ");
+  }
+
+  // 구독자 최근 ~7일 기울기 → +7일 투영. 표본이 3일 미만이면 노출 안 함.
+  let forecast: string | null = null;
+  const h = (d.summary_history ?? []).filter(
+    (r) => r.yt_subscribers != null && r.snapshot_at,
+  );
+  if (h.length >= 2) {
+    const last = h[h.length - 1]!;
+    const lastT = Date.parse(last.snapshot_at);
+    let base = h[0]!;
+    for (const r of h) {
+      if (lastT - Date.parse(r.snapshot_at) >= 6.5 * 86_400_000) base = r;
+      else break;
+    }
+    const days = (lastT - Date.parse(base.snapshot_at)) / 86_400_000;
+    if (days >= 3 && base.yt_subscribers != null && last.yt_subscribers != null) {
+      const perDay = (last.yt_subscribers - base.yt_subscribers) / days;
+      const proj = Math.round((last.yt_subscribers + perDay * 7) / 100) * 100;
+      forecast = `이 페이스면 다음 주 구독자 약 ${fmt(proj)} (최근 ${Math.round(days)}일 추세 연장 · 추정)`;
+    }
+  }
+
+  return { lastWeek, forecast };
+}
 
 const DIAGNOSIS_TONE: Record<"ok" | "warn" | "critical", string> = {
   ok:       "border-emerald-500/40 bg-emerald-500/5 text-emerald-200",
@@ -274,8 +353,12 @@ export function MiiWANBriefing() {
   const [data, setData] = useState<MiiwanData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showMembers, setShowMembers] = useState<boolean>(false);
-  // 뷰 분리: 기존 운영 브리핑 vs 시장 분석(국가별 진출/굿즈).
-  const [mode, setMode] = useState<"briefing" | "market">("briefing");
+  // 뷰 3분리: 운영 브리핑 / 투자 보고(내부 QA 장치 숨김) / 시장 분석.
+  const [mode, setMode] = useState<"briefing" | "report" | "market">("briefing");
+  // 히어로에 승격된 동시기 비교 결론 — 동시기 성과 섹션과 같은 API를 쓰고
+  // 문구는 headline()이 자동 산출(하드코딩 금지 원칙 동일). 실패 시 조용히
+  // 생략 — 히어로가 이 줄 없이도 성립해야 한다.
+  const [cohortHead, setCohortHead] = useState<Headline | null>(null);
 
   useEffect(() => {
     api.miiwan().then((d) => {
@@ -284,6 +367,9 @@ export function MiiWANBriefing() {
       // post-debut. Operators rarely need it earlier.
       setShowMembers(d.days_to_debut == null || d.days_to_debut <= 7);
     }).catch((e) => setErr(String(e)));
+    api.miiwanCohort()
+      .then((d) => { try { setCohortHead(headline(d)); } catch { /* 데이터 미성숙 — 생략 */ } })
+      .catch(() => {});
   }, []);
 
   const dToDebut = data?.days_to_debut ?? null;
@@ -336,6 +422,9 @@ export function MiiWANBriefing() {
   if (!data) return <div class="text-zinc-500">Loading…</div>;
 
   const diag = strategicDiagnosis(data);
+  const outlook = weeklyOutlook(data);
+  const isReport = mode === "report";
+  const actionCount = ipxActions.length + otherAlerts.length;
 
   return (
     <div class="space-y-6">
@@ -355,7 +444,7 @@ export function MiiWANBriefing() {
           </span>
           {/* 뷰 토글 — 히어로 헤더 행 우측에 pill 버튼으로 배치. 항상 위에 보임. */}
           <div role="tablist" aria-label="MiiWAN 뷰" class="ml-auto flex gap-1">
-            {([["briefing", "브리핑"], ["market", "시장 분석"]] as const).map(([k, label]) => {
+            {([["briefing", "브리핑"], ["report", "투자 보고"], ["market", "시장 분석"]] as const).map(([k, label]) => {
               const on = mode === k;
               return (
                 <button key={k} role="tab" aria-selected={on}
@@ -375,10 +464,60 @@ export function MiiWANBriefing() {
           <span class="font-semibold mr-2">전략 진단</span>{diag.line}
         </div>
 
+        {/* 과거·현재·전망을 히어로에서 각 한 줄로 닫는다 — 경영진·투자자의
+            30초 훑기가 스크롤 없이 "그래서 잘 되고 있나"에 답을 얻도록.
+            동시기 결론은 코호트 섹션 headline()과 같은 산출물이라 두 화면이
+            어긋날 수 없다. */}
+        {(cohortHead?.conclusion || outlook.lastWeek || outlook.forecast) && (
+          <div class="mt-2 space-y-1 text-sm">
+            {cohortHead?.conclusion && (
+              <div class="flex flex-wrap items-baseline gap-2">
+                <span class="shrink-0 rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] text-zinc-400">동시기 비교</span>
+                <span class="text-zinc-200">{cohortHead.conclusion}</span>
+              </div>
+            )}
+            {outlook.lastWeek && (
+              <div class="flex flex-wrap items-baseline gap-2">
+                <span class="shrink-0 rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] text-zinc-400">지난 주 대비</span>
+                <span class="text-zinc-300">{outlook.lastWeek}</span>
+              </div>
+            )}
+            {outlook.forecast && (
+              <div class="flex flex-wrap items-baseline gap-2">
+                <span class="shrink-0 rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] text-zinc-400">전망</span>
+                <span class="text-zinc-300">{outlook.forecast}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div class="mt-3 grid gap-3 md:grid-cols-2">
           <DDayCard d={dToDebut} debuted={debuted} accent={accent} />
           <HealthCard h={data.health_score} />
         </div>
+
+        {/* 섹션 점프 칩 — 11개 섹션 세로 나열의 스캔 비용을 줄인다.
+            운영자 도구라 브리핑 모드에서만. */}
+        {mode === "briefing" && (
+          <nav class="mt-3 flex flex-wrap gap-1.5" aria-label="섹션 바로가기">
+            {([
+              ["sec-kpi", "핵심 지표"],
+              ["sec-insights", "주간 분석"],
+              ["sec-actions", actionCount > 0 ? `처리 ${actionCount}건` : "처리 목록"],
+              ["sec-risk", "위기 모니터"],
+              ["sec-cohort", "동시기 성과"],
+            ] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                class="rounded-full border border-zinc-700 px-2.5 py-0.5 text-xs text-zinc-400 transition hover:border-zinc-500 hover:text-zinc-200"
+                onClick={() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              >
+                {label} ↓
+              </button>
+            ))}
+          </nav>
+        )}
       </section>
 
       {mode === "market" ? (
@@ -389,15 +528,80 @@ export function MiiWANBriefing() {
         />
       ) : (<>
 
-      {/* 2) STRATEGIC INSIGHT — LLM weekly insights, MiiWAN-scoped first.
-          (2026-07-30 사용자 지시로 Action Queue 위로 이동 — 주간 관점의
-          "무엇이 중요한가"를 먼저 읽고, 그 아래에서 오늘의 처리 목록을 본다.) */}
-      <section>
-        <h2 class="section-title mb-3">전략 인사이트 (LLM weekly)</h2>
+      {/* 2) CORE KPIS — 경영진의 첫 질문("숫자는?")이라 히어로 바로 아래.
+          커뮤니티·뉴스 지표는 상승=녹색이 오독을 만들 수 있어(게시글 급증은
+          논란일 수도) 중립색으로 렌더. 보고 모드에서 데이터 없으면 섹션째
+          숨긴다 — 미완성 티는 empty state의 존재에서 난다. */}
+      {(data.summary || !isReport) && (
+      <section id="sec-kpi">
+        <h2 class="section-title mb-3">핵심 지표 (최신 스냅샷
+          {data.summary ? ` · ${formatKSTDate(data.summary.snapshot_at)} KST` : ""})
+        </h2>
+        {!data.summary ? (
+          <EmptyState
+            title="아직 집계된 활동 데이터 없음"
+            hint="첫 자동 수집이 끝나면 여기에 채워집니다."
+            icon="📊"
+          />
+        ) : (() => {
+          const wow = (cur: number | null | undefined, prev: number | null | undefined) =>
+            cur == null || prev == null ? null : cur - prev;
+          const series = (field: string) => {
+            const h: any[] = data.summary_history ?? [];
+            return h.length >= 2 ? h.map((r) => Number(r[field] ?? 0)) : undefined;
+          };
+          const p = data.prev_summary;
+          // 델타의 비교 시점 — prev는 "7일 이전의 가장 최근 스냅샷"이라
+          // 항상 정확히 1주 전이 아니다. 명시하지 않으면 WoW로 오독된다.
+          const dh = p?.snapshot_at ? `vs ${formatKSTDate(p.snapshot_at)}` : undefined;
+          return (
+            <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
+              <KPI label="구독자 (그룹+멤버)"
+                   value={data.summary.yt_subscribers}
+                   delta={wow(data.summary.yt_subscribers, p?.yt_subscribers)}
+                   deltaHint={dh}
+                   sparkline={series("yt_subscribers")} />
+              <KPI label="누적 조회수"
+                   value={data.summary.yt_total_views}
+                   delta={wow(data.summary.yt_total_views, p?.yt_total_views)}
+                   deltaHint={dh}
+                   sparkline={series("yt_total_views")} />
+              <KPI label="등록 영상 수"
+                   value={data.summary.yt_total_videos}
+                   delta={wow(data.summary.yt_total_videos, p?.yt_total_videos)}
+                   deltaHint={dh}
+                   sparkline={series("yt_total_videos")} />
+              <KPI label="네이버 뉴스"
+                   value={data.summary.naver_total_news}
+                   delta={wow(data.summary.naver_total_news, p?.naver_total_news)}
+                   deltaHint={dh}
+                   polarity="neutral"
+                   sparkline={series("naver_total_news")} />
+              <KPI label="디시 게시글"
+                   value={data.summary.dc_total_posts}
+                   delta={wow(data.summary.dc_total_posts, p?.dc_total_posts)}
+                   deltaHint={dh}
+                   polarity="neutral"
+                   sparkline={series("dc_total_posts")} />
+            </div>
+          );
+        })()}
+      </section>
+      )}
+
+      {/* 3) STRATEGIC INSIGHT — 주간 LLM 분석, MiiWAN-scoped first.
+          (2026-07-30 사용자 지시로 Action Queue 위 — 주간 관점의
+          "무엇이 중요한가"를 먼저 읽고, 아래에서 오늘의 처리 목록을 본다.)
+          보고 모드 제외 — 내부 운영 권고라 투자자 대상이 아니다. */}
+      {!isReport && (
+      <section id="sec-insights">
+        <h2 class="section-title mb-3">주간 전략 분석
+          <span class="ml-2 text-hint font-normal text-zinc-500">AI 자동 분석 · 주 1회</span>
+        </h2>
         {data.insights.length === 0 ? (
           <EmptyState
-            title="아직 MiiWAN 전용 인사이트 없음"
-            hint="주간 LLM 분석이 1회 이상 돌면 여기에 채워집니다. 현재는 시장 인사이트 탭을 참고하세요."
+            title="아직 MiiWAN 전용 분석 없음"
+            hint="주간 자동 분석이 1회 이상 돌면 여기에 채워집니다. 현재는 시장 인사이트 탭을 참고하세요."
             icon="💡"
           />
         ) : (
@@ -417,24 +621,93 @@ export function MiiWANBriefing() {
           </div>
         )}
       </section>
+      )}
 
-      {/* 3) ACTION QUEUE — alerts + ipx_actions 통합. 매일 보는
+      {/* 4) ACTION QUEUE — alerts + ipx_actions 통합. 매일 보는
           운영자가 "오늘 무엇을 해야 하나"를 5초 안에 답할 수 있도록
-          인사이트 바로 아래에 위치. 빈 상태도 자리 유지 (학습된 위치 유지). */}
-      <ActionQueue ipxActions={ipxActions} otherAlerts={otherAlerts} />
+          인사이트 바로 아래에 위치. 빈 상태도 자리 유지 (학습된 위치 유지).
+          보고 모드 제외. */}
+      {!isReport && <ActionQueue ipxActions={ipxActions} otherAlerts={otherAlerts} />}
 
-      {/* 3) TIMELINE — 데뷔 D-day 컨텍스트에서 최근 30일 + 향후 60일
-          이벤트. group_events 테이블에서 자동 조회. 과거/오늘/예정
-          시각 분리로 "다음에 무엇이 오는가"를 한 눈에. */}
-      <MiiWANEventTimeline today={data.today} />
+      {/* 5) RISK WATCH — virtual-idol critical 카테고리만 별도 섹션.
+          액션 클러스터 바로 옆 (07-30 개편 때 하단으로 밀렸던 것을 복귀).
+          보고 모드에선 상태 한 줄로 축약 — 감시 체계가 있다는 사실 자체는
+          신뢰 신호, 대응 수칙 상세는 내부용. */}
+      <RiskWatch
+        alerts={riskAlerts}
+        controversyTrend={data.controversy_trend}
+        compact={isReport}
+      />
 
-      {/* 종료된 라이브 방송의 채팅을 긁어 긍/부정 대표 멘트 + 비율 추정을
-          방송별로 보여준다. /api/miiwan-live-chat (live_chat_reports). */}
-      <MiiWANLiveChat />
+      {/* 6) 동시기 성과 — 데뷔일 정렬(D+N) 벤치마크. 절대값이 아니라
+          성장 기울기·순위로 "동시기 대비 잘하고 있는가"를 증명하는 보고서형
+          섹션 (투자사 보고 근거). 도입 산문은 접기 — 차트 자체에 데뷔
+          세로선·D± 축이 있어 개념 설명이 중복이다. */}
+      <section id="sec-cohort">
+        <div class="mb-1 flex flex-wrap items-center gap-2">
+          <h2 class="section-title">동시기 성과 — 같은 시기에 데뷔한 팀들과 비교</h2>
+          <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400">
+            데뷔 창 기준
+          </span>
+        </div>
+        <details class="mb-3">
+          <summary class="cursor-pointer list-none text-hint text-zinc-500 hover:text-zinc-300">
+            ▸ 읽는 법 — 왜 데뷔일 기준인가
+          </summary>
+          <p class="mt-1 text-hint text-zinc-500 leading-relaxed">
+            팀마다 데뷔한 날이 다르니 규모를 그냥 비교하면 먼저 시작한 팀이 이긴다.
+            그래서 각 팀의 데뷔일을 똑같이 출발선에 놓고, 데뷔 후 같은 날짜에 얼마나
+            늘었는지를 본다.
+          </p>
+        </details>
+        <MiiWANCohortReport />
+      </section>
 
-      {/* P2a 찐팬 활동량 — 라이브 채팅 measured 코어 + 영상 estimated 참여.
+      {/* 6b) 자연 유입 비교(최근 롤링 창) — 위 동시기 섹션은 '데뷔 창' 기준이라
+          같은 팀이라도 숫자가 다르다. 두 카드에 기간 칩을 달아 그 차이를
+          제목에서 바로 드러낸다. 개념 산문 2문단은 접기 — 투자자는 긴
+          설명문을 읽지 않고, 필요한 사람만 펼친다. */}
+      <section class="card">
+        <div class="mb-2 flex flex-wrap items-center gap-2">
+          <h2 class="section-title">자연 유입 비교 — 경쟁 팀</h2>
+          <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400">
+            최근 기간 기준
+          </span>
+        </div>
+        <details class="mb-2">
+          <summary class="cursor-pointer list-none text-hint text-zinc-500 hover:text-zinc-300">
+            ▸ 읽는 법 — 위 동시기 표와 무엇이 다른가
+          </summary>
+          <p class="mt-1 text-hint text-zinc-500 leading-relaxed">
+            이 막대는 <strong class="text-zinc-300">'진짜인가'</strong>(광고 없이 모인
+            팬인지, 규모와 무관) · 위 동시기 표의 조회·구독은
+            {" "}<strong class="text-zinc-300">'충분한가'</strong>(규모) — 두 축은 별개라
+            자연 유입이 높아도 규모가 충분하다는 뜻은 아니다. 위 섹션은 데뷔 직후
+            기간을, 이 카드는 최근 기간을 보므로 같은 팀이라도 숫자가 다를 수 있다.
+          </p>
+          <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
+            데뷔 후 유료 광고를 줄여 조회수가 정점 대비 떨어지는 건 정상일 수 있다.
+            건강은 '정점 대비 하락'이 아니라 <strong class="text-zinc-300">광고 없이 도달하는
+            바닥선</strong>이 데뷔 전 수준 위에서 유지·상승하는가로 판단한다 —
+            자연 유입이 정상이라는 건 '진짜'라는 뜻이지 '충분·지속'의 증거는 아니다.
+          </p>
+        </details>
+        <CompetitorOrganicityBar />
+      </section>
+
+      {/* 7) TIMELINE — 최근 30일 + 향후 60일 이벤트 (group_events).
+          보고 모드는 예정 이벤트만, 비어 있으면 섹션째 숨김. */}
+      <MiiWANEventTimeline today={data.today} futureOnly={isReport} hideWhenEmpty={isReport} />
+
+      {/* 8) 라이브 채팅 반응 — 방송별 긍/부정 대표 멘트 + 비율 추정.
+          /api/miiwan-live-chat (live_chat_reports). 채팅 원문이 노출되는
+          원자료성 피드라 보고 모드 제외. */}
+      {!isReport && <MiiWANLiveChat />}
+
+      {/* 9) P2a 찐팬 활동량 — 라이브 채팅 measured 코어 + 영상 estimated 참여.
           /api/miiwan 의 fan_activity (신규 수집 0, 기존 데이터 재가공).
-          summary 행 없으면 null 이라 카드 자체를 숨긴다. */}
+          summary 행 없으면 null 이라 카드 자체를 숨긴다. 실측/추정 배지는
+          정직성 장치라 보고 모드에도 유지. */}
       {data.fan_activity && (
         <section>
           <div class="mb-2 flex flex-wrap items-baseline gap-2">
@@ -445,108 +718,10 @@ export function MiiWANBriefing() {
         </section>
       )}
 
-      {/* 4) RISK WATCH — virtual-idol critical 카테고리만 뽑아 별도
-          섹션. PR/Risk 페이지로 hop 없이 MiiWAN 컨텍스트에서 즉시
-          확인. 가장 시급한 시나리오부터 정렬. */}
-      <RiskWatch
-        alerts={riskAlerts}
-        controversyTrend={data.controversy_trend}
-      />
-
-      {/* 4) Core KPIs (existing) */}
-      <section>
-        <h2 class="section-title mb-3">핵심 지표 (최신 스냅샷
-          {data.summary ? ` · ${formatKSTDate(data.summary.snapshot_at)} KST` : ""})
-        </h2>
-        {!data.summary ? (
-          <EmptyState
-            title="아직 집계된 활동 데이터 없음"
-            hint="콜렉터 사이클이 한 번 이상 돌면 여기에 채워집니다."
-            icon="📊"
-          />
-        ) : (() => {
-          const wow = (cur: number | null | undefined, prev: number | null | undefined) =>
-            cur == null || prev == null ? null : cur - prev;
-          const series = (field: string) => {
-            const h: any[] = data.summary_history ?? [];
-            return h.length >= 2 ? h.map((r) => Number(r[field] ?? 0)) : undefined;
-          };
-          const p = data.prev_summary;
-          return (
-            <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
-              <KPI label="구독자 (그룹+멤버)"
-                   value={data.summary.yt_subscribers}
-                   delta={wow(data.summary.yt_subscribers, p?.yt_subscribers)}
-                   sparkline={series("yt_subscribers")} />
-              <KPI label="누적 조회수"
-                   value={data.summary.yt_total_views}
-                   delta={wow(data.summary.yt_total_views, p?.yt_total_views)}
-                   sparkline={series("yt_total_views")} />
-              <KPI label="등록 영상 수"
-                   value={data.summary.yt_total_videos}
-                   delta={wow(data.summary.yt_total_videos, p?.yt_total_videos)}
-                   sparkline={series("yt_total_videos")} />
-              <KPI label="네이버 뉴스"
-                   value={data.summary.naver_total_news}
-                   delta={wow(data.summary.naver_total_news, p?.naver_total_news)}
-                   sparkline={series("naver_total_news")} />
-              <KPI label="디시 게시글"
-                   value={data.summary.dc_total_posts}
-                   delta={wow(data.summary.dc_total_posts, p?.dc_total_posts)}
-                   sparkline={series("dc_total_posts")} />
-            </div>
-          );
-        })()}
-      </section>
-
-      {/* 5) 동시기 성과 — 데뷔일 정렬(D+N) 코호트 벤치마크. 절대값이 아니라
-          성장 기울기·순위로 "동시기 대비 잘하고 있는가"를 증명하는 보고서형
-          섹션 (투자사 보고 근거). 헤더 문구는 컴포넌트 내부 카피와 같은
-          눈높이 — 내부 용어(코호트·벤치마크) 대신 평이한 말로 쓴다. */}
-      <section>
-        <div class="mb-1 flex flex-wrap items-center gap-2">
-          <h2 class="section-title">동시기 성과 — 같은 시기에 데뷔한 팀들과 비교</h2>
-          <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400">
-            데뷔 창 기준
-          </span>
-        </div>
-        <p class="mb-3 text-hint text-zinc-500 leading-relaxed">
-          팀마다 데뷔한 날이 다르니 규모를 그냥 비교하면 먼저 시작한 팀이 이긴다.
-          그래서 각 팀의 데뷔일을 똑같이 출발선에 놓고, 데뷔 후 같은 날짜에 얼마나
-          늘었는지를 본다.
-        </p>
-        <MiiWANCohortReport />
-      </section>
-
-      {/* 5b) 자연 유입 비교(최근 롤링 창) — 위 동시기 섹션은 '데뷔 창' 기준이라
-          같은 팀이라도 숫자가 다르다. 두 카드에 기간 칩을 달아 그 차이를
-          제목에서 바로 드러낸다. 용어도 위 섹션과 통일("유기성" → "자연 유입"). */}
-      <section class="card">
-        <div class="mb-2 flex flex-wrap items-center gap-2">
-          <h2 class="section-title">자연 유입 비교 — 경쟁 팀</h2>
-          <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[11px] text-zinc-400">
-            최근 기간 기준
-          </span>
-        </div>
-        <p class="mb-2 text-hint text-zinc-500 leading-relaxed">
-          이 막대는 <strong class="text-zinc-300">'진짜인가'</strong>(광고 없이 모인
-          팬인지, 규모와 무관) · 위 동시기 표의 조회·구독은
-          {" "}<strong class="text-zinc-300">'충분한가'</strong>(규모) — 두 축은 별개라
-          자연 유입이 높아도 규모가 충분하다는 뜻은 아니다. 위 섹션은 데뷔 직후
-          기간을, 이 카드는 최근 기간을 보므로 같은 팀이라도 숫자가 다를 수 있다.
-        </p>
-        <CompetitorOrganicityBar />
-        <p class="mt-2 text-hint text-zinc-500 leading-relaxed">
-          데뷔 후 유료 광고를 줄여 조회수가 정점 대비 떨어지는 건 정상일 수 있다.
-          건강은 '정점 대비 하락'이 아니라 <strong class="text-zinc-300">광고 없이 도달하는
-          바닥선</strong>이 데뷔 전 수준 위에서 유지·상승하는가로 판단한다 —
-          자연 유입이 정상이라는 건 '진짜'라는 뜻이지 '충분·지속'의 증거는 아니다.
-        </p>
-      </section>
-
-      {/* 7) MEMBERS — debut D-7 이내 또는 데뷔 후에만 자동 노출.
+      {/* 10) MEMBERS — debut D-7 이내 또는 데뷔 후에만 자동 노출.
           MiiWAN 은 corporate K-POP 모델이라 멤버별 솔로 채널을
-          운영하지 않음 → 카드는 이름·영문명만 표시. */}
+          운영하지 않음 → 카드는 이름·영문명만 표시. 보고 모드 제외. */}
+      {!isReport && (
       <section>
         <div class="mb-3 flex items-baseline gap-2">
           <h2 class="section-title">활성 멤버 ({data.members.length}명)</h2>
@@ -560,7 +735,7 @@ export function MiiWANBriefing() {
         </div>
         {showMembers && (
           data.members.length === 0 ? (
-            <EmptyState title="멤버 시드 없음" icon="👥" />
+            <EmptyState title="멤버 정보 준비 중" icon="👥" />
           ) : (
             <ul class="grid grid-cols-2 gap-2 md:grid-cols-5">
               {data.members.map((m) => (
@@ -576,6 +751,7 @@ export function MiiWANBriefing() {
           )
         )}
       </section>
+      )}
       </>)}
     </div>
   );
@@ -587,6 +763,7 @@ export function MiiWANBriefing() {
     const total = props.ipxActions.length + props.otherAlerts.length;
     return (
       <section
+        id="sec-actions"
         class={"rounded-card border-l-4 border p-4 " +
           (total === 0
             ? "border-emerald-500/40 border-zinc-800 bg-emerald-500/5"
@@ -599,20 +776,20 @@ export function MiiWANBriefing() {
             {total > 0 && <span class="ml-2 text-sm font-normal text-zinc-500">{total}건</span>}
           </h2>
           <span class="text-hint text-zinc-500">
-            IPX 액션 권고 + 14일 내 누적된 마일스톤/Viral 알림
+            IPX 실행 권고 + 14일 내 누적된 마일스톤·급상승 알림
           </span>
         </div>
 
         {total === 0 ? (
           <div class="text-sm text-zinc-300">
-            ✓ 처리할 액션 없음 — 모니터링 모드. 데뷔까지 자동 D-7 / D-1 알림이 자동 트리거됩니다.
+            ✓ 처리할 액션 없음 — 자동 감시 중. 새 알림·실행 권고가 생기면 여기에 표시됩니다.
           </div>
         ) : (
           <div class="space-y-3">
             {props.ipxActions.length > 0 && (
               <div>
                 <h3 class="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-300">
-                  IPX 액션 권고 ({props.ipxActions.length})
+                  IPX 실행 권고 ({props.ipxActions.length})
                 </h3>
                 <ul class="space-y-2">
                   {props.ipxActions.map((i) => {
@@ -687,6 +864,10 @@ export function MiiWANBriefing() {
   function RiskWatch(props: {
     alerts: AlertRow[];
     controversyTrend: { current: number; previous: number | null } | null;
+    /** 보고 모드 축약 — 상태 띠 + 알림 제목만. 대응 수칙(플레이북)·주의
+        문구·알림 본문은 내부용이라 숨긴다. 감시 체계의 존재 자체는 투자자
+        에게 신뢰 신호라 섹션을 통째로 빼지 않는다. */
+    compact?: boolean;
   }) {
     const cur = props.controversyTrend?.current ?? 0;
     const prev = props.controversyTrend?.previous ?? 0;
@@ -708,9 +889,9 @@ export function MiiWANBriefing() {
       : "border-emerald-500/40 bg-emerald-500/5 text-emerald-200";
 
     return (
-      <section>
+      <section id="sec-risk">
         <div class="mb-3 flex flex-wrap items-baseline gap-2">
-          <h2 class="section-title">위기 모니터 (Risk Watch)</h2>
+          <h2 class="section-title">위기 모니터</h2>
           <span class="text-hint text-zinc-500">
             가상 아이돌 운영의 심각 시나리오만 별도. 본체 노출 / AI 도용 / 논란 급증.
           </span>
@@ -719,6 +900,11 @@ export function MiiWANBriefing() {
         <div class={`rounded border-l-4 px-3 py-2 text-sm ${tone}`}>
           <div class="flex flex-wrap items-center gap-2">
             <span class="font-semibold">위험도: {LEVEL_KR[level]}</span>
+            {props.compact && (
+              <span class="text-xs text-zinc-400">
+                3개 시나리오 매일 자동 감시 중
+              </span>
+            )}
             {props.controversyTrend && (
               <span class="rounded bg-zinc-900/50 px-2 py-0.5 text-xs">
                 논란 이번 주 {cur} · 직전 주 {prev}
@@ -731,9 +917,9 @@ export function MiiWANBriefing() {
               </span>
             )}
           </div>
-          {level !== "OK" && (
+          {!props.compact && level !== "OK" && (
             <div class="mt-1 text-xs text-zinc-300">
-              ※ 자동 알림 — 인간 검증 후 대응 권장. False positive 시 Streisand effect 주의.
+              ※ 자동 알림 — 사람이 확인한 뒤 대응 권장. 오탐일 때 공식 대응은 오히려 확산을 키울 수 있음.
             </div>
           )}
         </div>
@@ -752,8 +938,12 @@ export function MiiWANBriefing() {
                     {formatKST(a.fired_at)}
                   </span>
                 </div>
-                <div class="mt-1 text-sm text-zinc-300">{a.body}</div>
-                <AlertPlaybook rule={a.rule} />
+                {!props.compact && (
+                  <>
+                    <div class="mt-1 text-sm text-zinc-300">{a.body}</div>
+                    <AlertPlaybook rule={a.rule} />
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -775,7 +965,7 @@ function AlertPlaybook({ rule }: { rule: string }) {
       <div class="mb-1.5 flex items-center gap-2 text-hint uppercase tracking-wider text-zinc-400">
         <span>권장 동선</span>
         <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] text-zinc-500">
-          verb · owner · due
+          할 일 · 담당 · 기한
         </span>
       </div>
       <ol class="space-y-1.5 text-xs text-zinc-300">
@@ -826,47 +1016,59 @@ function IpxActionGuard({ score }: { score: IpxScore }) {
   if (allGood) {
     return (
       <div class="mt-2">
-        <span class="rounded bg-emerald-500/10 px-2 py-[2px] text-[10px] text-emerald-300">
-          ✓ 5요소
+        <span class="rounded bg-emerald-500/10 px-2 py-[2px] text-[10px] text-emerald-300"
+              title="행동·담당·기한·측정·조건 모두 충족">
+          ✓ 실행 요건 충족
         </span>
       </div>
     );
   }
 
+  // 미달 케이스도 기본은 배지 한 개 — 상세(빠진 항목·예시)는 접어 둔다.
+  // 이 배너는 운영자용 작성 가이드지 화면의 결론이 아니다. 펼치기 전에는
+  // "보완 필요"라는 사실만 전달하면 충분하다.
   return (
-    <div class="mt-2 space-y-1.5">
-      <div class="flex flex-wrap items-center gap-1">
-        <span class="text-[10px] uppercase tracking-wider text-zinc-500">
-          5요소 점검
+    <details class="group mt-2">
+      <summary class="cursor-pointer list-none">
+        <span class="rounded bg-amber-500/10 px-2 py-[2px] text-[10px] text-amber-300">
+          △ 구체화 필요{weak ? " — 그대로 실행하지 말 것" : ""}
+          <span class="ml-1 text-amber-200/60 group-open:hidden">▸ 상세</span>
+          <span class="ml-1 hidden text-amber-200/60 group-open:inline">▾ 접기</span>
         </span>
-        {score.passed.map((k) => (
-          <span key={`p-${k}`}
-                class="rounded bg-emerald-500/10 px-1.5 py-[1px] text-[10px] text-emerald-300">
-            ✓ {k}
+      </summary>
+      <div class="mt-1.5 space-y-1.5">
+        <div class="flex flex-wrap items-center gap-1">
+          <span class="text-[10px] uppercase tracking-wider text-zinc-500">
+            실행 요건 점검
           </span>
-        ))}
-        {score.missing.map((k) => (
-          <span key={`m-${k}`}
-                class="rounded bg-amber-500/10 px-1.5 py-[1px] text-[10px] text-amber-300">
-            · {k}
-          </span>
-        ))}
-      </div>
-      {weak && (
-        <div class="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-hint text-amber-200">
-          <div class="font-semibold">구체화 필요 — 그대로 실행하지 말 것</div>
-          <div class="mt-0.5 text-amber-100/80">
-            {score.antipattern
-              ? "본문에 안티패턴 (\"전략적\"·\"검토 필요\"·\"면밀히 모니터링\") 포함. "
-              : ""}
-            아래 5요소 중 빠진 항목을 채워 다시 작성: 행동 동사 / 담당자 / 기한 / 측정 가능한 목표 / 조건.
-          </div>
-          <div class="mt-1 rounded bg-zinc-950/40 px-2 py-1 font-mono text-[10.5px] text-zinc-300">
-            예) "<span class="text-emerald-300">콘텐츠팀</span>이 <span class="text-emerald-300">D-21까지</span> <span class="text-emerald-300">티저 영상 1건 발행</span>, <span class="text-emerald-300">조회수 ≥ 5만</span> 미달 시 <span class="text-emerald-300">광고 boost 결정</span>"
-          </div>
+          {score.passed.map((k) => (
+            <span key={`p-${k}`}
+                  class="rounded bg-emerald-500/10 px-1.5 py-[1px] text-[10px] text-emerald-300">
+              ✓ {k}
+            </span>
+          ))}
+          {score.missing.map((k) => (
+            <span key={`m-${k}`}
+                  class="rounded bg-amber-500/10 px-1.5 py-[1px] text-[10px] text-amber-300">
+              · {k}
+            </span>
+          ))}
         </div>
-      )}
-    </div>
+        {weak && (
+          <div class="rounded border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-hint text-amber-200">
+            <div class="mt-0.5 text-amber-100/80">
+              {score.antipattern
+                ? "본문에 실행 없는 표현 (\"전략적\"·\"검토 필요\"·\"면밀히 모니터링\") 포함. "
+                : ""}
+              빠진 항목을 채워 다시 작성: 행동 동사 / 담당자 / 기한 / 측정 가능한 목표 / 조건.
+            </div>
+            <div class="mt-1 rounded bg-zinc-950/40 px-2 py-1 font-mono text-[10.5px] text-zinc-300">
+              예) "<span class="text-emerald-300">콘텐츠팀</span>이 <span class="text-emerald-300">D-21까지</span> <span class="text-emerald-300">티저 영상 1건 발행</span>, <span class="text-emerald-300">조회수 ≥ 5만</span> 미달 시 <span class="text-emerald-300">광고 집행 결정</span>"
+            </div>
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -907,7 +1109,14 @@ const TIMELINE_ICON: Record<string, string> = {
   milestone:       "✨",
 };
 
-function MiiWANEventTimeline({ today }: { today: string }) {
+function MiiWANEventTimeline({ today, futureOnly, hideWhenEmpty }: {
+  today: string;
+  /** 보고 모드: 예정 이벤트만 — 과거 이력은 운영 로그 성격. */
+  futureOnly?: boolean;
+  /** 보고 모드: 보여줄 이벤트가 없으면 섹션 자체를 렌더하지 않는다
+      (빈 섹션은 미완성 티만 낸다). 브리핑 모드는 자리 유지. */
+  hideWhenEmpty?: boolean;
+}) {
   const [events, setEvents] = useState<GroupEvent[] | null>(null);
 
   useEffect(() => {
@@ -930,12 +1139,14 @@ function MiiWANEventTimeline({ today }: { today: string }) {
     if (!events) return [];
     return events
       .filter((e) => TIMELINE_EVENT_TYPES.has(e.event_type))
+      .filter((e) => !futureOnly || e.event_date >= today)
       .sort((a, b) => a.event_date.localeCompare(b.event_date));
-  }, [events]);
+  }, [events, futureOnly, today]);
 
   const todayDate = today;
 
   if (!events) {
+    if (hideWhenEmpty) return null;
     return (
       <section>
         <h2 class="section-title mb-3">이벤트 캘린더</h2>
@@ -945,6 +1156,7 @@ function MiiWANEventTimeline({ today }: { today: string }) {
   }
 
   if (filtered.length === 0) {
+    if (hideWhenEmpty) return null;
     return (
       <section>
         <h2 class="section-title mb-3">이벤트 캘린더</h2>
@@ -1339,9 +1551,9 @@ function HealthCard({ h }: { h: MiiwanData["health_score"] }) {
   if (!h || h.total == null) {
     return (
       <div class="card p-4">
-        <div class="text-xs uppercase tracking-wider text-zinc-500">Health</div>
-        <div class="mt-1 text-2xl font-bold text-zinc-400">PRE</div>
-        <div class="mt-0.5 text-hint text-zinc-500">데뷔 전 — 점수 산정 보류</div>
+        <div class="text-xs uppercase tracking-wider text-zinc-500">건강 점수</div>
+        <div class="mt-1 text-2xl font-bold text-zinc-400">데뷔 전</div>
+        <div class="mt-0.5 text-hint text-zinc-500">점수 산정 보류</div>
       </div>
     );
   }
@@ -1351,7 +1563,9 @@ function HealthCard({ h }: { h: MiiwanData["health_score"] }) {
     : [];
   return (
     <div class="card p-4">
-      <div class="text-xs uppercase tracking-wider text-zinc-500">Health</div>
+      <div class="text-xs uppercase tracking-wider text-zinc-500">건강 점수
+        <span class="ml-1 normal-case tracking-normal text-zinc-600">(10점 만점)</span>
+      </div>
       <div class="mt-1 flex items-baseline gap-2">
         <div class="text-3xl font-bold tabular-nums">{h.total.toFixed(1)}</div>
         <div class="text-lg font-semibold text-zinc-400">{h.grade}</div>
@@ -1359,9 +1573,10 @@ function HealthCard({ h }: { h: MiiwanData["health_score"] }) {
       <div class="mt-0.5 text-hint text-zinc-500">{h.label ?? ""}</div>
       {bottomThree.length > 0 && (
         <div class="mt-1.5 flex flex-wrap gap-1">
+          <span class="text-[10px] text-zinc-600">보완 우선:</span>
           {bottomThree.map(([k, v]) => (
             <span key={k} class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] text-zinc-500">
-              {k}={v}
+              {HEALTH_DIMENSION_LABEL[k] ?? k} {v}
             </span>
           ))}
         </div>
@@ -1406,16 +1621,16 @@ function InsightGroup(props: {
               class={`rounded-lg border p-3 border-l-4 ${toneCls}`}
               style={ownStyle}
             >
-              {/* 상단 라인 — 그룹 뱃지 + scope/type + KST */}
+              {/* 상단 라인 — 그룹 뱃지 + 종류 + KST. scope raw 텍스트는
+                  그룹 헤더("MiiWAN 전용"/"관련 시장")가 이미 전달하는 정보라
+                  제거, type은 백엔드 enum이 아니라 한국어 라벨로. */}
               <div class="flex flex-wrap items-center gap-1.5 text-hint text-zinc-500">
                 {bodyGroups.slice(0, 3).map((k) => (
                   <GroupBadge key={k} groupKey={k} size="sm" />
                 ))}
-                <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] uppercase tracking-wider text-zinc-400">
-                  {i.type}
+                <span class="rounded bg-zinc-800/60 px-1.5 py-[1px] text-[10px] tracking-wider text-zinc-400">
+                  {INSIGHT_TYPE_LABEL[i.type] ?? i.type}
                 </span>
-                <span class="text-zinc-600">·</span>
-                <span>{i.scope}</span>
                 <span class="ml-auto tabular-nums" title={formatKST(i.generated_at)}>
                   {formatKSTDate(i.generated_at)}
                 </span>
