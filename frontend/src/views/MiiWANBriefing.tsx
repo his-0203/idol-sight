@@ -20,11 +20,10 @@
 //   섹션들보다 뒤.
 //
 // 뷰 모드 3종:
-//   briefing — 운영자 일일 뷰 (전체).
-//   report   — 투자 보고 뷰. 내부 QA 장치(실행 요건 배지·플레이북·
-//              수집 상태 empty state·채팅 원문)를 숨기고 결론 섹션만
-//              남긴다. est 배지·제외 공시 같은 정직성 장치는 유지 —
-//              숨기는 대상은 내부 작동 장치로 한정.
+//   briefing — 운영자 일일 뷰 (전체). 시계열 — "이번 주 무슨 일, 오늘 할 일".
+//   position — 종합 포지션 뷰 (MiiWANPosition). 공간 — "시장 전체에서
+//              우리 좌표가 어디고 어느 방향인가". 브리핑의 축약이 아니라
+//              별도 데이터(SOV·인지도·사분면·성장 자세)로 구성.
 //   market   — 국가별 진출/굿즈 분석 (MarketAnalysis).
 //
 // The "활성 멤버" 카드는 D-7 이상 남은 시점에서는 정보값이 거의
@@ -54,7 +53,9 @@ import { extractGroupKeys, humanizeInsightText } from "../lib/insightFormat";
 import { CompetitorOrganicityBar } from "../components/CompetitorOrganicityBar";
 import { MiiWANCohortReport } from "../components/MiiWANCohortReport";
 import { FanActivityCard, type FanActivity } from "../components/FanActivityCard";
+import { MiiWANEventTimeline } from "../components/MiiWANEventTimeline";
 import { MarketAnalysis } from "./MarketAnalysis";
+import { MiiWANPosition } from "./MiiWANPosition";
 
 type SummaryShape = {
   yt_total_videos: number; yt_total_views: number; yt_subscribers: number;
@@ -353,8 +354,8 @@ export function MiiWANBriefing() {
   const [data, setData] = useState<MiiwanData | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [showMembers, setShowMembers] = useState<boolean>(false);
-  // 뷰 3분리: 운영 브리핑 / 투자 보고(내부 QA 장치 숨김) / 시장 분석.
-  const [mode, setMode] = useState<"briefing" | "report" | "market">("briefing");
+  // 뷰 3분리: 운영 브리핑(시계열) / 포지션(시장 좌표) / 시장 분석(국가·굿즈).
+  const [mode, setMode] = useState<"briefing" | "position" | "market">("briefing");
   // 히어로에 승격된 동시기 비교 결론 — 동시기 성과 섹션과 같은 API를 쓰고
   // 문구는 headline()이 자동 산출(하드코딩 금지 원칙 동일). 실패 시 조용히
   // 생략 — 히어로가 이 줄 없이도 성립해야 한다.
@@ -423,7 +424,6 @@ export function MiiWANBriefing() {
 
   const diag = strategicDiagnosis(data);
   const outlook = weeklyOutlook(data);
-  const isReport = mode === "report";
   const actionCount = ipxActions.length + otherAlerts.length;
 
   return (
@@ -444,7 +444,7 @@ export function MiiWANBriefing() {
           </span>
           {/* 뷰 토글 — 히어로 헤더 행 우측에 pill 버튼으로 배치. 항상 위에 보임. */}
           <div role="tablist" aria-label="MiiWAN 뷰" class="ml-auto flex gap-1">
-            {([["briefing", "브리핑"], ["report", "투자 보고"], ["market", "시장 분석"]] as const).map(([k, label]) => {
+            {([["briefing", "브리핑"], ["position", "포지션"], ["market", "시장 분석"]] as const).map(([k, label]) => {
               const on = mode === k;
               return (
                 <button key={k} role="tab" aria-selected={on}
@@ -526,13 +526,20 @@ export function MiiWANBriefing() {
           memberPopularity={data.decision.member_popularity}
           daysToDebut={data.days_to_debut}
         />
+      ) : mode === "position" ? (
+        <MiiWANPosition
+          today={data.today}
+          alerts={data.alerts}
+          controversyTrend={data.controversy_trend}
+          countries={data.decision.analytics?.countries ?? null}
+          fanActivity={data.fan_activity}
+          cohortHead={cohortHead}
+        />
       ) : (<>
 
       {/* 2) CORE KPIS — 경영진의 첫 질문("숫자는?")이라 히어로 바로 아래.
           커뮤니티·뉴스 지표는 상승=녹색이 오독을 만들 수 있어(게시글 급증은
-          논란일 수도) 중립색으로 렌더. 보고 모드에서 데이터 없으면 섹션째
-          숨긴다 — 미완성 티는 empty state의 존재에서 난다. */}
-      {(data.summary || !isReport) && (
+          논란일 수도) 중립색으로 렌더. */}
       <section id="sec-kpi">
         <h2 class="section-title mb-3">핵심 지표 (최신 스냅샷
           {data.summary ? ` · ${formatKSTDate(data.summary.snapshot_at)} KST` : ""})
@@ -587,13 +594,10 @@ export function MiiWANBriefing() {
           );
         })()}
       </section>
-      )}
 
       {/* 3) STRATEGIC INSIGHT — 주간 LLM 분석, MiiWAN-scoped first.
           (2026-07-30 사용자 지시로 Action Queue 위 — 주간 관점의
-          "무엇이 중요한가"를 먼저 읽고, 아래에서 오늘의 처리 목록을 본다.)
-          보고 모드 제외 — 내부 운영 권고라 투자자 대상이 아니다. */}
-      {!isReport && (
+          "무엇이 중요한가"를 먼저 읽고, 아래에서 오늘의 처리 목록을 본다.) */}
       <section id="sec-insights">
         <h2 class="section-title mb-3">주간 전략 분석
           <span class="ml-2 text-hint font-normal text-zinc-500">AI 자동 분석 · 주 1회</span>
@@ -621,22 +625,17 @@ export function MiiWANBriefing() {
           </div>
         )}
       </section>
-      )}
 
       {/* 4) ACTION QUEUE — alerts + ipx_actions 통합. 매일 보는
           운영자가 "오늘 무엇을 해야 하나"를 5초 안에 답할 수 있도록
-          인사이트 바로 아래에 위치. 빈 상태도 자리 유지 (학습된 위치 유지).
-          보고 모드 제외. */}
-      {!isReport && <ActionQueue ipxActions={ipxActions} otherAlerts={otherAlerts} />}
+          인사이트 바로 아래에 위치. 빈 상태도 자리 유지 (학습된 위치 유지). */}
+      <ActionQueue ipxActions={ipxActions} otherAlerts={otherAlerts} />
 
       {/* 5) RISK WATCH — virtual-idol critical 카테고리만 별도 섹션.
-          액션 클러스터 바로 옆 (07-30 개편 때 하단으로 밀렸던 것을 복귀).
-          보고 모드에선 상태 한 줄로 축약 — 감시 체계가 있다는 사실 자체는
-          신뢰 신호, 대응 수칙 상세는 내부용. */}
+          액션 클러스터 바로 옆 (07-30 개편 때 하단으로 밀렸던 것을 복귀). */}
       <RiskWatch
         alerts={riskAlerts}
         controversyTrend={data.controversy_trend}
-        compact={isReport}
       />
 
       {/* 6) 동시기 성과 — 데뷔일 정렬(D+N) 벤치마크. 절대값이 아니라
@@ -696,13 +695,12 @@ export function MiiWANBriefing() {
       </section>
 
       {/* 7) TIMELINE — 최근 30일 + 향후 60일 이벤트 (group_events).
-          보고 모드는 예정 이벤트만, 비어 있으면 섹션째 숨김. */}
-      <MiiWANEventTimeline today={data.today} futureOnly={isReport} hideWhenEmpty={isReport} />
+          components/MiiWANEventTimeline — 포지션 뷰와 공유. */}
+      <MiiWANEventTimeline today={data.today} />
 
       {/* 8) 라이브 채팅 반응 — 방송별 긍/부정 대표 멘트 + 비율 추정.
-          /api/miiwan-live-chat (live_chat_reports). 채팅 원문이 노출되는
-          원자료성 피드라 보고 모드 제외. */}
-      {!isReport && <MiiWANLiveChat />}
+          /api/miiwan-live-chat (live_chat_reports). */}
+      <MiiWANLiveChat />
 
       {/* 9) P2a 찐팬 활동량 — 라이브 채팅 measured 코어 + 영상 estimated 참여.
           /api/miiwan 의 fan_activity (신규 수집 0, 기존 데이터 재가공).
@@ -720,8 +718,7 @@ export function MiiWANBriefing() {
 
       {/* 10) MEMBERS — debut D-7 이내 또는 데뷔 후에만 자동 노출.
           MiiWAN 은 corporate K-POP 모델이라 멤버별 솔로 채널을
-          운영하지 않음 → 카드는 이름·영문명만 표시. 보고 모드 제외. */}
-      {!isReport && (
+          운영하지 않음 → 카드는 이름·영문명만 표시. */}
       <section>
         <div class="mb-3 flex items-baseline gap-2">
           <h2 class="section-title">활성 멤버 ({data.members.length}명)</h2>
@@ -751,7 +748,6 @@ export function MiiWANBriefing() {
           )
         )}
       </section>
-      )}
       </>)}
     </div>
   );
@@ -864,10 +860,6 @@ export function MiiWANBriefing() {
   function RiskWatch(props: {
     alerts: AlertRow[];
     controversyTrend: { current: number; previous: number | null } | null;
-    /** 보고 모드 축약 — 상태 띠 + 알림 제목만. 대응 수칙(플레이북)·주의
-        문구·알림 본문은 내부용이라 숨긴다. 감시 체계의 존재 자체는 투자자
-        에게 신뢰 신호라 섹션을 통째로 빼지 않는다. */
-    compact?: boolean;
   }) {
     const cur = props.controversyTrend?.current ?? 0;
     const prev = props.controversyTrend?.previous ?? 0;
@@ -900,11 +892,6 @@ export function MiiWANBriefing() {
         <div class={`rounded border-l-4 px-3 py-2 text-sm ${tone}`}>
           <div class="flex flex-wrap items-center gap-2">
             <span class="font-semibold">위험도: {LEVEL_KR[level]}</span>
-            {props.compact && (
-              <span class="text-xs text-zinc-400">
-                3개 시나리오 매일 자동 감시 중
-              </span>
-            )}
             {props.controversyTrend && (
               <span class="rounded bg-zinc-900/50 px-2 py-0.5 text-xs">
                 논란 이번 주 {cur} · 직전 주 {prev}
@@ -917,7 +904,7 @@ export function MiiWANBriefing() {
               </span>
             )}
           </div>
-          {!props.compact && level !== "OK" && (
+          {level !== "OK" && (
             <div class="mt-1 text-xs text-zinc-300">
               ※ 자동 알림 — 사람이 확인한 뒤 대응 권장. 오탐일 때 공식 대응은 오히려 확산을 키울 수 있음.
             </div>
@@ -938,12 +925,8 @@ export function MiiWANBriefing() {
                     {formatKST(a.fired_at)}
                   </span>
                 </div>
-                {!props.compact && (
-                  <>
-                    <div class="mt-1 text-sm text-zinc-300">{a.body}</div>
-                    <AlertPlaybook rule={a.rule} />
-                  </>
-                )}
+                <div class="mt-1 text-sm text-zinc-300">{a.body}</div>
+                <AlertPlaybook rule={a.rule} />
               </li>
             ))}
           </ul>
@@ -1069,152 +1052,6 @@ function IpxActionGuard({ score }: { score: IpxScore }) {
         )}
       </div>
     </details>
-  );
-}
-
-type GroupEvent = {
-  id: number;
-  group_key: string;
-  event_date: string;
-  event_type: string;
-  title: string;
-  description: string | null;
-  source_url: string | null;
-  confidence: string;
-};
-
-const TIMELINE_EVENT_TYPES = new Set([
-  "debut", "first_release", "mv_release", "first_show_win",
-  "album_release", "single_release", "song_release",
-  "first_concert", "tour_start", "tour", "showcase",
-  "announcement", "member_reveal", "pre_debut",
-  "milestone", "controversy_spike",
-]);
-
-const TIMELINE_ICON: Record<string, string> = {
-  debut:           "🎬",
-  first_release:   "💿",
-  first_show_win:  "🏆",
-  album_release:   "💿",
-  single_release:  "🎵",
-  song_release:    "🎵",
-  mv_release:      "📺",
-  first_concert:   "🎤",
-  tour_start:      "🎤",
-  tour:            "🎤",
-  showcase:        "🎤",
-  announcement:    "📣",
-  member_reveal:   "👤",
-  pre_debut:       "🚧",
-  milestone:       "✨",
-};
-
-function MiiWANEventTimeline({ today, futureOnly, hideWhenEmpty }: {
-  today: string;
-  /** 보고 모드: 예정 이벤트만 — 과거 이력은 운영 로그 성격. */
-  futureOnly?: boolean;
-  /** 보고 모드: 보여줄 이벤트가 없으면 섹션 자체를 렌더하지 않는다
-      (빈 섹션은 미완성 티만 낸다). 브리핑 모드는 자리 유지. */
-  hideWhenEmpty?: boolean;
-}) {
-  const [events, setEvents] = useState<GroupEvent[] | null>(null);
-
-  useEffect(() => {
-    // -30 / +60 day window centered on today. The MiiWAN tab is the
-    // operator's daily home and the windowing matches the cadence
-    // of the briefing's other sections (action queue ~14d, risk
-    // watch ~14d, KPI sparklines 30d). +60 forward catches the
-    // imminent debut milestones.
-    const now = new Date(today);
-    const fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 30);
-    const toDate = new Date(now); toDate.setDate(toDate.getDate() + 60);
-    api.groupEvents(
-      "miiwan",
-      fromDate.toISOString().slice(0, 10),
-      toDate.toISOString().slice(0, 10),
-    ).then((d) => setEvents(d?.events ?? [])).catch(() => setEvents([]));
-  }, [today]);
-
-  const filtered = useMemo(() => {
-    if (!events) return [];
-    return events
-      .filter((e) => TIMELINE_EVENT_TYPES.has(e.event_type))
-      .filter((e) => !futureOnly || e.event_date >= today)
-      .sort((a, b) => a.event_date.localeCompare(b.event_date));
-  }, [events, futureOnly, today]);
-
-  const todayDate = today;
-
-  if (!events) {
-    if (hideWhenEmpty) return null;
-    return (
-      <section>
-        <h2 class="section-title mb-3">이벤트 캘린더</h2>
-        <div class="text-hint text-zinc-500">Loading…</div>
-      </section>
-    );
-  }
-
-  if (filtered.length === 0) {
-    if (hideWhenEmpty) return null;
-    return (
-      <section>
-        <h2 class="section-title mb-3">이벤트 캘린더</h2>
-        <div class="text-hint text-zinc-500">
-          최근 30일 / 향후 60일 등록된 이벤트 없음.
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section>
-      <div class="mb-3 flex flex-wrap items-baseline gap-2">
-        <h2 class="section-title">이벤트 캘린더</h2>
-        <span class="text-hint text-zinc-500">
-          최근 30일 + 향후 60일 · 과거(회색) / 오늘(amber) / 예정(emerald)
-        </span>
-      </div>
-      <ol class="space-y-1.5">
-        {filtered.map((e) => {
-          const isPast = e.event_date < todayDate;
-          const isToday = e.event_date === todayDate;
-          const isFuture = e.event_date > todayDate;
-          const tone = isFuture
-            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-100"
-            : isToday
-            ? "border-amber-500 bg-amber-500/10 text-amber-100"
-            : "border-zinc-800 bg-zinc-900/30 text-zinc-400";
-          // Days-from-today annotation so the operator can read the
-          // distance without subtracting calendar dates in their head.
-          const days = Math.round(
-            (Date.parse(e.event_date) - Date.parse(todayDate)) / 86_400_000,
-          );
-          const dayLabel = days === 0 ? "오늘"
-            : days > 0 ? `D+${days}`
-            : `D${days}`;
-          return (
-            <li key={e.id} class={`rounded-lg border-l-2 px-3 py-2 text-sm ${tone}`}>
-              <div class="flex flex-wrap items-baseline gap-2">
-                <span>{TIMELINE_ICON[e.event_type] ?? "•"}</span>
-                <span class="tabular-nums text-zinc-500">{e.event_date}</span>
-                <span class="font-semibold">{e.title}</span>
-                <span class="ml-auto rounded bg-zinc-900/60 px-1.5 text-hint tabular-nums text-zinc-300">
-                  {dayLabel}
-                </span>
-              </div>
-              {e.description && (
-                <div class="mt-0.5 text-xs text-zinc-400">{e.description}</div>
-              )}
-              {e.source_url && (
-                <a class="mt-0.5 inline-block text-hint text-zinc-500 hover:text-zinc-400 hover:underline"
-                   href={e.source_url} target="_blank" rel="noopener">출처 ↗</a>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </section>
   );
 }
 
