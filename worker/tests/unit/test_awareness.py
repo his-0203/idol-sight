@@ -41,9 +41,9 @@ def test_compute_leader_normalized_to_one_each_signal():
     assert plave["awareness_score"] == pytest.approx(100.0)
     assert plave["basis"] == "scored"
     skinz = out["skinz"]
-    # V2.56 band: [log1p(0.01·ref), log1p(ref)] 로 정규화. skinz 구독 10만은
-    # 리더(100만)의 10% → 밴드 중앙 근처(≈0.50).
-    _lo = math.log1p(0.01 * 1_000_000)
+    # v2 band: [log1p(0.001·ref), log1p(ref)] 로 정규화. skinz 구독 10만은
+    # 리더(100만)의 10% → 3데케이드 중 2/3 지점(≈0.67).
+    _lo = math.log1p(0.001 * 1_000_000)
     _hi = math.log1p(1_000_000)
     assert skinz["sub_n"] == pytest.approx(
         (math.log1p(100_000) - _lo) / (_hi - _lo))
@@ -64,24 +64,29 @@ def test_compute_weighting_sub_only_is_half():
 
 
 def test_compute_band_normalization_within_and_below_floor():
-    # V2.56 band: 리더 대비 [1%, 100%] 규모를 [0, 1]에 log 스케일로 펼침.
-    # 리더의 1% 이하는 0.0 으로 클램프(과대포장 차단).
+    # v2 band(2026-08): 리더 대비 [0.1%, 100%] 규모를 [0, 1]에 log 스케일로
+    # 펼침. 기존 [1%,100%]는 리더가 초대형(PLAVE 1.2M)일 때 소형 그룹 전원을
+    # 0으로 클램프해 뉴스 신호만 남기는 증폭 요인이었다. 0.1% 이하만 클램프.
     groups = [
         {"key": "lead", "group_model": "corporate",
          "yt_subscribers": 1_000_000, "yt_total_views": 0, "naver_total_news": 0},
         {"key": "mid", "group_model": "corporate",
          "yt_subscribers": 100_000, "yt_total_views": 0, "naver_total_news": 0},
+        {"key": "small", "group_model": "corporate",
+         "yt_subscribers": 10_000, "yt_total_views": 0, "naver_total_news": 0},
         {"key": "tiny", "group_model": "corporate",
          "yt_subscribers": 1000, "yt_total_views": 0, "naver_total_news": 0},
     ]
     out = _by_key(compute_awareness(groups))
     assert out["lead"]["sub_n"] == pytest.approx(1.0)   # 리더 = 정확히 1.0
-    _lo = math.log1p(0.01 * 1_000_000)
+    _lo = math.log1p(0.001 * 1_000_000)
     _hi = math.log1p(1_000_000)
-    expected_mid = (math.log1p(100_000) - _lo) / (_hi - _lo)   # 10% → ≈0.5
+    expected_mid = (math.log1p(100_000) - _lo) / (_hi - _lo)
     assert out["mid"]["sub_n"] == pytest.approx(expected_mid)
-    assert 0.4 < expected_mid < 0.6
-    # tiny 구독 1000 = 리더의 0.1% (< 1% 밴드 하한) → 0.0 으로 클램프.
+    # small 구독 10K = 리더의 1% — 구밴드에선 정확히 하한(0.0)이었지만
+    # 새 밴드에선 살아난다 (소형 그룹 0-클램프 병리의 핵심 수정).
+    assert out["small"]["sub_n"] > 0.3
+    # tiny 구독 1000 = 리더의 0.1% (= 새 밴드 하한) → 0.0 클램프 유지.
     assert out["tiny"]["sub_n"] == 0.0
 
 
@@ -108,8 +113,8 @@ def test_compute_null_and_negative_signals_coerced_to_zero():
     nully = _by_key(compute_awareness(groups))["nully"]
     assert nully["sub_n"] == 0.0
     assert nully["view_n"] == 0.0
-    # V2.56 band: news ref=100(lead), val=50 → 밴드 [log1p(1), log1p(100)].
-    _lo = math.log1p(0.01 * 100)
+    # v2 band: news ref=100(lead), val=50 → 밴드 [log1p(0.1), log1p(100)].
+    _lo = math.log1p(0.001 * 100)
     _hi = math.log1p(100)
     assert nully["news_n"] == pytest.approx(
         (math.log1p(50) - _lo) / (_hi - _lo))
@@ -168,9 +173,9 @@ def test_compute_tiebreak_by_subscribers_descending():
          "yt_subscribers": 4999, "yt_total_views": 0, "naver_total_news": 0},
     ]
     out = _by_key(compute_awareness(groups))
-    # V2.56 band: hi/lo 구독이 근접(5000 vs 4999)해 밴드 정규화 점수가 1자리
-    # 반올림에서 동률(42.5) → subscribers 내림차순 tiebreak 로 순위 결정.
-    assert out["hi"]["awareness_score"] == out["lo"]["awareness_score"] == 42.5
+    # v2 band: hi/lo 구독이 근접(5000 vs 4999)해 밴드 정규화 점수가 1자리
+    # 반올림에서 동률(44.9) → subscribers 내림차순 tiebreak 로 순위 결정.
+    assert out["hi"]["awareness_score"] == out["lo"]["awareness_score"] == 44.9
     assert out["lead"]["category_rank"] == 1
     assert out["hi"]["category_rank"] == 2
     assert out["lo"]["category_rank"] == 3
@@ -266,12 +271,17 @@ def _fake():
             {"key": "isedol", "group_model": "segmentary"},
         ],
         agg=[
+            # v2: build 는 naver_news_90d 를 우선 소비(0113) — 픽스처는 누적과
+            # 같은 값으로 채워 기존 기대값 유지.
             {"group_key": "plave", "yt_subscribers": 1_000_000,
-             "yt_total_views": 160_000_000, "naver_total_news": 300},
+             "yt_total_views": 160_000_000, "naver_total_news": 300,
+             "naver_news_90d": 300},
             {"group_key": "skinz", "yt_subscribers": 100_000,
-             "yt_total_views": 10_000_000, "naver_total_news": 20},
+             "yt_total_views": 10_000_000, "naver_total_news": 20,
+             "naver_news_90d": 20},
             {"group_key": "isedol", "yt_subscribers": 8_000_000,
-             "yt_total_views": 1_200_000_000, "naver_total_news": 50},
+             "yt_total_views": 1_200_000_000, "naver_total_news": 50,
+             "naver_news_90d": 50},
         ],
     )
 
@@ -426,3 +436,47 @@ def test_migration_agg_awareness_pk_is_group_key_snapshot():
     conn.execute(ins)
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(ins)
+
+
+def test_build_awareness_prefers_naver_news_90d_when_column_present():
+    """v2(2026-08): 뉴스 신호 = naver_news_90d(최근 90일 플로우). 컬럼이 있는
+    D1에선 누적(naver_total_news) 대신 90d 값이 news_n 을 결정한다."""
+    fake = _FakeClient(
+        groups=[
+            {"key": "plave", "group_model": "corporate"},
+            {"key": "quiet", "group_model": "corporate"},
+        ],
+        agg=[
+            # quiet: 누적 200건(과거 관성)이지만 최근 90일 0건.
+            {"group_key": "plave", "yt_subscribers": 1_000_000,
+             "yt_total_views": 160_000_000, "naver_total_news": 300,
+             "naver_news_90d": 100},
+            {"group_key": "quiet", "yt_subscribers": 0,
+             "yt_total_views": 0, "naver_total_news": 200,
+             "naver_news_90d": 0},
+        ],
+    )
+    res = build_awareness(fake, snapshot_at="2026-08-04T00:00:00Z")
+    by_group = {st[1][0]: st[1] for st in res.statements[1:]}
+    # quiet: 90d=0 → 세 신호 전부 0 → insufficient (score None).
+    assert by_group["quiet"][3] is None
+    # plave: 90d=100 → news 리더 → news_n(=params[7]) 1.0.
+    assert by_group["plave"][7] == 1.0
+
+
+def test_build_awareness_falls_back_to_total_news_without_90d_column():
+    """마이그레이션(0113) 미적용 D1: 감지 쿼리가 실패하면 누적으로 폴백."""
+    class _NoColumnClient(_FakeClient):
+        def execute(self, sql, params=None):
+            if "naver_news_90d" in sql:
+                raise RuntimeError("no such column: naver_news_90d")
+            return super().execute(sql, params)
+
+    fake = _NoColumnClient(
+        groups=[{"key": "plave", "group_model": "corporate"}],
+        agg=[{"group_key": "plave", "yt_subscribers": 0,
+              "yt_total_views": 0, "naver_total_news": 300}],
+    )
+    res = build_awareness(fake, snapshot_at="2026-08-04T00:00:00Z")
+    by_group = {st[1][0]: st[1] for st in res.statements[1:]}
+    assert by_group["plave"][7] == 1.0   # 누적 300 → news 리더

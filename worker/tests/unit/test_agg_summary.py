@@ -217,3 +217,34 @@ def test_controversy_query_is_windowed_to_recent_posted_at():
     assert "posted_at >= datetime('now'" in sql
     # the window is the configured trailing window, not all-time.
     assert params == [f"-{CONTROVERSY_WINDOW_DAYS} days"]
+
+
+def test_naver_news_90d_windowed_count_lands_after_controversy():
+    """v2(2026-08): naver_news_90d = published_at 기준 최근 90일 relevant 기사
+    수. 누적 naver_total_news(health score 소비)와 별도 컬럼으로 공존한다.
+    쿼리는 published_at 창 + is_excluded 필터를 모두 가져야 한다."""
+    client = _client_returning({
+        # 90d 창 쿼리 needle: published_at (누적 쿼리엔 없음) — 순서 중요.
+        "published_at": [
+            {"group_key": "plave", "n": 40},
+        ],
+        "naver_articles": [
+            {"group_key": "plave", "n": 282},
+        ],
+    })
+    result = build_agg_summary(client, snapshot_at="2026-08-04T00:00:00Z")
+    for _sql, params in result.statements:
+        if params[0] == "plave":
+            assert params[10] == 282   # naver_total_news (불변)
+            assert params[11] == 0     # controversy
+            assert params[12] == 40    # naver_news_90d (신규)
+            break
+    else:
+        raise AssertionError("plave row not found")
+
+    # 창 쿼리 형태 검증 — published_at 하한 + is_excluded 제외.
+    win_sqls = [c.args[0] for c in client.execute.call_args_list
+                if "published_at" in c.args[0]]
+    assert win_sqls, "windowed naver query not issued"
+    assert "is_excluded" in win_sqls[0]
+    assert "-90 days" in str(client.execute.call_args_list)

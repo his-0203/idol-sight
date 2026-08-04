@@ -42,6 +42,21 @@ _WINDOW_DAYS: int = 56
 _MIN_WINDOW_VIDEOS: int = 3        # 윈도우 내 영상 < 3 → 최신 12건 폴백
 _VIDEO_FALLBACK_LIMIT: int = 12
 
+# v2(2026-08): est_engaged_fans/est_active_core 는 표본 전체 median 이 아니라
+# **반응 상위 K편의 median** — 전체 median 은 업로드 편수의 감소함수라 일상
+# 클립을 성실히 올리는 그룹이 벌점을 받았다(볼륨 역상관). 상위 K median 은
+# 영상 추가로 내려갈 수 없어(약단조) 이 병리가 구조적으로 소멸하고, 쇼츠·
+# 일상 클립은 상위 K에 못 들면 자동 배제된다. 지표별로 자기 신호 기준
+# top-K(좋아요→engaged, 댓글→core). K 자의성은 K∈{3,5,7} 순위 안정성으로
+# 검증(스펙 §③). like_rate/comment_rate/video_count 는 전체 표본 기준 유지.
+TOP_K_VIDEOS: int = 5
+
+
+def _top_k(videos: list[dict[str, Any]], field: str,
+           k: int = TOP_K_VIDEOS) -> list[dict[str, Any]]:
+    """``field`` 내림차순 상위 k편 (표본 <k 면 전부 — 현행 median 과 연속)."""
+    return sorted(videos, key=lambda v: (v.get(field) or 0), reverse=True)[:k]
+
 _GROUPS_SQL = "SELECT key FROM groups WHERE is_active=1"
 
 # live_activity._VIDEOS_WINDOW_SQL 복제
@@ -142,20 +157,35 @@ def compute_core_fan_estimate(
         key: str = g["key"]
         videos: list[dict[str, Any]] = g.get("videos") or []
         # subscribers=None: view_through 필드는 agg_core_fan_estimate 에 없으므로 미사용
+        # rate·count 는 전체 표본 기준(축 아님) — 공유 산식 함수는 불변으로
+        # 두고(라이브 활동 P2a 와 공유) 표본 선택만 v2 top-K 로 바꾼다.
         est = estimate_video_engagement(videos, subscribers=None)
+        est_l = estimate_video_engagement(_top_k(videos, "likes"), subscribers=None)
+        est_c = estimate_video_engagement(_top_k(videos, "comments"), subscribers=None)
         # V2.53: videos_adj 키 부재 = 필터 없음(videos 전체를 adj 로 간주, 호환).
         videos_adj = g.get("videos_adj", videos)
         if videos:
-            est_adj = (estimate_video_engagement(videos_adj, subscribers=None)
-                       if videos_adj else None)
+            if videos_adj:
+                # suspect 제외 **후** 동일 top-K — 의심 영상이 상위권이었다면
+                # 보정값이 실제로 내려간다.
+                adj_l = estimate_video_engagement(
+                    _top_k(videos_adj, "likes"), subscribers=None)
+                adj_c = estimate_video_engagement(
+                    _top_k(videos_adj, "comments"), subscribers=None)
+                est_adj = {
+                    "est_engaged_fans": adj_l["est_engaged_fans"],
+                    "est_active_core": adj_c["est_active_core"],
+                }
+            else:
+                est_adj = None
             basis = "scored" if videos_adj else "insufficient_organic"
         else:
             est_adj = None
             basis = "insufficient"
         out.append({
             "group_key": key,
-            "est_engaged_fans": est["est_engaged_fans"],
-            "est_active_core": est["est_active_core"],
+            "est_engaged_fans": est_l["est_engaged_fans"],
+            "est_active_core": est_c["est_active_core"],
             "like_rate": est["like_rate"],
             "comment_rate": est["comment_rate"],
             "video_count": est["video_count"],

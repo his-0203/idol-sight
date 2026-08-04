@@ -72,24 +72,29 @@ def _coerce(value: Any) -> float:
 
 
 def _normalize_log(value: float, ref: float) -> float:
-    """log 밴드 정규화 — [log1p(0.01·ref), log1p(ref)] 구간을 [0, 1]로 매핑.
+    """log 밴드 정규화 — [log1p(0.001·ref), log1p(ref)] 구간을 [0, 1]로 매핑.
 
     카테고리 리더(ref = 해당 카테고리 내 그 신호의 최댓값) 대비.
 
     V2.56: 기존 ``log1p(value)/log1p(ref)`` 는 리더 대비 0.76% 규모의 그룹
     (bdawn: 구독 9K vs PLAVE 1.19M, 132배 차)도 정규화 후 0.65~0.77 로 찍어
     소형 그룹을 과대 압축했다 — 캘리브레이션 리포트 §B: bdawn 인지도 raw 68.6
-    (PLAVE의 69%)로 표시되나 실제 보유청중은 PLAVE의 0.76%. 리더 대비 [1%,
-    100%] 규모 구간을 log 스케일로 [0, 1]에 펼쳐 점수 크기가 실제 규모차를
+    (PLAVE의 69%)로 표시되나 실제 보유청중은 PLAVE의 0.76%. 리더 대비 규모
+    구간을 log 스케일로 [0, 1]에 펼쳐 점수 크기가 실제 규모차를
     정직하게 전달하게 한다(§B: bdawn 68.6→7.6, owis 79.8→36.2). log1p 자체가
     단조 변환이라 **순위는 불변** — 밴드 정규화도 단조이므로 순위 보존.
 
-    리더(value==ref>0)는 정확히 1.0, 리더의 1% 이하 규모는 0.0 으로 클램프.
+    v2(2026-08): 밴드 하한 1% → 0.1%. 리더가 초대형(PLAVE 구독 1.2M·조회
+    855M)이라 1% 하한이 소형 그룹의 구독·조회를 전부 0으로 클램프 → 가중치
+    0.15짜리 뉴스가 소형 그룹 좌표를 전결정하는 증폭 요인이었다. [0.1%,
+    100%] 3데케이드로 완화 — 여전히 단조라 신호 내 순위 불변, 점수만 재분포.
+
+    리더(value==ref>0)는 정확히 1.0, 리더의 0.1% 이하 규모는 0.0 으로 클램프.
     value <= 0 또는 ref <= 0 (category_max=0 가드) → 0.
     """
     if value <= 0 or ref <= 0:
         return 0.0
-    lo = math.log1p(0.01 * ref)
+    lo = math.log1p(0.001 * ref)
     hi = math.log1p(ref)
     if hi <= lo:
         return 1.0 if value >= ref else 0.0
@@ -215,6 +220,14 @@ _GROUPS_SQL = (
 # 그룹별 최신 신호 — 이번 스냅샷의 agg_summary 행(_recompute_health_scores 와
 # 동일 패턴: WHERE snapshot_at=?). agg_awareness 는 agg_summary 파생이므로 같은
 # 스냅샷을 읽는다.
+#
+# v2(2026-08): 뉴스 신호 = naver_news_90d(최근 90일 플로우, migration 0113).
+# 누적 스톡은 활동 정지 그룹의 인지도를 영구 유지시키는 관성 문제가 있었다.
+# 컬럼 미적용 D1 은 누적으로 폴백(_has_news_90d_column 감지, adj 패턴 미러).
+_AGG_SQL_90D = (
+    "SELECT group_key, yt_subscribers, yt_total_views, naver_news_90d "
+    "FROM agg_summary WHERE snapshot_at = ?"
+)
 _AGG_SQL = (
     "SELECT group_key, yt_subscribers, yt_total_views, naver_total_news "
     "FROM agg_summary WHERE snapshot_at = ?"
@@ -250,6 +263,15 @@ def _has_adj_columns(client: _Executor) -> bool:
         return False
 
 
+def _has_news_90d_column(client: _Executor) -> bool:
+    """mig 0113 적용 여부 감지 — 미적용 D1은 누적 뉴스로 폴백(graceful)."""
+    try:
+        client.execute("SELECT naver_news_90d FROM agg_summary LIMIT 1")
+        return True
+    except Exception:
+        return False
+
+
 def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
     """그룹별 최신 agg_summary + group_model → compute → 스냅샷별 멱등 쓰기.
 
@@ -267,9 +289,12 @@ def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
     model_by_key = {
         r["key"]: r.get("group_model") for r in client.execute(_GROUPS_SQL)
     }
+    # v2: 뉴스 신호는 90d 플로우 우선(0113 적용 시), 미적용 D1은 누적 폴백.
+    use_90d = _has_news_90d_column(client)
     agg_by_key = {
         r["group_key"]: r
-        for r in client.execute(_AGG_SQL, [snapshot_at])
+        for r in client.execute(
+            _AGG_SQL_90D if use_90d else _AGG_SQL, [snapshot_at])
     }
 
     groups_in = [
@@ -278,7 +303,11 @@ def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
             "group_model": model_by_key.get(key),
             "yt_subscribers": agg.get("yt_subscribers"),
             "yt_total_views": agg.get("yt_total_views"),
-            "naver_total_news": agg.get("naver_total_news"),
+            # compute 입력 키는 naver_total_news 로 유지(순수 함수 계약 불변)
+            # — v2에선 여기에 90d 플로우 값이 실린다.
+            "naver_total_news": (
+                agg.get("naver_news_90d") if use_90d
+                else agg.get("naver_total_news")),
         }
         for key, agg in agg_by_key.items()
         if key in model_by_key   # 비활성/미등록 그룹의 잔여 행 무시
