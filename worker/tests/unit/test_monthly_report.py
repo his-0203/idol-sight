@@ -179,3 +179,29 @@ def test_render_tier_degenerate_falls_back_to_placeholder():
                                 "view_flow_90d": None}]}
     doc = render_deck(d, generated_at="2026-08-01T00:23:00Z")
     assert "8월 보고서부터 표기" in doc
+
+
+def test_data_parity_fixes():
+    """2026-08-04 정합 수정 회귀 가드: ① 사분면은 생성 시점 최신 스냅샷
+    (월말 고정 시 옛 산식 값이 대시보드와 어긋남) ② '자연 유입' 오연결
+    제거 — 타일은 서버 실측 시청전환율."""
+    from unittest.mock import MagicMock
+    from idol_sight.analysis.monthly_report import build_monthly_data
+    from idol_sight.analysis.monthly_render import render_deck
+
+    client = MagicMock()
+    def _exec(sql, params=None):
+        if "agg_fan_loyalty" in sql:
+            return [{"conversion_rate": 0.0116, "score": 39.9, "window_days": 56}]
+        if "MAX(snapshot_at) AS s FROM agg_awareness" in sql:
+            # 생성 시점 최신 — 월말 바운드(snapshot_at <)가 없어야 한다.
+            assert "snapshot_at <" not in sql
+            return [{"s": None}]
+        return []
+    client.execute.side_effect = _exec
+
+    d = build_monthly_data(client, "2026-07")
+    assert d["loyalty"]["conversion_rate"] == 0.0116
+    doc = render_deck(d, generated_at="2026-08-04T09:00:00Z")
+    assert "시청전환율" in doc and "1.2%" in doc
+    assert "자연 유입 점수" not in doc          # 오연결 지표 제거

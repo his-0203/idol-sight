@@ -312,12 +312,15 @@ def _tier_row(client: _Executor, month: str) -> dict | None:
             "team_count": len(peers), "kpop_rows": all_kpop}
 
 
-def _quadrant(client: _Executor, month: str) -> dict | None:
-    """월말 스냅샷의 인지도×코어 좌표(K-POP 전 그룹) + MiiWAN 분면."""
-    _, end = month_bounds(month)
+def _quadrant(client: _Executor) -> dict | None:
+    """생성 시점 최신 스냅샷의 인지도×코어 좌표(K-POP 전 그룹) + MiiWAN 분면.
+
+    월말 스냅샷을 쓰지 않는 이유(2026-08-04 사용자 피드백): 산식이 개편되면
+    과거 스냅샷은 옛 산식 값이라 대시보드 현재 화면과 어긋난다(7/31 v1
+    인지도 17.1 vs v2 37.4 실측). 포지션 계열은 "생성 시점 좌표"로 통일하고
+    렌더가 기준 시점을 명시한다."""
     snap_rows = client.execute(
-        "SELECT MAX(snapshot_at) AS s FROM agg_awareness WHERE snapshot_at < ?",
-        [end])
+        "SELECT MAX(snapshot_at) AS s FROM agg_awareness", [])
     snap = snap_rows[0]["s"] if snap_rows else None
     if not snap:
         return None
@@ -460,8 +463,10 @@ def build_monthly_data(client: _Executor, month: str) -> dict[str, Any]:
 
     tier_now = _tier_row(client, month)
     tier_prev = _tier_row(client, pm)
-    quad_now = _quadrant(client, month)
-    quad_prev = _quadrant(client, pm)
+    quad_now = _quadrant(client)
+    # 분면 이동(R5) 비교는 이전 달 덱과의 대조가 원칙이나, 산식 v2 개편기
+    # (2026-08)라 과거 스냅샷과의 비교가 무의미 — 8월 덱부터 재개.
+    quad_prev = None
     cohort = _cohort(client, month)
     cohort_prev = _cohort(client, pm)
     mine_now = next((r for r in cohort["rows"] if r["group"] == TARGET), None)
@@ -493,9 +498,13 @@ def build_monthly_data(client: _Executor, month: str) -> dict[str, Any]:
         "ORDER BY week_start DESC LIMIT 3",
         [TARGET, f"{month}-01", end[:10]])
 
-    # 자연 유입 점수(팬덤 질) — 생성 시점 기준 참고 타일
-    org = client.execute(
-        "SELECT score FROM agg_fan_loyalty WHERE group_key=? LIMIT 1", [TARGET])
+    # 팬덤 질 타일 — 서버 실측(agg_fan_loyalty)만 사용. '자연 유입 점수'는
+    # 프론트 계산 전용 지표라 여기서 재현 불가 → 오연결 방지 위해 미사용
+    # (2026-08-04 데이터 정합 수정: loyalty.score를 자연 유입으로 잘못
+    # 라벨링했던 버그).
+    loyalty = client.execute(
+        "SELECT conversion_rate, score, window_days FROM agg_fan_loyalty "
+        "WHERE group_key=? LIMIT 1", [TARGET])
 
     news_delta = None
     if eom and eom_prev and eom.get("naver_total_news") is not None \
@@ -539,7 +548,7 @@ def build_monthly_data(client: _Executor, month: str) -> dict[str, Any]:
         "countries": countries,
         "alerts": alerts,
         "insights": insights,
-        "org_score": org[0]["score"] if org else None,
+        "loyalty": loyalty[0] if loyalty else None,
         "news_delta": news_delta,
         "controversy": eom.get("controversy_count") if eom else None,
         "events": events,

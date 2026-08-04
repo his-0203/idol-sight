@@ -432,11 +432,14 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
         f"가입 {mom_phrase(wv['members'] if wv else None, wvp['members'] if wvp else None)}"
         f" · 멤버십 {mom_phrase(wv['membership'] if wv else None, wvp['membership'] if wvp else None)}")
 
-    org = d["org_score"]
+    loy = d.get("loyalty") or {}
+    conv = loy.get("conversion_rate")
+    conv_txt = f"{conv * 100:.1f}%" if conv is not None else "—"
+    loy_win = loy.get("window_days") or 56
     tiles = ("<div class='tiles'>"
-             f"<div class='tile'><div class='tv'>"
-             f"{fmt_num(org) if org is not None else '—'}</div>"
-             "<div class='tl'>자연 유입 점수 (0~100 · 생성 시점 기준)</div></div>"
+             f"<div class='tile'><div class='tv'>{conv_txt}</div>"
+             f"<div class='tl'>시청전환율 — 라이브 동접÷구독 · 최근 {loy_win}일 "
+             "· 생성 시점 기준(대시보드 동일 값)</div></div>"
              f"<div class='tile'><div class='tv'>"
              f"{'+' + fmt_num(d['news_delta']) if d['news_delta'] is not None else '—'}"
              "</div><div class='tl'>월간 뉴스 증분 (자사 집계)</div></div></div>")
@@ -495,7 +498,8 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
                                 quad["median_y"]) if quad
                     else _placeholder("좌표 데이터 없음", 300))
                  + "<p class='note'>십자선 = 카테고리 중앙값 · 적극 코어 = "
-                   "최근 30일 댓글 상위 5편 중앙값(추정)</p>")
+                   "최근 30일 댓글 상위 5편 중앙값(추정) · 좌표는 생성 시점 "
+                   "기준(산식 v2) — 대시보드 시장 지도와 동일 값</p>")
     pages.append(_page("시장 내 위치", 4, TOTAL, month, generated_at,
                        _block("시장 내 위치", "시장 어디에 있고 어느 방향인가?",
                               tier_html + quad_html, concl)))
@@ -512,8 +516,9 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
                         f"{_name(e['group'])}({e['reason']})"
                         for e in coh["excluded"]), 90)
                     + "</p>")
-        coh_html = (f"<p class='note'>데뷔일 정렬 D+{coh['age_days']}일 시점 "
-                    "구독 성장배수(D0 대비) · 실측 스냅샷 기준</p>"
+        coh_html = (f"<p class='note'>데뷔일 정렬 D+{coh['age_days']}일(보고 월말) "
+                    "시점 구독 성장배수(D0 대비) · 실측 스냅샷 기준 · 대시보드 "
+                    "동시기 화면은 '오늘' 기준이라 시점이 다를 수 있음</p>"
                     + svg_hbars(hrows, unit="x") + excl)
     else:
         coh_html = _placeholder("코호트 비교 가능 데이터가 없습니다", 140)
