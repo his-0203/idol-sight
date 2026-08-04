@@ -28,8 +28,17 @@ export function WeeklyUpdate() {
   if (err) return <div class="text-rose-400">불러오기 실패: {err}</div>;
   if (!weeklyData) return <div class="text-zinc-500">Loading…</div>;
 
-  const weekStart = weeklyData.hanteo?.[0]?.week_start ?? weeklyData.week_start ?? null;
-  const weekEnd = weeklyData.hanteo?.[0]?.week_end ?? null;
+  // 기준 주간 = 인사이트 리포트 주간(일요일 시작). 한터 행에서 가져오지
+  // 않는다 — hanteo_weekly는 주간 수집이 없는 초동 아카이브(시드)라 최신
+  // 행이 몇 달 전일 수 있고, 그걸 우선하면 브리프 전체가 낡아 보인다.
+  const weekStart = weeklyData.week_start ?? null;
+  const weekEnd = (() => {
+    if (!weekStart) return null;
+    const d = new Date(`${weekStart}T00:00:00Z`);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setUTCDate(d.getUTCDate() + 6);
+    return d.toISOString().slice(0, 10);
+  })();
 
   // api.insights rows already have source_refs parsed by the endpoint's mapRow.
   const insights: any[] = insightsData?.insights ?? [];
@@ -84,20 +93,26 @@ export function WeeklyUpdate() {
         </section>
       )}
 
+      {/* 초동 기록 — 주간 데이터가 아니라 앨범 첫 주 판매량 아카이브(수동
+          검증 시드). 행마다 자체 집계 주간을 표기해 브리프 기준 주간과
+          혼동되지 않게 한다. */}
       {weeklyData.hanteo.length > 0 && (
         <section class="rounded-lg border border-zinc-800 p-3">
-          <h3 class="section-title mb-3 border-b border-zinc-800/40 pb-2">Hanteo Weekly</h3>
+          <div class="mb-3 flex flex-wrap items-baseline gap-2 border-b border-zinc-800/40 pb-2">
+            <h3 class="section-title">초동 기록</h3>
+            <span class="text-hint text-zinc-500">앨범 첫 주 판매량 · 수동 검증 수치(주간 자동 갱신 아님)</span>
+          </div>
           <div class="overflow-x-auto">
             <table class="w-full text-xs">
               <thead><tr class="text-left text-zinc-500">
-                <th class="py-1">#</th><th>Group</th><th>Album</th><th class="text-right">Sales</th>
+                <th class="py-1">Group</th><th>Album</th><th>집계 주간</th><th class="text-right">Sales</th>
               </tr></thead>
               <tbody>
                 {weeklyData.hanteo.map((h: any) => (
                   <tr key={`${h.group_key}-${h.album}`} class="border-t border-zinc-800/60">
-                    <td class="py-1">{h.rank}</td>
-                    <td>{h.group_name ?? h.group_key}</td>
+                    <td class="py-1">{h.group_name ?? h.group_key}</td>
                     <td>{h.album}</td>
+                    <td class="tabular-nums text-zinc-500">{h.week_start} ~ {h.week_end}</td>
                     <td class="text-right tabular-nums">{fmt(h.sales)}</td>
                   </tr>
                 ))}

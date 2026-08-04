@@ -9,14 +9,16 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
       WHERE type IN ('weekly', 'insight', 'ipx_action')`);
   const week_start = weekRow[0]?.week_start ?? null;
 
+  // 초동 아카이브 전체 — hanteo_weekly는 주간 수집이 없는 수동 검증
+  // 시드라 "최신 주만" 필터하면 몇 달 전 1행만 남는다(주간 브리프가
+  // 낡아 보이던 원인). 최근 앨범부터 전량 반환(행 수 소수).
   const hanteo = await d1Query<any>(env.DB,
     `SELECT h.week_start, h.week_end, h.group_key,
             COALESCE(g.name, h.group_key) AS group_name,
             h.album, h.rank, h.sales, h.note
        FROM hanteo_weekly h
        LEFT JOIN groups g ON g.key = h.group_key
-      WHERE h.week_end = (SELECT MAX(week_end) FROM hanteo_weekly)
-      ORDER BY h.rank ASC`);
+      ORDER BY h.week_end DESC, h.sales DESC`);
   const movers = await d1Query<any>(env.DB,
     `SELECT s.group_key,
             COALESCE(g.name, s.group_key) AS group_name,
