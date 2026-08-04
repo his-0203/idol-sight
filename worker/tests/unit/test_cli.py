@@ -254,9 +254,11 @@ def test_sov_tiers_computed_per_category_from_90d_flow():
         {"group_key": "miiwan", "yt_total_views": 2_900_000},   # flow 100K
         {"group_key": "isedol", "yt_total_views": 49_000_000},  # flow 1M
     ]
-    tiers = cli._sov_tiers(client, groups)
+    tiers, flows = cli._sov_tiers(client, groups)
     assert tiers["plave"] == 1
     assert tiers["miiwan"] == 2       # 60M vs 100K = 2.8 데케이드 갭
     assert tiers["isedol"] == 1       # 서브컬처 단독 코호트 → T1
+    assert flows["plave"] == 60_000_000   # 근거 플로우도 함께 반환(정량 앵커)
+    assert flows["miiwan"] == 100_000
     sql = client.execute.call_args.args[0]
     assert "-90 days" in sql and "rn = 1" in sql.replace("rn=1", "rn = 1")

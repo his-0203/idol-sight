@@ -233,9 +233,10 @@ export function MiiWANPosition(props: {
               부적합 — 패널 판정). 헤드는 규모 티어, %는 아래 '방향과
               속도'와 시장 개요 상세에 잔존(비은폐). */}
           <KPI label="관심 규모 (최근 90일)"
-               value={sov.tier != null ? (TIER_LABEL[sov.tier] ?? `T${sov.tier}`) : "—"}
+               value={sov.flow90d != null ? `+${fmt(sov.flow90d)}` :
+                 sov.tier != null ? (TIER_LABEL[sov.tier] ?? `T${sov.tier}`) : "—"}
                hint={sov.tier != null
-                 ? "90일 조회 흐름의 규모 격차(log 갭)로 나눈 티어 · 같은 티어 = 규모 동급"
+                 ? `조회 증분 · 티어 '${TIER_LABEL[sov.tier] ?? `T${sov.tier}`}' — 규모 격차(log 갭) 기준, 같은 티어 = 규모 동급`
                  : "주간 집계 전"}
                sparkline={sov.series.length >= 2 ? sov.series : undefined} />
           <KPI label="인지도 (0~100)"
