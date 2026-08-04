@@ -379,22 +379,17 @@ export function MiiWANBriefing() {
   // 않는다.
   const [cohortHead, setCohortHead] = useState<Headline | null>(null);
   const [cohortRaw, setCohortRaw] = useState<any | null>(null);
-  // 월간 보고서 준비 상태 — 최신 월(내부판 기준) + 투자사판 draft 여부.
-  // 실패해도 조용히 비활성 유지(보고서는 부가 기능, 화면을 막지 않는다).
+  // 월간 보고서 준비 상태 — 최신 월(종합 단일판). 실패해도 조용히 비활성
+  // 유지(보고서는 부가 기능, 화면을 막지 않는다).
   const [latestReport, setLatestReport] = useState<{
-    month: string; generated_at: string; investorDraft: boolean;
+    month: string; generated_at: string;
   } | null>(null);
 
   useEffect(() => {
     api.monthlyReports().then((r) => {
-      const internal = r.reports.find((x) => x.edition === "internal");
-      if (!internal) return;
-      const investor = r.reports.find(
-        (x) => x.month === internal.month && x.edition === "investor");
-      setLatestReport({
-        month: internal.month,
-        generated_at: internal.generated_at,
-        investorDraft: investor?.draft ?? true,
+      const latest = r.reports[0];
+      if (latest) setLatestReport({
+        month: latest.month, generated_at: latest.generated_at,
       });
     }).catch(() => {});
     api.miiwan().then((d) => {
@@ -480,25 +475,15 @@ export function MiiWANBriefing() {
           <span class="text-hint text-zinc-500">
             데뷔 {data.group.debut_date ?? "—"} (IPX × Abyss Company)
           </span>
-          {/* 월간 보고서 다운로드 — 3개 탭 공통으로 항상 보이는 유일한
-              헤더라 여기 배치. 준비된 최신 월이 있으면 활성(내부판 직링크 +
-              투자사판 보조), 없으면 비활성 + 생성 예정 안내. */}
-          <div class="ml-auto flex items-center gap-2">
+          {/* 월간 보고서 다운로드(종합 단일판) — 3개 탭 공통으로 항상
+              보이는 유일한 헤더라 여기 배치. 없으면 비활성 + 생성 예정 안내. */}
+          <div class="ml-auto flex items-center">
             {latestReport ? (
-              <span class="flex items-center gap-1">
-                <a href={`/api/monthly-report?month=${latestReport.month}&edition=internal`}
-                   class="rounded-full border border-zinc-600 px-3 py-1 text-sm font-medium text-zinc-200 hover:border-[#75d7d1] hover:text-[#75d7d1]"
-                   title={`생성 ${formatKSTDate(latestReport.generated_at)} · 내부판`}>
-                  📄 {Number(latestReport.month.slice(5))}월 보고서
-                </a>
-                <a href={`/api/monthly-report?month=${latestReport.month}&edition=investor`}
-                   class="rounded-full border border-zinc-700 px-2 py-1 text-xs text-zinc-400 hover:border-[#75d7d1] hover:text-[#75d7d1]"
-                   title={latestReport.investorDraft
-                     ? "투자사판 — 검수 전(DRAFT 워터마크 포함)"
-                     : "투자사판 — 검수 완료"}>
-                  투자사판{latestReport.investorDraft ? "·초안" : ""}
-                </a>
-              </span>
+              <a href={`/api/monthly-report?month=${latestReport.month}`}
+                 class="rounded-full border border-zinc-600 px-3 py-1 text-sm font-medium text-zinc-200 hover:border-[#75d7d1] hover:text-[#75d7d1]"
+                 title={`생성 ${formatKSTDate(latestReport.generated_at)} · A4 인쇄 대응`}>
+                📄 {Number(latestReport.month.slice(5))}월 보고서
+              </a>
             ) : (
               <span class="rounded-full border border-zinc-800 px-3 py-1 text-sm text-zinc-600"
                     title="월간 보고서는 매월 1일 오전 자동 생성됩니다">
