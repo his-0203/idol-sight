@@ -282,3 +282,33 @@ def test_sov_tiers_null_anchor_does_not_inflate_flow():
     assert flows["plave"] == 55_000_000
     assert flows["ghost"] == 0
     assert "IS NOT NULL" in client.execute.call_args.args[0]
+
+
+def test_monthly_report_command_wires(monkeypatch):
+    """monthly-report 전체 경로 스모크 — 임포트 누락(NameError) 류는
+    런타임에만 터지므로 커맨드를 실제로 한 번 돈다."""
+    from unittest.mock import MagicMock
+    import idol_sight.cli as cli
+    import idol_sight.analysis.monthly_report as mr
+    import idol_sight.analysis.monthly_render as mrender
+    import idol_sight.notify as notify
+
+    fake_client = MagicMock()
+    monkeypatch.setattr(cli, "_make_d1_client", lambda settings: fake_client)
+    monkeypatch.setattr(cli, "load_settings",
+                        lambda: MagicMock(discord_webhook=None))
+    monkeypatch.setattr(mr, "build_monthly_data",
+                        lambda client, month: {"month": month, "warnings": []})
+    monkeypatch.setattr(mrender, "render_deck",
+                        lambda d, edition, generated_at, draft: "<html>x</html>")
+    sent = []
+    monkeypatch.setattr(notify, "notify_alert",
+                        lambda **kw: sent.append(kw))
+
+    res = runner.invoke(app, ["monthly-report", "--month", "2026-07"])
+    assert res.exit_code == 0, res.output
+    assert fake_client.batch.called
+    stmts = fake_client.batch.call_args.args[0]
+    assert any("INSERT INTO monthly_reports" in s for s, _ in stmts)
+    assert len([s for s, _ in stmts if "INSERT" in s]) == 2   # 내부+투자사
+    assert sent and "월간 보고서 준비됨" in sent[-1]["title"]
