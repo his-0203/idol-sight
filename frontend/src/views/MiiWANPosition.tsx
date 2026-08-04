@@ -34,6 +34,10 @@ import {
 } from "../lib/position";
 import type { Headline } from "../lib/cohortHeadline";
 import {
+  buildKpiTable, officialProgress, KPI_LABEL, KPI_MONTHS,
+  MONTH_NOTES, type MonthlyKpiRow,
+} from "../lib/miiwanKpi";
+import {
   CONTROVERSY_SPIKE_MIN_COUNT, CONTROVERSY_SPIKE_MULTIPLIER,
 } from "../lib/alerts";
 import { awarenessDisplay, coreDisplay } from "./MarketOverview";
@@ -67,6 +71,8 @@ export function MiiWANPosition(props: {
   /** /api/miiwan-cohort 원본 — 전망(선배 팀 궤적) 산출용. 부모가 이미
       히어로 headline 용으로 fetch한 응답을 그대로 내려받는다. */
   cohortRaw: any | null;
+  /** /api/miiwan monthly_kpi — 월간 KPI 페이스 표. */
+  monthlyKpi: MonthlyKpiRow[];
 }) {
   const [market, setMarket] = useState<any>(null);
   const [share, setShare] = useState<any>(null);
@@ -316,6 +322,98 @@ export function MiiWANPosition(props: {
             </div>
           )}
         </div>
+      </section>
+
+      {/* ③b 월간 KPI 페이스 — 계획(보수~낙관 밴드) 위에 실측을 얹어
+          "페이스 안인가"를 답한다. 밴드=내부 계획 가정치(고정 상수),
+          실측=agg_summary·live_ccv·weverse_stats. 당월은 판정 유보. */}
+      <section>
+        <div class="mb-2 flex flex-wrap items-baseline gap-2">
+          <h2 class="section-title">월간 KPI 페이스</h2>
+          <span class="text-hint text-zinc-500">
+            목표 밴드 = 내부 계획 가정치(보수~낙관) · 위버스 = 자사 시트 집계
+          </span>
+        </div>
+        <div class="card overflow-x-auto">
+          <table class="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr class="text-left text-xs text-zinc-500">
+                <th class="py-1.5 pr-3 font-normal">지표</th>
+                {KPI_MONTHS.map((m) => (
+                  <th key={m} class="py-1.5 pr-3 font-normal">
+                    {Number(m.slice(5))}월
+                    {MONTH_NOTES[m] && (
+                      <span class="ml-1 text-[10px] text-amber-300/80"
+                            title={MONTH_NOTES[m]}>
+                        {MONTH_NOTES[m].slice(0, 1)}
+                      </span>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {buildKpiTable(props.monthlyKpi).map((row) => (
+                <tr key={row.metric} class="border-t border-zinc-800/60">
+                  <td class="py-2 pr-3 text-xs text-zinc-400">{KPI_LABEL[row.metric]}</td>
+                  {row.cells.map((c) => (
+                    <td key={c.month} class="py-2 pr-3 align-top">
+                      {c.actual != null && (
+                        <div class={"tabular-nums font-semibold "
+                          + (c.verdict === "below" ? "text-amber-300"
+                            : c.verdict === "above" ? "text-sky-300"
+                            : "text-zinc-100")}>
+                          {fmt(c.actual)}
+                          {c.verdict === "within" && " ✅"}
+                          {c.verdict === "below" && " ⚠️"}
+                          {c.verdict === "above" && " 🔵"}
+                          {c.inProgress && (
+                            <span class="ml-1 text-[10px] font-normal text-zinc-500">진행 중</span>
+                          )}
+                        </div>
+                      )}
+                      {c.band && (
+                        <div class="text-[11px] tabular-nums text-zinc-500">
+                          {fmt(c.band[0])}~{fmt(c.band[1])}
+                        </div>
+                      )}
+                      {c.actual == null && !c.band && <span class="text-zinc-600">—</span>}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {/* 공식 KPI 2시점 달성률 — 표의 요약 결론. */}
+        <div class="mt-2 grid gap-2 md:grid-cols-2">
+          {officialProgress(props.monthlyKpi).map((k) => (
+            <div key={k.month} class="card">
+              <div class="mb-1.5 text-xs font-semibold text-zinc-300">{k.label}</div>
+              <div class="space-y-1.5">
+                {k.items.map((it) => (
+                  <div key={it.metric} class="flex items-center gap-2 text-xs">
+                    <span class="w-28 shrink-0 text-zinc-500">{KPI_LABEL[it.metric]}</span>
+                    <div class="h-2 flex-1 overflow-hidden rounded-sm bg-zinc-800/60">
+                      <div class="h-full bg-[#75d7d1]/70"
+                           style={{ width: `${Math.min(it.pct ?? 0, 100)}%` }} />
+                    </div>
+                    <span class="w-24 shrink-0 text-right tabular-nums text-zinc-400">
+                      {it.actual != null ? fmt(it.actual) : "—"} / {fmt(it.target)}
+                    </span>
+                    <span class="w-10 shrink-0 text-right tabular-nums font-semibold text-zinc-200">
+                      {it.pct != null ? `${it.pct}%` : "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p class="mt-2 text-hint text-zinc-500">
+          ◆ = 의사결정 시점(8월 말 굿즈 참여 · 10월 말 제작 스케일) · ★ = 9월 컴백 ·
+          ⚠️ 보수선 미달 · ✅ 밴드 내 · 🔵 낙관선 초과 · 당월은 월말 확정 전까지 판정 유보
+        </p>
       </section>
 
       {/* ④ 팬덤 프로필 — 우리 팬이 누구고, 진짜이고, 얼마나 깊은가. */}

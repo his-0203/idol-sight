@@ -103,7 +103,7 @@ export interface OfficialProgressItem {
 export function officialProgress(monthly: MonthlyKpiRow[]) {
   const latest = (metric: KpiMetric): number | null => {
     for (let i = monthly.length - 1; i >= 0; i--) {
-      const v = monthly[i][METRIC_FIELD[metric]] as number | null;
+      const v = monthly[i]?.[METRIC_FIELD[metric]] as number | null;
       if (v != null) return v;
     }
     return null;

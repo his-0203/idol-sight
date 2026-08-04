@@ -37,7 +37,7 @@ describe("buildKpiTable", () => {
     expect(aug.verdict).toBeNull();    // 진행 중엔 판정 유보
     const dec = subs.cells.find((c) => c.month === "2026-12")!;
     expect(dec.actual).toBeNull();
-    expect(dec.band).toEqual(PACE_BANDS["2026-12"].subscribers);
+    expect(dec.band).toEqual(PACE_BANDS["2026-12"]!.subscribers);
   });
 
   it("지표 4개 × 6~12월 셀을 항상 생성", () => {
@@ -52,7 +52,7 @@ describe("officialProgress", () => {
     const prog = officialProgress([
       row("2026-07", { yt_subscribers: 28600, avg_ccv: 369 }),
     ]);
-    const aug = prog[0];
+    const aug = prog[0]!;
     expect(aug.label).toContain("8월");
     const subs = aug.items.find((i) => i.metric === "subscribers")!;
     expect(subs.actual).toBe(28600);
