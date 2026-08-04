@@ -133,7 +133,7 @@ const HELP = {
   core:      "추정 코어 = 최근 30일 영상 중 좋아요 상위 5편의 중앙값(고유 반응 팬 근사). 유료 의심(suspect/likely_paid) 영상은 제외. 산식 v2(2026-08): 상위 5편 기준이라 업로드 편수가 많아도 불리하지 않음 — 전 그룹 동일 적용. 추정 휴리스틱 — 실측 아님.",
   quad:      "넓이(인지도)×깊이(적극 코어=최근 30일 댓글 상위 5편 중앙값) 사분면. 진성강세=둘 다 높음 · 광고형/바이럴=넓지만 얕음 · 니치 충성=좁지만 깊음 · 저조=둘 다 낮음 (카테고리 중앙값 기준). 사분면의 인지도는 할인 전 원값 — '넓지만 얕음(광고형)' 패턴 탐지가 목적.",
   viewconv:  "시청전환율 = 라이브 방송 동시접속(방송별 peak CCV 중앙값) ÷ 구독자. 구독자 중 실제 라이브에 오는 비율(충성도 신호). 위버스 등 오프플랫폼 라이브가 있는 그룹(PLAVE)은 유튜브 실측 + 위버스 추정(≥10만) 합산값(≈ 표시). 라이브 CCV 미수집 그룹은 —.",
-  sov:       "관심 점유율(Share of Voice) — 같은 카테고리(K-POP/서브컬처) 안에서의 상대 비중(유튜브 조회 33%·커뮤니티 28%·최근 90일 뉴스 22%·구독 17%). v3(2026-08): 카테고리별 독립 산출(각 합 100%)·뉴스는 최근 90일·전주 비교는 7일 전 스냅샷 앵커. 옆 ▲▼ = 전주 대비 변화(pp).",
+  sov:       "관심 점유율(Share of Voice) — 같은 카테고리(K-POP/서브컬처) 안에서의 상대 비중(유튜브 조회 33%·커뮤니티 28%·최근 90일 뉴스 22%·구독 17%). v3(2026-08): 카테고리별 독립 산출(각 합 100%)·뉴스는 최근 90일·전주 비교는 7일 전 스냅샷 앵커. 옆 ▲▼ = 전주 대비 변화(pp). ※ 백분위 합성 특성상 %는 규모 격차를 압축함 — 규모 비교는 티어(T1~T3, 최근 90일 조회 흐름 log 갭) 참조.",
   caveat:    "영상 카탈로그 organicity가 주의 구간(유료로 산 도달 의심). 심각도 순: 노랑=오가닉성 주의 < 주황=유료 의심 < 빨강=유료 가능성 높음. 인지도·추정 코어에는 신뢰 할인으로 반영됨(V2.53).",
 } satisfies Record<string, string>;
 
@@ -613,6 +613,12 @@ export function MarketOverview() {
                                   style={{ color: colorOf(r.group_key) }}>
                               {(market.groups[r.group_key]?.name) ?? r.group_key.toUpperCase()}
                             </span>
+                            {r.tier != null && (
+                              <span class="shrink-0 rounded bg-zinc-800 px-1 py-[1px] text-[10px] tabular-nums text-zinc-400"
+                                    title="관심 규모 티어 — 최근 90일 조회 흐름의 log 갭 클러스터 (1=선두)">
+                                T{r.tier}
+                              </span>
+                            )}
                             <div class="relative h-2 flex-1 overflow-hidden rounded bg-zinc-800/60">
                               <div class="absolute inset-y-0 left-0"
                                    style={{

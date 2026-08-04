@@ -34,6 +34,8 @@ downstream code (agg_market_share table, frontend) keeps working —
 
 from __future__ import annotations
 
+import math
+
 from dataclasses import dataclass
 from typing import Any
 
@@ -216,21 +218,80 @@ def _compute_legacy(
     return rows
 
 
-def to_statements(rows: list[ShareRow], *, market_total: int) -> list[tuple[str, list]]:
-    """Convert rows to D1 INSERT statements for agg_market_share."""
+# ── v3.1(2026-08): 관심 규모 티어 ────────────────────────────────────────
+# SoV final % 는 백분위 합성이라 "점유율" 표현에 부적합(천장 100/(0.5N)·규모
+# 압축) — 헤드라인 지위를 은퇴하고, 화면에는 90일 조회 플로우의 log 갭
+# 클러스터로 나눈 티어를 보조 표시한다(규칙 공개: 인접 log10 갭 ≥ 0.5
+# 데케이드 = 규모 ~3.16배 차이에서 경계, 최대 3티어). % 시계열은 상세
+# 화면·시계열 보존용으로 계속 산출한다.
+TIER_GAP_DECADES = 0.5
+TIER_MAX = 3
+
+TIER_LABELS = {1: "선두 그룹", 2: "추격 그룹", 3: "후발 그룹"}
+
+
+def compute_tiers(flows: dict[str, float]) -> dict[str, int]:
+    """그룹별 90d 관심 플로우 → 티어(1=선두). 순수.
+
+    log10(flow+1) 내림차순 정렬 후 인접 갭이 TIER_GAP_DECADES 이상인
+    지점마다 티어 +1, TIER_MAX 에서 캡. flow 0(집계 전 포함)은 자연히
+    최하위로 정렬된다. 빈 입력 → 빈 dict.
+    """
+    if not flows:
+        return {}
+    ordered = sorted(flows.items(), key=lambda kv: -(kv[1] or 0))
+    tiers: dict[str, int] = {}
+    tier = 1
+    prev_log: float | None = None
+    for key, flow in ordered:
+        cur_log = math.log10((flow or 0) + 1)
+        if prev_log is not None and (prev_log - cur_log) >= TIER_GAP_DECADES:
+            tier = min(tier + 1, TIER_MAX)
+        tiers[key] = tier
+        prev_log = cur_log
+    return tiers
+
+
+def to_statements(
+    rows: list[ShareRow], *, market_total: int,
+    tiers: dict[str, int] | None = None,
+) -> list[tuple[str, list]]:
+    """Convert rows to D1 INSERT statements for agg_market_share.
+
+    v3.1: ``tiers``(group_key → 1..3)가 주어지면 tier 컬럼 포함 확장
+    INSERT(0115 적용 D1 전용 — 호출부가 컬럼 감지 후 전달). None 이면
+    기존 7컬럼 INSERT(하위호환).
+    """
     out: list[tuple[str, list]] = []
     for r in rows:
-        out.append((
-            """
-            INSERT INTO agg_market_share
-              (week_start, week_end, group_key, cum, mom, final, market_total)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(week_start, group_key) DO UPDATE SET
-              week_end=excluded.week_end,
-              cum=excluded.cum, mom=excluded.mom, final=excluded.final,
-              market_total=excluded.market_total
-            """.strip(),
-            [r.week_start, r.week_end, r.group_key,
-             r.cum, r.mom, r.final, market_total],
-        ))
+        if tiers is not None:
+            out.append((
+                """
+                INSERT INTO agg_market_share
+                  (week_start, week_end, group_key, cum, mom, final,
+                   market_total, tier)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(week_start, group_key) DO UPDATE SET
+                  week_end=excluded.week_end,
+                  cum=excluded.cum, mom=excluded.mom, final=excluded.final,
+                  market_total=excluded.market_total, tier=excluded.tier
+                """.strip(),
+                [r.week_start, r.week_end, r.group_key,
+                 r.cum, r.mom, r.final, market_total,
+                 tiers.get(r.group_key)],
+            ))
+        else:
+            out.append((
+                """
+                INSERT INTO agg_market_share
+                  (week_start, week_end, group_key, cum, mom, final, market_total)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(week_start, group_key) DO UPDATE SET
+                  week_end=excluded.week_end,
+                  cum=excluded.cum, mom=excluded.mom, final=excluded.final,
+                  market_total=excluded.market_total
+                """.strip(),
+                [r.week_start, r.week_end, r.group_key,
+                 r.cum, r.mom, r.final, market_total],
+            ))
     return out

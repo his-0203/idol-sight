@@ -31,7 +31,14 @@ export interface SovPosition {
   /** 최신 주 momentum(최근 비중) − cumulative(누적 비중), pp.
       양수 = 최근 기세가 누적 위치보다 강함(점유 확대 국면). */
   momentumGap: number | null;
+  /** v3.1 관심 규모 티어(1=선두, 최대 3). 미산출 주(0115 이전)면 null. */
+  tier: number | null;
 }
+
+/** worker market_share.TIER_LABELS 미러 — 변경 시 동반 갱신. */
+export const TIER_LABEL: Record<number, string> = {
+  1: "선두 그룹", 2: "추격 그룹", 3: "후발 그룹",
+};
 
 export function sovPosition(
   rows: ShareRow[] | undefined | null,
@@ -40,7 +47,7 @@ export function sovPosition(
 ): SovPosition {
   const empty: SovPosition = {
     share: null, deltaPp: null, rank: null, teamCount: 0,
-    series: [], momentumGap: null,
+    series: [], momentumGap: null, tier: null,
   };
   if (!rows?.length) return empty;
 
@@ -67,6 +74,7 @@ export function sovPosition(
     series: weeks.map((w) =>
       rows.find((r) => r.week_end === w && r.group_key === key)?.final ?? 0),
     momentumGap: mine ? mine.mom - mine.cum : null,
+    tier: (mine as any)?.tier ?? null,
   };
 }
 

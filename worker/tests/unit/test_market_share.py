@@ -257,3 +257,44 @@ def test_sov_normal_cohort_relative_rank_preserved():
     assert abs(b.final - 33.33) < 0.01
     assert c.final == 0.0
     assert abs(sum(r.final for r in rows) - 100.0) < 0.05
+
+
+# -- v3.1(2026-08): 티어 산정 — SoV % 헤드라인 은퇴의 보조 표시 --
+
+from idol_sight.analysis.market_share import compute_tiers, TIER_LABELS
+
+
+def test_tiers_split_on_log_gap():
+    """log10(flow+1) 내림차순에서 갭 ≥ 0.5 데케이드(≈3.16배)마다 티어 경계.
+    855M vs 15M vs 25K → 3티어."""
+    flows = {"plave": 200_000_000, "owis": 15_000_000, "skinz": 12_000_000,
+             "hollin": 25_000, "begritz": 14_000}
+    tiers = compute_tiers(flows)
+    assert tiers["plave"] == 1
+    assert tiers["owis"] == tiers["skinz"] == 2
+    assert tiers["hollin"] == tiers["begritz"] == 3
+
+
+def test_tiers_cap_at_three():
+    """갭이 많아도 최대 3티어 — 그 아래는 전부 T3."""
+    flows = {"a": 10**9, "b": 10**7, "c": 10**5, "d": 10**3, "e": 10}
+    tiers = compute_tiers(flows)
+    assert max(tiers.values()) == 3
+    assert tiers["a"] == 1 and tiers["e"] == 3
+
+
+def test_tiers_single_cluster_is_one_tier():
+    """비슷한 규모끼리는 갭이 없어 전원 T1."""
+    flows = {"a": 100_000, "b": 80_000, "c": 60_000}
+    assert set(compute_tiers(flows).values()) == {1}
+
+
+def test_tiers_zero_and_missing_flow_bottom():
+    """flow 0(집계 전 포함)은 항상 최하 티어."""
+    flows = {"a": 1_000_000, "b": 0}
+    tiers = compute_tiers(flows)
+    assert tiers["b"] == max(tiers.values())
+
+
+def test_tier_labels_exist_for_1_to_3():
+    assert set(TIER_LABELS) == {1, 2, 3}

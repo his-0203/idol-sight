@@ -235,3 +235,28 @@ def test_sov_inputs_prev_anchor_is_weekly():
     prev_sqls = [c.args[0] for c in client.execute.call_args_list
                  if "agg_summary" in c.args[0] and "-6 days" in c.args[0]]
     assert prev_sqls, "weekly-anchored prev query not issued"
+
+
+def test_sov_tiers_computed_per_category_from_90d_flow():
+    """티어는 90일 조회 플로우(창 내 최초 스냅샷 대비 증분)로 카테고리별
+    독립 산정 — K-POP 갭이 서브컬처 티어에 영향 없음."""
+    from unittest.mock import MagicMock
+    import idol_sight.cli as cli
+
+    groups = [
+        {"key": "plave", "category": "kpop", "yt_views": 100_000_000},
+        {"key": "miiwan", "category": "kpop", "yt_views": 3_000_000},
+        {"key": "isedol", "category": "subculture", "yt_views": 50_000_000},
+    ]
+    client = MagicMock()
+    client.execute.return_value = [
+        {"group_key": "plave", "yt_total_views": 40_000_000},   # flow 60M
+        {"group_key": "miiwan", "yt_total_views": 2_900_000},   # flow 100K
+        {"group_key": "isedol", "yt_total_views": 49_000_000},  # flow 1M
+    ]
+    tiers = cli._sov_tiers(client, groups)
+    assert tiers["plave"] == 1
+    assert tiers["miiwan"] == 2       # 60M vs 100K = 2.8 데케이드 갭
+    assert tiers["isedol"] == 1       # 서브컬처 단독 코호트 → T1
+    sql = client.execute.call_args.args[0]
+    assert "-90 days" in sql and "rn = 1" in sql.replace("rn=1", "rn = 1")

@@ -29,7 +29,7 @@ import {
 import { DEFAULT_CURRENT_BUCKET, DEFAULT_DISPLAY_BUCKETS } from "../lib/debutWindow";
 import {
   cohortForecast, demographicBars, momentumLine, PILLAR_LABEL,
-  QUADRANT_VERDICT, sovPosition, subSplitLine, topCountriesLine,
+  QUADRANT_VERDICT, sovPosition, subSplitLine, TIER_LABEL, topCountriesLine,
   topDemographicLine, type DemographicRow,
 } from "../lib/position";
 import type { Headline } from "../lib/cohortHeadline";
@@ -188,7 +188,7 @@ export function MiiWANPosition(props: {
   // ⓪ 한눈 요약 — 경영진·투자사가 아래를 안 읽어도 결론을 갖게(결론 우선,
   // 브리핑 재구성과 같은 원칙). 전 항목 아래 섹션 데이터에서 파생·결측 생략.
   const summaryLines = buildPositionSummary({
-    sovShare: sov.share, sovRank: sov.rank, teamCount: sov.teamCount,
+    sovTier: sov.tier,
     momentumGap: sov.momentumGap, quadrant: miiwanQuadrant,
     postureLabel: traj?.posture_label ?? null, orgScore,
     monthlyKpi: props.monthlyKpi, riskLevel,
@@ -229,11 +229,14 @@ export function MiiWANPosition(props: {
       <section>
         <h2 class="section-title mb-3">시장 좌표</h2>
         <div class="grid grid-cols-2 gap-2 md:grid-cols-4">
-          <KPI label="관심 점유율"
-               value={sov.share != null ? `${sov.share.toFixed(1)}%` : "—"}
-               delta={sov.deltaPp}
-               deltaUnit="pct"
-               hint={sov.rank != null ? `K-POP 버추얼 ${sov.teamCount}팀 중 ${sov.rank}위 · 주간` : "주간 집계 전"}
+          {/* v3.1: SoV %·순위 헤드라인 은퇴(백분위 합성이라 점유 표현
+              부적합 — 패널 판정). 헤드는 규모 티어, %는 아래 '방향과
+              속도'와 시장 개요 상세에 잔존(비은폐). */}
+          <KPI label="관심 규모 (최근 90일)"
+               value={sov.tier != null ? (TIER_LABEL[sov.tier] ?? `T${sov.tier}`) : "—"}
+               hint={sov.tier != null
+                 ? "90일 조회 흐름의 규모 격차(log 갭)로 나눈 티어 · 같은 티어 = 규모 동급"
+                 : "주간 집계 전"}
                sparkline={sov.series.length >= 2 ? sov.series : undefined} />
           <KPI label="인지도 (0~100)"
                value={aw.score}
@@ -280,12 +283,18 @@ export function MiiWANPosition(props: {
         <h2 class="section-title mb-2">방향과 속도</h2>
         <div class="card space-y-3">
           <div class="flex flex-wrap items-center gap-3">
-            <span class="w-28 shrink-0 text-xs text-zinc-500">점유율 흐름 (13주)</span>
+            <span class="w-28 shrink-0 text-xs text-zinc-500">관심 비중 흐름 (13주)</span>
             {sov.series.length >= 2 ? (
               <>
                 <span class="text-emerald-500/70">
                   <Sparkline points={sov.series} width={120} height={22} />
                 </span>
+                {sov.share != null && (
+                  <span class="text-sm tabular-nums text-zinc-400">
+                    현재 {sov.share.toFixed(1)}%
+                    <span class="ml-1 text-hint text-zinc-600">(카테고리 내 상대 비중 · 방법론은 시장 개요 참조)</span>
+                  </span>
+                )}
                 {momentumLine(sov.momentumGap) && (
                   <span class="text-sm text-zinc-300">{momentumLine(sov.momentumGap)}</span>
                 )}

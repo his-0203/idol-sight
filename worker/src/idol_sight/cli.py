@@ -279,6 +279,33 @@ def _sov_inputs(client) -> list[dict]:
     return groups
 
 
+def _sov_tiers(client, groups: list[dict]) -> dict[str, int]:
+    """관심 규모 티어(v3.1) — 그룹별 90일 조회 플로우를 카테고리별
+    log 갭 클러스터로 나눈다(market_share.compute_tiers).
+
+    플로우 = 최신 조회수 − 창 내 그룹별 **최초** 스냅샷 조회수. 수집
+    이력이 90일보다 짧은 그룹(중도 시드)은 가용 범위 증분으로 계산되고,
+    증분 0(신규·집계 전)은 자연히 최하 티어로 간다.
+    """
+    from idol_sight.analysis.market_share import compute_tiers
+
+    anchor_rows = client.execute(
+        "SELECT group_key, yt_total_views FROM ("
+        "  SELECT group_key, yt_total_views, ROW_NUMBER() OVER ("
+        "    PARTITION BY group_key ORDER BY snapshot_at ASC) AS rn "
+        "  FROM agg_summary WHERE snapshot_at >= datetime('now', '-90 days')"
+        ") WHERE rn = 1")
+    anchor = {r["group_key"]: r.get("yt_total_views") or 0 for r in anchor_rows}
+    tiers: dict[str, int] = {}
+    for cat in ("kpop", "subculture"):
+        flows = {
+            g["key"]: max(0, (g["yt_views"] or 0) - (anchor.get(g["key"]) or 0))
+            for g in groups if g["category"] == cat
+        }
+        tiers.update(compute_tiers(flows))
+    return tiers
+
+
 def _load_group(client: D1Client, key: str) -> GroupConfig:
     rows = client.execute(
         "SELECT key, name, name_kr, debut_date, yt_channel_id, dc_gallery_id, "
@@ -1475,7 +1502,13 @@ def analyze_weekly(
             week_start=week_start, week_end=week_end,
             groups=[g for g in groups if g["category"] == cat])
     market_total = sum(g["yt_views"] for g in groups)  # legacy "market_total" column
-    market_stmts = to_statements(share_rows, market_total=market_total)
+    # v3.1: 관심 규모 티어 — 0115 적용 D1에서만(컬럼 감지, graceful).
+    try:
+        client.execute("SELECT tier FROM agg_market_share LIMIT 1")
+        tiers = _sov_tiers(client, groups)
+    except Exception:
+        tiers = None
+    market_stmts = to_statements(share_rows, market_total=market_total, tiers=tiers)
     if market_stmts:
         client.batch(market_stmts)
     typer.echo(f"sov: wrote {len(market_stmts)} rows")
