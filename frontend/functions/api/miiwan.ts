@@ -162,6 +162,7 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     controversyTrend, memberPopularity, ytAnalytics, ytAnalyticsCountries,
     goodsPreorder, liveActivitySummary, liveActivityBroadcasts,
     demographics, showWins, hanteoLatest, ccvTrend,
+    subsMonthly, ccvMonthly, weverseMonthly,
   ] = await Promise.all([
     d1QueryOne<SummaryRow>(
       env.DB,
@@ -327,6 +328,44 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
         GROUP BY video_id ORDER BY started_at ASC LIMIT 24`,
       [TARGET],
     ).catch(() => [] as Array<{ video_id: string; peak: number; started_at: string }>),
+    // 월간 KPI 페이스 — 월별 실측 3원천. 월 경계는 UTC 스냅샷 기준
+    // (KST 대비 최대 9시간 오차 — 월말 스냅샷 값에는 무시 가능 수준).
+    // ① 구독자: 각 월 마지막 agg_summary 스냅샷.
+    d1Query<{ month: string; yt_subscribers: number | null }>(
+      env.DB,
+      `SELECT month, yt_subscribers FROM (
+         SELECT strftime('%Y-%m', snapshot_at) AS month, yt_subscribers,
+                ROW_NUMBER() OVER (
+                  PARTITION BY strftime('%Y-%m', snapshot_at)
+                  ORDER BY snapshot_at DESC) AS rn
+           FROM agg_summary WHERE group_key=?)
+        WHERE rn=1 ORDER BY month ASC`,
+      [TARGET],
+    ).catch(() => [] as Array<{ month: string; yt_subscribers: number | null }>),
+    // ② 평균 동접: 방송(video_id)별 평균 CCV → 월별 평균. 먼슬리 보고의
+    // "평균 시청자"와 같은 정의(방송당 평균의 평균 — 샘플 수 가중 아님).
+    d1Query<{ month: string; avg_ccv: number | null }>(
+      env.DB,
+      `SELECT month, ROUND(AVG(vid_avg)) AS avg_ccv FROM (
+         SELECT strftime('%Y-%m', MIN(sampled_at)) AS month,
+                AVG(concurrent_viewers) AS vid_avg
+           FROM live_ccv_samples WHERE group_key=?
+          GROUP BY video_id)
+        GROUP BY month ORDER BY month ASC`,
+      [TARGET],
+    ).catch(() => [] as Array<{ month: string; avg_ccv: number | null }>),
+    // ③ 위버스: 각 월 마지막 일자 값 (weverse-sheet collector 적재분).
+    d1Query<{ month: string; weverse_members: number | null; weverse_membership: number | null }>(
+      env.DB,
+      `SELECT month, total_members AS weverse_members,
+              digital_membership AS weverse_membership FROM (
+         SELECT strftime('%Y-%m', day) AS month, total_members, digital_membership,
+                ROW_NUMBER() OVER (
+                  PARTITION BY strftime('%Y-%m', day) ORDER BY day DESC) AS rn
+           FROM weverse_stats WHERE group_key=?)
+        WHERE rn=1 ORDER BY month ASC`,
+      [TARGET],
+    ).catch(() => [] as Array<{ month: string; weverse_members: number | null; weverse_membership: number | null }>),
   ]);
 
   return jsonResponse({
@@ -435,6 +474,33 @@ export const onRequestGet: PagesFunction<{ DB: D1Database }> = async ({ env }) =
     demographics: demographics ?? [],
     // 포지션 뷰 — 방송별 peak 라이브 동접 추이 (시간 오름차순).
     ccv_trend: ccvTrend ?? [],
+    // 월간 KPI 페이스 (포지션 뷰) — 데뷔 월부터 당월까지 월별 실측.
+    // 당월은 월말 확정 전이라 in_progress로 표시.
+    monthly_kpi: (() => {
+      const byMonth = new Map<string, any>();
+      for (const r of subsMonthly ?? []) {
+        byMonth.set(r.month, { month: r.month, yt_subscribers: r.yt_subscribers ?? null });
+      }
+      for (const r of ccvMonthly ?? []) {
+        byMonth.set(r.month, { ...(byMonth.get(r.month) ?? { month: r.month }), avg_ccv: r.avg_ccv ?? null });
+      }
+      for (const r of weverseMonthly ?? []) {
+        byMonth.set(r.month, {
+          ...(byMonth.get(r.month) ?? { month: r.month }),
+          weverse_members: r.weverse_members ?? null,
+          weverse_membership: r.weverse_membership ?? null,
+        });
+      }
+      const thisMonth = todayIso.slice(0, 7);
+      return [...byMonth.values()]
+        .sort((a, b) => a.month.localeCompare(b.month))
+        .map((r) => ({
+          yt_subscribers: null, avg_ccv: null,
+          weverse_members: null, weverse_membership: null,
+          ...r,
+          in_progress: r.month === thisMonth,
+        }));
+    })(),
     // 산업 성과 마커 — 멜론 TOP100 피크(수동 시드)·음방 1위·한터 초동.
     // 신인 구간엔 전부 null/빈 배열이 정상 — 프론트가 전부 비면 숨긴다.
     industry: {
