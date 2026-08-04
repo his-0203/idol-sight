@@ -1092,6 +1092,7 @@ def monthly_report_cmd(
 
     from idol_sight.analysis.monthly_render import render_deck
     from idol_sight.analysis.monthly_report import build_monthly_data
+    from idol_sight.notify import notify_alert
 
     settings = load_settings()
     client = _make_d1_client(settings)
