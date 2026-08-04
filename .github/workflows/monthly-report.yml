@@ -11,10 +11,6 @@ on:
       month:
         description: 'YYYY-MM (지난달 재생성/백필, 빈칸=지난달)'
         required: false
-      investor_final:
-        description: '투자사판 DRAFT 워터마크 해제 (검수 완료 시에만)'
-        type: boolean
-        default: false
 
 jobs:
   generate:
@@ -25,11 +21,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --frozen
-      - name: Generate monthly report deck (internal + investor)
+      - name: Generate monthly report deck (종합 단일판)
         run: |
           uv run python -m idol_sight monthly-report \
-            ${{ inputs.month != '' && inputs.month != null && format('--month {0}', inputs.month) || '' }} \
-            ${{ inputs.investor_final == true && '--investor-final' || '' }}
+            ${{ inputs.month != '' && inputs.month != null && format('--month {0}', inputs.month) || '' }}
         env:
           CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
           CF_D1_DB_ID:     ${{ secrets.CF_D1_DB_ID }}

@@ -120,17 +120,17 @@ def test_build_monthly_data_survives_empty_db():
     assert "표본 부족" in " ".join(d["warnings"])  # 방송 0회
 
 
-def test_render_editions_gates():
+def test_render_single_edition_a4_pages():
+    """v2: 종합 단일판 — A4 페이지 7장(표지+본문 6)·부록 흡수·게이트 폐지."""
     from idol_sight.analysis.monthly_render import render_deck
+    from idol_sight.analysis.monthly_report import kpi_judgments
     d = _minimal_data()
-    # 게이트 검증용 픽스처 주입
     d["kpi"] = {
         "actuals": {"subscribers": 28600, "avg_ccv": 369,
                     "weverse_members": 8447, "weverse_membership": 111},
         "prev": {"subscribers": 27900, "avg_ccv": 585,
                  "weverse_members": 6895, "weverse_membership": 69},
-        "judgments": __import__("idol_sight.analysis.monthly_report",
-                                fromlist=["kpi_judgments"]).kpi_judgments(
+        "judgments": kpi_judgments(
             "2026-07", {"subscribers": 28600, "avg_ccv": 369,
                         "weverse_members": 8447, "weverse_membership": 111}),
         "headline": "테스트 헤드라인",
@@ -138,30 +138,44 @@ def test_render_editions_gates():
     d["alerts"] = [{"rule": "x", "severity": "warn", "title": "이슈",
                     "fired_at": "2026-07-10T00:00:00Z"}]
     d["insights"] = [{"week_start": "2026-07-19", "title": "인사이트",
-                      "ai_comment": "코멘트"}]
+                      "ai_comment": "**유기적** 코멘트"}]
 
-    internal = render_deck(d, edition="internal",
-                           generated_at="2026-08-01T00:23:00Z")
-    investor = render_deck(d, edition="investor",
-                           generated_at="2026-08-01T00:23:00Z", draft=True)
-
-    # 내부판: 부록 + 밴드 수치
-    assert "A1. 위기 모니터" in internal and "A2. 전략 메모" in internal
-    assert "32.0k~35.0k" in internal          # 구독 밴드 노출
-    assert "DRAFT" not in internal
-    # 투자사판(G1·G2·G7): 부록 없음·밴드 비공개·DRAFT 워터마크
-    assert "A1." not in investor and "A2." not in investor
-    assert "비공개(내부 목표)" in investor and "32.0k~35.0k" not in investor
-    assert "DRAFT — 검수 후 사용" in investor
-    # 공통: 자립 HTML(외부 리소스 0)
-    for doc in (internal, investor):
-        assert "<script" not in doc and "http://" not in doc \
-            and "https://" not in doc and "base64" not in doc
+    doc = render_deck(d, generated_at="2026-08-01T00:23:00Z")
+    # A4 페이지 체계: 표지 + 본문 5장 = .page 6개, mm 단위 미사용
+    assert doc.count("class='page") == 6
+    assert "aspect-ratio:794/1123" in doc
+    assert "mm" not in doc.replace("@page{size:A4;margin:0}", "")
+    # 부록이 본편에 흡수(내부/투자사 구분·DRAFT 폐지)
+    assert "리스크 모니터" in doc and "전략 메모" in doc
+    assert "DRAFT" not in doc and "비공개(내부 목표)" not in doc
+    assert "32.0k~35.0k" in doc               # 밴드 상시 노출
+    # 마크다운 잔재 평문화(** 제거)
+    assert "**" not in doc
+    # 자립 HTML
+    assert "<script" not in doc and "https://" not in doc and "base64" not in doc
 
 
-def test_render_final_flag_removes_draft():
+def test_render_group_colors_in_cohort():
+    """동시기 성장배수 막대는 대시보드 그룹 원색 + edge 테두리."""
     from idol_sight.analysis.monthly_render import render_deck
     d = _minimal_data()
-    inv = render_deck(d, edition="investor",
-                      generated_at="2026-08-01T00:23:00Z", draft=False)
-    assert "DRAFT" not in inv
+    d["cohort"] = {"rows": [
+        {"group": "miiwan", "d0": 100, "at": 300, "multiple": 3.0, "rank": 1},
+        {"group": "bdawn", "d0": 100, "at": 200, "multiple": 2.0, "rank": 2},
+    ], "excluded": [], "age_days": 49}
+    doc = render_deck(d, generated_at="2026-08-01T00:23:00Z")
+    assert "#75d7d1" in doc      # miiwan 면
+    assert "#ef4444" in doc      # bdawn 면 (대시보드 동일 색)
+    assert "#b30f0f" in doc      # bdawn edge(흰 배경 보정 테두리)
+
+
+def test_render_tier_degenerate_falls_back_to_placeholder():
+    """티어 flow 전부 0(지표 신설 이전 월) → 0막대 대신 placeholder."""
+    from idol_sight.analysis.monthly_render import render_deck
+    d = _minimal_data()
+    d["tier"] = {"week_end": "2026-07-25", "tier": None, "flow": None,
+                 "flow_rank": None, "team_count": 10,
+                 "kpop_rows": [{"group_key": "plave", "tier": None,
+                                "view_flow_90d": None}]}
+    doc = render_deck(d, generated_at="2026-08-01T00:23:00Z")
+    assert "8월 보고서부터 표기" in doc

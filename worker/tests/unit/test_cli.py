@@ -300,7 +300,7 @@ def test_monthly_report_command_wires(monkeypatch):
     monkeypatch.setattr(mr, "build_monthly_data",
                         lambda client, month: {"month": month, "warnings": []})
     monkeypatch.setattr(mrender, "render_deck",
-                        lambda d, edition, generated_at, draft: "<html>x</html>")
+                        lambda d, generated_at: "<html>x</html>")
     sent = []
     monkeypatch.setattr(notify, "notify_alert",
                         lambda **kw: sent.append(kw))
@@ -310,5 +310,5 @@ def test_monthly_report_command_wires(monkeypatch):
     assert fake_client.batch.called
     stmts = fake_client.batch.call_args.args[0]
     assert any("INSERT INTO monthly_reports" in s for s, _ in stmts)
-    assert len([s for s, _ in stmts if "INSERT" in s]) == 2   # 내부+투자사
+    assert len([s for s, _ in stmts if "INSERT" in s]) == 1   # 종합 단일판
     assert sent and "월간 보고서 준비됨" in sent[-1]["title"]

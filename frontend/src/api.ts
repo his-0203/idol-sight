@@ -43,8 +43,7 @@ export const api = {
   },
   weekly:      () => getJson<any>("/api/weekly"),
   monthlyReports: () => getJson<{
-    reports: Array<{ month: string; edition: string; generated_at: string;
-                     size_bytes: number; draft: boolean }>;
+    reports: Array<{ month: string; generated_at: string; size_bytes: number }>;
   }>("/api/monthly-report?list=1"),
   shortsTrend: () => getJson<any>("/api/shorts-trend"),
   insights:    (week?: string) =>
