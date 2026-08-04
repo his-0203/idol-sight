@@ -82,3 +82,21 @@ def test_collect_builds_upsert_statements():
     assert params[2] == 713          # total_members
     assert params[3] == 14           # digital_membership
     assert "한국" in params[4]        # countries JSON
+
+
+def test_make_collector_requires_sheet_id(monkeypatch):
+    from idol_sight import cli
+    for k in ("CF_ACCOUNT_ID", "CF_D1_DB_ID", "CF_API_TOKEN"):
+        monkeypatch.setenv(k, "x")
+    monkeypatch.delenv("MIIWAN_WEVERSE_SHEET_ID", raising=False)
+    with pytest.raises(RuntimeError, match="MIIWAN_WEVERSE_SHEET_ID"):
+        cli._make_collector("weverse-sheet")
+
+
+def test_make_collector_builds_weverse(monkeypatch):
+    from idol_sight import cli
+    for k in ("CF_ACCOUNT_ID", "CF_D1_DB_ID", "CF_API_TOKEN"):
+        monkeypatch.setenv(k, "x")
+    monkeypatch.setenv("MIIWAN_WEVERSE_SHEET_ID", "SHEET123")
+    coll = cli._make_collector("weverse-sheet")
+    assert isinstance(coll, WeverseSheetCollector)
