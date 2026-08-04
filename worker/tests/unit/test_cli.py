@@ -173,3 +173,65 @@ def test_collect_hanteo_fails_when_unreachable(monkeypatch):
 
     res = runner.invoke(app, ["collect-hanteo"])
     assert res.exit_code == 1
+
+
+def _sov_fake_client(has_90d=True):
+    """_sov_inputs 용 FakeClient — agg_summary 최신/전주 + groups 모델."""
+    from unittest.mock import MagicMock
+    latest = [
+        {"group_key": "plave", "yt_total_views": 1000, "yt_subscribers": 500,
+         "dc_total_posts": 10, "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 300, "naver_news_90d": 40},
+        {"group_key": "isedol", "yt_total_views": 2000, "yt_subscribers": 800,
+         "dc_total_posts": 20, "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 100, "naver_news_90d": 10},
+    ]
+    prev = [
+        {"group_key": "plave", "yt_total_views": 900, "dc_total_posts": 8,
+         "theqoo_posts": 0, "instiz_posts": 0,
+         "naver_total_news": 290, "naver_news_90d": 35},
+    ]
+    client = MagicMock()
+    def _execute(sql, params=None):
+        if "naver_news_90d" in sql and not has_90d:
+            raise RuntimeError("no such column: naver_news_90d")
+        if "FROM groups" in sql:
+            return [{"key": "plave", "group_model": "corporate"},
+                    {"key": "isedol", "group_model": "segmentary"}]
+        if "-6 days" in sql or "snapshot_at <" in sql:
+            return prev
+        if "agg_summary" in sql:
+            return latest
+        return []
+    client.execute.side_effect = _execute
+    return client
+
+
+def test_sov_inputs_uses_90d_news_and_tags_category():
+    """v3(2026-08): 뉴스 신호 = naver_news_90d 우선, 그룹별 category 태그
+    (도메인별 분리 계산용 — K-POP/서브컬처 혼합 코호트 버그픽스)."""
+    import idol_sight.cli as cli
+    groups = {g["key"]: g for g in cli._sov_inputs(_sov_fake_client())}
+    assert groups["plave"]["news"] == 40          # 90d, 누적(300) 아님
+    assert groups["plave"]["delta_news"] == 5     # 40 - 35
+    assert groups["plave"]["category"] == "kpop"
+    assert groups["isedol"]["category"] == "subculture"
+
+
+def test_sov_inputs_falls_back_without_90d_column():
+    """0113 미적용 D1: 누적 뉴스로 폴백(graceful)."""
+    import idol_sight.cli as cli
+    groups = {g["key"]: g for g in cli._sov_inputs(_sov_fake_client(has_90d=False))}
+    assert groups["plave"]["news"] == 300
+    assert groups["plave"]["delta_news"] == 10    # 300 - 290
+
+
+def test_sov_inputs_prev_anchor_is_weekly():
+    """모멘텀의 '전 주' = ~7일 전 최근접 스냅샷(직전 스냅샷 아님 — 몇 시간치
+    델타가 주간 모멘텀으로 둔갑하던 결함 수정)."""
+    import idol_sight.cli as cli
+    client = _sov_fake_client()
+    cli._sov_inputs(client)
+    prev_sqls = [c.args[0] for c in client.execute.call_args_list
+                 if "agg_summary" in c.args[0] and "-6 days" in c.args[0]]
+    assert prev_sqls, "weekly-anchored prev query not issued"

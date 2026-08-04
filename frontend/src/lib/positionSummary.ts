@@ -73,11 +73,17 @@ function kpiLine(monthly: MonthlyKpiRow[]): SummaryLine | null {
 export function buildPositionSummary(i: PositionSummaryInput): SummaryLine[] {
   const lines: SummaryLine[] = [];
 
-  if (i.sovRank != null && i.sovShare != null) {
-    const quadNote = i.quadrant ? ` ${QUADRANT_VERDICT[i.quadrant]}` : "";
+  // 시장 위치 — 헤드는 사분면 판정(질적 좌표), 점유·순위는 뒤로 강등하되
+  // 숨기지 않는다(열세 숨김 금지). 순위는 누적 관심의 백분위 산출이라
+  // 밀집 구간에서 계단 차이가 과장돼 보일 수 있어 성격을 병기한다.
+  if (i.quadrant != null || (i.sovRank != null && i.sovShare != null)) {
+    const quad = i.quadrant ? QUADRANT_VERDICT[i.quadrant] : null;
+    const sov = i.sovRank != null && i.sovShare != null
+      ? `관심 점유 ${i.sovShare.toFixed(1)}% — K-POP 버추얼 ${i.teamCount}팀 중 ${i.sovRank}위(최근 90일 반영 · 밀집 구간이라 순위 간 격차 근소)`
+      : null;
     lines.push({
       label: "시장 위치",
-      text: `K-POP 버추얼 ${i.teamCount}팀 중 ${i.sovRank}위 · 관심 점유율 ${i.sovShare.toFixed(1)}%.${quadNote}`,
+      text: [quad, sov].filter(Boolean).join(" "),
       tone: i.quadrant === "strong" ? "good"
         : i.quadrant === "low" ? "warn" : "info",
     });

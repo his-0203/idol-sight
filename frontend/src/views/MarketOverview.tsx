@@ -133,7 +133,7 @@ const HELP = {
   core:      "추정 코어 = 최근 30일 영상 중 좋아요 상위 5편의 중앙값(고유 반응 팬 근사). 유료 의심(suspect/likely_paid) 영상은 제외. 산식 v2(2026-08): 상위 5편 기준이라 업로드 편수가 많아도 불리하지 않음 — 전 그룹 동일 적용. 추정 휴리스틱 — 실측 아님.",
   quad:      "넓이(인지도)×깊이(적극 코어=최근 30일 댓글 상위 5편 중앙값) 사분면. 진성강세=둘 다 높음 · 광고형/바이럴=넓지만 얕음 · 니치 충성=좁지만 깊음 · 저조=둘 다 낮음 (카테고리 중앙값 기준). 사분면의 인지도는 할인 전 원값 — '넓지만 얕음(광고형)' 패턴 탐지가 목적.",
   viewconv:  "시청전환율 = 라이브 방송 동시접속(방송별 peak CCV 중앙값) ÷ 구독자. 구독자 중 실제 라이브에 오는 비율(충성도 신호). 위버스 등 오프플랫폼 라이브가 있는 그룹(PLAVE)은 유튜브 실측 + 위버스 추정(≥10만) 합산값(≈ 표시). 라이브 CCV 미수집 그룹은 —.",
-  sov:       "관심 점유율(Share of Voice) — 그룹들 사이 상대 비중(유튜브 조회 33%·커뮤니티 28%·뉴스 22%·구독 17%). 옆 ▲▼ = 전주 대비 변화(pp).",
+  sov:       "관심 점유율(Share of Voice) — 같은 카테고리(K-POP/서브컬처) 안에서의 상대 비중(유튜브 조회 33%·커뮤니티 28%·최근 90일 뉴스 22%·구독 17%). v3(2026-08): 카테고리별 독립 산출(각 합 100%)·뉴스는 최근 90일·전주 비교는 7일 전 스냅샷 앵커. 옆 ▲▼ = 전주 대비 변화(pp).",
   caveat:    "영상 카탈로그 organicity가 주의 구간(유료로 산 도달 의심). 심각도 순: 노랑=오가닉성 주의 < 주황=유료 의심 < 빨강=유료 가능성 높음. 인지도·추정 코어에는 신뢰 할인으로 반영됨(V2.53).",
 } satisfies Record<string, string>;
 
@@ -592,26 +592,43 @@ export function MarketOverview() {
                   추이 그래프는 데이터 2주 이상 누적 시 활성화됩니다 (현재 1주차).
                   지금은 이번 주 관심 점유율만 표시.
                 </div>
-                <ul class="space-y-1.5">
-                  {[...share.rows].sort((a: any, b: any) => b.final - a.final).map((r: any) => (
-                    <li key={r.group_key} class="flex items-center gap-2 text-data">
-                      <span class="w-20 shrink-0 truncate"
-                            style={{ color: colorOf(r.group_key) }}>
-                        {(market.groups[r.group_key]?.name) ?? r.group_key.toUpperCase()}
-                      </span>
-                      <div class="relative h-2 flex-1 overflow-hidden rounded bg-zinc-800/60">
-                        <div class="absolute inset-y-0 left-0"
-                             style={{
-                               width: `${Math.min(r.final, 100)}%`,
-                               background: colorOf(r.group_key),
-                             }} />
+                {/* v3: 점유율이 카테고리별 독립 산출(각 합 100%)이라 랭킹
+                    바도 도메인별로 나눠 그린다 — 섞으면 분모가 다른 %가
+                    한 줄에 놓여 오독을 만든다. */}
+                {(["kpop", "subculture"] as Category[]).map((cat) => {
+                  const rows = [...share.rows]
+                    .filter((r: any) =>
+                      categoryOf(market.groups[r.group_key]?.group_model) === cat)
+                    .sort((a: any, b: any) => b.final - a.final);
+                  if (!rows.length) return null;
+                  return (
+                    <div key={cat} class="mb-3">
+                      <div class="mb-1 text-hint text-zinc-500">
+                        {CATEGORY_LABEL[cat]} (카테고리 내 합 100%)
                       </div>
-                      <span class="w-14 shrink-0 text-right tabular-nums">
-                        {r.final.toFixed(1)}%
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                      <ul class="space-y-1.5">
+                        {rows.map((r: any) => (
+                          <li key={r.group_key} class="flex items-center gap-2 text-data">
+                            <span class="w-20 shrink-0 truncate"
+                                  style={{ color: colorOf(r.group_key) }}>
+                              {(market.groups[r.group_key]?.name) ?? r.group_key.toUpperCase()}
+                            </span>
+                            <div class="relative h-2 flex-1 overflow-hidden rounded bg-zinc-800/60">
+                              <div class="absolute inset-y-0 left-0"
+                                   style={{
+                                     width: `${Math.min(r.final, 100)}%`,
+                                     background: colorOf(r.group_key),
+                                   }} />
+                            </div>
+                            <span class="w-14 shrink-0 text-right tabular-nums">
+                              {r.final.toFixed(1)}%
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
               </>
             ) : (
               <div class="text-hint text-zinc-500">아직 관심 점유율 데이터가 없습니다.</div>
