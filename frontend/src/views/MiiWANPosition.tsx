@@ -34,7 +34,7 @@ import {
 } from "../lib/position";
 import type { Headline } from "../lib/cohortHeadline";
 import {
-  buildKpiTable, officialProgress, KPI_LABEL, KPI_MONTHS,
+  buildKpiTable, KPI_LABEL, KPI_MONTHS,
   MONTH_NOTES, type MonthlyKpiRow,
 } from "../lib/miiwanKpi";
 import {
@@ -384,31 +384,6 @@ export function MiiWANPosition(props: {
               ))}
             </tbody>
           </table>
-        </div>
-        {/* 공식 KPI 2시점 달성률 — 표의 요약 결론. */}
-        <div class="mt-2 grid gap-2 md:grid-cols-2">
-          {officialProgress(props.monthlyKpi).map((k) => (
-            <div key={k.month} class="card">
-              <div class="mb-1.5 text-xs font-semibold text-zinc-300">{k.label}</div>
-              <div class="space-y-1.5">
-                {k.items.map((it) => (
-                  <div key={it.metric} class="flex items-center gap-2 text-xs">
-                    <span class="w-28 shrink-0 text-zinc-500">{KPI_LABEL[it.metric]}</span>
-                    <div class="h-2 flex-1 overflow-hidden rounded-sm bg-zinc-800/60">
-                      <div class="h-full bg-[#75d7d1]/70"
-                           style={{ width: `${Math.min(it.pct ?? 0, 100)}%` }} />
-                    </div>
-                    <span class="w-24 shrink-0 text-right tabular-nums text-zinc-400">
-                      {it.actual != null ? fmt(it.actual) : "—"} / {fmt(it.target)}
-                    </span>
-                    <span class="w-10 shrink-0 text-right tabular-nums font-semibold text-zinc-200">
-                      {it.pct != null ? `${it.pct}%` : "—"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
         <p class="mt-2 text-hint text-zinc-500">
           ◆ = 의사결정 시점(8월 말 굿즈 참여 · 10월 말 제작 스케일) · ★ = 9월 컴백 ·
