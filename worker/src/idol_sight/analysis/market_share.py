@@ -255,12 +255,14 @@ def compute_tiers(flows: dict[str, float]) -> dict[str, int]:
 def to_statements(
     rows: list[ShareRow], *, market_total: int,
     tiers: dict[str, int] | None = None,
+    flows: dict[str, int] | None = None,
 ) -> list[tuple[str, list]]:
     """Convert rows to D1 INSERT statements for agg_market_share.
 
-    v3.1: ``tiers``(group_key → 1..3)가 주어지면 tier 컬럼 포함 확장
-    INSERT(0115 적용 D1 전용 — 호출부가 컬럼 감지 후 전달). None 이면
-    기존 7컬럼 INSERT(하위호환).
+    v3.1: ``tiers``(group_key → 1..3)가 주어지면 tier·view_flow_90d 컬럼
+    포함 확장 INSERT(0115·0116 적용 D1 전용 — 호출부가 컬럼 감지 후 전달).
+    ``flows``는 티어 산정 근거인 90일 조회 증분(화면의 정량 앵커).
+    None 이면 기존 7컬럼 INSERT(하위호환).
     """
     out: list[tuple[str, list]] = []
     for r in rows:
@@ -269,16 +271,18 @@ def to_statements(
                 """
                 INSERT INTO agg_market_share
                   (week_start, week_end, group_key, cum, mom, final,
-                   market_total, tier)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   market_total, tier, view_flow_90d)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(week_start, group_key) DO UPDATE SET
                   week_end=excluded.week_end,
                   cum=excluded.cum, mom=excluded.mom, final=excluded.final,
-                  market_total=excluded.market_total, tier=excluded.tier
+                  market_total=excluded.market_total, tier=excluded.tier,
+                  view_flow_90d=excluded.view_flow_90d
                 """.strip(),
                 [r.week_start, r.week_end, r.group_key,
                  r.cum, r.mom, r.final, market_total,
-                 tiers.get(r.group_key)],
+                 tiers.get(r.group_key),
+                 (flows or {}).get(r.group_key)],
             ))
         else:
             out.append((

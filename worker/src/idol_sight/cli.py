@@ -279,13 +279,17 @@ def _sov_inputs(client) -> list[dict]:
     return groups
 
 
-def _sov_tiers(client, groups: list[dict]) -> dict[str, int]:
+def _sov_tiers(client, groups: list[dict]) -> tuple[dict[str, int], dict[str, int]]:
     """관심 규모 티어(v3.1) — 그룹별 90일 조회 플로우를 카테고리별
     log 갭 클러스터로 나눈다(market_share.compute_tiers).
 
     플로우 = 최신 조회수 − 창 내 그룹별 **최초** 스냅샷 조회수. 수집
     이력이 90일보다 짧은 그룹(중도 시드)은 가용 범위 증분으로 계산되고,
     증분 0(신규·집계 전)은 자연히 최하 티어로 간다.
+
+    Returns:
+        (tiers, flows) — flows 는 티어 산정 근거인 조회 증분 절대값
+        (화면의 정량 앵커로 view_flow_90d 에 함께 적재).
     """
     from idol_sight.analysis.market_share import compute_tiers
 
@@ -297,13 +301,15 @@ def _sov_tiers(client, groups: list[dict]) -> dict[str, int]:
         ") WHERE rn = 1")
     anchor = {r["group_key"]: r.get("yt_total_views") or 0 for r in anchor_rows}
     tiers: dict[str, int] = {}
+    all_flows: dict[str, int] = {}
     for cat in ("kpop", "subculture"):
         flows = {
             g["key"]: max(0, (g["yt_views"] or 0) - (anchor.get(g["key"]) or 0))
             for g in groups if g["category"] == cat
         }
         tiers.update(compute_tiers(flows))
-    return tiers
+        all_flows.update(flows)
+    return tiers, all_flows
 
 
 def _load_group(client: D1Client, key: str) -> GroupConfig:
@@ -1502,13 +1508,14 @@ def analyze_weekly(
             week_start=week_start, week_end=week_end,
             groups=[g for g in groups if g["category"] == cat])
     market_total = sum(g["yt_views"] for g in groups)  # legacy "market_total" column
-    # v3.1: 관심 규모 티어 — 0115 적용 D1에서만(컬럼 감지, graceful).
+    # v3.1: 관심 규모 티어 + 근거 플로우 — 0115·0116 적용 D1에서만(감지, graceful).
     try:
-        client.execute("SELECT tier FROM agg_market_share LIMIT 1")
-        tiers = _sov_tiers(client, groups)
+        client.execute("SELECT tier, view_flow_90d FROM agg_market_share LIMIT 1")
+        tiers, flows = _sov_tiers(client, groups)
     except Exception:
-        tiers = None
-    market_stmts = to_statements(share_rows, market_total=market_total, tiers=tiers)
+        tiers, flows = None, None
+    market_stmts = to_statements(
+        share_rows, market_total=market_total, tiers=tiers, flows=flows)
     if market_stmts:
         client.batch(market_stmts)
     typer.echo(f"sov: wrote {len(market_stmts)} rows")
