@@ -1,7 +1,7 @@
 """전 그룹 추정 코어팬 (MarketOverview 참고용, P2a 확장).
 
 기존 youtube_video_stats 재가공 — 신규 수집 0. P2a estimate_video_engagement
-산식 그대로 재사용(import). 그룹별 최근 56일 영상(< 3편이면 최신 12편 폴백)에서
+산식 그대로 재사용(import). 그룹별 최근 30일 영상(< 3편이면 최신 12편 폴백)에서
 median likes/comments를 추정 관여팬/적극코어로 산출한다.
 
 MiiWAN 전용이던 estimate 부분을 전 그룹으로 확대. 정렬/순위 키 아님 — 카드
@@ -37,8 +37,10 @@ __all__ = [
 
 log = logging.getLogger(__name__)
 
-# live_activity.py 의 module-private 상수 복제 (해당 모듈에서 import 금지)
-_WINDOW_DAYS: int = 56
+# live_activity.py 의 module-private 상수를 미러하되, 윈도우는 의도적으로
+# 분기(2026-08-04 사용자 결정): 시장 개요/지도의 추정 코어는 "지금"의
+# 좌표라 최근 30일 기준 — live_activity(MiiWAN 심층 P2a)는 56일 유지.
+_WINDOW_DAYS: int = 30
 _MIN_WINDOW_VIDEOS: int = 3        # 윈도우 내 영상 < 3 → 최신 12건 폴백
 _VIDEO_FALLBACK_LIMIT: int = 12
 
@@ -221,7 +223,7 @@ def build_core_fan_estimate(
     """활성 그룹별 최근 영상 → compute → 스냅샷별 멱등 쓰기.
 
     신규 수집 없음 — youtube_videos + youtube_video_stats 재가공.
-    56일 윈도우 내 영상 < 3편이면 최신 12편 폴백.
+    30일 윈도우 내 영상 < 3편이면 최신 12편 폴백.
     DELETE WHERE snapshot_at=? 선두 → 같은 스냅샷 재실행 시 멱등(과거 보존).
 
     V2.53: 유료 의심(suspect/likely_paid) 영상을 제외한 adj 표본을 산정해 보정

@@ -545,3 +545,11 @@ def test_top5_applies_to_adj_sample_after_suspect_filter():
     }])
     assert rows[0]["est_active_core"] == 30        # 원값: top5 of 전체
     assert rows[0]["est_active_core_adj"] == 15    # adj: median(30,20,10,1 → top5=4편)
+
+
+def test_window_is_30_days_market_map_divergence_from_live_activity():
+    """시장 지도의 추정 코어 창 = 최근 30일(2026-08-04 사용자 결정) —
+    live_activity(MiiWAN 심층, 56일)와 의도적으로 분기. 미러 주석만 믿고
+    56으로 되돌리는 회귀를 막는 가드."""
+    from idol_sight.analysis.core_fan_estimate import _WINDOW_DAYS
+    assert _WINDOW_DAYS == 30

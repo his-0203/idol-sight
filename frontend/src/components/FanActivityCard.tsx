@@ -114,7 +114,7 @@ export function FanActivityCard({ activity }: { activity: FanActivity }) {
             <TierCell
               label="추정 관여 팬" sub="좋아요 반응" estimated
               value={fmtInt(est_engaged_fans)}
-              tip="영상에 좋아요로 반응한 추정 팬 수 — 좋아요는 영상당 1인 1회라 고유 인원 근사"
+              tip="영상에 좋아요로 반응한 추정 팬 수 — 좋아요는 영상당 1인 1회라 고유 인원 근사. 시장 지도의 '추정 코어'(최근 30일 반응 상위 5편 기준)와는 산정 기준이 달라 숫자가 다를 수 있음"
             />
             <TierCell
               label="측정 라이브 단골" sub="고유 챗터(중앙값)"
