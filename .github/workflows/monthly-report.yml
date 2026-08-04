@@ -1,0 +1,43 @@
+name: monthly-report
+on:
+  schedule:
+    # 1일 00:23 UTC = 1일 09:23 KST. 정각(0 0)은 GitHub 혼잡 tick 이라 분
+    # 오프셋. tick 이 수 시간 밀려도 커맨드의 대상 월 계산이 '오늘 기준
+    # 지난달' 앵커라(1일→2일로 밀려도 동일) 오분류 없음 — analyze-weekly 의
+    # cron 문자열 분기는 요일 경계 문제였고 월간엔 불필요.
+    - cron: '23 0 1 * *'
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'YYYY-MM (지난달 재생성/백필, 빈칸=지난달)'
+        required: false
+      investor_final:
+        description: '투자사판 DRAFT 워터마크 해제 (검수 완료 시에만)'
+        type: boolean
+        default: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults: { run: { working-directory: worker } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+      - name: Generate monthly report deck (internal + investor)
+        run: |
+          uv run python -m idol_sight monthly-report \
+            ${{ inputs.month != '' && inputs.month != null && format('--month {0}', inputs.month) || '' }} \
+            ${{ inputs.investor_final == true && '--investor-final' || '' }}
+        env:
+          CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DB_ID:     ${{ secrets.CF_D1_DB_ID }}
+          CF_API_TOKEN:    ${{ secrets.CF_API_TOKEN }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      # timeout 은 failure 가 아니라 cancelled — analyze-weekly 실측 교훈.
+      - if: failure() || cancelled()
+        run: |
+          uv run python -m idol_sight notify-fail --job 'monthly-report'
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
