@@ -127,3 +127,49 @@ def test_backfill_music_show_wins_rejects_invalid_group(monkeypatch):
     # ISEDOL 은 후보 6개 그룹에 없음 → 거부
     assert res.exit_code == 2
     assert "must be one of" in res.output
+
+
+def test_collect_hanteo_runs_global_and_batches(monkeypatch):
+    """`collect-hanteo`는 HanteoCollector.collect_global()을 호출하고
+    statements를 D1 batch로 기록한다 (melon-chart 전역 수집 패턴)."""
+    from unittest.mock import MagicMock
+
+    import idol_sight.cli as cli
+    from idol_sight.collectors.base import CollectionResult
+
+    fake_client = MagicMock()
+    monkeypatch.setattr(cli, "_make_d1_client", lambda settings: fake_client)
+    monkeypatch.setattr(cli, "load_settings", lambda: MagicMock())
+    monkeypatch.setattr(cli, "_load_active_groups",
+                        lambda client: [{"key": "plave", "name": "PLAVE", "name_kr": "플레이브"}])
+
+    result = CollectionResult(2, 0, statements=[("INSERT", ["x"]), ("INSERT", ["y"])])
+    fake_coll = MagicMock()
+    fake_coll.collect_global.return_value = result
+    monkeypatch.setattr(cli, "HanteoCollector", lambda **kw: fake_coll)
+
+    res = runner.invoke(app, ["collect-hanteo"])
+    assert res.exit_code == 0
+    fake_coll.collect_global.assert_called_once()
+    fake_client.batch.assert_called_once_with(result.statements)
+
+
+def test_collect_hanteo_fails_when_unreachable(monkeypatch):
+    """기사 목록 fetch 실패(statements 없음 + errors)면 비-0 종료 —
+    collect-daily 스텝이 빨갛게 떠서 조용한 결측을 막는다."""
+    from unittest.mock import MagicMock
+
+    import idol_sight.cli as cli
+    from idol_sight.collectors.base import CollectionResult
+
+    monkeypatch.setattr(cli, "_make_d1_client", lambda settings: MagicMock())
+    monkeypatch.setattr(cli, "load_settings", lambda: MagicMock())
+    monkeypatch.setattr(cli, "_load_active_groups", lambda client: [{"key": "plave"}])
+
+    fake_coll = MagicMock()
+    fake_coll.collect_global.return_value = CollectionResult(
+        0, 0, errors=["chart_list_unreachable"])
+    monkeypatch.setattr(cli, "HanteoCollector", lambda **kw: fake_coll)
+
+    res = runner.invoke(app, ["collect-hanteo"])
+    assert res.exit_code == 1
