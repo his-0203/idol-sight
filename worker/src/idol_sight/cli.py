@@ -293,18 +293,24 @@ def _sov_tiers(client, groups: list[dict]) -> tuple[dict[str, int], dict[str, in
     """
     from idol_sight.analysis.market_share import compute_tiers
 
+    # 앵커는 조회수가 실재하는 행만 — 백필 행은 yt_total_views 가 NULL일
+    # 수 있어(agg_summary NULL 규약) 0 취급하면 증분이 누적 전체로 부풀려
+    # 진다(2026-08-04 plave 855M 오류 실측). NULL 앵커뿐인 그룹은 아래
+    # anchor 부재 → 증분 0(집계 전 취급).
     anchor_rows = client.execute(
         "SELECT group_key, yt_total_views FROM ("
         "  SELECT group_key, yt_total_views, ROW_NUMBER() OVER ("
         "    PARTITION BY group_key ORDER BY snapshot_at ASC) AS rn "
         "  FROM agg_summary WHERE snapshot_at >= datetime('now', '-90 days')"
+        "    AND yt_total_views IS NOT NULL"
         ") WHERE rn = 1")
     anchor = {r["group_key"]: r.get("yt_total_views") or 0 for r in anchor_rows}
     tiers: dict[str, int] = {}
     all_flows: dict[str, int] = {}
     for cat in ("kpop", "subculture"):
         flows = {
-            g["key"]: max(0, (g["yt_views"] or 0) - (anchor.get(g["key"]) or 0))
+            g["key"]: (max(0, (g["yt_views"] or 0) - anchor[g["key"]])
+                       if g["key"] in anchor else 0)
             for g in groups if g["category"] == cat
         }
         tiers.update(compute_tiers(flows))
