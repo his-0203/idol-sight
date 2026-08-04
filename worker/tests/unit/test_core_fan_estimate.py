@@ -474,3 +474,74 @@ def test_build_suspect_load_failure_falls_back_to_no_filter():
     assert params[7] == "scored"                 # basis
     assert params[6] == 3                        # video_count (full)
     assert params[11] == 3                       # organic_video_count (필터 없음)
+
+
+# -- v2(2026-08): 반응 상위 5편 median — 볼륨 역상관 제거 --
+
+def _vids(pairs):
+    """[(likes, comments), ...] → 영상 행 목록."""
+    return [{"video_id": f"v{i}", "views": 1000, "likes": lk, "comments": cm}
+            for i, (lk, cm) in enumerate(pairs)]
+
+
+def test_top5_median_ignores_low_engagement_tail():
+    """일상 클립 다수(꼬리)가 median 을 희석하지 못한다 — 지표는 반응 상위
+    5편의 median. 댓글 [50,40,30,20,10, 1,1,1,1,1] → top5 median 30
+    (구산식 전체 median 은 5.5)."""
+    rows = compute_core_fan_estimate([{
+        "key": "g",
+        "videos": _vids([(500, 50), (400, 40), (300, 30), (200, 20),
+                         (100, 10), (1, 1), (1, 1), (1, 1), (1, 1), (1, 1)]),
+    }])
+    assert rows[0]["est_active_core"] == 30
+    assert rows[0]["est_engaged_fans"] == 300
+    assert rows[0]["video_count"] == 10   # 표본 수 표기는 전체 유지
+
+
+def test_top5_selection_is_per_signal():
+    """좋아요 상위 5편과 댓글 상위 5편은 독립 선별 — 각 지표가 자기 신호
+    기준 '가장 동원된 5편'을 본다."""
+    rows = compute_core_fan_estimate([{
+        "key": "g",
+        # 좋아요는 앞 5편이 높고, 댓글은 뒤 5편이 높다.
+        "videos": _vids([(900, 1), (800, 1), (700, 1), (600, 1), (500, 1),
+                         (1, 90), (1, 80), (1, 70), (1, 60), (1, 50)]),
+    }])
+    assert rows[0]["est_engaged_fans"] == 700   # median(900..500)
+    assert rows[0]["est_active_core"] == 70     # median(90..50)
+
+
+def test_volume_monotonicity_adding_videos_never_lowers_estimates():
+    """핵심 성질: 표본이 이미 K(=5)편 이상이면 영상을 추가해도 추정치가
+    내려가지 않는다(약단조) — '많이 올릴수록 불리' 구조 소멸의 회귀 가드.
+    (표본 <K 구간은 top-K 가 저반응 영상으로 채워지며 하락 가능 — 전체
+    median 과 동일한 경계 특성이라 예외로 둔다.)"""
+    base = _vids([(500, 50), (400, 40), (300, 30), (200, 20), (100, 10)])
+    more = base + _vids([(1, 1)] * 20)
+    r_base = compute_core_fan_estimate([{"key": "g", "videos": base}])[0]
+    r_more = compute_core_fan_estimate([{"key": "g", "videos": more}])[0]
+    assert r_more["est_active_core"] >= r_base["est_active_core"]
+    assert r_more["est_engaged_fans"] >= r_base["est_engaged_fans"]
+
+
+def test_top5_with_fewer_than_five_videos_matches_plain_median():
+    """표본 <5편이면 있는 만큼 — 현행 median 과 동일(연속성)."""
+    rows = compute_core_fan_estimate([{
+        "key": "g", "videos": _vids([(10, 3), (20, 5), (30, 7)]),
+    }])
+    assert rows[0]["est_active_core"] == 5
+    assert rows[0]["est_engaged_fans"] == 20
+
+
+def test_top5_applies_to_adj_sample_after_suspect_filter():
+    """adj 경로: 유료 의심 제외 후 남은 표본에 동일 top-5 — 의심 영상이
+    상위권이었다면 제외 후 median 이 내려간다."""
+    videos = _vids([(500, 50), (400, 40), (300, 30), (200, 20),
+                    (100, 10), (1, 1)])
+    rows = compute_core_fan_estimate([{
+        "key": "g",
+        "videos": videos,
+        "videos_adj": videos[2:],   # 상위 2편이 유료 의심으로 제외됐다고 가정
+    }])
+    assert rows[0]["est_active_core"] == 30        # 원값: top5 of 전체
+    assert rows[0]["est_active_core_adj"] == 15    # adj: median(30,20,10,1 → top5=4편)
