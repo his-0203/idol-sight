@@ -40,6 +40,9 @@ class Settings:
     miiwan_yt_oauth_client_id: str | None
     miiwan_yt_oauth_client_secret: str | None
     miiwan_yt_oauth_refresh_token: str | None
+    # 미완소년 위버스 시트 (weverse-sheet collector). 공개 CSV export가
+    # 가능한 구글 시트 ID — 미설정이면 해당 collector 미동작.
+    miiwan_weverse_sheet_id: str | None
 
 
 def load_settings() -> Settings:
@@ -53,6 +56,7 @@ def load_settings() -> Settings:
         miiwan_yt_oauth_client_id=_optional("MIIWAN_YT_OAUTH_CLIENT_ID"),
         miiwan_yt_oauth_client_secret=_optional("MIIWAN_YT_OAUTH_CLIENT_SECRET"),
         miiwan_yt_oauth_refresh_token=_optional("MIIWAN_YT_OAUTH_REFRESH_TOKEN"),
+        miiwan_weverse_sheet_id=_optional("MIIWAN_WEVERSE_SHEET_ID"),
     )
 
 

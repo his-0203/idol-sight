@@ -17,6 +17,7 @@ from idol_sight.analysis.news_backfill import rearbitrate
 from idol_sight.collectors.channel_stats import ChannelStatsCollector
 from idol_sight.collectors.dc import DcCollector
 from idol_sight.collectors.hanteo import HanteoCollector
+from idol_sight.collectors.weverse_sheet import WeverseSheetCollector
 from idol_sight.collectors.instiz import InstizCollector
 from idol_sight.collectors.melon import MelonChartCollector
 from idol_sight.collectors.naver import NaverCollector
@@ -33,7 +34,7 @@ app = typer.Typer(no_args_is_help=True, add_completion=False)
 
 KNOWN_SOURCES = {
     "youtube", "naver", "dc", "theqoo", "instiz",
-    "hanteo", "channel-stats",
+    "hanteo", "channel-stats", "weverse-sheet",
 }
 KNOWN_GROUPS = {
     "plave", "isedol", "stellive", "skinz",
@@ -50,6 +51,7 @@ _COLLECTORS = {
     "youtube": YouTubeCollector,
     "channel-stats": ChannelStatsCollector,
     "hanteo": HanteoCollector,
+    "weverse-sheet": WeverseSheetCollector,
 }
 
 # 각 source의 expected_interval_h. crawl_meta에 기록되어 health-check이
@@ -67,6 +69,8 @@ _INTERVALS_H = {
     "naver": 12,
     "dc": 6, "theqoo": 6, "instiz": 6, "youtube": 6, "channel-stats": 24,
     "hanteo": 168,
+    # weverse-sheet: 24h — collect-daily 1회만 수집 (시트는 하루 1회 갱신).
+    "weverse-sheet": 24,
 }
 
 
@@ -169,6 +173,10 @@ def _make_collector(source: str, *, d1: D1Client | None = None):
             )
 
         return cls(api_key=settings.yt_api_key, members_loader=members_loader)
+    if cls is WeverseSheetCollector:
+        if not settings.miiwan_weverse_sheet_id:
+            raise RuntimeError("weverse-sheet requires MIIWAN_WEVERSE_SHEET_ID env")
+        return cls(sheet_id=settings.miiwan_weverse_sheet_id)
     if cls is NaverCollector:
         # Naver fans out across the group anchor + per-member queries
         # (V2.6 multi-query expansion — see _search_terms.py for the

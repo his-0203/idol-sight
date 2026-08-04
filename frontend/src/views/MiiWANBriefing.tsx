@@ -34,6 +34,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api } from "../api";
 import { fmt } from "../format";
 import { headline, type Headline } from "../lib/cohortHeadline";
+import type { MonthlyKpiRow } from "../lib/miiwanKpi";
 import { KPI } from "../components/KPI";
 import { EmptyState } from "../components/EmptyState";
 import { EstBadge } from "../components/EstBadge";
@@ -105,6 +106,8 @@ type MiiwanData = {
   demographics?: Array<{ age_group: string; gender: string; viewer_pct: number | null }>;
   // 포지션 뷰 전용 — 방송별 peak 라이브 동접 추이 (Phase 3).
   ccv_trend?: Array<{ video_id: string; peak: number; started_at: string }>;
+  // 포지션 뷰 전용 — 월간 KPI 페이스 (월별 실측: 구독·동접·위버스).
+  monthly_kpi?: MonthlyKpiRow[];
   industry?: {
     melon_top100_peak: number | null;
     melon_top100_depth: number | null;
@@ -561,6 +564,7 @@ export function MiiWANBriefing() {
           } : null}
           ccvTrend={data.ccv_trend ?? []}
           cohortRaw={cohortRaw}
+          monthlyKpi={data.monthly_kpi ?? []}
         />
       ) : (<>
 
