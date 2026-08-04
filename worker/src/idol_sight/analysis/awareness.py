@@ -220,6 +220,14 @@ _GROUPS_SQL = (
 # 그룹별 최신 신호 — 이번 스냅샷의 agg_summary 행(_recompute_health_scores 와
 # 동일 패턴: WHERE snapshot_at=?). agg_awareness 는 agg_summary 파생이므로 같은
 # 스냅샷을 읽는다.
+#
+# v2(2026-08): 뉴스 신호 = naver_news_90d(최근 90일 플로우, migration 0113).
+# 누적 스톡은 활동 정지 그룹의 인지도를 영구 유지시키는 관성 문제가 있었다.
+# 컬럼 미적용 D1 은 누적으로 폴백(_has_news_90d_column 감지, adj 패턴 미러).
+_AGG_SQL_90D = (
+    "SELECT group_key, yt_subscribers, yt_total_views, naver_news_90d "
+    "FROM agg_summary WHERE snapshot_at = ?"
+)
 _AGG_SQL = (
     "SELECT group_key, yt_subscribers, yt_total_views, naver_total_news "
     "FROM agg_summary WHERE snapshot_at = ?"
@@ -255,6 +263,15 @@ def _has_adj_columns(client: _Executor) -> bool:
         return False
 
 
+def _has_news_90d_column(client: _Executor) -> bool:
+    """mig 0113 적용 여부 감지 — 미적용 D1은 누적 뉴스로 폴백(graceful)."""
+    try:
+        client.execute("SELECT naver_news_90d FROM agg_summary LIMIT 1")
+        return True
+    except Exception:
+        return False
+
+
 def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
     """그룹별 최신 agg_summary + group_model → compute → 스냅샷별 멱등 쓰기.
 
@@ -272,9 +289,12 @@ def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
     model_by_key = {
         r["key"]: r.get("group_model") for r in client.execute(_GROUPS_SQL)
     }
+    # v2: 뉴스 신호는 90d 플로우 우선(0113 적용 시), 미적용 D1은 누적 폴백.
+    use_90d = _has_news_90d_column(client)
     agg_by_key = {
         r["group_key"]: r
-        for r in client.execute(_AGG_SQL, [snapshot_at])
+        for r in client.execute(
+            _AGG_SQL_90D if use_90d else _AGG_SQL, [snapshot_at])
     }
 
     groups_in = [
@@ -283,7 +303,11 @@ def build_awareness(client: _Executor, *, snapshot_at: str) -> CollectionResult:
             "group_model": model_by_key.get(key),
             "yt_subscribers": agg.get("yt_subscribers"),
             "yt_total_views": agg.get("yt_total_views"),
-            "naver_total_news": agg.get("naver_total_news"),
+            # compute 입력 키는 naver_total_news 로 유지(순수 함수 계약 불변)
+            # — v2에선 여기에 90d 플로우 값이 실린다.
+            "naver_total_news": (
+                agg.get("naver_news_90d") if use_90d
+                else agg.get("naver_total_news")),
         }
         for key, agg in agg_by_key.items()
         if key in model_by_key   # 비활성/미등록 그룹의 잔여 행 무시

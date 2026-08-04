@@ -28,6 +28,12 @@ from idol_sight.collectors.base import CollectionResult
 # deliberately rare 'controversy' label, still bounded.
 CONTROVERSY_WINDOW_DAYS = 14
 
+# v2(2026-08): 인지도 뉴스 신호의 최근성 창. published_at 기준 relevant 기사
+# 수를 naver_news_90d 로 적재 — 누적 스톡의 영구 관성(활동 정지 그룹의
+# 인지도가 옛 기사로 유지되는 문제) 제거. 스펙:
+# docs/superpowers/specs/2026-08-04-market-map-formula-v2-design.md
+NEWS_WINDOW_DAYS = 90
+
 
 class _Executor(Protocol):
     def execute(self, sql: str, params: list | None = ...) -> list[dict]: ...
@@ -39,9 +45,9 @@ INSERT INTO agg_summary
    yt_total_videos, yt_total_views, yt_subscribers,
    yt_likes_total, yt_comments_total,
    dc_total_posts, theqoo_posts, instiz_posts,
-   naver_total_news, controversy_count,
+   naver_total_news, controversy_count, naver_news_90d,
    music_show_wins, melon_top100_peak, melon_top100_depth)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   yt_total_videos=excluded.yt_total_videos,
   yt_total_views=excluded.yt_total_views,
@@ -53,6 +59,7 @@ ON CONFLICT(group_key, snapshot_at) DO UPDATE SET
   instiz_posts=excluded.instiz_posts,
   naver_total_news=excluded.naver_total_news,
   controversy_count=excluded.controversy_count,
+  naver_news_90d=excluded.naver_news_90d,
   music_show_wins=COALESCE(excluded.music_show_wins, agg_summary.music_show_wins),
   melon_top100_peak=COALESCE(excluded.melon_top100_peak, agg_summary.melon_top100_peak),
   melon_top100_depth=COALESCE(excluded.melon_top100_depth, agg_summary.melon_top100_depth)
@@ -69,7 +76,7 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
         "yt_videos": 0, "yt_views": None, "yt_subs": None,
         "yt_likes": 0, "yt_comments": 0,
         "dc": 0, "theqoo": 0, "instiz": 0,
-        "naver": 0, "controversy": 0,
+        "naver": 0, "controversy": 0, "naver_90d": 0,
     })
 
     # Community posts by platform.
@@ -93,6 +100,20 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
     )
     for r in rows:
         counts[r["group_key"]]["naver"] = r["n"]
+
+    # v2(2026-08): 최근 90일 relevant 기사 수 — 인지도(awareness)의 뉴스
+    # 신호용 플로우. 누적(naver_total_news)은 health_score 소비처가 있어
+    # 의미 불변으로 공존한다. NULL published_at 은 창 밖(=제외) —
+    # controversy 창과 동일 관용구(시점 없는 기사는 최근성 창에 못 놓는다).
+    rows = client.execute(
+        "SELECT group_key, COUNT(*) AS n FROM naver_articles "
+        "WHERE COALESCE(is_excluded,0)=0 "
+        "  AND published_at >= datetime('now', ?) "
+        "GROUP BY group_key",
+        [f"-{NEWS_WINDOW_DAYS} days"],
+    )
+    for r in rows:
+        counts[r["group_key"]]["naver_90d"] = r["n"]
 
     # Controversy count — re-sourced from community_posts sentiment
     # (LLM-classified 'controversy'). WINDOWED to the last
@@ -203,6 +224,7 @@ def build_agg_summary(client: _Executor, *, snapshot_at: str) -> CollectionResul
                 c["yt_likes"], c["yt_comments"],
                 c["dc"], c["theqoo"], c["instiz"],
                 c["naver"], c["controversy"],
+                c["naver_90d"],
                 # music_show_wins: NULL — collector not shipped (V2.16
                 # stub). The COALESCE in _UPSERT preserves any value
                 # already in the row from a manual seed, so this UPSERT

@@ -271,12 +271,17 @@ def _fake():
             {"key": "isedol", "group_model": "segmentary"},
         ],
         agg=[
+            # v2: build 는 naver_news_90d 를 우선 소비(0113) — 픽스처는 누적과
+            # 같은 값으로 채워 기존 기대값 유지.
             {"group_key": "plave", "yt_subscribers": 1_000_000,
-             "yt_total_views": 160_000_000, "naver_total_news": 300},
+             "yt_total_views": 160_000_000, "naver_total_news": 300,
+             "naver_news_90d": 300},
             {"group_key": "skinz", "yt_subscribers": 100_000,
-             "yt_total_views": 10_000_000, "naver_total_news": 20},
+             "yt_total_views": 10_000_000, "naver_total_news": 20,
+             "naver_news_90d": 20},
             {"group_key": "isedol", "yt_subscribers": 8_000_000,
-             "yt_total_views": 1_200_000_000, "naver_total_news": 50},
+             "yt_total_views": 1_200_000_000, "naver_total_news": 50,
+             "naver_news_90d": 50},
         ],
     )
 
@@ -431,3 +436,47 @@ def test_migration_agg_awareness_pk_is_group_key_snapshot():
     conn.execute(ins)
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(ins)
+
+
+def test_build_awareness_prefers_naver_news_90d_when_column_present():
+    """v2(2026-08): 뉴스 신호 = naver_news_90d(최근 90일 플로우). 컬럼이 있는
+    D1에선 누적(naver_total_news) 대신 90d 값이 news_n 을 결정한다."""
+    fake = _FakeClient(
+        groups=[
+            {"key": "plave", "group_model": "corporate"},
+            {"key": "quiet", "group_model": "corporate"},
+        ],
+        agg=[
+            # quiet: 누적 200건(과거 관성)이지만 최근 90일 0건.
+            {"group_key": "plave", "yt_subscribers": 1_000_000,
+             "yt_total_views": 160_000_000, "naver_total_news": 300,
+             "naver_news_90d": 100},
+            {"group_key": "quiet", "yt_subscribers": 0,
+             "yt_total_views": 0, "naver_total_news": 200,
+             "naver_news_90d": 0},
+        ],
+    )
+    res = build_awareness(fake, snapshot_at="2026-08-04T00:00:00Z")
+    by_group = {st[1][0]: st[1] for st in res.statements[1:]}
+    # quiet: 90d=0 → 세 신호 전부 0 → insufficient (score None).
+    assert by_group["quiet"][3] is None
+    # plave: 90d=100 → news 리더 → news_n(=params[7]) 1.0.
+    assert by_group["plave"][7] == 1.0
+
+
+def test_build_awareness_falls_back_to_total_news_without_90d_column():
+    """마이그레이션(0113) 미적용 D1: 감지 쿼리가 실패하면 누적으로 폴백."""
+    class _NoColumnClient(_FakeClient):
+        def execute(self, sql, params=None):
+            if "naver_news_90d" in sql:
+                raise RuntimeError("no such column: naver_news_90d")
+            return super().execute(sql, params)
+
+    fake = _NoColumnClient(
+        groups=[{"key": "plave", "group_model": "corporate"}],
+        agg=[{"group_key": "plave", "yt_subscribers": 0,
+              "yt_total_views": 0, "naver_total_news": 300}],
+    )
+    res = build_awareness(fake, snapshot_at="2026-08-04T00:00:00Z")
+    by_group = {st[1][0]: st[1] for st in res.statements[1:]}
+    assert by_group["plave"][7] == 1.0   # 누적 300 → news 리더
