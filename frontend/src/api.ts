@@ -42,6 +42,10 @@ export const api = {
     return getJson<any>(`/api/melon/${encodeURIComponent(k)}?${qs}`);
   },
   weekly:      () => getJson<any>("/api/weekly"),
+  monthlyReports: () => getJson<{
+    reports: Array<{ month: string; edition: string; generated_at: string;
+                     size_bytes: number; draft: boolean }>;
+  }>("/api/monthly-report?list=1"),
   shortsTrend: () => getJson<any>("/api/shorts-trend"),
   insights:    (week?: string) =>
     getJson<any>("/api/insights" + (week ? `?week=${encodeURIComponent(week)}` : "")),

@@ -1076,6 +1076,71 @@ def melon_chart_backfill_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("monthly-report",
+             help="전월 월간 보고서 덱(내부/투자사 2판) 생성 → monthly_reports 저장.")
+def monthly_report_cmd(
+    month: str | None = typer.Option(
+        None, "--month", help="YYYY-MM (기본: 지난달). 재생성·백필용."),
+    investor_final: bool = typer.Option(
+        False, "--investor-final",
+        help="투자사판 DRAFT 워터마크 해제(검수 완료 시에만)."),
+) -> None:
+    # 사전 렌더+동결 방식(스펙 2026-08-04): 이 리포는 소급 정정이 일상이라
+    # 보고서는 생성 시점 스냅샷이어야 한다. 대상 월은 tick 지연에 안전한
+    # '지난달' 앵커(1일이 2일로 밀려도, 월중 수동 dispatch 여도 동일).
+    import json as _json
+
+    from idol_sight.analysis.monthly_render import render_deck
+    from idol_sight.analysis.monthly_report import build_monthly_data
+
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    if not month:
+        today = datetime.now(UTC).date()
+        anchor = today.replace(day=1) - timedelta(days=1)
+        month = f"{anchor.year:04d}-{anchor.month:02d}"
+    now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    data = build_monthly_data(client, month)
+    statements: list[tuple[str, list]] = []
+    sizes: dict[str, int] = {}
+    for edition in ("internal", "investor"):
+        draft = edition == "investor" and not investor_final
+        html_doc = render_deck(data, edition=edition,
+                               generated_at=now_iso, draft=draft)
+        size = len(html_doc.encode("utf-8"))
+        sizes[edition] = size
+        # D1 REST 바디 ~1MB 한계(d1.py) — 이스케이프 팽창 여유 두고 fail-fast.
+        if size > 800_000:
+            notify_alert(webhook_url=settings.discord_webhook,
+                         title=f"월간 보고서 크기 초과 ({month}/{edition})",
+                         body=f"{size:,}B > 800KB — base64/시리즈 과다 여부 확인",
+                         severity="warn")
+            typer.echo(f"monthly-report: {edition} {size:,}B > 800KB", err=True)
+            raise typer.Exit(code=1)
+        meta = _json.dumps(
+            {"draft": draft, "warnings": data["warnings"]}, ensure_ascii=False)
+        statements.append((
+            "DELETE FROM monthly_reports WHERE month=? AND edition=?",
+            [month, edition]))
+        statements.append((
+            "INSERT INTO monthly_reports "
+            "(month, edition, generated_at, html, size_bytes, meta_json) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [month, edition, now_iso, html_doc, size, meta]))
+    client.batch(statements)
+    notify_alert(webhook_url=settings.discord_webhook,
+                 title=f"월간 보고서 준비됨 ({month})",
+                 body=("내부판·투자사판 생성 완료 — MiiWAN 개요에서 다운로드 "
+                       f"(internal {sizes['internal']:,}B / "
+                       f"investor {sizes['investor']:,}B)"
+                       + (f" · 주의 {len(data['warnings'])}건"
+                          if data["warnings"] else "")),
+                 severity="info")
+    typer.echo(f"monthly-report: {month} internal={sizes['internal']:,}B "
+               f"investor={sizes['investor']:,}B warnings={len(data['warnings'])}")
+
+
 @app.command("collect-hanteo",
              help="Scan hanteonews weekly chart articles for seeded groups' "
                   "album sales (global; collect-daily step).")
