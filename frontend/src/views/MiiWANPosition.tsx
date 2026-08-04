@@ -397,7 +397,7 @@ export function MiiWANPosition(props: {
         <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
           <KPI label="추정 관여 팬"
                value={core.value}
-               hint="영상 좋아요 반응 기준 · 추정" />
+               hint="좋아요 상위 5편 기준 · 추정" />
           <KPI label="주 시청 국가"
                value={countriesLine ?? "—"}
                hint={countriesLine ? "시청 시간 비중 · 자사 채널 실측" : "소유자 데이터 연결 시 표시"} />
