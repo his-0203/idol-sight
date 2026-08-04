@@ -262,3 +262,23 @@ def test_sov_tiers_computed_per_category_from_90d_flow():
     assert flows["miiwan"] == 100_000
     sql = client.execute.call_args.args[0]
     assert "-90 days" in sql and "rn = 1" in sql.replace("rn=1", "rn = 1")
+
+
+def test_sov_tiers_null_anchor_does_not_inflate_flow():
+    """백필 행의 NULL 조회수 앵커를 0 취급하면 증분=누적 전체로 부풀려짐
+    (plave 855M 실측 버그). 앵커 쿼리는 IS NOT NULL 필터, 앵커 부재
+    그룹은 증분 0."""
+    from unittest.mock import MagicMock
+    import idol_sight.cli as cli
+
+    groups = [{"key": "plave", "category": "kpop", "yt_views": 855_000_000},
+              {"key": "ghost", "category": "kpop", "yt_views": 10_000}]
+    client = MagicMock()
+    client.execute.return_value = [
+        {"group_key": "plave", "yt_total_views": 800_000_000},
+        # ghost: 창 내 non-NULL 앵커 없음 → anchor 미포함
+    ]
+    tiers, flows = cli._sov_tiers(client, groups)
+    assert flows["plave"] == 55_000_000
+    assert flows["ghost"] == 0
+    assert "IS NOT NULL" in client.execute.call_args.args[0]
