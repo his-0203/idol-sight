@@ -100,3 +100,68 @@ def test_spike_note_r6_event_attribution():
     note2 = spike_note(days, [])
     assert "원인 미상" in note2
     assert spike_note(days[:5], []) is None   # 표본 부족 → 각주 없음
+
+
+# -- 렌더·조립 스모크 --
+
+def _minimal_data():
+    from idol_sight.analysis.monthly_report import build_monthly_data
+
+    class _Empty:
+        def execute(self, sql, params=None):
+            return []
+    return build_monthly_data(_Empty(), "2026-07")
+
+
+def test_build_monthly_data_survives_empty_db():
+    d = _minimal_data()
+    assert d["month"] == "2026-07"
+    assert d["kpi"]["actuals"]["subscribers"] is None
+    assert "표본 부족" in " ".join(d["warnings"])  # 방송 0회
+
+
+def test_render_editions_gates():
+    from idol_sight.analysis.monthly_render import render_deck
+    d = _minimal_data()
+    # 게이트 검증용 픽스처 주입
+    d["kpi"] = {
+        "actuals": {"subscribers": 28600, "avg_ccv": 369,
+                    "weverse_members": 8447, "weverse_membership": 111},
+        "prev": {"subscribers": 27900, "avg_ccv": 585,
+                 "weverse_members": 6895, "weverse_membership": 69},
+        "judgments": __import__("idol_sight.analysis.monthly_report",
+                                fromlist=["kpi_judgments"]).kpi_judgments(
+            "2026-07", {"subscribers": 28600, "avg_ccv": 369,
+                        "weverse_members": 8447, "weverse_membership": 111}),
+        "headline": "테스트 헤드라인",
+    }
+    d["alerts"] = [{"rule": "x", "severity": "warn", "title": "이슈",
+                    "fired_at": "2026-07-10T00:00:00Z"}]
+    d["insights"] = [{"week_start": "2026-07-19", "title": "인사이트",
+                      "ai_comment": "코멘트"}]
+
+    internal = render_deck(d, edition="internal",
+                           generated_at="2026-08-01T00:23:00Z")
+    investor = render_deck(d, edition="investor",
+                           generated_at="2026-08-01T00:23:00Z", draft=True)
+
+    # 내부판: 부록 + 밴드 수치
+    assert "A1. 위기 모니터" in internal and "A2. 전략 메모" in internal
+    assert "32.0k~35.0k" in internal          # 구독 밴드 노출
+    assert "DRAFT" not in internal
+    # 투자사판(G1·G2·G7): 부록 없음·밴드 비공개·DRAFT 워터마크
+    assert "A1." not in investor and "A2." not in investor
+    assert "비공개(내부 목표)" in investor and "32.0k~35.0k" not in investor
+    assert "DRAFT — 검수 후 사용" in investor
+    # 공통: 자립 HTML(외부 리소스 0)
+    for doc in (internal, investor):
+        assert "<script" not in doc and "http://" not in doc \
+            and "https://" not in doc and "base64" not in doc
+
+
+def test_render_final_flag_removes_draft():
+    from idol_sight.analysis.monthly_render import render_deck
+    d = _minimal_data()
+    inv = render_deck(d, edition="investor",
+                      generated_at="2026-08-01T00:23:00Z", draft=False)
+    assert "DRAFT" not in inv
