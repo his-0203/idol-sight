@@ -99,6 +99,13 @@ jobs:
       - run: uv sync --frozen
       - run: uv run scrapling install
 
+      # 초동(한터) 전역 수집 — 첫 aggregate 전에 실행해 health score가
+      # 오늘 데이터를 반영하게. hanteonews 스크래핑 실패는 스텝만 빨갛게
+      # 뜨고(continue-on-error) 핵심 집계는 막지 않는다.
+      - name: Hanteo first-week sales (global scan)
+        continue-on-error: true
+        run: uv run python -m idol_sight collect-hanteo
+
       - name: Pin snapshot_at for this run
         id: snap
         working-directory: .

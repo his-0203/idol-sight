@@ -64,7 +64,9 @@ _COLLECTORS = {
 #   naver:* 알림 → Discord 스팸 → 정렬.
 # youtube: 6h — collect-daily가 매일 12:30 UTC 1회 + collect-6h가 6h 주기.
 # channel-stats: 24h — collect-daily 1회만 수집.
-# hanteo: 168h — 주간 수동/추후 cron.
+# hanteo: 168h — `collect --source hanteo` 는 no-op 스텁(그룹별 수집 없음).
+#   실수집은 collect-hanteo 전역 커맨드가 collect-daily 스텝에서 일간 실행
+#   (crawl_meta 미기록 — melon-chart 와 같은 전역 수집 패턴).
 _INTERVALS_H = {
     "naver": 12,
     "dc": 6, "theqoo": 6, "instiz": 6, "youtube": 6, "channel-stats": 24,
@@ -953,6 +955,26 @@ def melon_chart_backfill_cmd(
     if failed_dates:
         typer.echo(f"failed dates: {', '.join(failed_dates)}", err=True)
         raise typer.Exit(code=1)
+
+
+@app.command("collect-hanteo",
+             help="Scan hanteonews weekly chart articles for seeded groups' "
+                  "album sales (global; collect-daily step).")
+def collect_hanteo() -> None:
+    # hanteo 는 그룹별 collect() 가 no-op 스텁이라 매트릭스 소스로는 못
+    # 돈다 — melon-chart 처럼 전역 스캔 1회가 실작업. 초동 기사는 발매 후
+    # ~30일 노출되므로 일간 실행이면 유실 없이 잡힌다(UPSERT 멱등).
+    settings = load_settings()
+    client = _make_d1_client(settings)
+    coll = HanteoCollector(groups_loader=lambda: _load_active_groups(client))
+    result = coll.collect_global()
+    for e in result.errors:
+        typer.echo(f"WARN: {e}", err=True)
+    if result.statements:
+        client.batch(result.statements)
+    typer.echo(
+        f"collect-hanteo: {result.rows_inserted} rows in {result.runtime_ms}ms")
+    raise typer.Exit(code=0 if result.statements or not result.errors else 1)
 
 
 @app.command("collect-ccv",
