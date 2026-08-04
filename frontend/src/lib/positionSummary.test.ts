@@ -23,8 +23,12 @@ describe("buildPositionSummary", () => {
     const lines = buildPositionSummary(base);
     expect(lines.map((l) => l.label)).toEqual(
       ["시장 위치", "성장 방향", "월간 KPI", "팬덤 질", "위기 상태"]);
+    // 헤드 = 사분면 판정, 점유·순위는 뒤에 강등(비은폐).
+    expect(lines[0]!.text).toContain("좁지만 깊은 팬덤");
     expect(lines[0]!.text).toContain("10팀 중 5위");
     expect(lines[0]!.text).toContain("3.2%");
+    expect(lines[0]!.text.indexOf("좁지만"))
+      .toBeLessThan(lines[0]!.text.indexOf("5위"));
     expect(lines[1]!.tone).toBe("good");          // momentumGap > 0.5 = 확대 국면
     expect(lines[4]!.tone).toBe("good");          // 정상
   });

@@ -199,6 +199,86 @@ def _make_collector(source: str, *, d1: D1Client | None = None):
     return cls()
 
 
+def _sov_inputs(client) -> list[dict]:
+    """SoV(agg_market_share) 입력 조립 — v3(2026-08-04) 정확성 수리 3종.
+
+    ① 뉴스 = ``naver_news_90d``(최근 90일 플로우, 0113) 우선 — 누적 스톡은
+       활동 정지 그룹의 순위를 영구 유지시켰다(awareness v2와 동일 처방).
+       컬럼 미적용 D1은 누적 폴백(graceful).
+    ② '전 주' 앵커 = **~7일 전 최근접 스냅샷**. 기존 '직전 스냅샷'은
+       aggregate가 하루 여러 번 돈 날에 몇 시간치 델타를 주간 모멘텀으로
+       둔갑시켰다. 7일 전 스냅샷이 없으면(초기 이력) 직전 스냅샷 폴백.
+    ③ 그룹별 ``category``('kpop'/'subculture') 태그 — 호출부가 도메인별
+       독립 코호트로 백분위·재정규화한다(혼합 코호트 버그픽스).
+    """
+    model_by_key = {
+        r["key"]: r.get("group_model")
+        for r in client.execute("SELECT key, group_model FROM groups WHERE is_active=1")
+    }
+
+    def _category(model: str | None) -> str:
+        # awareness._category_of 미러(해당 모듈 private — 규칙 변경 시 동반 갱신).
+        return "subculture" if model in ("segmentary", "confederation") else "kpop"
+
+    _COLS_LAST = ("SELECT group_key, yt_total_views, yt_subscribers, "
+                  "dc_total_posts, theqoo_posts, instiz_posts, "
+                  "naver_total_news{news90} "
+                  "FROM agg_summary WHERE snapshot_at = "
+                  "  (SELECT MAX(snapshot_at) FROM agg_summary)")
+    _COLS_PREV = ("SELECT group_key, yt_total_views, dc_total_posts, "
+                  "theqoo_posts, instiz_posts, naver_total_news{news90} "
+                  "FROM agg_summary WHERE snapshot_at = ("
+                  "  SELECT COALESCE("
+                  "    (SELECT MAX(snapshot_at) FROM agg_summary "
+                  "      WHERE snapshot_at <= datetime('now', '-6 days')),"
+                  "    (SELECT MAX(snapshot_at) FROM agg_summary "
+                  "      WHERE snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary))"
+                  "  ))")
+    try:
+        rows_last = client.execute(_COLS_LAST.format(news90=", naver_news_90d"))
+        rows_prev = client.execute(_COLS_PREV.format(news90=", naver_news_90d"))
+        use_90d = True
+    except Exception:
+        rows_last = client.execute(_COLS_LAST.format(news90=""))
+        rows_prev = client.execute(_COLS_PREV.format(news90=""))
+        use_90d = False
+
+    def _news(r: dict) -> int:
+        if use_90d:
+            return r.get("naver_news_90d") or 0
+        return r.get("naver_total_news") or 0
+
+    prev_by = {
+        r["group_key"]: {
+            "yt_views": r.get("yt_total_views") or 0,
+            "comm_total": ((r.get("dc_total_posts") or 0)
+                           + (r.get("theqoo_posts") or 0)
+                           + (r.get("instiz_posts") or 0)),
+            "news": _news(r),
+        }
+        for r in rows_prev
+    }
+    groups = []
+    for r in rows_last:
+        gk = r["group_key"]
+        comm_total = ((r.get("dc_total_posts") or 0)
+                      + (r.get("theqoo_posts") or 0)
+                      + (r.get("instiz_posts") or 0))
+        prev = prev_by.get(gk, {})
+        groups.append({
+            "key": gk,
+            "category": _category(model_by_key.get(gk)),
+            "yt_views":     r.get("yt_total_views") or 0,
+            "comm_total":   comm_total,
+            "news":         _news(r),
+            "subscribers":  r.get("yt_subscribers") or 0,
+            "delta_yt_views": (r.get("yt_total_views") or 0) - (prev.get("yt_views") or 0),
+            "delta_comm":     comm_total - (prev.get("comm_total") or 0),
+            "delta_news":     _news(r) - (prev.get("news") or 0),
+        })
+    return groups
+
+
 def _load_group(client: D1Client, key: str) -> GroupConfig:
     rows = client.execute(
         "SELECT key, name, name_kr, debut_date, yt_channel_id, dc_gallery_id, "
@@ -1385,47 +1465,15 @@ def analyze_weekly(
     # On the first run there is only one snapshot → mom inputs are 0
     # and final ≈ cum (still a valid SOV picture).
     from idol_sight.analysis.market_share import compute_market_share, to_statements
-    rows_last = client.execute(
-        "SELECT group_key, yt_total_views, yt_subscribers, dc_total_posts, "
-        "  theqoo_posts, instiz_posts, naver_total_news "
-        "FROM agg_summary WHERE snapshot_at = "
-        "  (SELECT MAX(snapshot_at) FROM agg_summary)")
-    rows_prev = client.execute(
-        "SELECT group_key, yt_total_views, dc_total_posts, theqoo_posts, "
-        "  instiz_posts, naver_total_news "
-        "FROM agg_summary WHERE snapshot_at = ("
-        "  SELECT MAX(snapshot_at) FROM agg_summary "
-        "  WHERE snapshot_at < (SELECT MAX(snapshot_at) FROM agg_summary)"
-        ")")
-    prev_by = {
-        r["group_key"]: {
-            "yt_views": r.get("yt_total_views") or 0,
-            "comm_total": ((r.get("dc_total_posts") or 0)
-                           + (r.get("theqoo_posts") or 0)
-                           + (r.get("instiz_posts") or 0)),
-            "news": r.get("naver_total_news") or 0,
-        }
-        for r in rows_prev
-    }
-    groups = []
-    for r in rows_last:
-        gk = r["group_key"]
-        comm_total = ((r.get("dc_total_posts") or 0)
-                      + (r.get("theqoo_posts") or 0)
-                      + (r.get("instiz_posts") or 0))
-        prev = prev_by.get(gk, {})
-        groups.append({
-            "key": gk,
-            "yt_views":     r.get("yt_total_views") or 0,
-            "comm_total":   comm_total,
-            "news":         r.get("naver_total_news") or 0,
-            "subscribers":  r.get("yt_subscribers") or 0,
-            "delta_yt_views": (r.get("yt_total_views") or 0) - (prev.get("yt_views") or 0),
-            "delta_comm":     comm_total - (prev.get("comm_total") or 0),
-            "delta_news":     (r.get("naver_total_news") or 0) - (prev.get("news") or 0),
-        })
-    share_rows = compute_market_share(week_start=week_start, week_end=week_end,
-                                       groups=groups)
+    groups = _sov_inputs(client)
+    # v3: 카테고리별 독립 코호트 — 혼합 백분위는 K-POP/서브컬처 분리
+    # 하드 룰 위반이었고(합이 100이 안 되는 원인), 서브컬처 등락이 K-POP
+    # 점수를 흔드는 코호트 의존성을 만들었다. 도메인 내 합 = 각 100.
+    share_rows = []
+    for cat in ("kpop", "subculture"):
+        share_rows += compute_market_share(
+            week_start=week_start, week_end=week_end,
+            groups=[g for g in groups if g["category"] == cat])
     market_total = sum(g["yt_views"] for g in groups)  # legacy "market_total" column
     market_stmts = to_statements(share_rows, market_total=market_total)
     if market_stmts:
