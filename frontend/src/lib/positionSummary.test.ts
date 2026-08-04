@@ -8,7 +8,7 @@ const kpiRow = (month: string, over: Partial<MonthlyKpiRow> = {}): MonthlyKpiRow
 });
 
 const base: PositionSummaryInput = {
-  sovShare: 3.2, sovRank: 5, teamCount: 10, momentumGap: 0.8,
+  sovTier: 2, momentumGap: 0.8,
   quadrant: "niche", postureLabel: "유지", orgScore: 75,
   monthlyKpi: [
     kpiRow("2026-07", { yt_subscribers: 28600, avg_ccv: 369, weverse_members: 8447, weverse_membership: 111 }),
@@ -23,12 +23,11 @@ describe("buildPositionSummary", () => {
     const lines = buildPositionSummary(base);
     expect(lines.map((l) => l.label)).toEqual(
       ["시장 위치", "성장 방향", "월간 KPI", "팬덤 질", "위기 상태"]);
-    // 헤드 = 사분면 판정, 점유·순위는 뒤에 강등(비은폐).
+    // v3.1: 헤드 = 사분면 판정 + 규모 티어. %·순위는 헤드라인에 없음
+    // (은퇴 — 수치는 방향과 속도·시장 개요 상세에 잔존).
     expect(lines[0]!.text).toContain("좁지만 깊은 팬덤");
-    expect(lines[0]!.text).toContain("10팀 중 5위");
-    expect(lines[0]!.text).toContain("3.2%");
-    expect(lines[0]!.text.indexOf("좁지만"))
-      .toBeLessThan(lines[0]!.text.indexOf("5위"));
+    expect(lines[0]!.text).toContain("추격 그룹");
+    expect(lines[0]!.text).not.toMatch(/\d+위/);
     expect(lines[1]!.tone).toBe("good");          // momentumGap > 0.5 = 확대 국면
     expect(lines[4]!.tone).toBe("good");          // 정상
   });
@@ -44,7 +43,7 @@ describe("buildPositionSummary", () => {
 
   it("결측 섹션은 줄을 생략한다 (가짜 수치 금지)", () => {
     const lines = buildPositionSummary({
-      ...base, sovRank: null, sovShare: null, quadrant: null,
+      ...base, sovTier: null, quadrant: null,
       monthlyKpi: [], orgScore: null, strength: null, momentumGap: null,
       postureLabel: null,
     });

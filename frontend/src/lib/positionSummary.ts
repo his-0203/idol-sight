@@ -3,7 +3,7 @@
 // 데이터에서 파생하며, 결측 섹션은 줄을 생략한다(가짜 수치 금지 원칙).
 // 문장은 순화 용어만 사용(볼트 덱 규칙과 동일 기조).
 
-import { momentumLine, QUADRANT_VERDICT } from "./position";
+import { momentumLine, QUADRANT_VERDICT, TIER_LABEL } from "./position";
 import type { QuadrantKey } from "./breadthDepth";
 import {
   bandVerdict, KPI_LABEL, PACE_BANDS, type KpiMetric, type MonthlyKpiRow,
@@ -14,9 +14,9 @@ export type SummaryTone = "good" | "warn" | "bad" | "info";
 export interface SummaryLine { label: string; text: string; tone: SummaryTone }
 
 export interface PositionSummaryInput {
-  sovShare: number | null;
-  sovRank: number | null;
-  teamCount: number;
+  /** v3.1 관심 규모 티어(1=선두). SoV %·순위는 헤드라인 은퇴 — 상세는
+      '방향과 속도'·시장 개요에 잔존(비은폐). */
+  sovTier: number | null;
   momentumGap: number | null;      // 최근-누적 점유 격차 (±0.5pp 임계)
   quadrant: QuadrantKey | null;
   postureLabel: string | null;     // 성장 자세 라벨
@@ -73,17 +73,17 @@ function kpiLine(monthly: MonthlyKpiRow[]): SummaryLine | null {
 export function buildPositionSummary(i: PositionSummaryInput): SummaryLine[] {
   const lines: SummaryLine[] = [];
 
-  // 시장 위치 — 헤드는 사분면 판정(질적 좌표), 점유·순위는 뒤로 강등하되
-  // 숨기지 않는다(열세 숨김 금지). 순위는 누적 관심의 백분위 산출이라
-  // 밀집 구간에서 계단 차이가 과장돼 보일 수 있어 성격을 병기한다.
-  if (i.quadrant != null || (i.sovRank != null && i.sovShare != null)) {
+  // 시장 위치 — 헤드는 사분면 판정(질적 좌표) + 규모 티어(양적 좌표).
+  // v3.1: SoV %·순위는 헤드라인 은퇴(백분위 합성이라 점유 표현 부적합) —
+  // 수치는 '방향과 속도' 흐름 줄과 시장 개요 상세에 잔존(열세 숨김 금지).
+  if (i.quadrant != null || i.sovTier != null) {
     const quad = i.quadrant ? QUADRANT_VERDICT[i.quadrant] : null;
-    const sov = i.sovRank != null && i.sovShare != null
-      ? `관심 점유 ${i.sovShare.toFixed(1)}% — K-POP 버추얼 ${i.teamCount}팀 중 ${i.sovRank}위(최근 90일 반영 · 밀집 구간이라 순위 간 격차 근소)`
+    const tier = i.sovTier != null
+      ? `관심 규모는 K-POP 버추얼 내 '${TIER_LABEL[i.sovTier] ?? `T${i.sovTier}`}'(최근 90일 조회 흐름 기준).`
       : null;
     lines.push({
       label: "시장 위치",
-      text: [quad, sov].filter(Boolean).join(" "),
+      text: [quad, tier].filter(Boolean).join(" "),
       tone: i.quadrant === "strong" ? "good"
         : i.quadrant === "low" ? "warn" : "info",
     });
