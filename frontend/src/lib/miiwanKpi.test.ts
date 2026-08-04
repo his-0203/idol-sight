@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  bandVerdict, buildKpiTable, officialProgress,
+  bandVerdict, buildKpiTable,
   KPI_METRICS, PACE_BANDS, type MonthlyKpiRow,
 } from "./miiwanKpi";
 
@@ -44,19 +44,5 @@ describe("buildKpiTable", () => {
     const table = buildKpiTable([]);
     expect(table.map((r) => r.metric)).toEqual([...KPI_METRICS]);
     for (const r of table) expect(r.cells).toHaveLength(7);
-  });
-});
-
-describe("officialProgress", () => {
-  it("최신 실측 대비 달성률", () => {
-    const prog = officialProgress([
-      row("2026-07", { yt_subscribers: 28600, avg_ccv: 369 }),
-    ]);
-    const aug = prog[0]!;
-    expect(aug.label).toContain("8월");
-    const subs = aug.items.find((i) => i.metric === "subscribers")!;
-    expect(subs.actual).toBe(28600);
-    expect(subs.target).toBe(30000);
-    expect(subs.pct).toBe(95);
   });
 });

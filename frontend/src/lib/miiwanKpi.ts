@@ -46,12 +46,6 @@ export const MONTH_NOTES: Record<string, string> = {
   "2026-10": "◆ 제작 스케일·팬미팅 결정",
 };
 
-/** 먼슬리 보고의 공식 KPI 목표 (구독·동접만 공식 목표가 있다). */
-export const OFFICIAL_KPI = [
-  { month: "2026-08", label: "8월 말 공식 KPI", targets: { subscribers: 30000, avg_ccv: 1000 } },
-  { month: "2026-11", label: "11월 말 공식 KPI", targets: { subscribers: 72000, avg_ccv: 1600 } },
-] as const;
-
 export type BandVerdict = "below" | "within" | "above";
 
 export function bandVerdict(actual: number, band: [number, number]): BandVerdict {
@@ -92,32 +86,5 @@ export function buildKpiTable(monthly: MonthlyKpiRow[]): KpiTableRow[] {
           ? bandVerdict(actual, band) : null,
       };
     }),
-  }));
-}
-
-export interface OfficialProgressItem {
-  metric: KpiMetric; actual: number | null; target: number; pct: number | null;
-}
-
-/** 공식 KPI 2시점 대비 최신 실측 달성률 (0~100+, 반올림). */
-export function officialProgress(monthly: MonthlyKpiRow[]) {
-  const latest = (metric: KpiMetric): number | null => {
-    for (let i = monthly.length - 1; i >= 0; i--) {
-      const v = monthly[i]?.[METRIC_FIELD[metric]] as number | null;
-      if (v != null) return v;
-    }
-    return null;
-  };
-  return OFFICIAL_KPI.map((k) => ({
-    month: k.month,
-    label: k.label,
-    items: (Object.entries(k.targets) as Array<[KpiMetric, number]>).map(
-      ([metric, target]): OfficialProgressItem => {
-        const actual = latest(metric);
-        return {
-          metric, actual, target,
-          pct: actual != null ? Math.round((actual / target) * 100) : null,
-        };
-      }),
   }));
 }
