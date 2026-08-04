@@ -1,8 +1,10 @@
-"""월간 보고서 — A4 세로 종합 단일판 렌더러 (v2, 2026-08-04 디자인 개편).
+"""월간 보고서 — A4 가로 종합 단일판 렌더러 (v2.1, 2026-08-04).
 
 디자인 스펙(타이포그래피·덱 구성 전문가 패널, 스펙 문서 참조):
-- **A4 세로 페이지 체계**: .page 794×1123px 고정(A4@96dpi), mm 단위 미사용,
-  @page size:A4;margin:0 + break-after:page. 총 7페이지(표지+본문 6) 고정 맵.
+- **A4 가로 페이지 체계**(사용자 정정): .page 1123×794px 고정(A4@96dpi),
+  mm 미사용, @page size:A4 landscape + break-after:page. 총 5페이지
+  (표지+본문 4) — 2열 병치(컬럼 폭 55/45 또는 50/50, 거터 24px)가 기본
+  문법, viewBox 폭 = 컬럼 실폭(폰트 1:1, 축소 스케일 금지).
 - **타이포**: 정수 px 스케일(표지42/키커11/블록헤더18/본문14/표13/캡션12 하한),
   8px 수직 리듬, 전역 tabular-nums. #9ca3af 텍스트 금지(장식 전용),
   ≤14px 회색 텍스트 하한 #6b7280. 판정 미달 색 #b45309(AA 통과).
@@ -326,21 +328,26 @@ def _kpi_table(d: dict) -> str:
 
 
 def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
-    """종합 단일판(2026-08-04 사용자 결정: 내부/투자사 구분 폐지).
-    페이지 맵 7장 고정 — 표지 / 이번 달 결과 / 자사 채널 / 커뮤니티·팬덤 /
-    시장 내 위치 / 비교·전망."""
+    """종합 단일판 · A4 가로 5페이지 맵(디자인 패널 v2.1 스펙).
+    P1 표지 / P2 결과+자사 채널 / P3 커뮤니티·팬덤 / P4 시장 내 위치 /
+    P5 비교·전망(리스크·전략 메모 흡수)."""
     month = d["month"]
     m_label = f"{int(month[:4])}년 {int(month[5:7])}월"
-    TOTAL = 6
+    TOTAL = 4
     pages: list[str] = []
 
-    # P1 표지 — 타이틀만.
+    def cols(left: str, right: str, ratio: str = "50") -> str:
+        return (f"<div class='cols r{ratio}'><div class='colL'>{left}</div>"
+                f"<div class='colR'>{right}</div></div>")
+
+    # P1 표지 — 가로형: 좌측 정렬 대형 타이틀 + 좌변 키컬러 보더.
     pages.append(_page("", 0, TOTAL, month, generated_at, (
         f"<h1>MiiWAN 월간 리포트</h1><p class='cover-sub'>{esc(m_label)}</p>"
         f"<p class='stamp'>생성 {esc(generated_at[:10])} · 데이터 기준 "
-        f"{esc(month)} 월말 스냅샷</p>"), cover=True))
+        f"{esc(month)} 월말 스냅샷 · 좌표·전환율은 생성 시점 기준</p>"),
+        cover=True))
 
-    # P2 이번 달 결과 — 요약 + KPI + 리스크(구 A1) + 데이터 참고.
+    # ── P2 이번 달 결과 + 자사 채널 (좌 55 / 우 45) ─────────────────
     bullets = [d["kpi"]["headline"]]
     for ln in (d["tier_line"], d["cohort_line"], d["quadrant_move"],
                d["spike_note"]):
@@ -348,123 +355,104 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
             bullets.append(ln)
     summary = "<ul class='bullets'>" + "".join(
         f"<li>{esc(_clip(b, 90))}</li>" for b in bullets[:5]) + "</ul>"
-
-    alerts = d["alerts"]
-    if alerts:
-        order = {"critical": 0, "warn": 1, "info": 2}
-        shown = sorted(alerts, key=lambda a: order.get(a["severity"], 9))[:4]
-        risk = "<ul class='bullets'>" + "".join(
-            f"<li>{esc(a['fired_at'][:10])} [{esc(a['severity'])}] "
-            f"{esc(_clip(a['title'], 70))}</li>" for a in shown)
-        if len(alerts) > 4:
-            risk += f"<li class='muted'>외 {len(alerts) - 4}건</li>"
-        risk += "</ul>"
-    else:
-        risk = "<p class='body-line'>월내 발생 알림 0건 — 본체 노출·AI 도용·논란 급증 매일 자동 감시.</p>"
-    risk += (f"<p class='note'>월말 논란 글 지표 {fmt_num(d['controversy'])}건"
-             " (14일 창)</p>")
-
     warn_html = ""
     if d["warnings"]:
         ws = d["warnings"][:2]
         extra = f" / 외 {len(d['warnings']) - 2}건" if len(d["warnings"]) > 2 else ""
         warn_html = ("<div class='warnbox'>데이터 참고: "
                      + " / ".join(esc(w) for w in ws) + extra + "</div>")
+    left2 = (_block("이달의 요약", "지난달을 다섯 줄로 말하면?", summary)
+             + _block("핵심 지표", None, _kpi_table(d), d["kpi"]["headline"])
+             + warn_html)
 
-    pages.append(_page("이번 달 결과", 1, TOTAL, month, generated_at,
-        _block("이달의 요약", "지난달을 다섯 줄로 말하면?", summary)
-        + _block("핵심 지표", None, _kpi_table(d), d["kpi"]["headline"])
-        + _block("리스크 모니터", None, risk)
-        + warn_html))
-
-    # P3 자사 채널 — 구독자 + 라이브.
     series = d["subs_series"]
-    days = [r["day"] for r in series]
-    vals = [r["subs"] for r in series]
     band = d["kpi"]["judgments"]["subscribers"]["band"]
     ev_marks = [(e["event_date"], e["title"])
                 for e in d["events"] if e["event_date"].startswith(month)]
     gain_txt = (f" · 월간 순증 +{fmt_num(d['subs_gain'])}"
                 if d["subs_gain"] is not None else "")
     subs_block = _block(
-        "구독자 성장", "무엇이 성장을 움직였나?",
-        svg_line(days, vals, band=band, marks=ev_marks)
-        + (f"<p class='note'>{esc(d['spike_note'])}</p>" if d["spike_note"] else ""),
+        "구독자 성장", None,
+        svg_line([r["day"] for r in series], [r["subs"] for r in series],
+                 width=430, height=210, band=band, marks=ev_marks)
+        + (f"<p class='note'>{esc(_clip(d['spike_note'], 80))}</p>"
+           if d["spike_note"] else ""),
         mom_phrase(d["kpi"]["actuals"]["subscribers"],
                    d["kpi"]["prev"]["subscribers"]) + gain_txt)
-
     ccv = d["ccv"]
     casts = ccv["broadcasts"]
     cast_note = ""
-    if len(casts) > 10:   # 캡: 평균 상위 10회를 시간순
-        top = sorted(casts, key=lambda b: -b["avg"])[:10]
+    if len(casts) > 8:   # 가로형 캡: 430폭 과밀 방지 — 평균 상위 8회 시간순
+        top = sorted(casts, key=lambda b: -b["avg"])[:8]
         casts = sorted(top, key=lambda b: b["started"])
-        cast_note = f" · 상위 10회 표시 (총 {ccv['count']}회)"
+        cast_note = f" · 상위 8회 표시 (총 {ccv['count']}회)"
     live_block = _block(
-        "라이브 방송", "방송 반응은 어땠나?",
+        "라이브 방송", None,
         svg_bars([b["started"][5:] for b in casts], [b["avg"] for b in casts],
-                 hline=ccv["avg"], hline_label=f"월평균 {fmt_num(ccv['avg'])}")
+                 width=430, height=190, hline=ccv["avg"],
+                 hline_label=f"월평균 {fmt_num(ccv['avg'])}")
         + f"<p class='note'>관측 방송 {ccv['count']}회 · 최고 동접 "
           f"{fmt_num(ccv['peak'])}명{cast_note}</p>",
         f"평균 동접 {mom_phrase(ccv['avg'], d['ccv_prev']['avg'])}")
-    pages.append(_page("자사 채널", 2, TOTAL, month, generated_at,
-                       subs_block + live_block))
+    pages.append(_page("이번 달 결과 · 자사 채널", 1, TOTAL, month,
+                       generated_at, cols(left2, subs_block + live_block, "55")))
 
-    # P4 커뮤니티·팬덤 — 위버스 + 타일 + 연령×국가 2열.
+    # ── P3 커뮤니티·팬덤 (좌 50 / 우 50) ────────────────────────────
     wser = d["weverse_series"]
     wv, wvp = d["weverse"], d["weverse_prev"]
     if wser:
         wdays = [r["day"] for r in wser]
-        wv_chart = ("<div class='duo'><div><h3>가입자</h3>"
+        wv_chart = ("<h3>가입자</h3>"
                     + svg_line(wdays, [r["total_members"] or 0 for r in wser],
-                               width=330, height=185)
-                    + "</div><div><h3>유료 멤버십</h3>"
+                               width=490, height=170)
+                    + "<h3>유료 멤버십</h3>"
                     + svg_line(wdays,
                                [r["digital_membership"] or 0 for r in wser],
-                               width=330, height=185)
-                    + "</div></div>")
+                               width=490, height=170))
     else:
-        wv_chart = _placeholder("이 달 위버스 기록이 없습니다", 185)
+        wv_chart = (_placeholder("이 달 위버스 기록이 없습니다", 170)
+                    + _placeholder("이 달 위버스 기록이 없습니다", 170))
     wv_note = (f"<p class='note'>{esc(wv['day'])} 기준(월말 행 부재)</p>"
                if wv and wv.get("partial") else "")
-    wv_block = _block(
+    left3 = _block(
         "위버스 커뮤니티", "팬 커뮤니티는 커지고 있나?", wv_chart + wv_note,
         f"가입 {mom_phrase(wv['members'] if wv else None, wvp['members'] if wvp else None)}"
         f" · 멤버십 {mom_phrase(wv['membership'] if wv else None, wvp['membership'] if wvp else None)}")
 
-    org = d["org_score"]
+    loy = d.get("loyalty") or {}
+    conv = loy.get("conversion_rate")
+    conv_txt = f"{conv * 100:.1f}%" if conv is not None else "—"
+    loy_win = loy.get("window_days") or 56
     tiles = ("<div class='tiles'>"
-             f"<div class='tile'><div class='tv'>"
-             f"{fmt_num(org) if org is not None else '—'}</div>"
-             "<div class='tl'>자연 유입 점수 (0~100 · 생성 시점 기준)</div></div>"
+             f"<div class='tile'><div class='tv'>{conv_txt}</div>"
+             f"<div class='tl'>시청전환율 — 라이브 동접÷구독 · 최근 {loy_win}일 "
+             "· 생성 시점 기준(대시보드 동일 값)</div></div>"
              f"<div class='tile'><div class='tv'>"
              f"{'+' + fmt_num(d['news_delta']) if d['news_delta'] is not None else '—'}"
              "</div><div class='tl'>월간 뉴스 증분 (자사 집계)</div></div></div>")
-
     demo = d["demographics"]
     agg: dict[str, float] = {}
     for r in demo:
         agg[r["age_group"]] = agg.get(r["age_group"], 0) + (r["viewer_pct"] or 0)
-    # 비그룹 차원 — 그룹색 금지(중립 회색).
     demo_svg = (svg_hbars([(a.replace("age", ""), round(v, 1), None)
                            for a, v in sorted(agg.items())],
-                          width=330, unit="%", pad_l=64)
+                          width=490, unit="%", pad_l=64)
                 if agg else _placeholder("소유자 데이터 미연결", 140))
     ctry_svg = (svg_hbars([(c["country"], round((c["watch_share"] or 0) * 100, 1),
                             None) for c in d["countries"][:5]],
-                          width=330, unit="%", pad_l=64)
+                          width=490, unit="%", pad_l=64)
                 if d["countries"] else _placeholder("소유자 데이터 미연결", 140))
-    audience = ("<div class='duo'><div><h3>연령대별 시청 비중</h3>"
-                + demo_svg + "</div><div><h3>국가별 시청 비중 (상위 5)</h3>"
-                + ctry_svg + "</div></div>"
-                "<p class='note'>자사 채널 실측(소유자 데이터) · 전체 시청 시간 대비 %</p>")
-    pages.append(_page("커뮤니티·팬덤", 3, TOTAL, month, generated_at,
-                       wv_block + _block("팬덤의 질과 구성",
-                                         "성장이 건강하고, 누가 팬인가?",
-                                         tiles + audience)))
+    right3 = _block("팬덤의 질과 구성", "성장이 건강하고, 누가 팬인가?",
+                    tiles + "<h3>연령대별 시청 비중</h3>" + demo_svg
+                    + "<h3>국가별 시청 비중 (상위 5)</h3>" + ctry_svg
+                    + "<p class='note'>자사 채널 실측(소유자 데이터) · 전체 "
+                      "시청 시간 대비 %</p>")
+    pages.append(_page("커뮤니티·팬덤", 2, TOTAL, month, generated_at,
+                       cols(left3, right3)))
 
-    # P5 시장 내 위치 — 결론 배너 + 티어 사다리 + 사분면.
-    concl = " ".join(x for x in [d["tier_line"], d["quadrant_move"]] if x) or None
+    # ── P4 시장 내 위치 (전폭 배너 + 좌 티어 / 우 사분면) ───────────
+    concl = " ".join(x for x in [d["tier_line"], d["quadrant_move"]] if x)
+    banner = f"<p class='concl'>{esc(concl)}</p>" if concl else ""
     tier = d["tier"]
     kpop_rows = (tier or {}).get("kpop_rows") or []
     has_flow = any((r.get("view_flow_90d") or 0) > 0 for r in kpop_rows)
@@ -480,10 +468,11 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
             rows.append((_name(r["group_key"]), r.get("view_flow_90d") or 0,
                          r["group_key"]))
         tier_html = ("<h3>관심 규모 — 최근 90일 조회 증분 (K-POP 버추얼)</h3>"
-                     + svg_hbars(rows, log_scale=True, boundaries=bounds,
-                                 boundary_labels=blabels)
-                     + "<p class='note'>막대 길이는 log 스케일 · 티어 경계 = "
-                       "규모 격차 0.5데케이드(≈3.2배) 이상 · 대시보드와 동일 "
+                     + svg_hbars(rows, width=490, log_scale=True,
+                                 boundaries=bounds, boundary_labels=blabels,
+                                 pad_l=92)
+                     + "<p class='note'>막대 길이 log 스케일 · 티어 경계 = "
+                       "규모 격차 0.5데케이드(≈3.2배) 이상 · 대시보드 동일 "
                        "그룹 색</p>")
     else:
         tier_html = ("<h3>관심 규모 티어</h3>"
@@ -492,15 +481,16 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
     quad = d["quadrant"]
     quad_html = ("<h3>인지도 × 적극 코어 사분면 (K-POP 버추얼)</h3>"
                  + (svg_scatter(quad["points"], quad["median_x"],
-                                quad["median_y"]) if quad
-                    else _placeholder("좌표 데이터 없음", 300))
+                                quad["median_y"], width=490, height=460)
+                    if quad else _placeholder("좌표 데이터 없음", 300))
                  + "<p class='note'>십자선 = 카테고리 중앙값 · 적극 코어 = "
-                   "최근 30일 댓글 상위 5편 중앙값(추정)</p>")
-    pages.append(_page("시장 내 위치", 4, TOTAL, month, generated_at,
-                       _block("시장 내 위치", "시장 어디에 있고 어느 방향인가?",
-                              tier_html + quad_html, concl)))
+                   "최근 30일 댓글 상위 5편 중앙값(추정) · 좌표는 생성 시점 "
+                   "기준(산식 v2) — 대시보드 시장 지도와 동일 값</p>")
+    pages.append(_page("시장 내 위치", 3, TOTAL, month, generated_at,
+                       f"<h2>시장 어디에 있고 어느 방향인가?</h2>{banner}"
+                       + cols(tier_html, quad_html)))
 
-    # P6 비교·전망 — 동시기 + 전략 메모(구 A2) + 다음 달 + 면책.
+    # ── P5 비교·전망 (좌: 동시기+리스크 / 우: 메모+다음 달+면책) ────
     coh = d["cohort"]
     if coh["rows"]:
         crows = coh["rows"][:6]
@@ -510,42 +500,58 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
             excl = (f"<p class='note'>제외 {len(coh['excluded'])}팀 — "
                     + _clip(", ".join(
                         f"{_name(e['group'])}({e['reason']})"
-                        for e in coh["excluded"]), 90)
-                    + "</p>")
-        coh_html = (f"<p class='note'>데뷔일 정렬 D+{coh['age_days']}일 시점 "
-                    "구독 성장배수(D0 대비) · 실측 스냅샷 기준</p>"
-                    + svg_hbars(hrows, unit="x") + excl)
+                        for e in coh["excluded"]), 80) + "</p>")
+        coh_html = (f"<p class='note'>데뷔일 정렬 D+{coh['age_days']}일"
+                    "(보고 월말) 시점 구독 성장배수(D0 대비) · 대시보드 동시기 "
+                    "화면은 '오늘' 기준이라 시점이 다를 수 있음</p>"
+                    + svg_hbars(hrows, width=490, unit="x", pad_l=92) + excl)
     else:
         coh_html = _placeholder("코호트 비교 가능 데이터가 없습니다", 140)
     coh_block = _block("동시기 성과", "같은 성장 단계 대비 빠른가?",
                        coh_html, d["cohort_line"])
+    alerts = d["alerts"]
+    if alerts:
+        order = {"critical": 0, "warn": 1, "info": 2}
+        shown = sorted(alerts, key=lambda a: order.get(a["severity"], 9))[:4]
+        risk = "<ul class='bullets'>" + "".join(
+            f"<li>{esc(a['fired_at'][:10])} [{esc(a['severity'])}] "
+            f"{esc(_clip(a['title'], 55))}</li>" for a in shown)
+        if len(alerts) > 4:
+            risk += f"<li class='muted'>외 {len(alerts) - 4}건</li>"
+        risk += "</ul>"
+    else:
+        risk = ("<p class='body-line'>월내 발생 알림 0건 — 본체 노출·AI 도용·"
+                "논란 급증 매일 자동 감시.</p>")
+    risk += (f"<p class='note'>월말 논란 글 지표 {fmt_num(d['controversy'])}건"
+             " (14일 창)</p>")
+    left5 = coh_block + _block("리스크 모니터", None, risk)
 
     ins = "".join(
         f"<li><b>{esc(_clip(i['title'], 40))}</b> — "
-        f"{esc(_clip(i['ai_comment'], 90))} "
+        f"{esc(_clip(i['ai_comment'], 80))} "
         f"<span class='muted'>(주 {esc(i['week_start'])})</span></li>"
         for i in d["insights"][:3]) or "<li>큐레이션 대상 인사이트 없음</li>"
     memo_block = _block("전략 메모", None,
                         f"<ul class='bullets'>{ins}</ul>"
-                        "<p class='note'>주간 분석에서 자동 선별 · 검수 전 참고용</p>")
-
+                        "<p class='note'>주간 분석에서 자동 선별 · 검수 전 "
+                        "참고용</p>")
     next_events = [e for e in d["events"]
                    if not e["event_date"].startswith(month)][:6]
     ev_lines = "".join(
-        f"<li>{esc(e['event_date'])} — {esc(_clip(e['title'], 60))} "
+        f"<li>{esc(e['event_date'])} — {esc(_clip(e['title'], 45))} "
         f"<span class='muted'>({esc(e['confidence'])})</span></li>"
         for e in next_events) or "<li>등록된 예정 이벤트 없음</li>"
     watch = [k for k, j in d["kpi"]["judgments"].items()
              if j["verdict"] == "below"]
     watch_txt = ("주시 포인트: " + " · ".join(KPI_LABELS[k] for k in watch)
                  if watch else "주시 포인트: 전 KPI 밴드 내 유지 여부")
-    next_block = _block("다음 달", "다음 달 무엇을 보나?",
+    next_block = _block("다음 달", None,
                         f"<ul class='bullets'>{ev_lines}</ul>", watch_txt)
     disclaimer = ("<p class='disclaim'>idol-sight 자동 생성 보고서 · 결론 "
                   "문장은 규칙 기반 자동 산출 · 경쟁사 수치는 공개 신호 기반 "
                   "추정 포함 · 산식·방법론은 대시보드 각 화면 도움말 참조</p>")
-    pages.append(_page("비교·전망", 5, TOTAL, month, generated_at,
-                       coh_block + memo_block + next_block + disclaimer))
+    pages.append(_page("비교·전망", 4, TOTAL, month, generated_at,
+                       cols(left5, memo_block + next_block + disclaimer)))
 
     title = f"MiiWAN 월간 리포트 {esc(month)}"
     return f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'>
@@ -556,27 +562,30 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
    -webkit-print-color-adjust:exact}}
 body{{font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
      background:#e6eaed;color:{INK};font-variant-numeric:tabular-nums}}
-.page{{position:relative;width:794px;aspect-ratio:794/1123;margin:22px auto;
+.page{{position:relative;width:1123px;aspect-ratio:1123/794;margin:22px auto;
       background:#fff;border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,.10);
-      padding:48px 56px 44px;overflow:hidden;break-after:page}}
+      padding:40px 56px 44px;overflow:hidden;break-after:page}}
 .kicker{{font-size:11px;font-weight:700;letter-spacing:.06em;color:{KEY_DARK};
-        margin-bottom:14px;text-transform:uppercase}}
+        margin-bottom:12px;text-transform:uppercase}}
 .cover{{display:flex;flex-direction:column;justify-content:center;
-       border-top:10px solid {KEY}}}
+       border-left:12px solid {KEY};padding-left:72px}}
 .cover h1{{font-size:42px;font-weight:800;line-height:1.15;
           letter-spacing:-0.025em}}
 .cover-sub{{font-size:20px;font-weight:700;line-height:1.3;
            letter-spacing:-0.01em;margin-top:12px;color:{KEY_DARK}}}
 .stamp{{margin-top:28px;color:{MUTED};font-size:12px;font-weight:500;
        line-height:1.5}}
-.block{{margin-bottom:24px}}
+.cols{{display:flex;gap:24px}}
+.cols.r55 .colL{{flex:0 0 55%}} .cols.r55 .colR{{flex:1}}
+.cols.r50 .colL,.cols.r50 .colR{{flex:1;min-width:0}}
+.block{{margin-bottom:20px}}
 h2{{font-size:18px;font-weight:800;line-height:1.25;letter-spacing:-0.02em}}
 h2 + .q{{margin-top:4px}}
 h3{{font-size:15px;font-weight:700;line-height:1.4;letter-spacing:-0.01em;
-   color:#374151;margin:24px 0 8px}}
+   color:#374151;margin:18px 0 8px}}
 .q{{color:{MUTED};font-size:12px;line-height:1.5;margin-bottom:12px}}
-.concl{{background:#f0faf9;border-left:4px solid {KEY};padding:9px 12px;
-       font-weight:700;font-size:15px;line-height:1.5;margin:12px 0 16px}}
+.concl{{background:#f0faf9;border-left:4px solid {KEY};padding:8px 12px;
+       font-weight:700;font-size:14px;line-height:1.5;margin:10px 0 14px}}
 .body-line{{font-size:14px;line-height:1.6}}
 table{{width:100%;border-collapse:collapse;font-size:13px}}
 th{{padding:6px 10px;border-bottom:2px solid #374151;color:{MUTED};
@@ -587,31 +596,29 @@ th.num,td.num{{text-align:right}}
 tbody tr:last-child td{{border-bottom:none}}
 .muted{{color:{MUTED}}}
 .bullets{{list-style:none}}
-.bullets li{{padding:5px 0 5px 20px;position:relative;font-size:14px;
-            line-height:1.6}}
-.bullets li::before{{content:'';position:absolute;left:2px;top:14px;width:6px;
+.bullets li{{padding:4px 0 4px 20px;position:relative;font-size:14px;
+            line-height:1.55}}
+.bullets li::before{{content:'';position:absolute;left:2px;top:12px;width:6px;
                     height:6px;border-radius:50%;background:{KEY_EDGE}}}
-.note{{color:{MUTED};font-size:12px;line-height:1.5;margin-top:8px}}
-.duo{{display:flex;gap:24px;flex-wrap:wrap}}
-.duo>div{{flex:1;min-width:300px}}
-.tiles{{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}}
-.tile{{border:1px solid #e5e7eb;border-radius:6px;padding:14px 18px;
-      min-width:200px;flex:1}}
-.tv{{font-size:28px;font-weight:800;line-height:1.1;letter-spacing:-0.02em}}
-.tl{{font-size:12px;color:{MUTED};margin-top:4px;line-height:1.5}}
-.warnbox{{padding:9px 14px;font-size:12px;line-height:1.5;background:#fff7ed;
+.note{{color:{MUTED};font-size:12px;line-height:1.5;margin-top:6px}}
+.tiles{{display:flex;gap:14px;margin-bottom:12px;flex-wrap:wrap}}
+.tile{{border:1px solid #e5e7eb;border-radius:6px;padding:12px 16px;
+      min-width:180px;flex:1}}
+.tv{{font-size:26px;font-weight:800;line-height:1.1;letter-spacing:-0.02em}}
+.tl{{font-size:12px;color:{MUTED};margin-top:4px;line-height:1.45}}
+.warnbox{{padding:8px 12px;font-size:12px;line-height:1.5;background:#fff7ed;
          border:1px solid {WARN_GFX};border-radius:6px;color:#9a3412}}
 .ph{{display:flex;align-items:center;justify-content:center;
     border:1px dashed #cbd2d9;border-radius:6px;color:{MUTED};font-size:12px}}
-.disclaim{{margin-top:18px;color:{MUTED};font-size:11px;line-height:1.5;
-          border-top:1px solid #e5e7eb;padding-top:10px}}
-footer{{position:absolute;left:56px;right:56px;bottom:14px;display:flex;
+.disclaim{{margin-top:14px;color:{MUTED};font-size:11px;line-height:1.5;
+          border-top:1px solid #e5e7eb;padding-top:8px}}
+footer{{position:absolute;left:56px;right:56px;bottom:12px;display:flex;
        justify-content:space-between;font-size:11px;line-height:1.5;
-       color:{MUTED};border-top:1px solid #e5e7eb;padding-top:8px}}
+       color:{MUTED};border-top:1px solid #e5e7eb;padding-top:7px}}
 svg{{width:100%;height:auto;display:block}}
-@page{{size:A4;margin:0}}
+@page{{size:A4 landscape;margin:0}}
 @media print{{body{{background:#fff}}.page{{box-shadow:none;margin:0 auto;
              border-radius:0}}}}
 </style></head><body>
-{''.join(pages)}
-</body></html>"""
+{{''.join(pages)}}
+</body></html>""".replace("{''.join(pages)}", "".join(pages))
