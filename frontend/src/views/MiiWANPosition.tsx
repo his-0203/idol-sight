@@ -37,6 +37,7 @@ import {
   buildKpiTable, KPI_LABEL, KPI_MONTHS,
   MONTH_NOTES, type MonthlyKpiRow,
 } from "../lib/miiwanKpi";
+import { buildPositionSummary, type SummaryTone } from "../lib/positionSummary";
 import {
   CONTROVERSY_SPIKE_MIN_COUNT, CONTROVERSY_SPIKE_MULTIPLIER,
 } from "../lib/alerts";
@@ -184,6 +185,20 @@ export function MiiWANPosition(props: {
     return <div class="text-zinc-500">Loading…</div>;
   }
 
+  // ⓪ 한눈 요약 — 경영진·투자사가 아래를 안 읽어도 결론을 갖게(결론 우선,
+  // 브리핑 재구성과 같은 원칙). 전 항목 아래 섹션 데이터에서 파생·결측 생략.
+  const summaryLines = buildPositionSummary({
+    sovShare: sov.share, sovRank: sov.rank, teamCount: sov.teamCount,
+    momentumGap: sov.momentumGap, quadrant: miiwanQuadrant,
+    postureLabel: traj?.posture_label ?? null, orgScore,
+    monthlyKpi: props.monthlyKpi, riskLevel,
+    strength: props.cohortHead?.strengths[0] ?? null,
+  });
+  const TONE_DOT: Record<SummaryTone, string> = {
+    good: "bg-emerald-400", warn: "bg-amber-400",
+    bad: "bg-red-400", info: "bg-zinc-400",
+  };
+
   return (
     <div class="space-y-6">
       <p class="text-hint text-zinc-500">
@@ -192,6 +207,23 @@ export function MiiWANPosition(props: {
         MiiWAN의 현재 좌표. 서브컬처 계열(이세돌·스텔라이브 등)은 활동 구조가 달라
         비교에서 제외한다.
       </p>
+
+      {/* ⓪ 한눈 요약 — 위치→방향→KPI→팬덤→위기 5줄 다이제스트. */}
+      <section>
+        <div class="mb-2 flex flex-wrap items-baseline gap-2">
+          <h2 class="section-title">한눈 요약</h2>
+          <span class="text-hint text-zinc-500">아래 섹션들의 결론만 — 근거는 각 섹션에서</span>
+        </div>
+        <div class="card space-y-2">
+          {summaryLines.map((l) => (
+            <div key={l.label} class="flex items-start gap-2.5 text-sm">
+              <span class={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${TONE_DOT[l.tone]}`} />
+              <span class="w-20 shrink-0 pt-0.5 text-xs text-zinc-500">{l.label}</span>
+              <span class="min-w-0 flex-1 text-zinc-200">{l.text}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ① 좌표 스트립 — "지금 어디인가"를 숫자 4개로. */}
       <section>
@@ -397,7 +429,7 @@ export function MiiWANPosition(props: {
         <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
           <KPI label="추정 관여 팬"
                value={core.value}
-               hint="좋아요 상위 5편 기준 · 추정" />
+               hint="최근 30일 좋아요 상위 5편 · 추정" />
           <KPI label="주 시청 국가"
                value={countriesLine ?? "—"}
                hint={countriesLine ? "시청 시간 비중 · 자사 채널 실측" : "소유자 데이터 연결 시 표시"} />
