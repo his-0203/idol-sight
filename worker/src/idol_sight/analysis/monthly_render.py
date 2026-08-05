@@ -73,8 +73,17 @@ GROUP_COLORS: dict[str, tuple[str, str]] = {
 }
 _FALLBACK = ("#cbd5e1", "#8b959d")
 
-VERDICT_KO = {"below": "미달", "within": "밴드 내", "above": "상단 초과"}
+VERDICT_KO = {"below": "미달", "within": "범위 내", "above": "초과 달성"}
 VERDICT_CHIP = {"below": "bad", "within": "neut", "above": "good"}
+
+# 원시 코드값 → 경영진용 한국어 (전문용어 금지 규칙, 볼트 업무 용어 사전)
+REASON_KO = {"no_d0_baseline": "데뷔 시점 데이터 없음",
+             "no_measured_d0_baseline": "데뷔 시점 실측 없음",
+             "no_at_day_value": "비교 시점 데이터 없음",
+             "empty_window": "데이터 없음"}
+SEV_KO = {"critical": "긴급", "warn": "주의", "info": "참고"}
+CONF_KO = {"confirmed": "확정", "estimated": "예상", "tentative": "미정",
+           "rumor": "미확정"}
 
 GROUP_NAMES = {"miiwan": "MiiWAN", "plave": "PLAVE", "isedol": "이세돌",
                "stellive": "스텔라이브", "skinz": "SKINZ", "myrakl": "MY:RAKL",
@@ -443,7 +452,7 @@ def svg_scatter(points: list[dict], median_x: float, median_y: float,
                  "인지도 (0~100) →</text>")
     parts.append(f"<text x='14' y='{height / 2}' font-size='11' "
                  f"fill='{MUTED}' transform='rotate(-90 14 {height / 2})' "
-                 "text-anchor='middle'>적극 코어 (log) →</text>")
+                 "text-anchor='middle'>적극 팬 규모 →</text>")
     parts.append("</svg>")
     return "".join(parts)
 
@@ -483,7 +492,7 @@ def _kpi_card(label: str, j: dict, prev: float | None,
     chips = f"<div class='kchips'>{chips}</div>" if chips else ""
     spark = sparkline(spark_vals)
     cap = (f"목표 {fmt_num(band[0])}~{fmt_num(band[1])}" if band
-           else "목표 밴드 미설정")
+           else "목표 미설정")
     return ("<div class='kcard'>"
             f"<div class='klabel'>{esc(label)}</div>"
             f"<div class='krow'><span class='kval'>{fmt_num(actual)}</span>"
@@ -531,7 +540,7 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
         "<div class='kicker'>idol-sight · 내부용</div>"
         f"<h1>MiiWAN 월간 리포트</h1><p class='cover-sub'>{esc(m_label)}</p>"
         f"<p class='stamp'>생성 {esc(generated_at[:10])} · 데이터 기준 "
-        f"{esc(month)} 월말 스냅샷 · 좌표·전환율은 생성 시점 기준</p>"),
+        f"{esc(month)} 월말 · 시장 위치 좌표와 전환율은 생성 시점 값</p>"),
         cover=True))
 
     # ── P2 KPI 결과 + 자사 채널 ──────────────────────────────────────
@@ -606,14 +615,14 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
                + f"<div class='col grow'>{subs_card}</div></div>")
     pages.append(_page("이번 달 결과 · 자사 채널", d["kpi"]["headline"],
                        1, TOTAL, month, generated_at, p2_body,
-                       sub=f"4대 KPI · {esc(m_label)} 실적 vs 목표 밴드 · "
+                       sub=f"4대 KPI · {esc(m_label)} 실적 vs 목표 범위 · "
                            "전월 대비"))
 
     # ── P3 커뮤니티·팬덤 ─────────────────────────────────────────────
     wser = d["weverse_series"]
     wv, wvp = d["weverse"], d["weverse_prev"]
     wdays = [r["day"] for r in wser]
-    wv_note = (f"{wv['day']} 기준(월말 행 부재)"
+    wv_note = (f"{wv['day']} 기준 — 월말까지의 기록이 아직 없어 최신 값으로 표시"
                if wv and wv.get("partial") else "")
 
     def _wv_card(title: str, key: str, cur: float | None,
@@ -640,8 +649,8 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
     tiles = ("<div class='row'>"
              "<div class='kcard'><div class='klabel'>시청전환율</div>"
              f"<div class='kval'>{conv_txt}</div>"
-             f"<div class='kcap'>라이브 동접÷구독 · 최근 {loy_win}일 · "
-             "대시보드 동일 값</div></div>"
+             f"<div class='kcap'>구독자 중 라이브를 보러 오는 비율 · "
+             f"최근 {loy_win}일</div></div>"
              "<div class='kcard'><div class='klabel'>월간 뉴스 증분</div>"
              "<div class='kval'>"
              f"{'+' + fmt_num(d['news_delta']) if d['news_delta'] is not None else '—'}"
@@ -692,31 +701,33 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
         tier_html = svg_hbars(rows, width=516, log_scale=True, row_h=26,
                               boundaries=bounds, boundary_labels=blabels,
                               pad_l=92)
-        tier_note = ("막대 길이 log 스케일 · 티어 경계 = 규모 격차 "
-                     "0.5데케이드(≈3.2배) 이상 · 대시보드 동일 그룹 색")
+        tier_note = ("막대 길이는 팀 간 격차가 커서 압축(로그) 표시 · "
+                     "티어 경계 = 규모가 약 3배 이상 벌어지는 지점 · "
+                     "색상은 대시보드와 동일")
     else:
-        tier_html = _placeholder("관심 규모 티어는 2026-08 신설 — "
+        tier_html = _placeholder("시장 관심 규모 집계는 2026-08 시작 — "
                                  "8월 보고서부터 표기", 300)
         tier_note = ""
-    tier_card = _card("관심 규모 티어", tier_html,
-                      sub="최근 90일 조회 증분 · K-POP 버추얼",
+    tier_card = _card("시장 관심 규모", tier_html,
+                      sub="최근 90일 조회수 증가량 · K-POP 버추얼",
                       note=tier_note, grow=True)
     quad = d["quadrant"]
     quad_card = _card(
-        "인지도 × 적극 코어 사분면",
+        "인지도 × 적극 팬 사분면",
         (svg_scatter(quad["points"], quad["median_x"], quad["median_y"],
                      width=588, height=430)
          if quad else _placeholder("좌표 데이터 없음", 300)),
-        sub="K-POP 버추얼 · 생성 시점 기준(산식 v2)",
-        note="십자선 = 카테고리 중앙값 · 적극 코어 = 최근 30일 댓글 상위 "
-             "5편 중앙값(추정) · 대시보드 시장 지도와 동일 값", grow=True)
+        sub="K-POP 버추얼 · 보고서 생성 시점 기준",
+        note="십자선 = 시장의 중간 위치(중앙값) · 적극 팬 규모 = 최근 30일 "
+             "영상 댓글 반응 기반 추정 · 대시보드 '시장 지도'와 같은 값",
+        grow=True)
     p4_body = ("<div class='row fill'>"
                f"<div class='col' style='flex:0 0 548px'>{tier_card}</div>"
                f"<div class='col grow'>{quad_card}</div></div>")
     pages.append(_page("시장 내 위치", p4_title, 3, TOTAL, month,
                        generated_at, p4_body,
-                       sub="관심 규모(조회 플로우) · 인지도×코어 좌표 · "
-                           "경쟁사 수치는 공개 신호 기반 추정 포함"))
+                       sub="시장 관심 규모 · 인지도×팬 참여 좌표 · "
+                           "경쟁사 수치는 공개 데이터 기반 추정 포함"))
 
     # ── P5 비교·전망 ─────────────────────────────────────────────────
     coh = d["cohort"]
@@ -727,66 +738,72 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
                  for r in crows]
         excl = ""
         if coh["excluded"]:
-            excl = (f"제외 {len(coh['excluded'])}팀 — "
+            excl = (f"비교 제외 {len(coh['excluded'])}팀 — "
                     + _clip(", ".join(
-                        f"{_name(e['group'])}({e['reason']})"
-                        for e in coh["excluded"]), 76))
-        coh_html = svg_hbars(hrows, width=552, unit="x", pad_l=92, row_h=26)
-        coh_note = (f"데뷔일 정렬 D+{coh['age_days']}일(보고 월말) 시점 구독 "
-                    "성장배수(D0 대비) · 대시보드 동시기 화면은 '오늘' 기준"
+                        f"{_name(e['group'])}"
+                        f"({REASON_KO.get(e['reason'], '데이터 부족')})"
+                        for e in coh["excluded"]), 80))
+        coh_html = svg_hbars(hrows, width=552, unit="배", pad_l=92, row_h=26)
+        coh_note = (f"각 팀이 데뷔 후 {coh['age_days']}일째 되는 시점에 "
+                    f"구독자가 데뷔 시점의 몇 배가 됐는지 비교"
+                    f"({int(month[5:7])}월 말 기준 — 대시보드 화면과는 집계 "
+                    "시점이 달라 수치가 다를 수 있음)"
                     + (f" · {excl}" if excl else ""))
     else:
-        coh_html = _placeholder("코호트 비교 가능 데이터가 없습니다", 140)
+        coh_html = _placeholder("비교 가능한 팀 데이터가 없습니다", 140)
         coh_note = ""
-    coh_card = _card("동시기 성과", coh_html,
-                     sub="같은 성장 단계 대비 빠른가", note=coh_note)
+    coh_card = _card("같은 시기 데뷔한 팀과 비교", coh_html,
+                     sub="데뷔 시점 대비 구독자 성장 배수", note=coh_note)
     alerts = d["alerts"]
     if alerts:
         order = {"critical": 0, "warn": 1, "info": 2}
         chipk = {"critical": "bad", "warn": "warn", "info": "neut"}
         shown = sorted(alerts, key=lambda a: order.get(a["severity"], 9))[:4]
         risk = "<ul class='blts plain'>" + "".join(
-            f"<li>{_chip(a['severity'], chipk.get(a['severity'], 'neut'))} "
+            f"<li>{_chip(SEV_KO.get(a['severity'], '참고'), chipk.get(a['severity'], 'neut'))} "
             f"{esc(a['fired_at'][:10])} · {esc(_clip(a['title'], 46))}</li>"
             for a in shown)
         if len(alerts) > 4:
             risk += f"<li class='mut'>외 {len(alerts) - 4}건</li>"
         risk += "</ul>"
     else:
-        risk = ("<p class='body-line'>월내 발생 알림 0건 — 본체 노출·AI 도용·"
-                "논란 급증 매일 자동 감시.</p>")
+        risk = ("<p class='body-line'>이번 달 발생 알림 0건 — 신원 노출·"
+                "AI 도용·논란 급증을 매일 자동 감시하고 있습니다.</p>")
     risk_card = _card("리스크 모니터", risk,
-                      note=f"월말 논란 글 지표 {fmt_num(d['controversy'])}건"
-                           " (14일 창)", grow=True)
+                      note=f"최근 14일 논란성 게시글 {fmt_num(d['controversy'])}건",
+                      grow=True)
     ins = "".join(
         f"<li><b>{esc(_clip(i['title'], 38))}</b> — "
         f"{esc(_clip(i['ai_comment'], 76))} "
-        f"<span class='mut'>(주 {esc(i['week_start'])})</span></li>"
-        for i in d["insights"][:3]) or "<li>큐레이션 대상 인사이트 없음</li>"
+        f"<span class='mut'>({esc(i['week_start'][5:].replace('-', '/'))} "
+        "주간 분석)</span></li>"
+        for i in d["insights"][:3]) or "<li>이번 달 선별된 메모 없음</li>"
     memo_card = _card("전략 메모", f"<ul class='blts'>{ins}</ul>",
                       note="주간 분석에서 자동 선별 · 검수 전 참고용")
     next_events = [e for e in d["events"]
                    if not e["event_date"].startswith(month)][:6]
     ev_lines = "".join(
         f"<li>{esc(e['event_date'])} — {esc(_clip(e['title'], 42))} "
-        f"<span class='mut'>({esc(e['confidence'])})</span></li>"
-        for e in next_events) or "<li>등록된 예정 이벤트 없음</li>"
+        f"<span class='mut'>({esc(CONF_KO.get(e['confidence'], e['confidence']))})"
+        "</span></li>"
+        for e in next_events) or "<li>등록된 예정 일정 없음</li>"
     watch = [k for k, j in d["kpi"]["judgments"].items()
              if j["verdict"] == "below"]
     watch_txt = ("주시 포인트 · " + " · ".join(KPI_LABELS[k] for k in watch)
                  if watch else "주시 포인트 · 전 KPI 밴드 내 유지 여부")
     next_card = _card("다음 달", f"<ul class='blts'>{ev_lines}</ul>"
                       + f"<p class='watch'>{esc(watch_txt)}</p>", grow=True)
-    disclaimer = ("<p class='disclaim'>idol-sight 자동 생성 보고서 · 결론 "
-                  "문장은 규칙 기반 자동 산출 · 경쟁사 수치는 공개 신호 기반 "
-                  "추정 포함 · 산식·방법론은 대시보드 각 화면 도움말 참조</p>")
+    disclaimer = ("<p class='disclaim'>idol-sight 자동 생성 보고서 · 요약·"
+                  "결론 문장은 데이터에서 자동 생성 · 경쟁사 수치는 공개 "
+                  "데이터 기반 추정 포함 · 계산 방식은 대시보드 각 화면 "
+                  "도움말 참조</p>")
     p5_body = ("<div class='row fill'>"
                f"<div class='col half'>{coh_card}{risk_card}</div>"
                f"<div class='col half'>{memo_card}{next_card}"
                f"{disclaimer}</div></div>")
     pages.append(_page("비교·전망", p5_title, 4, TOTAL, month, generated_at,
-                       p5_body, sub="동시기 코호트 · 리스크 · 전략 메모 · "
-                                    "다음 달 캘린더"))
+                       p5_body, sub="같은 시기 데뷔한 팀 비교 · 리스크 · "
+                                    "전략 메모 · 다음 달 일정"))
 
     title = f"MiiWAN 월간 리포트 {esc(month)}"
     return f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'>
