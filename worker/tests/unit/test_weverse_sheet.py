@@ -5,9 +5,12 @@
 날짜는 연도 없는 M/D, 천단위 쉼표가 섞인다.
 """
 
+from typing import cast
+
 import pytest
 
 from idol_sight.collectors.weverse_sheet import WeverseSheetCollector, parse_sheet_rows
+from idol_sight.config import GroupConfig
 
 SHEET_CSV = """,,,,,,,,,,
 ,,,,,,,,,,
@@ -71,7 +74,7 @@ def test_collect_builds_upsert_statements():
     class G:  # GroupConfig 대역 — collect는 key만 사용
         key = "miiwan"
 
-    res = coll.collect(G())
+    res = coll.collect(cast(GroupConfig, G()))
     assert res.rows_inserted == 4
     assert not res.errors
     sql, params = res.statements[0]

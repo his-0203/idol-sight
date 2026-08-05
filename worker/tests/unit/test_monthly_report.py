@@ -73,31 +73,34 @@ def test_kpi_line_r2_below_quantifies_gap():
 
 
 def test_tier_line_r3():
-    assert "신규 산출" in tier_line(None, 2, 5, 10)
-    assert "상승" in tier_line(3, 2, None, None)
-    assert tier_line(2, 2, 5, 10).replace("티어 ", "", 1) == \
+    # `or ""` = Optional 가드(pyright) — None 이면 in/== 이 그대로 실패한다.
+    assert "신규 산출" in (tier_line(None, 2, 5, 10) or "")
+    assert "상승" in (tier_line(3, 2, None, None) or "")
+    assert (tier_line(2, 2, 5, 10) or "").replace("티어 ", "", 1) == \
         "유지(추격 그룹) — 카테고리 내 조회 흐름 5위/10팀"
     assert tier_line(2, None, None, None) is None
 
 
 def test_cohort_rank_line_r4():
-    assert "2위 → 1위" in cohort_rank_line(1, 2, 5, 3.1, 2.8)
-    keep = cohort_rank_line(2, 2, 5, 1.15, 1.10)
+    assert "2위 → 1위" in (cohort_rank_line(1, 2, 5, 3.1, 2.8) or "")
+    keep = cohort_rank_line(2, 2, 5, 1.15, 1.10) or ""
     assert "동시기 2위" in keep and "1.15x" in keep and "전월 1.10x" in keep
 
 
 def test_quadrant_move_line_r5_silent_on_hold():
     labels = {"niche": "니치 충성", "strong": "진성 강세"}
     assert quadrant_move_line("niche", "niche", labels) is None
-    assert "니치 충성 → 진성 강세" in quadrant_move_line("niche", "strong", labels)
+    assert "니치 충성 → 진성 강세" in (
+        quadrant_move_line("niche", "strong", labels) or "")
 
 
 def test_spike_note_r6_event_attribution():
     days = [(f"2026-07-{d:02d}", 30) for d in range(1, 28)]
     days[14] = ("2026-07-15", 400)   # median 30 × 5 초과
-    note = spike_note(days, [{"event_date": "2026-07-16", "title": "신곡 공개"}])
+    note = spike_note(
+        days, [{"event_date": "2026-07-16", "title": "신곡 공개"}]) or ""
     assert "신곡 공개" in note and "스파이크" in note
-    note2 = spike_note(days, [])
+    note2 = spike_note(days, []) or ""
     assert "원인 미상" in note2
     assert spike_note(days[:5], []) is None   # 표본 부족 → 각주 없음
 

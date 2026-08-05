@@ -35,6 +35,7 @@ downstream code (agg_market_share table, frontend) keeps working —
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -229,7 +230,7 @@ TIER_MAX = 3
 TIER_LABELS = {1: "선두 그룹", 2: "추격 그룹", 3: "후발 그룹"}
 
 
-def compute_tiers(flows: dict[str, float]) -> dict[str, int]:
+def compute_tiers(flows: Mapping[str, float]) -> dict[str, int]:
     """그룹별 90d 관심 플로우 → 티어(1=선두). 순수.
 
     log10(flow+1) 내림차순 정렬 후 인접 갭이 TIER_GAP_DECADES 이상인
