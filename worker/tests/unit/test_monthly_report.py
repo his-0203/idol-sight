@@ -52,7 +52,7 @@ def test_kpi_headline_all_within_and_band_edges():
         "weverse_members": 4400, "weverse_membership": 75,
     })
     assert all(x["verdict"] == "within" for x in j.values())
-    assert "모두 목표 밴드 내" in kpi_headline(j)
+    assert "모두 목표 범위 내" in kpi_headline(j)
     assert band_verdict(31999, (32000, 35000)) == "below"
 
 
@@ -74,17 +74,19 @@ def test_kpi_line_r2_below_quantifies_gap():
 
 def test_tier_line_r3():
     # `or ""` = Optional 가드(pyright) — None 이면 in/== 이 그대로 실패한다.
-    assert "신규 산출" in (tier_line(None, 2, 5, 10) or "")
+    # 카피는 경영진용 순화 문장(2026-08-05): 코드성 용어(티어·데케이드) 배제.
+    assert "첫 집계" in (tier_line(None, 2, 5, 10) or "")
     assert "상승" in (tier_line(3, 2, None, None) or "")
-    assert (tier_line(2, 2, 5, 10) or "").replace("티어 ", "", 1) == \
-        "유지(추격 그룹) — 카테고리 내 조회 흐름 5위/10팀"
+    assert (tier_line(2, 2, 5, 10)
+            == "시장 관심 규모 추격 그룹 유지 — 조회수 증가 규모 5위/10팀")
     assert tier_line(2, None, None, None) is None
 
 
 def test_cohort_rank_line_r4():
     assert "2위 → 1위" in (cohort_rank_line(1, 2, 5, 3.1, 2.8) or "")
     keep = cohort_rank_line(2, 2, 5, 1.15, 1.10) or ""
-    assert "동시기 2위" in keep and "1.15x" in keep and "전월 1.10x" in keep
+    assert "성장 속도 2위" in keep and "1.15배" in keep and "전월 1.10배" in keep
+    assert "코호트" not in keep          # 전문용어 금지 가드
 
 
 def test_quadrant_move_line_r5_silent_on_hold():
@@ -99,9 +101,9 @@ def test_spike_note_r6_event_attribution():
     days[14] = ("2026-07-15", 400)   # median 30 × 5 초과
     note = spike_note(
         days, [{"event_date": "2026-07-16", "title": "신곡 공개"}]) or ""
-    assert "신곡 공개" in note and "스파이크" in note
+    assert "신곡 공개" in note and "급증" in note
     note2 = spike_note(days, []) or ""
-    assert "원인 미상" in note2
+    assert "원인 확인 필요" in note2
     assert spike_note(days[:5], []) is None   # 표본 부족 → 각주 없음
 
 
@@ -171,6 +173,26 @@ def test_render_group_colors_in_cohort():
     assert "#75d7d1" in doc      # miiwan 면
     assert "#ef4444" in doc      # bdawn 면 (대시보드 동일 색)
     assert "#b30f0f" in doc      # bdawn edge(흰 배경 보정 테두리)
+
+
+def test_render_friendly_copy_no_dev_codes():
+    """경영진용 카피 가드(2026-08-05) — 원시 코드값·대시보드 전문용어가
+    덱에 노출되지 않고, 한국어 순화 문구로 대체된다."""
+    from idol_sight.analysis.monthly_render import render_deck
+    d = _minimal_data()
+    d["cohort"] = {"rows": [
+        {"group": "miiwan", "d0": 100, "at": 300, "multiple": 3.0, "rank": 1}],
+        "excluded": [{"group": "myrakl", "reason": "no_d0_baseline"},
+                     {"group": "skinz", "reason": "no_at_day_value"}],
+        "age_days": 49}
+    d["alerts"] = [{"rule": "x", "severity": "critical", "title": "이슈",
+                    "fired_at": "2026-07-10T00:00:00Z"}]
+    doc = render_deck(d, generated_at="2026-08-01T00:23:00Z")
+    assert "no_d0_baseline" not in doc and "no_at_day_value" not in doc
+    assert "데뷔 시점 데이터 없음" in doc and "비교 시점 데이터 없음" in doc
+    assert "긴급" in doc                      # severity 원시값 → 한국어 칩
+    for jargon in ("코호트", "데케이드", "행 부재", "(log)", "산식 v2"):
+        assert jargon not in doc
 
 
 def test_render_tier_degenerate_falls_back_to_placeholder():
