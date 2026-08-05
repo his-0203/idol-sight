@@ -107,23 +107,26 @@ def kpi_judgments(month: str, actuals: dict[str, float | None]) -> dict[str, dic
 
 def kpi_headline(judgments: dict[str, dict]) -> str:
     """R1 — 판정 가능한 KPI들의 종합 헤드라인."""
+    # 카피 규칙(2026-08-05): 구분 기호(—·)로 절을 잇지 말고 완결형 문장으로.
     judged = {k: j for k, j in judgments.items() if j["verdict"]}
     if not judged:
-        return "판정 가능한 KPI 없음 — 목표 범위 정의 이전 구간"
+        return "목표 범위가 정의되기 전 구간이라 판정 가능한 KPI가 없습니다"
     below = [j for j in judged.values() if j["verdict"] == "below"]
     above = [j for j in judged.values() if j["verdict"] == "above"]
     n = len(judged)
     if not below and len(above) >= 2:
-        return f"{n}대 KPI 중 {len(above)}개 초과 달성 — 낙관 시나리오보다 빠른 페이스"
+        return (f"{n}대 KPI 중 {len(above)}개를 초과 달성해 "
+                "낙관 시나리오보다 빠른 페이스입니다")
     if not below:
-        return f"{n}대 KPI 모두 목표 범위 내 — 계획대로 진행 중"
+        return f"{n}대 KPI가 모두 목표 범위 안에 있어 계획대로 진행 중입니다"
     if len(below) == 1:
         j = below[0]
         gap = j["band"][0] - j["actual"]
-        return (f"{j['label']} 1개 미달({fmt_num(j['actual'])} vs 목표 하한 "
-                f"{fmt_num(j['band'][0])}, {fmt_num(gap)} 부족), 나머지는 범위 내 이상")
-    names = "·".join(j["label"] for j in below)
-    return f"{n}대 KPI 중 {len(below)}개 미달({names}) — 페이스 점검 필요"
+        return (f"{j['label']}만 목표 하한 {fmt_num(j['band'][0])}에 "
+                f"{fmt_num(gap)} 못 미쳤고, 나머지는 모두 범위 안에 있습니다")
+    names = ", ".join(j["label"] for j in below)
+    return (f"{n}대 KPI 중 {len(below)}개가 목표에 못 미쳐 페이스 점검이 "
+            f"필요합니다 ({names})")
 
 
 def kpi_line(j: dict, prev_actual: float | None) -> str:
@@ -133,10 +136,10 @@ def kpi_line(j: dict, prev_actual: float | None) -> str:
         return base
     lo, hi = j["band"]
     if j["verdict"] == "below":
-        return f"{base} — 목표 하한 {fmt_num(lo)} 대비 {fmt_num(lo - j['actual'])} 부족"
+        return f"{base}, 목표 하한 {fmt_num(lo)}보다 {fmt_num(lo - j['actual'])} 부족"
     if j["verdict"] == "above":
-        return f"{base} — 목표 상단 {fmt_num(hi)} 초과 (+{fmt_num(j['actual'] - hi)})"
-    return f"{base} — 목표 범위 {fmt_num(lo)}~{fmt_num(hi)} 내"
+        return f"{base}, 목표 상단 {fmt_num(hi)} 초과 (+{fmt_num(j['actual'] - hi)})"
+    return f"{base}, 목표 범위 {fmt_num(lo)}~{fmt_num(hi)} 안"
 
 
 def tier_line(prev_tier: int | None, now_tier: int | None,
@@ -146,14 +149,16 @@ def tier_line(prev_tier: int | None, now_tier: int | None,
         return None
     now_label = TIER_LABELS.get(now_tier, f"T{now_tier}")
     if prev_tier is None:
-        return f"시장 관심 규모 첫 집계 — {now_label}"
+        return f"시장 관심 규모 첫 집계에서 {now_label}에 들었습니다"
     if now_tier < prev_tier:
-        return f"시장 관심 규모 상승: {TIER_LABELS.get(prev_tier)} → {now_label}"
+        return (f"시장 관심 규모가 {TIER_LABELS.get(prev_tier)}에서 "
+                f"{now_label}으로 상승했습니다")
     if now_tier > prev_tier:
-        return f"시장 관심 규모 하락: {TIER_LABELS.get(prev_tier)} → {now_label}"
-    rank_part = (f" — 조회수 증가 규모 {flow_rank}위/{team_count}팀"
+        return (f"시장 관심 규모가 {TIER_LABELS.get(prev_tier)}에서 "
+                f"{now_label}으로 하락했습니다")
+    rank_part = (f" (조회수 증가 규모 {flow_rank}위/{team_count}팀)"
                  if flow_rank else "")
-    return f"시장 관심 규모 {now_label} 유지{rank_part}"
+    return f"시장 관심 규모는 {now_label}을 유지했습니다{rank_part}"
 
 
 def cohort_rank_line(rank_now: int | None, rank_prev: int | None,
@@ -163,18 +168,18 @@ def cohort_rank_line(rank_now: int | None, rank_prev: int | None,
     if rank_now is None:
         return None
     if rank_prev is not None and rank_now < rank_prev:
-        return (f"같은 시기 데뷔한 팀 중 성장 속도 {rank_prev}위 → {rank_now}위 "
-                f"(비교 {cohort_n}팀)")
+        return (f"같은 시기 데뷔한 팀 {cohort_n}팀 중 성장 속도가 "
+                f"{rank_prev}위 → {rank_now}위로 올라섰습니다")
     if rank_prev is not None and rank_now > rank_prev:
-        return (f"같은 시기 데뷔한 팀 중 성장 속도 {rank_prev}위 → {rank_now}위로 "
-                f"하락 (비교 {cohort_n}팀)")
+        return (f"같은 시기 데뷔한 팀 {cohort_n}팀 중 성장 속도가 "
+                f"{rank_prev}위 → {rank_now}위로 내려왔습니다")
     mult_part = ""
     if mult_now is not None:
-        mult_part = f" — 데뷔 대비 {mult_now:.2f}배"
+        mult_part = f", 데뷔 대비 {mult_now:.2f}배"
         if mult_prev is not None:
             mult_part += f" (전월 {mult_prev:.2f}배)"
-    return (f"같은 시기 데뷔한 팀 중 성장 속도 {rank_now}위 "
-            f"(비교 {cohort_n}팀){mult_part}")
+    return (f"같은 시기 데뷔한 팀 {cohort_n}팀 중 성장 속도 "
+            f"{rank_now}위{mult_part}")
 
 
 def quadrant_move_line(prev_q: str | None, now_q: str | None,
@@ -201,10 +206,10 @@ def spike_note(daily_gains: list[tuple[str, int]],
     total = sum(gains)
     share = round(peak / total * 100) if total else 0
     if near:
-        return (f"{peak_day[5:]} '{near[0]['title']}' 효과로 구독자 급증 — "
-                f"월 순증의 {share}%가 이날 집중")
-    return (f"{peak_day[5:]} 구독자 급증(원인 확인 필요) — "
-            f"월 순증의 {share}% 집중")
+        return (f"{peak_day[5:]} '{near[0]['title']}' 효과로 구독자가 "
+                f"급증해 월 순증의 {share}%가 이날 집중됐습니다")
+    return (f"{peak_day[5:]} 구독자 급증은 원인 확인이 필요합니다 "
+            f"(월 순증의 {share}% 집중)")
 
 
 def _day_ord(day: str) -> int:
@@ -432,7 +437,7 @@ def build_monthly_data(client: _Executor, month: str) -> dict[str, Any]:
     if wv and wv.get("partial"):
         warnings.append(f"위버스는 월말 기록이 아직 없어 {wv['day']} 값으로 표시")
     if ccv["count"] <= 2:
-        warnings.append(f"라이브 관측 방송 {ccv['count']}회 — 표본 부족")
+        warnings.append(f"라이브 관측 방송 {ccv['count']}회 (표본 부족)")
 
     actuals = {
         "subscribers": eom.get("yt_subscribers") if eom else None,

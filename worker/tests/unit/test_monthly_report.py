@@ -43,7 +43,7 @@ def test_kpi_judgments_and_headline_r1():
     assert j["weverse_members"]["verdict"] == "above"
     assert j["weverse_membership"]["verdict"] == "above"
     head = kpi_headline(j)
-    assert "2개 미달" in head and "페이스 점검" in head
+    assert "2개가 목표에 못 미쳐" in head and "페이스 점검" in head
 
 
 def test_kpi_headline_all_within_and_band_edges():
@@ -52,7 +52,7 @@ def test_kpi_headline_all_within_and_band_edges():
         "weverse_members": 4400, "weverse_membership": 75,
     })
     assert all(x["verdict"] == "within" for x in j.values())
-    assert "모두 목표 범위 내" in kpi_headline(j)
+    assert "모두 목표 범위 안" in kpi_headline(j)
     assert band_verdict(31999, (32000, 35000)) == "below"
 
 
@@ -60,7 +60,7 @@ def test_kpi_headline_no_bands_month():
     j = kpi_judgments("2026-06", {"subscribers": 27900, "avg_ccv": 585,
                                   "weverse_members": None,
                                   "weverse_membership": None})
-    assert "판정 가능한 KPI 없음" in kpi_headline(j)
+    assert "판정 가능한 KPI가 없습니다" in kpi_headline(j)
 
 
 def test_kpi_line_r2_below_quantifies_gap():
@@ -78,7 +78,8 @@ def test_tier_line_r3():
     assert "첫 집계" in (tier_line(None, 2, 5, 10) or "")
     assert "상승" in (tier_line(3, 2, None, None) or "")
     assert (tier_line(2, 2, 5, 10)
-            == "시장 관심 규모 추격 그룹 유지 — 조회수 증가 규모 5위/10팀")
+            == "시장 관심 규모는 추격 그룹을 유지했습니다 "
+               "(조회수 증가 규모 5위/10팀)")
     assert tier_line(2, None, None, None) is None
 
 
@@ -103,7 +104,7 @@ def test_spike_note_r6_event_attribution():
         days, [{"event_date": "2026-07-16", "title": "신곡 공개"}]) or ""
     assert "신곡 공개" in note and "급증" in note
     note2 = spike_note(days, []) or ""
-    assert "원인 확인 필요" in note2
+    assert "원인 확인이 필요" in note2
     assert spike_note(days[:5], []) is None   # 표본 부족 → 각주 없음
 
 
@@ -193,6 +194,13 @@ def test_render_friendly_copy_no_dev_codes():
     assert "긴급" in doc                      # severity 원시값 → 한국어 칩
     for jargon in ("코호트", "데케이드", "행 부재", "(log)", "산식 v2"):
         assert jargon not in doc
+    # 구분 기호 남용 가드(2026-08-05): 템플릿이 절을 —·· 로 잇지 않는다
+    # (줄바꿈·완결 문장·괄호로 표현). 결측값 플레이스홀더 "—"(예: "동접 —")는
+    # 정당한 용례라 한글이 양쪽에 오는 절 연결만 잡는다.
+    import re
+    body = doc.split("<body>", 1)[1]
+    assert re.search(r"[가-힣] — [가-힣]", body) is None
+    assert " · " not in body
 
 
 def test_render_tier_degenerate_falls_back_to_placeholder():
