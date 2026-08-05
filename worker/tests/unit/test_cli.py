@@ -241,6 +241,7 @@ def test_sov_tiers_computed_per_category_from_90d_flow():
     """티어는 90일 조회 플로우(창 내 최초 스냅샷 대비 증분)로 카테고리별
     독립 산정 — K-POP 갭이 서브컬처 티어에 영향 없음."""
     from unittest.mock import MagicMock
+
     import idol_sight.cli as cli
 
     groups = [
@@ -269,6 +270,7 @@ def test_sov_tiers_null_anchor_does_not_inflate_flow():
     (plave 855M 실측 버그). 앵커 쿼리는 IS NOT NULL 필터, 앵커 부재
     그룹은 증분 0."""
     from unittest.mock import MagicMock
+
     import idol_sight.cli as cli
 
     groups = [{"key": "plave", "category": "kpop", "yt_views": 855_000_000},
@@ -288,9 +290,10 @@ def test_monthly_report_command_wires(monkeypatch):
     """monthly-report 전체 경로 스모크 — 임포트 누락(NameError) 류는
     런타임에만 터지므로 커맨드를 실제로 한 번 돈다."""
     from unittest.mock import MagicMock
-    import idol_sight.cli as cli
-    import idol_sight.analysis.monthly_report as mr
+
     import idol_sight.analysis.monthly_render as mrender
+    import idol_sight.analysis.monthly_report as mr
+    import idol_sight.cli as cli
     import idol_sight.notify as notify
 
     fake_client = MagicMock()

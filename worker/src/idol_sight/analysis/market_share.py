@@ -35,7 +35,6 @@ downstream code (agg_market_share table, frontend) keeps working —
 from __future__ import annotations
 
 import math
-
 from dataclasses import dataclass
 from typing import Any
 
