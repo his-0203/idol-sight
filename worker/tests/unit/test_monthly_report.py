@@ -73,31 +73,34 @@ def test_kpi_line_r2_below_quantifies_gap():
 
 
 def test_tier_line_r3():
-    assert "신규 산출" in tier_line(None, 2, 5, 10)
-    assert "상승" in tier_line(3, 2, None, None)
-    assert "유지(추격 그룹) — 카테고리 내 조회 흐름 5위/10팀" == \
-        tier_line(2, 2, 5, 10).replace("티어 ", "", 1)
+    # `or ""` = Optional 가드(pyright) — None 이면 in/== 이 그대로 실패한다.
+    assert "신규 산출" in (tier_line(None, 2, 5, 10) or "")
+    assert "상승" in (tier_line(3, 2, None, None) or "")
+    assert (tier_line(2, 2, 5, 10) or "").replace("티어 ", "", 1) == \
+        "유지(추격 그룹) — 카테고리 내 조회 흐름 5위/10팀"
     assert tier_line(2, None, None, None) is None
 
 
 def test_cohort_rank_line_r4():
-    assert "2위 → 1위" in cohort_rank_line(1, 2, 5, 3.1, 2.8)
-    keep = cohort_rank_line(2, 2, 5, 1.15, 1.10)
+    assert "2위 → 1위" in (cohort_rank_line(1, 2, 5, 3.1, 2.8) or "")
+    keep = cohort_rank_line(2, 2, 5, 1.15, 1.10) or ""
     assert "동시기 2위" in keep and "1.15x" in keep and "전월 1.10x" in keep
 
 
 def test_quadrant_move_line_r5_silent_on_hold():
     labels = {"niche": "니치 충성", "strong": "진성 강세"}
     assert quadrant_move_line("niche", "niche", labels) is None
-    assert "니치 충성 → 진성 강세" in quadrant_move_line("niche", "strong", labels)
+    assert "니치 충성 → 진성 강세" in (
+        quadrant_move_line("niche", "strong", labels) or "")
 
 
 def test_spike_note_r6_event_attribution():
     days = [(f"2026-07-{d:02d}", 30) for d in range(1, 28)]
     days[14] = ("2026-07-15", 400)   # median 30 × 5 초과
-    note = spike_note(days, [{"event_date": "2026-07-16", "title": "신곡 공개"}])
+    note = spike_note(
+        days, [{"event_date": "2026-07-16", "title": "신곡 공개"}]) or ""
     assert "신곡 공개" in note and "스파이크" in note
-    note2 = spike_note(days, [])
+    note2 = spike_note(days, []) or ""
     assert "원인 미상" in note2
     assert spike_note(days[:5], []) is None   # 표본 부족 → 각주 없음
 
@@ -120,8 +123,8 @@ def test_build_monthly_data_survives_empty_db():
     assert "표본 부족" in " ".join(d["warnings"])  # 방송 0회
 
 
-def test_render_single_edition_a4_pages():
-    """v2.1: 종합 단일판 — A4 가로 5장(표지+본문 4)·부록 흡수·게이트 폐지."""
+def test_render_single_edition_16x9_pages():
+    """v2.2: 종합 단일판 — 16:9 5장(표지+본문 4)·부록 흡수·게이트 폐지."""
     from idol_sight.analysis.monthly_render import render_deck
     from idol_sight.analysis.monthly_report import kpi_judgments
     d = _minimal_data()
@@ -141,11 +144,11 @@ def test_render_single_edition_a4_pages():
                       "ai_comment": "**유기적** 코멘트"}]
 
     doc = render_deck(d, generated_at="2026-08-01T00:23:00Z")
-    # A4 가로 페이지 체계(v2.1): 표지 + 본문 4장 = .page 5개, mm 단위 미사용
+    # 16:9 페이지 체계(v2.2): 표지 + 본문 4장 = .page 5개, mm 단위 미사용
     assert doc.count("class='page") == 5
-    assert "aspect-ratio:1123/794" in doc
-    assert "size:A4 landscape" in doc
-    assert "mm" not in doc.replace("@page{size:A4 landscape;margin:0}", "")
+    assert "aspect-ratio:1280/720" in doc
+    assert "size:1280px 720px" in doc
+    assert "mm" not in doc
     # 부록이 본편에 흡수(내부/투자사 구분·DRAFT 폐지)
     assert "리스크 모니터" in doc and "전략 메모" in doc
     assert "DRAFT" not in doc and "비공개(내부 목표)" not in doc
@@ -187,8 +190,9 @@ def test_data_parity_fixes():
     (월말 고정 시 옛 산식 값이 대시보드와 어긋남) ② '자연 유입' 오연결
     제거 — 타일은 서버 실측 시청전환율."""
     from unittest.mock import MagicMock
-    from idol_sight.analysis.monthly_report import build_monthly_data
+
     from idol_sight.analysis.monthly_render import render_deck
+    from idol_sight.analysis.monthly_report import build_monthly_data
 
     client = MagicMock()
     def _exec(sql, params=None):

@@ -193,7 +193,7 @@ def spike_note(daily_gains: list[tuple[str, int]],
     if med <= 0 or peak <= med * 5:
         return None
     near = [e for e in events
-            if abs((_day_ord(e["event_date"]) - _day_ord(peak_day))) <= 3]
+            if abs(_day_ord(e["event_date"]) - _day_ord(peak_day)) <= 3]
     total = sum(gains)
     share = round(peak / total * 100) if total else 0
     if near:
@@ -456,7 +456,7 @@ def build_monthly_data(client: _Executor, month: str) -> dict[str, Any]:
     month_series = [r for r in subs_series if r["day"].startswith(month)]
     daily_gains = [
         (b["day"], (b["subs"] or 0) - (a["subs"] or 0))
-        for a, b in zip(month_series, month_series[1:])
+        for a, b in zip(month_series, month_series[1:], strict=False)
     ]
     spike = spike_note(daily_gains, [e for e in events
                                      if e["event_date"].startswith(month)])

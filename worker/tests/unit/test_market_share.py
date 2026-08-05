@@ -261,7 +261,7 @@ def test_sov_normal_cohort_relative_rank_preserved():
 
 # -- v3.1(2026-08): 티어 산정 — SoV % 헤드라인 은퇴의 보조 표시 --
 
-from idol_sight.analysis.market_share import compute_tiers, TIER_LABELS
+from idol_sight.analysis.market_share import TIER_LABELS, compute_tiers
 
 
 def test_tiers_split_on_log_gap():

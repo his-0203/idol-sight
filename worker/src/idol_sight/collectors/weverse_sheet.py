@@ -41,8 +41,9 @@ def parse_sheet_rows(text: str) -> list[dict]:
     rows = list(csv.reader(io.StringIO(text)))
     header_idx = date_col = None
     for i, row in enumerate(rows):
-        for j, cell in enumerate(row):
-            if cell.strip() == "날짜":
+        # 변수명 c: 아래 내부 함수 cell 과의 심볼 충돌(pyright) 회피.
+        for j, c in enumerate(row):
+            if c.strip() == "날짜":
                 header_idx, date_col = i, j
                 break
         if header_idx is not None:
