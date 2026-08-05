@@ -75,8 +75,8 @@ def test_kpi_line_r2_below_quantifies_gap():
 def test_tier_line_r3():
     assert "신규 산출" in tier_line(None, 2, 5, 10)
     assert "상승" in tier_line(3, 2, None, None)
-    assert "유지(추격 그룹) — 카테고리 내 조회 흐름 5위/10팀" == \
-        tier_line(2, 2, 5, 10).replace("티어 ", "", 1)
+    assert tier_line(2, 2, 5, 10).replace("티어 ", "", 1) == \
+        "유지(추격 그룹) — 카테고리 내 조회 흐름 5위/10팀"
     assert tier_line(2, None, None, None) is None
 
 
@@ -120,8 +120,8 @@ def test_build_monthly_data_survives_empty_db():
     assert "표본 부족" in " ".join(d["warnings"])  # 방송 0회
 
 
-def test_render_single_edition_a4_pages():
-    """v2.1: 종합 단일판 — A4 가로 5장(표지+본문 4)·부록 흡수·게이트 폐지."""
+def test_render_single_edition_16x9_pages():
+    """v2.2: 종합 단일판 — 16:9 5장(표지+본문 4)·부록 흡수·게이트 폐지."""
     from idol_sight.analysis.monthly_render import render_deck
     from idol_sight.analysis.monthly_report import kpi_judgments
     d = _minimal_data()
@@ -141,11 +141,11 @@ def test_render_single_edition_a4_pages():
                       "ai_comment": "**유기적** 코멘트"}]
 
     doc = render_deck(d, generated_at="2026-08-01T00:23:00Z")
-    # A4 가로 페이지 체계(v2.1): 표지 + 본문 4장 = .page 5개, mm 단위 미사용
+    # 16:9 페이지 체계(v2.2): 표지 + 본문 4장 = .page 5개, mm 단위 미사용
     assert doc.count("class='page") == 5
-    assert "aspect-ratio:1123/794" in doc
-    assert "size:A4 landscape" in doc
-    assert "mm" not in doc.replace("@page{size:A4 landscape;margin:0}", "")
+    assert "aspect-ratio:1280/720" in doc
+    assert "size:1280px 720px" in doc
+    assert "mm" not in doc
     # 부록이 본편에 흡수(내부/투자사 구분·DRAFT 폐지)
     assert "리스크 모니터" in doc and "전략 메모" in doc
     assert "DRAFT" not in doc and "비공개(내부 목표)" not in doc
@@ -187,8 +187,9 @@ def test_data_parity_fixes():
     (월말 고정 시 옛 산식 값이 대시보드와 어긋남) ② '자연 유입' 오연결
     제거 — 타일은 서버 실측 시청전환율."""
     from unittest.mock import MagicMock
-    from idol_sight.analysis.monthly_report import build_monthly_data
+
     from idol_sight.analysis.monthly_render import render_deck
+    from idol_sight.analysis.monthly_report import build_monthly_data
 
     client = MagicMock()
     def _exec(sql, params=None):

@@ -1,11 +1,12 @@
-"""월간 보고서 — A4 가로 종합 단일판 렌더러 (v2.1, 2026-08-04).
+"""월간 보고서 — 16:9 종합 단일판 렌더러 (v2.2, 2026-08-05).
 
 디자인 스펙(타이포그래피·덱 구성 전문가 패널, 스펙 문서 참조):
-- **A4 가로 페이지 체계**(사용자 정정): .page 1123×794px 고정(A4@96dpi),
-  mm 미사용, @page size:A4 landscape + break-after:page. 총 5페이지
-  (표지+본문 4) — 2열 병치(컬럼 폭 55/45 또는 50/50, 거터 24px)가 기본
-  문법, viewBox 폭 = 컬럼 실폭(폰트 1:1, 축소 스케일 금지).
-- **타이포**: 정수 px 스케일(표지42/키커11/블록헤더18/본문14/표13/캡션12 하한),
+- **16:9 페이지 체계**(v2.2, A4 가로에서 전환): .page 1280×720px 고정
+  (@96dpi), mm 미사용, @page size:1280px 720px + break-after:page. 총
+  5페이지(표지+본문 4) — 2열 병치(컬럼 폭 55/45 또는 50/50, 거터 24px)가
+  기본 문법, viewBox 폭 = 컬럼 실폭(50/50→570, 55/45 우측→500 · 폰트 1:1,
+  축소 스케일 금지). 세로 예산 638px(720−패딩) — 차트 높이는 예산 역산.
+- **타이포**: 정수 px 스케일(표지46/키커11/블록헤더18/본문14/표13/캡션12 하한),
   8px 수직 리듬, 전역 tabular-nums. #9ca3af 텍스트 금지(장식 전용),
   ≤14px 회색 텍스트 하한 #6b7280. 판정 미달 색 #b45309(AA 통과).
 - **그룹 컬러**: 대시보드 groups.ts 미러 — 면은 원색(학습 유지), 선·테두리는
@@ -87,6 +88,11 @@ def _clip(s: str, n: int) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+def _text_w(s: str) -> float:
+    """11px 기준 근사 폭 — CJK ≈ 11px, 라틴·숫자·기호 ≈ 7px."""
+    return sum(11 if ord(c) > 0x2E80 else 7 for c in s)
+
+
 # ── SVG 헬퍼 ──────────────────────────────────────────────────────────
 # 텍스트 규칙: fill ∈ {INK, INK2, MUTED, KEY_DARK}, 최소 11 units,
 # 데이터 라벨 weight 600 / 축 라벨 400. 막대 위에 얹지 않고 바깥 배치.
@@ -115,7 +121,7 @@ def svg_line(days: list[str], vals: list[float], *, width=640, height=230,
     lo, hi = lo - (hi - lo) * 0.06, hi + (hi - lo) * 0.08
     xs = _scale(list(range(len(vals))), 0, len(vals) - 1, pad, width - 10)
     ys = _scale(vals, lo, hi, height - 24, 10)
-    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys))
+    pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in zip(xs, ys, strict=True))
     area = (f"{pad},{height - 24} " + pts + f" {width - 10},{height - 24}")
     parts = [f"<svg viewBox='0 0 {width} {height}' role='img'>"]
     if band:
@@ -123,6 +129,9 @@ def svg_line(days: list[str], vals: list[float], *, width=640, height=230,
         parts.append(f"<rect x='{width - 64}' y='{min(by):.1f}' width='54' "
                      f"height='{abs(by[0] - by[1]):.1f}' fill='{KEY}' "
                      "opacity='0.15'/>")
+        ly = min(by) - 5 if min(by) - 5 >= 14 else max(by) + 14
+        parts.append(f"<text x='{width - 10}' y='{ly:.1f}' font-size='11' "
+                     f"fill='{MUTED}' text-anchor='end'>목표 밴드</text>")
     day_idx = {d: i for i, d in enumerate(days)}
     labeled = 0
     for d, label in (marks or []):
@@ -160,7 +169,7 @@ def svg_bars(labels: list[str], vals: list[float], *, width=640, height=200,
     n = len(vals)
     bw = min(44, (width - pad - 10) / n * 0.62)
     parts = [f"<svg viewBox='0 0 {width} {height}' role='img'>"]
-    for i, (lab, v) in enumerate(zip(labels, vals)):
+    for i, (lab, v) in enumerate(zip(labels, vals, strict=True)):
         x = pad + (i + 0.5) * (width - pad - 10) / n - bw / 2
         h = (v / hi) * (height - bottom - 14)
         y = height - bottom - h
@@ -200,7 +209,7 @@ def svg_hbars(rows: list[tuple[str, float, str | None]], *, width=640,
     parts = [f"<svg viewBox='0 0 {width} {height}' role='img'>"]
     bset = set(boundaries or [])
     blabels = list(boundary_labels or [])
-    for i, ((lab, v, gkey), t) in enumerate(zip(rows, tx)):
+    for i, ((lab, v, gkey), t) in enumerate(zip(rows, tx, strict=True)):
         y = 8 + i * row_h
         if i in bset:
             parts.append(f"<line x1='0' y1='{y - 4}' x2='{width}' y2='{y - 4}' "
@@ -248,31 +257,62 @@ def svg_scatter(points: list[dict], median_x: float, median_y: float,
              "stroke='#9aa4ad' stroke-dasharray='4 3'/>",
              f"<line x1='{pad}' y1='{my:.1f}' x2='{width - 16}' "
              f"y2='{my:.1f}' stroke='#9aa4ad' stroke-dasharray='4 3'/>"]
+    # 하단 캡션은 축 캡션과 같은 행(height−9) — 플롯 영역과 분리돼 점·라벨
+    # 충돌이 원천 차단된다(좌하단 과밀 시 라벨 슬롯 확보).
+    corner_boxes: list[tuple[float, float, float]] = []
     for lab, ax, ay, anchor in (
             ("진성 강세", width - 18, 28, "end"),
             ("니치 충성", pad + 2, 28, "start"),
-            ("광고형", width - 18, height - 42, "end"),
-            ("축적 단계", pad + 2, height - 42, "start")):
+            ("광고형", width - 18, height - 9, "end"),
+            ("축적 단계", pad + 2, height - 9, "start")):
         parts.append(f"<text x='{ax}' y='{ay}' font-size='11' fill='{MUTED}' "
                      f"text-anchor='{anchor}'>{lab}</text>")
-    for idx, (p, x, y) in enumerate(zip(points, sx, sy)):
+        w = _text_w(lab)
+        corner_boxes.append((ax - w, ax, ay) if anchor == "end"
+                            else (ax, ax + w, ay))
+    pts3 = [(p, x, y) for p, x, y in zip(points, sx, sy, strict=True)]
+    for p, x, y in pts3:
+        mine = p["group_key"] == "miiwan"
+        fill, edge = _colors(p["group_key"])
+        parts.append(f"<circle cx='{x:.1f}' cy='{y:.1f}' r='{7 if mine else 5}'"
+                     f" fill='{fill}' stroke='{edge}' stroke-width='1'/>")
+    # 라벨 그리디 배치 — 오른쪽 우선, 경계 초과·겹침 시 왼쪽 플립 → 상하
+    # 단계 강하. 자사 라벨을 먼저 배치해 최우선 자리 확보. 코너 캡션과
+    # 점(원) 영역도 회피 대상(placed 시드).
+    placed: list[tuple[float, float, float]] = list(corner_boxes)
+    for p, x, y in pts3:
+        r = 7 if p["group_key"] == "miiwan" else 5
+        placed.append((x - r, x + r, y + 4))
+
+    def _fits(x0: float, x1: float, ly: float) -> bool:
+        return all(not (x0 < ox1 and ox0 < x1 and abs(ly - oy) < 12)
+                   for ox0, ox1, oy in placed)
+
+    for p, x, y in sorted(pts3, key=lambda t: t[0]["group_key"] != "miiwan"):
         gkey = p["group_key"]
         mine = gkey == "miiwan"
-        fill, edge = _colors(gkey)
         r = 7 if mine else 5
-        parts.append(f"<circle cx='{x:.1f}' cy='{y:.1f}' r='{r}' "
-                     f"fill='{fill}' stroke='{edge}' stroke-width='1'/>")
-        flip = idx % 2 == 1 and not mine
-        lx = x - r - 4 if flip else x + r + 4
-        anchor = "end" if flip else "start"
-        if mine:
-            parts.append(f"<text x='{lx:.1f}' y='{y + 4:.1f}' font-size='11' "
-                         f"font-weight='700' fill='{KEY_DARK}' "
-                         f"text-anchor='{anchor}'>MiiWAN</text>")
-        else:
-            parts.append(f"<text x='{lx:.1f}' y='{y + 4:.1f}' font-size='11' "
-                         f"fill='{INK}' text-anchor='{anchor}'>"
-                         f"{esc(_name(gkey))}</text>")
+        text = "MiiWAN" if mine else _name(gkey)
+        w = _text_w(text)
+        cands = []
+        for dy in (0, 13, -13, 26):
+            ly = y + 4 + dy
+            if not (14 <= ly <= height - 26):
+                continue
+            for side in ("r", "l"):
+                x0 = x + r + 4 if side == "r" else x - r - 4 - w
+                if x0 < 2 or x0 + w > width - 2:
+                    continue
+                cands.append((x0, x0 + w, ly, side))
+        if not cands:
+            cands = [(x + r + 4, x + r + 4 + w, y + 4, "r")]
+        x0, x1, ly, side = next((c for c in cands if _fits(*c[:3])), cands[0])
+        placed.append((x0, x1, ly))
+        lx, anchor = (x0, "start") if side == "r" else (x1, "end")
+        style = (f"font-weight='700' fill='{KEY_DARK}'" if mine
+                 else f"fill='{INK}'")
+        parts.append(f"<text x='{lx:.1f}' y='{ly:.1f}' font-size='11' {style} "
+                     f"text-anchor='{anchor}'>{esc(text)}</text>")
     parts.append(f"<text x='{width / 2}' y='{height - 9}' font-size='11' "
                  f"fill='{INK2}' text-anchor='middle'>인지도 (0~100) →</text>")
     parts.append(f"<text x='16' y='{height / 2}' font-size='11' fill='{INK2}' "
@@ -328,7 +368,7 @@ def _kpi_table(d: dict) -> str:
 
 
 def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
-    """종합 단일판 · A4 가로 5페이지 맵(디자인 패널 v2.1 스펙).
+    """종합 단일판 · 16:9 5페이지 맵(디자인 패널 v2.2 스펙).
     P1 표지 / P2 결과+자사 채널 / P3 커뮤니티·팬덤 / P4 시장 내 위치 /
     P5 비교·전망(리스크·전략 메모 흡수)."""
     month = d["month"]
@@ -340,8 +380,9 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
         return (f"<div class='cols r{ratio}'><div class='colL'>{left}</div>"
                 f"<div class='colR'>{right}</div></div>")
 
-    # P1 표지 — 가로형: 좌측 정렬 대형 타이틀 + 좌변 키컬러 보더.
+    # P1 표지 — 16:9: 좌측 정렬 대형 타이틀 + 좌변 키컬러 보더 + 브랜드 키커.
     pages.append(_page("", 0, TOTAL, month, generated_at, (
+        "<div class='kicker'>idol-sight · 내부용</div>"
         f"<h1>MiiWAN 월간 리포트</h1><p class='cover-sub'>{esc(m_label)}</p>"
         f"<p class='stamp'>생성 {esc(generated_at[:10])} · 데이터 기준 "
         f"{esc(month)} 월말 스냅샷 · 좌표·전환율은 생성 시점 기준</p>"),
@@ -374,7 +415,7 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
     subs_block = _block(
         "구독자 성장", None,
         svg_line([r["day"] for r in series], [r["subs"] for r in series],
-                 width=430, height=210, band=band, marks=ev_marks)
+                 width=500, height=205, band=band, marks=ev_marks)
         + (f"<p class='note'>{esc(_clip(d['spike_note'], 80))}</p>"
            if d["spike_note"] else ""),
         mom_phrase(d["kpi"]["actuals"]["subscribers"],
@@ -382,14 +423,14 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
     ccv = d["ccv"]
     casts = ccv["broadcasts"]
     cast_note = ""
-    if len(casts) > 8:   # 가로형 캡: 430폭 과밀 방지 — 평균 상위 8회 시간순
-        top = sorted(casts, key=lambda b: -b["avg"])[:8]
+    if len(casts) > 10:  # 과밀 캡: 500폭 기준 — 평균 상위 10회 시간순
+        top = sorted(casts, key=lambda b: -b["avg"])[:10]
         casts = sorted(top, key=lambda b: b["started"])
-        cast_note = f" · 상위 8회 표시 (총 {ccv['count']}회)"
+        cast_note = f" · 상위 10회 표시 (총 {ccv['count']}회)"
     live_block = _block(
         "라이브 방송", None,
         svg_bars([b["started"][5:] for b in casts], [b["avg"] for b in casts],
-                 width=430, height=190, hline=ccv["avg"],
+                 width=500, height=180, hline=ccv["avg"],
                  hline_label=f"월평균 {fmt_num(ccv['avg'])}")
         + f"<p class='note'>관측 방송 {ccv['count']}회 · 최고 동접 "
           f"{fmt_num(ccv['peak'])}명{cast_note}</p>",
@@ -404,11 +445,11 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
         wdays = [r["day"] for r in wser]
         wv_chart = ("<h3>가입자</h3>"
                     + svg_line(wdays, [r["total_members"] or 0 for r in wser],
-                               width=490, height=170)
+                               width=570, height=170)
                     + "<h3>유료 멤버십</h3>"
                     + svg_line(wdays,
                                [r["digital_membership"] or 0 for r in wser],
-                               width=490, height=170))
+                               width=570, height=170))
     else:
         wv_chart = (_placeholder("이 달 위버스 기록이 없습니다", 170)
                     + _placeholder("이 달 위버스 기록이 없습니다", 170))
@@ -416,8 +457,10 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
                if wv and wv.get("partial") else "")
     left3 = _block(
         "위버스 커뮤니티", "팬 커뮤니티는 커지고 있나?", wv_chart + wv_note,
-        f"가입 {mom_phrase(wv['members'] if wv else None, wvp['members'] if wvp else None)}"
-        f" · 멤버십 {mom_phrase(wv['membership'] if wv else None, wvp['membership'] if wvp else None)}")
+        "가입 " + mom_phrase(wv["members"] if wv else None,
+                           wvp["members"] if wvp else None)
+        + " · 멤버십 " + mom_phrase(wv["membership"] if wv else None,
+                                wvp["membership"] if wvp else None))
 
     loy = d.get("loyalty") or {}
     conv = loy.get("conversion_rate")
@@ -436,11 +479,11 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
         agg[r["age_group"]] = agg.get(r["age_group"], 0) + (r["viewer_pct"] or 0)
     demo_svg = (svg_hbars([(a.replace("age", ""), round(v, 1), None)
                            for a, v in sorted(agg.items())],
-                          width=490, unit="%", pad_l=64)
+                          width=570, unit="%", pad_l=64)
                 if agg else _placeholder("소유자 데이터 미연결", 140))
     ctry_svg = (svg_hbars([(c["country"], round((c["watch_share"] or 0) * 100, 1),
                             None) for c in d["countries"][:5]],
-                          width=490, unit="%", pad_l=64)
+                          width=570, unit="%", pad_l=64)
                 if d["countries"] else _placeholder("소유자 데이터 미연결", 140))
     right3 = _block("팬덤의 질과 구성", "성장이 건강하고, 누가 팬인가?",
                     tiles + "<h3>연령대별 시청 비중</h3>" + demo_svg
@@ -468,7 +511,7 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
             rows.append((_name(r["group_key"]), r.get("view_flow_90d") or 0,
                          r["group_key"]))
         tier_html = ("<h3>관심 규모 — 최근 90일 조회 증분 (K-POP 버추얼)</h3>"
-                     + svg_hbars(rows, width=490, log_scale=True,
+                     + svg_hbars(rows, width=570, log_scale=True,
                                  boundaries=bounds, boundary_labels=blabels,
                                  pad_l=92)
                      + "<p class='note'>막대 길이 log 스케일 · 티어 경계 = "
@@ -481,7 +524,7 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
     quad = d["quadrant"]
     quad_html = ("<h3>인지도 × 적극 코어 사분면 (K-POP 버추얼)</h3>"
                  + (svg_scatter(quad["points"], quad["median_x"],
-                                quad["median_y"], width=490, height=460)
+                                quad["median_y"], width=570, height=420)
                     if quad else _placeholder("좌표 데이터 없음", 300))
                  + "<p class='note'>십자선 = 카테고리 중앙값 · 적극 코어 = "
                    "최근 30일 댓글 상위 5편 중앙값(추정) · 좌표는 생성 시점 "
@@ -504,7 +547,7 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
         coh_html = (f"<p class='note'>데뷔일 정렬 D+{coh['age_days']}일"
                     "(보고 월말) 시점 구독 성장배수(D0 대비) · 대시보드 동시기 "
                     "화면은 '오늘' 기준이라 시점이 다를 수 있음</p>"
-                    + svg_hbars(hrows, width=490, unit="x", pad_l=92) + excl)
+                    + svg_hbars(hrows, width=570, unit="x", pad_l=92) + excl)
     else:
         coh_html = _placeholder("코호트 비교 가능 데이터가 없습니다", 140)
     coh_block = _block("동시기 성과", "같은 성장 단계 대비 빠른가?",
@@ -562,15 +605,16 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
    -webkit-print-color-adjust:exact}}
 body{{font-family:'Pretendard','Apple SD Gothic Neo','Malgun Gothic',sans-serif;
      background:#e6eaed;color:{INK};font-variant-numeric:tabular-nums}}
-.page{{position:relative;width:1123px;aspect-ratio:1123/794;margin:22px auto;
+.page{{position:relative;width:1280px;aspect-ratio:1280/720;margin:22px auto;
       background:#fff;border-radius:4px;box-shadow:0 1px 5px rgba(0,0,0,.10);
-      padding:40px 56px 44px;overflow:hidden;break-after:page}}
+      padding:38px 58px 44px;overflow:hidden;break-after:page}}
 .kicker{{font-size:11px;font-weight:700;letter-spacing:.06em;color:{KEY_DARK};
         margin-bottom:12px;text-transform:uppercase}}
 .cover{{display:flex;flex-direction:column;justify-content:center;
-       border-left:12px solid {KEY};padding-left:72px}}
-.cover h1{{font-size:42px;font-weight:800;line-height:1.15;
+       border-left:12px solid {KEY};padding-left:84px}}
+.cover h1{{font-size:46px;font-weight:800;line-height:1.15;
           letter-spacing:-0.025em}}
+.cover .kicker{{margin-bottom:18px}}
 .cover-sub{{font-size:20px;font-weight:700;line-height:1.3;
            letter-spacing:-0.01em;margin-top:12px;color:{KEY_DARK}}}
 .stamp{{margin-top:28px;color:{MUTED};font-size:12px;font-weight:500;
@@ -612,11 +656,11 @@ tbody tr:last-child td{{border-bottom:none}}
     border:1px dashed #cbd2d9;border-radius:6px;color:{MUTED};font-size:12px}}
 .disclaim{{margin-top:14px;color:{MUTED};font-size:11px;line-height:1.5;
           border-top:1px solid #e5e7eb;padding-top:8px}}
-footer{{position:absolute;left:56px;right:56px;bottom:12px;display:flex;
+footer{{position:absolute;left:58px;right:58px;bottom:12px;display:flex;
        justify-content:space-between;font-size:11px;line-height:1.5;
        color:{MUTED};border-top:1px solid #e5e7eb;padding-top:7px}}
 svg{{width:100%;height:auto;display:block}}
-@page{{size:A4 landscape;margin:0}}
+@page{{size:1280px 720px;margin:0}}
 @media print{{body{{background:#fff}}.page{{box-shadow:none;margin:0 auto;
              border-radius:0}}}}
 </style></head><body>
