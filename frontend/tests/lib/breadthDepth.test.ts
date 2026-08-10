@@ -96,8 +96,34 @@ describe("computeQuadrantLayout", () => {
 
   it("exposes the four quadrant labels", () => {
     expect(QUADRANT_LABEL.strong).toBe("진성 강세");
-    expect(QUADRANT_LABEL.ad_driven).toBe("광고형/바이럴");
+    expect(QUADRANT_LABEL.ad_driven).toBe("인지 선행");
     expect(QUADRANT_LABEL.niche).toBe("니치 충성");
-    expect(QUADRANT_LABEL.low).toBe("저조");
+    expect(QUADRANT_LABEL.low).toBe("초기 단계");
+  });
+
+  it("flags points within ±10% of a median as nearBoundary", () => {
+    // medians: x=(20+80)/2=50 … 4 points → x sorted [20,48,80,90] → (48+80)/2=64,
+    // keep it simple with explicit values instead.
+    const layout = computeQuadrantLayout([
+      p("far-low", 10, 10), p("far-high", 90, 1000),
+      p("edge", 52, 12), p("mid", 48, 900),
+    ]);
+    // x median=(48+52)/2=50, y median=(12+900)/2=456
+    expect(layout.points.find((pt) => pt.key === "edge")!.nearBoundary).toBe(true);   // x 52 vs 50 → 4%
+    expect(layout.points.find((pt) => pt.key === "mid")!.nearBoundary).toBe(true);    // x 48 vs 50 → 4%
+    expect(layout.points.find((pt) => pt.key === "far-low")!.nearBoundary).toBe(false);
+    expect(layout.points.find((pt) => pt.key === "far-high")!.nearBoundary).toBe(false);
+  });
+});
+
+describe("scatter ticks", () => {
+  it("emits power-of-10 y ticks within data range and linear x ticks", () => {
+    const layout = computeScatterLayout([p("a", 80, 5000), p("b", 20, 20)]);
+    expect(layout.yTicks.map((t) => t.value)).toEqual([10, 100, 1000]);
+    expect(layout.xTicks.map((t) => t.value)).toEqual([0, 50, 100]);
+    // higher tick value → higher on screen (smaller px)
+    const [t10, , t1000] = layout.yTicks;
+    expect(t1000!.px).toBeLessThan(t10!.px);
+    expect(layout.yMedian).toBeGreaterThan(0);
   });
 });

@@ -25,7 +25,9 @@ __all__ = [
     "MIN_BROADCASTS_FOR_TREND",
 ]
 
-WINDOW_DAYS = 56
+# 2026-08-10 사용자 결정: 시청전환율은 "지금"의 좌표라 30일로 통일
+# (core_fan_estimate 와 동일 기준) — live_activity(MiiWAN 심층 P2a)는 56일 유지.
+WINDOW_DAYS = 30
 
 # (전환율, 점수) 앵커. 구간 선형보간 + 양끝 클램프. FIRST-PASS — 라이브 CCV
 # 분포 축적 후 실측으로 보정한다. 버추얼 아이돌 라이브 전환율 가설:
