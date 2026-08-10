@@ -27,6 +27,7 @@ import { api } from "../api";
 import { fmt } from "../format";
 import { colorOf, fillOf } from "../design/groups";
 import { fmtScale } from "../design/chart-defaults";
+import { categoryOf } from "../lib/category";
 
 type Series = {
   group_key: string;
@@ -131,21 +132,13 @@ const NEWS_CUMULATIVE_UNIT = "누적 기사 수 (BIGKinds + Naver Open API 합�
 
 type NewsView = 'cumulative-line' | 'weekly-bar';
 
-// DebutCurve 한정으로 시리즈/범례에서 숨길 그룹. STELLIVE 는 6인
-// confederation (각 멤버 솔로 채널 합산) 모델이라 D-N 데뷔 정렬 축에서
-// 다른 그룹과 같은 평면에서 비교하면 왜곡이 큼 (예: 단일 채널 1개의
-// D-30 vs 6개 채널 합산의 D-30). UR:L (uryael) 도 같은 이유 — segmentary
-// 모델 (그룹 채널 + 4 멤버 솔로 채널) 의 subculture cohort 라 K-pop 그룹
-// 들과 같은 D-N 평면 비교 부적합. is_active=0 으로 백엔드에서는 그대로
-// 유지하되 *이 차트에서만* 가린다. 다른 화면 (MarketOverview, GroupContent,
-// Insights 등) 에서는 정상 노출.
-const HIDDEN_GROUPS = new Set<string>(["stellive", "uryael"]);
-
-function cohortOf(groupModel: string | null | undefined): "kpop" | "subculture" {
-  return (groupModel === "segmentary" || groupModel === "confederation")
-    ? "subculture"
-    : "kpop";
-}
+// DebutCurve 는 K-POP 버추얼만 그린다. 서브컬처(segmentary/confederation —
+// 멤버 솔로 채널 합산 모델)는 D-N 데뷔 정렬 축에서 단일 채널 그룹과 같은
+// 평면 비교가 왜곡을 만든다 (예: 단일 채널 1개의 D-30 vs 6개 채널 합산의
+// D-30). 종전엔 HIDDEN_GROUPS 키 하드코딩({stellive, uryael})이라 isedol 이
+// 새어 들어왔음 — 2026-08-10 사용자 결정으로 categoryOf(group_model) 기반
+// 카테고리 필터로 전환(신규 서브컬처 그룹 온보딩 시 재발도 차단). 다른
+// 화면 (MarketOverview, GroupContent, Insights 등) 에서는 정상 노출.
 
 export function DebutCurve() {
   const [metric, setMetric] = useState<MetricKey>("yt_subscribers");
@@ -185,10 +178,10 @@ export function DebutCurve() {
 
   const filteredSeries = useMemo<Series[]>(() => {
     if (!data) return [];
-    // HIDDEN_GROUPS 적용 지점. 차트 데이터/범례/latestValues 모두 이
+    // 카테고리 필터 적용 지점. 차트 데이터/범례/latestValues 모두 이
     // 시리즈 리스트에서 파생되므로 여기서 한 번 거르면 단독 panel
     // 토글 UI 와 차트 빌드 양쪽에서 동시에 사라진다.
-    return data.series.filter((s) => !HIDDEN_GROUPS.has(s.group_key));
+    return data.series.filter((s) => categoryOf(s.group_model) === "kpop");
   }, [data]);
 
   const visibleSeries = useMemo<Series[]>(() => {
@@ -360,7 +353,7 @@ export function DebutCurve() {
         // (interaction.mode='index') rather than from line thickness,
         // so a uniform hover bump keeps the chart legible.
         hoverBorderWidth: isMiiwan ? 4 : 3,
-        borderDash: isMiiwan ? [] : (cohortOf(s.group_model) === "subculture" ? [4, 3] : []),
+        borderDash: [],
         pointRadius: 0,
         pointHoverRadius: 5,
         pointHitRadius: 12,
@@ -624,6 +617,7 @@ export function DebutCurve() {
         <h3 class="section-title">데뷔 정렬 곡선</h3>
         <span class="text-hint text-zinc-500">
           각 그룹의 debut_date 기준 D-N / D+N 으로 정렬한 코호트 비교. MiiWAN은 굵게 강조.
+          K-POP 버추얼만 표시(서브컬처는 멤버 채널 합산 구조라 같은 축 비교 부적합).
         </span>
         {metric === "naver_total_news" && (
           <span class="ml-2 rounded bg-amber-500/10 px-2 py-0.5 text-hint text-amber-300">
