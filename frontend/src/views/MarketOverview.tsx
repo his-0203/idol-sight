@@ -245,10 +245,15 @@ export function MarketOverview() {
   // (you cannot add log values), and a line per group reads more cleanly
   // on a small chart.
   useEffect(() => {
-    if (!share || !shareCanvasEl) return;
+    if (!share || !shareCanvasEl || !market) return;
     const weeks = Array.from(new Set<string>(share.rows.map((r: any) => r.week_end))).sort();
     const groupKeys = Array.from(new Set<string>(share.rows.map((r: any) => r.group_key)));
-    const filtered = excludePlave ? groupKeys.filter((k) => k !== "plave") : groupKeys;
+    // 추이는 K-POP 버추얼만 — 점유율이 카테고리별 독립 산출(각 합 100%)이라
+    // 서브컬처 선을 섞으면 분모가 다른 %가 한 차트에 놓여 오독을 만든다
+    // (2026-08-10 사용자 결정, 아래 랭킹 바의 도메인 분리와 같은 원칙).
+    const kpopOnly = groupKeys.filter(
+      (k) => categoryOf(market.groups[k]?.group_model) === "kpop");
+    const filtered = excludePlave ? kpopOnly.filter((k) => k !== "plave") : kpopOnly;
     const datasets = filtered.map((k) => ({
       label: k,
       data: weeks.map((w) => {
@@ -281,7 +286,7 @@ export function MarketOverview() {
       },
     });
     return () => { chart.destroy(); };
-  }, [share, excludePlave, shareCanvasEl]);
+  }, [share, excludePlave, shareCanvasEl, market]);
 
   const sharesByKey = useMemo(() => latestShareMap(share?.rows), [share]);
   const deltas = useMemo(() => shareDeltaByKey(share?.rows), [share]);
@@ -572,7 +577,7 @@ export function MarketOverview() {
                 관심 점유율 (Share of Voice) {hasTrend ? "Trend (13주)" : "(현재 주)"}
               </h3>
               <span class="text-hint text-zinc-500">
-                8개 그룹 안에서 항목별 순위(백분위)를 매겨 가중평균 — 유튜브 조회 33% / 커뮤니티 28% / 뉴스 22% / 구독자 17%
+                K-POP 버추얼만 표시(서브컬처는 분모가 달라 제외) · 카테고리 안에서 항목별 순위(백분위)를 매겨 가중평균 — 유튜브 조회 33% / 커뮤니티 28% / 뉴스 22% / 구독자 17%
               </span>
               <HealthSpec />
               {hasTrend && (
