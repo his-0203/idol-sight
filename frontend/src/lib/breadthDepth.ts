@@ -1,26 +1,34 @@
-// Pure geometry for the breadth(인지도) × depth(추정 코어팬) 2D quadrant.
+// Pure geometry for the breadth(인지도) × 관여 팬 규모 2D quadrant.
 // Awareness is category-leader-relative, so callers MUST pass one category's
 // groups at a time — never mix K-POP and 서브컬처 on one crosshair.
 //
 // The crosshair sits at the category MEDIAN of each axis (relative position;
 // honest for the small N per category). Classification uses raw y; the SVG
-// layer positions y on a log1p scale so a 0-core group is still plottable.
+// layer positions y on a log1p scale so a 0-fan group is still plottable.
+//
+// y = est_engaged_fans(adj-first) — 2026-08-10 3-렌즈 패널 판정으로
+// est_active_core(댓글 상위 5편, 비리더 9~55명)에서 교체: 그 범위는 추정
+// 노이즈와 구분이 안 돼(±수 명이 사분면을 뒤집음) 판정 축 부적합. 관여 팬
+// (좋아요 상위 5편, 76~22k)은 같은 "팬덤 규모" 개념이면서 변별력이 있고,
+// 시장 개요 표의 "추정 관여 팬" 컬럼과 같은 값이라 화면 간 불일치도 없다.
 
 export interface QuadrantInput {
   key: string;
   name: string;
   x: number;       // awareness score 0–100
-  y: number;       // est_active_core (count >= 0)
+  y: number;       // est_engaged_fans, adj-first (count >= 0)
   caveat: boolean; // organicity caution → ⚠ marker
 }
 
 export type QuadrantKey = "strong" | "ad_driven" | "niche" | "low";
 
+// 명칭은 판결어가 아니라 전략 과제를 말한다(2026-08-10 패널): 실명 경쟁사가
+// 찍히는 투자자 화면에서 "광고형"·"저조" 같은 낙인은 커뮤니케이션 리스크.
 export const QUADRANT_LABEL: Record<QuadrantKey, string> = {
-  strong:    "진성 강세",      // 고인지·강코어
-  ad_driven: "광고형/바이럴",  // 고인지·약코어 (도달≫헌신)
-  niche:     "니치 충성",      // 저인지·강코어 (컬트)
-  low:       "저조",           // 저인지·약코어
+  strong:    "진성 강세",   // 고인지·두터운 팬덤
+  ad_driven: "인지 선행",   // 고인지·얇은 팬덤 (도달≫전환 — 코어 전환 과제)
+  niche:     "니치 충성",   // 저인지·두터운 팬덤 (도달 확장 과제)
+  low:       "초기 단계",   // 양축 형성 전
 };
 
 export function median(nums: number[]): number {
@@ -30,7 +38,12 @@ export function median(nums: number[]): number {
   return s.length % 2 === 0 ? (s[mid - 1]! + s[mid]!) / 2 : s[mid]!;
 }
 
-export interface QuadrantPoint extends QuadrantInput { quadrant: QuadrantKey }
+export interface QuadrantPoint extends QuadrantInput {
+  quadrant: QuadrantKey;
+  /** 어느 한 축이라도 중앙값 ±10% 이내 — 사분면 판정이 노이즈로 뒤집힐 수
+      있는 경계권. 판정 문구는 이 플래그를 보고 단정을 유보해야 한다. */
+  nearBoundary: boolean;
+}
 
 export interface QuadrantLayout {
   points: QuadrantPoint[];
@@ -38,6 +51,8 @@ export interface QuadrantLayout {
   yMedian: number;
   plottable: boolean; // false when < 2 finite points → caller shows a note
 }
+
+const BOUNDARY_BAND = 0.10;
 
 function classify(x: number, y: number, xMed: number, yMed: number): QuadrantKey {
   const right = x >= xMed;
@@ -48,17 +63,28 @@ function classify(x: number, y: number, xMed: number, yMed: number): QuadrantKey
   return "low";
 }
 
+function nearMedian(v: number, med: number): boolean {
+  if (med === 0) return v === 0;
+  return Math.abs(v - med) <= BOUNDARY_BAND * Math.abs(med);
+}
+
 export function computeQuadrantLayout(input: QuadrantInput[]): QuadrantLayout {
   const valid = input.filter((pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y));
   if (valid.length < 2) {
     return {
-      points: valid.map((pt) => ({ ...pt, quadrant: "low" as QuadrantKey })),
+      points: valid.map((pt) => ({
+        ...pt, quadrant: "low" as QuadrantKey, nearBoundary: false,
+      })),
       xMedian: 0, yMedian: 0, plottable: false,
     };
   }
   const xMedian = median(valid.map((pt) => pt.x));
   const yMedian = median(valid.map((pt) => pt.y));
-  const points = valid.map((pt) => ({ ...pt, quadrant: classify(pt.x, pt.y, xMedian, yMedian) }));
+  const points = valid.map((pt) => ({
+    ...pt,
+    quadrant: classify(pt.x, pt.y, xMedian, yMedian),
+    nearBoundary: nearMedian(pt.x, xMedian) || nearMedian(pt.y, yMedian),
+  }));
   return { points, xMedian, yMedian, plottable: true };
 }
 
@@ -68,16 +94,24 @@ export function computeQuadrantLayout(input: QuadrantInput[]): QuadrantLayout {
 // 우측 거터에 세로 de-collision + 리더선으로 정렬해 해결한다.
 
 export interface ScatterGeom { W: number; H: number; padL: number; padR: number; padT: number; padB: number }
-// padR은 라벨 거터(우측). plotW = W - padL - padR.
-export const SCATTER_GEOM: ScatterGeom = { W: 420, H: 300, padL: 30, padR: 104, padT: 16, padB: 30 };
+// padR은 라벨 거터(우측), padL은 y 눈금 숫자 자리. plotW = W - padL - padR.
+export const SCATTER_GEOM: ScatterGeom = { W: 420, H: 300, padL: 44, padR: 104, padT: 16, padB: 30 };
 
 export interface ScatterDot { key: string; name: string; caveat: boolean; quadrant: QuadrantKey; cx: number; cy: number }
 export interface ScatterLabel { key: string; name: string; cx: number; cy: number; lx: number; ly: number }
+export interface ScatterTick { value: number; px: number }
 export interface ScatterLayout {
   dots: ScatterDot[];
   labels: ScatterLabel[];
   xMedianPx: number;
   yMedianPx: number;
+  /** 십자선 원값 — 화면에 기준값을 명시하기 위해 노출. */
+  xMedian: number;
+  yMedian: number;
+  /** y(log1p) 눈금: 10^k (데이터 범위 내). "숫자가 보이는 축" 요건. */
+  yTicks: ScatterTick[];
+  /** x(선형 0~100) 눈금. */
+  xTicks: ScatterTick[];
   plottable: boolean;
   geom: ScatterGeom;
 }
@@ -123,10 +157,18 @@ export function computeScatterLayout(input: QuadrantInput[], geom: ScatterGeom =
     key: d.key, name: d.name, cx: d.cx, cy: d.cy, lx: labelX, ly: lys[i]!,
   }));
 
+  // y 눈금 = 데이터 범위 내 10의 거듭제곱 (log 축을 숫자로 읽게 하는 장치).
+  const yTicks: ScatterTick[] = [];
+  for (let v = 10; v <= maxY; v *= 10) yTicks.push({ value: v, px: sy(v) });
+  const xTicks: ScatterTick[] = [0, 50, 100].map((v) => ({ value: v, px: sx(v) }));
+
   return {
     dots, labels,
     xMedianPx: sx(base.xMedian),
     yMedianPx: sy(base.yMedian),
+    xMedian: base.xMedian,
+    yMedian: base.yMedian,
+    yTicks, xTicks,
     plottable: base.plottable,
     geom,
   };

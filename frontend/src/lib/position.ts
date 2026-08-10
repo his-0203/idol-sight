@@ -93,10 +93,10 @@ export function momentumLine(gap: number | null): string | null {
 /** 사분면 → MiiWAN 관점 판정 문구 틀. 분류 자체는 breadthDepth의
     중앙값 십자선(데이터 파생)이 정한다. */
 export const QUADRANT_VERDICT: Record<QuadrantKey, string> = {
-  strong:    "인지도·코어 팬 밀도 모두 K-POP 버추얼 중앙값 위 — 진성 강세 위치.",
-  niche:     "인지도는 중앙값 아래지만 코어 팬은 위 — 좁지만 깊은 팬덤. 다음 과제는 인지 확장.",
-  ad_driven: "인지도는 중앙값 위지만 코어 팬 밀도가 아래 — 도달 대비 헌신이 얕은 위치.",
-  low:       "인지도·코어 팬 모두 중앙값 아래 — 둘 다 축적 단계.",
+  strong:    "인지도·추정 관여 팬 모두 K-POP 버추얼 중앙값 위 — 진성 강세 위치.",
+  niche:     "인지도는 중앙값 아래지만 관여 팬은 위 — 좁지만 깊은 팬덤. 다음 과제는 인지 확장.",
+  ad_driven: "인지도는 중앙값 위지만 관여 팬 규모가 아래 — 인지 선행, 코어 전환이 당면 과제.",
+  low:       "인지도·관여 팬 모두 중앙값 아래 — 양축 형성 전 초기 단계.",
 };
 
 /** growth_trajectory pillar 키 → 화면 라벨. */

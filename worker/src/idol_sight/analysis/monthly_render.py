@@ -651,7 +651,7 @@ def render_deck(d: dict, *, generated_at: str, **_legacy) -> str:
     loy = d.get("loyalty") or {}
     conv = loy.get("conversion_rate")
     conv_txt = f"{conv * 100:.1f}%" if conv is not None else "—"
-    loy_win = loy.get("window_days") or 56
+    loy_win = loy.get("window_days") or 30
     tiles = ("<div class='row'>"
              "<div class='kcard'><div class='klabel'>시청전환율</div>"
              f"<div class='kval'>{conv_txt}</div>"

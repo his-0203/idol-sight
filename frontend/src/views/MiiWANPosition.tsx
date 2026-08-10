@@ -113,12 +113,14 @@ export function MiiWANPosition(props: {
   }, [orgRows, orgBuckets, orgCurrent]);
 
   // 시장 지도 — MarketOverview 사분면과 같은 축·같은 lib (원값 인지도 ×
-  // 추정 적극코어, 십자선 = K-POP 중앙값). 화면 간 정의가 어긋나지 않게
+  // 추정 관여 팬, 십자선 = K-POP 중앙값). 화면 간 정의가 어긋나지 않게
   // 재사용하고, 여기서는 MiiWAN 사분면 판정 한 줄만 얹는다.
+  // x는 할인 전 원값 유지("넓지만 얕음" 패턴 탐지 목적) · y는 표의 "추정
+  // 관여 팬"과 동일한 coreDisplay(보정 우선) — 2026-08-10 패널 판정.
   const quadPoints = useMemo<QuadrantInput[]>(() => {
     return kpopEntries.reduce<QuadrantInput[]>((acc, [key, g]) => {
       const x = g.awareness?.score;
-      const y = g.core_fan_estimate?.est_active_core;
+      const y = coreDisplay(g.core_fan_estimate).value;
       if (x != null && y != null) {
         acc.push({ key, name: g.name, x, y, caveat: organicityCaveat(orgByKey.get(key)).show });
       }
@@ -126,10 +128,10 @@ export function MiiWANPosition(props: {
     }, []);
   }, [kpopEntries, orgByKey]);
 
-  const miiwanQuadrant = useMemo(() => {
+  const miiwanQuad = useMemo(() => {
     const layout = computeQuadrantLayout(quadPoints);
     return layout.plottable
-      ? layout.points.find((p) => p.key === "miiwan")?.quadrant ?? null
+      ? layout.points.find((p) => p.key === "miiwan") ?? null
       : null;
   }, [quadPoints]);
 
@@ -189,7 +191,7 @@ export function MiiWANPosition(props: {
   // 브리핑 재구성과 같은 원칙). 전 항목 아래 섹션 데이터에서 파생·결측 생략.
   const summaryLines = buildPositionSummary({
     sovTier: sov.tier,
-    momentumGap: sov.momentumGap, quadrant: miiwanQuadrant,
+    momentumGap: sov.momentumGap, quadrant: miiwanQuad?.quadrant ?? null,
     postureLabel: traj?.posture_label ?? null, orgScore,
     monthlyKpi: props.monthlyKpi, riskLevel,
     strength: props.cohortHead?.strengths[0] ?? null,
@@ -246,7 +248,7 @@ export function MiiWANPosition(props: {
                  : "집계 전"} />
           <KPI label="시청전환율"
                value={viewConv?.rate != null ? `${(viewConv.rate * 100).toFixed(1)}%` : "—"}
-               hint="라이브 동시접속 ÷ 구독자 · 실측" />
+               hint="라이브 동시접속 ÷ 구독자 · 최근 30일 실측" />
           <KPI label="자연 유입 점수"
                value={orgScore != null ? Math.round(orgScore) : "—"}
                hint="광고 없이 모인 비율 신호 (0~100)" />
@@ -267,14 +269,19 @@ export function MiiWANPosition(props: {
           축이라 화면 간 정의 충돌 없음. */}
       <section>
         <div class="mb-2 flex flex-wrap items-baseline gap-2">
-          <h2 class="section-title">시장 지도 — 인지도 × 코어 팬</h2>
+          <h2 class="section-title">시장 지도 — 인지도 × 관여 팬</h2>
           <span class="text-hint text-zinc-500">십자선 = K-POP 버추얼 중앙값</span>
         </div>
         <BreadthDepthQuadrant points={quadPoints} />
-        {miiwanQuadrant && (
+        {miiwanQuad && (
           <p class="mt-2 rounded border-l-2 border-[#75d7d1] bg-[#75d7d1]/5 px-3 py-2 text-sm text-zinc-200">
             <span class="mr-2 font-semibold text-[#75d7d1]">MiiWAN 위치</span>
-            {QUADRANT_VERDICT[miiwanQuadrant]}
+            {QUADRANT_VERDICT[miiwanQuad.quadrant]}
+            {miiwanQuad.nearBoundary && (
+              <span class="ml-1 text-zinc-400">
+                (중앙값 경계권 — 소폭 변동으로 사분면이 바뀔 수 있어 단정 유보)
+              </span>
+            )}
           </p>
         )}
       </section>
