@@ -21,14 +21,20 @@
 - collect-hourly / collect-6h / collect-daily 의 그룹 매트릭스에 편입(어느 cadence로 수집할지).
 - `cli.py _INTERVALS_H` ↔ cron 정렬 확인(test_cli_intervals 가드).
 
-## 4. 음방 추적 후보면 (선택)
+## 4. YouTube 전체 히스토리 backfill
+- 시드 직후 `gh workflow run backfill-yt-videos.yml -f group=<key>` **1회**. 일상 collect 는 최신 업로드만 top-up 하므로, 이걸 안 하면 그룹의 과거 영상이 영원히 비어 있다.
+- 안 하면 `groups.last_backfilled_at` 이 NULL 로 남아 health-check 가 하루 2회 `backfill:<key>: never backfilled` 경고를 **무기한** 발사한다(2026-08-22 hollin·begritz 사고 — 07-16 시드, 마지막 수동 실행 06-04).
+- 안전망: 매주 월 UTC 03:30 스케줄이 `--only-missing` 으로 미실행 그룹을 자동 backfill 한다. **체크리스트대로 즉시 돌리는 게 정석**이고 스케줄은 누락 보정용.
+- `yt_channel_id` 가 아직 NULL 이면(채널 미공개) backfill 도 health-check 경고도 대상 밖 — 채널 확보 후 이 단계로 돌아온다.
+
+## 5. 음방 추적 후보면 (선택)
 - `collectors/music_show._GROUP_QUERY_ALIASES` **와** `llm/music_show.GROUP_KEY_ENUM` **둘 다** 추가(검색↔emit 일치, test_music_show_collector 가드). 후보 아니면 둘 다 미추가.
 
-## 5. 검증
+## 6. 검증
 - 첫 dispatch 후 **`⚙ 상태` 페이지**에서 해당 그룹 잡이 ok 로 뜨는지, 수집 행이 적재됐는지 확인.
 - DC mgallery/mini 갤러리 namespace 차이 주의(`dc.py` fallback). 갤러리 미개설이면 supplemental 만.
 
-## 6. 문서/메모리
+## 7. 문서/메모리
 - CLAUDE.md V2.x changelog 한 줄. 도메인 결정(호명·일반어 가드 등)은 메모리에.
 
-> 자주 나는 실수: ① JSON 컬럼 CSV 시드 ② music_show alias만 추가하고 enum 누락(검색만 하고 emit 못 함) ③ migrate 수동 적용 누락 → 새 컬럼 읽는 API 500.
+> 자주 나는 실수: ① JSON 컬럼 CSV 시드 ② music_show alias만 추가하고 enum 누락(검색만 하고 emit 못 함) ③ migrate 수동 적용 누락 → 새 컬럼 읽는 API 500 ④ backfill-yt-videos 1회 실행 누락 → 과거 영상 공백 + health-check 무기한 경고.

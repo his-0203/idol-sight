@@ -2,7 +2,19 @@ name: backfill-yt-videos
 # One-shot full-history walk per group. Matrix per-group so a single
 # group's timeout doesn't block the others. Default freshness filter in
 # the CLI skips groups backfilled within 7 days; --force/checkbox bypasses.
+#
+# 2026-08-22: schedule 추가. 그 전까지 workflow_dispatch 전용이라, 새 그룹을
+# 온보딩하면(migration 시드) last_backfilled_at 이 NULL 로 남고 health-check 가
+# `backfill:<key>: never backfilled` 를 하루 2회 무기한 반복했다 —
+# hollin/begritz(0104, 07-16 시드) 가 마지막 수동 실행(06-04) 이후 방치된 사례.
+# 스케줄 경로는 --only-missing 으로 *한 번도 안 된 그룹만* 잡아, 전체 재-walk
+# (YouTube 쿼터 폭증) 없이 신규 그룹을 자동 치유한다. 치유할 그룹이 없으면
+# setup 이 [] 를 emit 하고 matrix job 자체가 skip 된다(주간 비용 ≈ setup 1회).
 on:
+  schedule:
+    # 매주 월 UTC 03:30 (KST 12:30). collect-daily(UTC 12:30)/health-check
+    # (UTC 01:00·13:00) 과 겹치지 않는 시간대 — D1 경합·false-positive 회피.
+    - cron: '30 3 * * 1'
   workflow_dispatch:
     inputs:
       group:
@@ -11,6 +23,10 @@ on:
         required: false
       force:
         description: 'Skip freshness filter (walk all targets)'
+        type: boolean
+        default: false
+      only_missing:
+        description: 'Backfill only groups never backfilled (last_backfilled_at IS NULL)'
         type: boolean
         default: false
 
@@ -37,11 +53,19 @@ jobs:
           CF_ACCOUNT_ID:   ${{ secrets.CF_ACCOUNT_ID }}
           CF_D1_DB_ID:     ${{ secrets.CF_D1_DB_ID }}
           CF_API_TOKEN:    ${{ secrets.CF_API_TOKEN }}
+          # schedule 트리거에선 inputs 컨텍스트가 비어 있어 group='' → 'all',
+          # force/only_missing 은 false 로 떨어진다. 자가치유는 event_name 으로 켠다.
+          GROUP_INPUT:  ${{ inputs.group }}
+          FORCE:        ${{ inputs.force == true }}
+          ONLY_MISSING: ${{ github.event_name == 'schedule' || inputs.only_missing == true }}
         run: |
-          groups=$(uv run python -m idol_sight backfill-targets \
-            --group '${{ inputs.group }}' \
-            ${{ inputs.force == true && '--force' || '' }})
-          echo "Selected groups: $groups"
+          args=(--group "${GROUP_INPUT:-all}")
+          # `[ ... ] && args+=(...)` 는 test 실패 시 종료코드 1 → bash -e 로
+          # 스텝이 죽는다. if 문으로 쓴다.
+          if [ "$ONLY_MISSING" = "true" ]; then args+=(--only-missing); fi
+          if [ "$FORCE" = "true" ]; then args+=(--force); fi
+          groups=$(uv run python -m idol_sight backfill-targets "${args[@]}")
+          echo "Selected groups: $groups (only_missing=$ONLY_MISSING force=$FORCE)"
           echo "groups=$groups" >> "$GITHUB_OUTPUT"
 
   backfill:

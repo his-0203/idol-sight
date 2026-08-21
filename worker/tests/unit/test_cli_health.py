@@ -46,6 +46,19 @@ def test_audit_flags_only_never_backfilled_groups():
     assert by_job["backfill:bdawn"]["age_h"] is None
 
 
+def test_audit_skips_never_backfilled_group_without_channel():
+    """backfill 경고 메시지는 "run backfill-yt-videos" 를 지시하는데,
+    yt_channel_id 가 없는 그룹은 그 커맨드가 손도 못 댄다(_load_group 후
+    channel 없으면 skip → last_backfilled_at 영원히 NULL). 실행 불가능한
+    지시를 반복하지 않도록 backfill 가능한 그룹만 warning 으로 surface."""
+    client = MagicMock()
+    client.execute.side_effect = [[], []]
+    audit_freshness(client, now_iso="2026-08-22T00:00:00Z")
+    backfill_sql = client.execute.call_args_list[1][0][0]
+    assert "last_backfilled_at IS NULL" in backfill_sql
+    assert "yt_channel_id IS NOT NULL" in backfill_sql
+
+
 def test_audit_handles_non_utc_now_iso():
     """now_iso with non-UTC offset still produces correct crawl_meta stale."""
     # 2026-05-12T09:00:00+09:00 == 2026-05-12T00:00:00Z (same instant)

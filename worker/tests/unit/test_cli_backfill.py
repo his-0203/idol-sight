@@ -91,7 +91,8 @@ def test_backfill_targets_cmd_single_group_emits_single_element_array(capsys, mo
     client = MagicMock()
     monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
     monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
-    backfill_targets_cmd(group="isedol", force=False, fresh_days=7)
+    backfill_targets_cmd(group="isedol", force=False, fresh_days=7,
+                         only_missing=False)
     out = capsys.readouterr().out.strip()
     assert out == '["isedol"]'
 
@@ -102,7 +103,8 @@ def test_backfill_targets_cmd_all_filters_fresh(capsys, monkeypatch):
     client.execute.return_value = [{"key": "miiwan"}, {"key": "owis"}]
     monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
     monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
-    backfill_targets_cmd(group="all", force=False, fresh_days=7)
+    backfill_targets_cmd(group="all", force=False, fresh_days=7,
+                         only_missing=False)
     import json as _json
     out = _json.loads(capsys.readouterr().out.strip())
     assert "miiwan" not in out
@@ -116,7 +118,8 @@ def test_backfill_targets_cmd_force_returns_all(capsys, monkeypatch):
     client = MagicMock()
     monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
     monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
-    backfill_targets_cmd(group="all", force=True, fresh_days=7)
+    backfill_targets_cmd(group="all", force=True, fresh_days=7,
+                         only_missing=False)
     import json as _json
     out = _json.loads(capsys.readouterr().out.strip())
     assert len(out) == 13
@@ -133,7 +136,87 @@ def test_backfill_targets_force_all_matches_known_groups_exactly(capsys, monkeyp
     client = MagicMock()
     monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
     monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
-    backfill_targets_cmd(group="all", force=True, fresh_days=7)
+    backfill_targets_cmd(group="all", force=True, fresh_days=7,
+                         only_missing=False)
     import json as _json
     out = set(_json.loads(capsys.readouterr().out.strip()))
     assert out == KNOWN_GROUPS
+
+
+# ─── 신규 그룹 자가치유(--only-missing) ─────────────────────────────────
+#
+# 2026-08-22 사고: hollin/begritz 를 0104 로 시드(07-16)했지만
+# backfill-yt-videos 는 workflow_dispatch 전용이라 마지막 실행이 06-04.
+# last_backfilled_at 이 NULL 로 남아 health-check 가 하루 2회
+# "backfill:<key>: never backfilled" 경고를 무기한 반복했다.
+# --only-missing 은 health-check 경고와 *같은 술어*(NULL)로 대상을 잡아
+# 스케줄 실행이 그 경고를 스스로 소진시키게 한다.
+
+def test_resolve_backfill_targets_only_missing_returns_null_rows_only():
+    """--only-missing 은 last_backfilled_at IS NULL 그룹만 대상으로 잡는다."""
+    client = MagicMock()
+    client.execute.return_value = [{"key": "hollin"}, {"key": "begritz"}]
+    result = _resolve_backfill_targets(
+        client, group=None, force=False, fresh_days=7, only_missing=True,
+    )
+    assert result == ["begritz", "hollin"]   # sorted(KNOWN_GROUPS) 순서 보존
+    call_sql = client.execute.call_args[0][0]
+    assert "last_backfilled_at IS NULL" in call_sql
+    assert "is_active" in call_sql
+
+
+def test_resolve_backfill_targets_only_missing_ignores_unknown_db_keys():
+    """D1 에만 있고 KNOWN_GROUPS 에 없는 키는 매트릭스에 넣지 않는다
+    (backfill-yt-videos 가 unknown group 으로 exit 2 → job 실패)."""
+    client = MagicMock()
+    client.execute.return_value = [{"key": "hollin"}, {"key": "ghostgroup"}]
+    result = _resolve_backfill_targets(
+        client, group=None, force=False, fresh_days=7, only_missing=True,
+    )
+    assert result == ["hollin"]
+
+
+def test_resolve_backfill_targets_only_missing_empty_when_all_backfilled():
+    """전부 backfill 됐으면 빈 리스트 → 워크플로 matrix job 자체가 skip."""
+    client = MagicMock()
+    client.execute.return_value = []
+    result = _resolve_backfill_targets(
+        client, group=None, force=False, fresh_days=7, only_missing=True,
+    )
+    assert result == []
+
+
+def test_resolve_backfill_targets_only_missing_narrows_even_with_force():
+    """--only-missing 은 가장 좁은 필터라 --force 와 함께 와도 이긴다."""
+    client = MagicMock()
+    client.execute.return_value = [{"key": "hollin"}]
+    result = _resolve_backfill_targets(
+        client, group=None, force=True, fresh_days=7, only_missing=True,
+    )
+    assert result == ["hollin"]
+
+
+def test_backfill_targets_cmd_only_missing_emits_missing_only(capsys, monkeypatch):
+    """CLI 표면에도 --only-missing 이 배선돼 있어야 워크플로가 쓸 수 있다."""
+    import json as _json
+    client = MagicMock()
+    client.execute.return_value = [{"key": "hollin"}, {"key": "begritz"}]
+    monkeypatch.setattr("idol_sight.cli._make_d1_client", lambda settings: client)
+    monkeypatch.setattr("idol_sight.cli.load_settings", lambda: MagicMock())
+    backfill_targets_cmd(
+        group="all", force=False, fresh_days=7, only_missing=True,
+    )
+    out = _json.loads(capsys.readouterr().out.strip())
+    assert out == ["begritz", "hollin"]
+
+
+def test_backfill_workflow_self_heals_on_schedule():
+    """회귀 가드 — backfill-yt-videos 워크플로는 ① schedule 트리거가 있고
+    ② 그 경로에서 --only-missing 을 넘겨야 한다. 둘 중 하나가 빠지면
+    신규 온보딩 그룹이 다시 무기한 경고를 낸다(2026-08-22 사고)."""
+    from pathlib import Path
+    wf = (Path(__file__).resolve().parents[3]
+          / ".github" / "workflows" / "backfill-yt-videos.yml").read_text()
+    assert "schedule:" in wf, "schedule 트리거 없음 — 수동 dispatch 로만 치유됨"
+    assert "cron:" in wf
+    assert "--only-missing" in wf, "스케줄 경로가 미실행 그룹만 잡지 않음"

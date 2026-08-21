@@ -725,10 +725,14 @@ def _filter_fresh_groups(
 
 def _resolve_backfill_targets(
     client, *, group: str | None, force: bool, fresh_days: int,
+    only_missing: bool = False,
 ) -> list[str]:
     """Decide which group keys this backfill run should walk.
 
     - ``group`` explicit → just that group (freshness ignored — explicit intent)
+    - ``only_missing=True`` → KNOWN_GROUPS ∩ rows whose
+      ``groups.last_backfilled_at IS NULL``. Narrowest filter, so it wins
+      over ``force``/``fresh_days``.
     - ``group=None`` + ``force=True`` → every KNOWN_GROUPS
     - ``group=None`` + ``fresh_days <= 0`` → every KNOWN_GROUPS
     - ``group=None`` + ``fresh_days > 0`` → KNOWN_GROUPS minus rows whose
@@ -737,6 +741,19 @@ def _resolve_backfill_targets(
     if group:
         return [group]
     candidates = sorted(KNOWN_GROUPS)
+    if only_missing:
+        # 자가치유 모드 — health-check 의 `backfill:<key>: never backfilled`
+        # 경고와 *동일한 술어*(last_backfilled_at IS NULL)로 대상을 잡는다.
+        # 신규 온보딩 그룹만 걸리므로 스케줄 실행이 전체 재-walk(YouTube
+        # 쿼터 폭증) 없이 경고를 소진시킨다. D1 에만 있고 KNOWN_GROUPS 에
+        # 없는 키는 제외 — matrix 로 넘기면 unknown group exit 2 로 실패한다.
+        rows = client.execute(
+            "SELECT key FROM groups "
+            "WHERE COALESCE(is_active, 1) = 1 "
+            "  AND last_backfilled_at IS NULL"
+        )
+        missing = {r["key"] for r in rows}
+        return [g for g in candidates if g in missing]
     if force or fresh_days <= 0:
         return candidates
     fresh_rows = client.execute(
@@ -817,6 +834,13 @@ def backfill_yt_videos_cmd(
     for group_key in targets:
         grp = _load_group(client, group_key)
         if not grp.yt_channel_id:
+            # 시드 미완성(채널 미공개 등) — backfill 이 손댈 수 없는 상태다.
+            # last_backfilled_at 을 찍지 않는다(거짓 완료 표시 금지). 대신
+            # health-check 가 이 그룹을 backfill 경고에서 제외하므로
+            # 실행 불가능한 지시가 무기한 반복되지 않는다(cli_health.py).
+            typer.echo(
+                f"[{group_key}] skip: yt_channel_id 미등록 — 채널 시드 후 재실행"
+            )
             continue
         try:
             result = coll.collect(grp, full_history=True)
@@ -905,6 +929,13 @@ def backfill_targets_cmd(
     ),
     force: bool = typer.Option(False, "--force"),
     fresh_days: int = typer.Option(7, "--fresh-days"),
+    only_missing: bool = typer.Option(
+        False, "--only-missing",
+        help="한 번도 backfill 되지 않은(last_backfilled_at IS NULL) 그룹만 "
+             "emit. health-check 의 `never backfilled` 경고와 같은 술어라 "
+             "스케줄 실행이 신규 온보딩 그룹을 자동으로 치유한다. "
+             "가장 좁은 필터 — --force/--fresh-days 보다 우선한다.",
+    ),
 ) -> None:
     settings = load_settings()
     client = _make_d1_client(settings)
@@ -915,6 +946,7 @@ def backfill_targets_cmd(
         raise typer.Exit(code=2)
     targets = _resolve_backfill_targets(
         client, group=g, force=force, fresh_days=fresh_days,
+        only_missing=only_missing,
     )
     # Emit JSON array, single line, suitable for shell capture into
     # GITHUB_OUTPUT. Use json.dumps to ensure correct quoting.
