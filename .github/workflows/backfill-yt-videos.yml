@@ -31,10 +31,13 @@ on:
         default: false
 
 jobs:
-  # workflow_dispatch 의 group 입력과 force 토글을 받아 D1 의
-  # last_backfilled_at 을 조회하여 stale 그룹만 JSON 배열로 emit.
-  # 'all' / 공백 + force=false → 7d 이내 backfill된 그룹은 skip.
-  # 'all' + force=true → 9개 전체. 특정 그룹 → 해당 1개만 (freshness 무시).
+  # group / force / only_missing 을 받아 D1 의 last_backfilled_at 을 조회해
+  # 대상 그룹만 JSON 배열로 emit.
+  # 'all' / 공백 + force=false → 7d 이내 backfill 된 그룹은 skip.
+  # 'all' + force=true        → KNOWN_GROUPS 전체.
+  # only_missing=true         → 한 번도 안 된(NULL) 그룹만. 최협 필터라
+  #                             force/fresh-days 보다 우선(schedule 기본값).
+  # 특정 그룹                  → 해당 1개만 (필터 전부 무시 — 명시적 의도).
   setup:
     runs-on: ubuntu-latest
     outputs:
