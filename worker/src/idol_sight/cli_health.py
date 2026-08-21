@@ -42,10 +42,14 @@ def audit_freshness(client: _Executor, *, now_iso: str | None = None) -> list[di
     # 14일 재알람은 false-positive(2026-05 health-check 만성 실패의 주원인).
     # 한 번도 안 한(last_backfilled_at IS NULL) 그룹만 kind='backfill'(warning)
     # 으로 surface — 신규 그룹 backfill 누락 신호. exit 1 안 시킴(cli 가 분기).
+    # yt_channel_id 가 없는 그룹은 제외 — 경고문이 지시하는
+    # `backfill-yt-videos` 가 그 그룹을 skip 하므로(cli.py), 경고를 내도
+    # 실행할 수 있는 조치가 없다. 실행 불가능한 지시의 무기한 반복 방지.
     backfill_rows = client.execute(
         "SELECT key, last_backfilled_at FROM groups "
         "WHERE COALESCE(is_active, 1) = 1 "
-        "  AND last_backfilled_at IS NULL"
+        "  AND last_backfilled_at IS NULL "
+        "  AND yt_channel_id IS NOT NULL"
     )
     for r in backfill_rows:
         stale.append({
