@@ -29,9 +29,11 @@ def main():
 
     snap = client.execute("SELECT MAX(snapshot_at) AS snap FROM agg_health_scores")[0]["snap"]
     assert snap, "No existing health snapshot; stop without writing"
-    assert client.execute(
-        "SELECT COUNT(*) AS n FROM agg_summary WHERE snapshot_at=?", [snap]
-    )[0]["n"] > 0, "Matching cohort snapshot is required"
+    # Weekly health rows can have a newer timestamp than the daily cohort.
+    # Match analyze_weekly: read the latest cohort, preserve the health timestamp.
+    read_snap = client.execute("SELECT MAX(snapshot_at) AS snap FROM agg_summary")[0]["snap"]
+    assert read_snap, "An existing cohort snapshot is required"
+    print("health snapshot:", snap, "cohort snapshot:", read_snap)
 
     before = client.execute(
         "SELECT group_key, snapshot_at, total, grade FROM agg_health_scores "
@@ -40,7 +42,7 @@ def main():
     )
     assert {r["group_key"] for r in before} == {"bthd", "wegosix", "begritz"}
     preview = PreviewClient(client)
-    _recompute_health_scores(preview, snap)
+    _recompute_health_scores(preview, snap, read_snap=read_snap)
     selected = [(sql, params) for sql, params in preview.statements
                 if params[0] in {"bthd", "wegosix"}]
     assert len(selected) == 2
